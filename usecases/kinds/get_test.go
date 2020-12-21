@@ -38,7 +38,7 @@ func Test_GetAction(t *testing.T) {
 	)
 
 	schema := schema.Schema{
-		Actions: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
 					Class: "ActionClass",
@@ -67,10 +67,10 @@ func Test_GetAction(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
-		vectorRepo.On("ActionByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetAction(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
-		assert.Equal(t, NewErrNotFound("no action with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
 	t.Run("get existing action by id", func(t *testing.T) {
@@ -82,16 +82,16 @@ func Test_GetAction(t *testing.T) {
 			ClassName: "ActionClass",
 			Schema:    map[string]interface{}{"foo": "bar"},
 		}
-		vectorRepo.On("ActionByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 
-		expected := &models.Action{
+		expected := &models.Object{
 			ID:            id,
 			Class:         "ActionClass",
 			Schema:        map[string]interface{}{"foo": "bar"},
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetAction(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -107,10 +107,10 @@ func Test_GetAction(t *testing.T) {
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ActionSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
+		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
 
-		expected := []*models.Action{
-			&models.Action{
+		expected := []*models.Object{
+			&models.Object{
 				ID:            id,
 				Class:         "ActionClass",
 				Schema:        map[string]interface{}{"foo": "bar"},
@@ -118,7 +118,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetActions(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -134,8 +134,8 @@ func Test_GetAction(t *testing.T) {
 					ClassName: "ActionClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
-				vectorRepo.On("ActionByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-				_, err := manager.GetAction(context.Background(), &models.Principal{}, id,
+				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.UnderscoreProperties{
 						FeatureProjection: &projector.Params{},
 					})
@@ -151,7 +151,7 @@ func Test_GetAction(t *testing.T) {
 					ClassName: "ActionClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
-				vectorRepo.On("ActionByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.single = &search.Result{
 					ID:        id,
 					ClassName: "ActionClass",
@@ -168,7 +168,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				expected := &models.Action{
+				expected := &models.Object{
 					ID:            id,
 					Class:         "ActionClass",
 					Schema:        map[string]interface{}{"foo": "bar"},
@@ -183,7 +183,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetAction(context.Background(), &models.Principal{}, id,
+				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.UnderscoreProperties{
 						NearestNeighbors: true,
 					})
@@ -204,7 +204,7 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ActionSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -223,8 +223,8 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				expected := []*models.Action{
-					&models.Action{
+				expected := []*models.Object{
+					&models.Object{
 						ID:            id,
 						Class:         "ActionClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
@@ -240,7 +240,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetActions(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.UnderscoreProperties{
 						NearestNeighbors: true,
 					})
@@ -259,7 +259,7 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ActionSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -273,8 +273,8 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				expected := []*models.Action{
-					&models.Action{
+				expected := []*models.Object{
+					&models.Object{
 						ID:            id,
 						Class:         "ActionClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
@@ -285,7 +285,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetActions(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.UnderscoreProperties{
 						FeatureProjection: &projector.Params{},
 					})
@@ -305,7 +305,7 @@ func Test_GetThing(t *testing.T) {
 	)
 
 	schema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
 					Class: "ThingClass",
@@ -334,10 +334,10 @@ func Test_GetThing(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
-		vectorRepo.On("ThingByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetThing(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
-		assert.Equal(t, NewErrNotFound("no thing with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
 	t.Run("get existing thing by id", func(t *testing.T) {
@@ -349,16 +349,16 @@ func Test_GetThing(t *testing.T) {
 			ClassName: "ThingClass",
 			Schema:    map[string]interface{}{"foo": "bar"},
 		}
-		vectorRepo.On("ThingByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 
-		expected := &models.Thing{
+		expected := &models.Object{
 			ID:            id,
 			Class:         "ThingClass",
 			Schema:        map[string]interface{}{"foo": "bar"},
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetThing(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -374,10 +374,10 @@ func Test_GetThing(t *testing.T) {
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ThingSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
+		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
 
-		expected := []*models.Thing{
-			&models.Thing{
+		expected := []*models.Object{
+			&models.Object{
 				ID:            id,
 				Class:         "ThingClass",
 				Schema:        map[string]interface{}{"foo": "bar"},
@@ -385,7 +385,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetThings(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -401,8 +401,8 @@ func Test_GetThing(t *testing.T) {
 					ClassName: "ThingClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
-				vectorRepo.On("ThingByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-				_, err := manager.GetThing(context.Background(), &models.Principal{}, id,
+				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.UnderscoreProperties{
 						FeatureProjection: &projector.Params{},
 					})
@@ -418,7 +418,7 @@ func Test_GetThing(t *testing.T) {
 					ClassName: "ThingClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
-				vectorRepo.On("ThingByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.single = &search.Result{
 					ID:        id,
 					ClassName: "ThingClass",
@@ -435,7 +435,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				expected := &models.Thing{
+				expected := &models.Object{
 					ID:            id,
 					Class:         "ThingClass",
 					Schema:        map[string]interface{}{"foo": "bar"},
@@ -450,7 +450,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetThing(context.Background(), &models.Principal{}, id,
+				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.UnderscoreProperties{
 						NearestNeighbors: true,
 					})
@@ -471,7 +471,7 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ThingSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -490,8 +490,8 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				expected := []*models.Thing{
-					&models.Thing{
+				expected := []*models.Object{
+					&models.Object{
 						ID:            id,
 						Class:         "ThingClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
@@ -507,7 +507,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetThings(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.UnderscoreProperties{
 						NearestNeighbors: true,
 					})
@@ -526,7 +526,7 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ThingSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -540,8 +540,8 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				expected := []*models.Thing{
-					&models.Thing{
+				expected := []*models.Object{
+					&models.Object{
 						ID:            id,
 						Class:         "ThingClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
@@ -552,7 +552,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetThings(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.UnderscoreProperties{
 						FeatureProjection: &projector.Params{},
 					})

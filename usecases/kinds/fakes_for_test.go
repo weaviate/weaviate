@@ -70,13 +70,8 @@ type fakeVectorizer struct {
 	mock.Mock
 }
 
-func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, []vectorizer.InputElement, error) {
-	args := f.Called(thing)
-	return args.Get(0).([]float32), nil, args.Error(1)
-}
-
-func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]float32, []vectorizer.InputElement, error) {
-	args := f.Called(action)
+func (f *fakeVectorizer) Object(ctx context.Context, object *models.Object) ([]float32, []vectorizer.InputElement, error) {
+	args := f.Called(object)
 	return args.Get(0).([]float32), nil, args.Error(1)
 }
 
@@ -100,48 +95,25 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 	return args.Bool(0), args.Error(1)
 }
 
-func (f *fakeVectorRepo) ThingByID(ctx context.Context,
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 	id strfmt.UUID, props traverser.SelectProperties, underscores traverser.UnderscoreProperties) (*search.Result, error) {
 	args := f.Called(id, props, underscores)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) ActionByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, underscores traverser.UnderscoreProperties) (*search.Result, error) {
-	args := f.Called(id, props, underscores)
-	return args.Get(0).(*search.Result), args.Error(1)
-}
-
-func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
+func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
 	args := f.Called(limit, filters, underscores)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
-	args := f.Called(limit, filters, underscores)
-	return args.Get(0).([]search.Result), args.Error(1)
-}
-
-func (f *fakeVectorRepo) PutThing(ctx context.Context,
-	concept *models.Thing, vector []float32) error {
+func (f *fakeVectorRepo) PutObject(ctx context.Context,
+	concept *models.Object, vector []float32) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) PutAction(ctx context.Context,
-	concept *models.Action, vector []float32) error {
-	args := f.Called(concept, vector)
-	return args.Error(0)
-}
-
-func (f *fakeVectorRepo) BatchPutThings(ctx context.Context, batch BatchThings) (BatchThings, error) {
-	args := f.Called(batch)
-	return batch, args.Error(0)
-}
-
-func (f *fakeVectorRepo) BatchPutActions(ctx context.Context, batch BatchActions) (BatchActions, error) {
+func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
@@ -156,13 +128,7 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) DeleteAction(ctx context.Context,
-	className string, id strfmt.UUID) error {
-	args := f.Called(className, id)
-	return args.Error(0)
-}
-
-func (f *fakeVectorRepo) DeleteThing(ctx context.Context,
+func (f *fakeVectorRepo) DeleteObject(ctx context.Context,
 	className string, id strfmt.UUID) error {
 	args := f.Called(className, id)
 	return args.Error(0)

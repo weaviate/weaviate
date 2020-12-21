@@ -27,10 +27,10 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-// AddActions Class Instances in batch to the connected DB
-func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
-	classes []*models.Action, fields []*string) (BatchActions, error) {
-	err := b.authorizer.Authorize(principal, "create", "batch/actions")
+// AddObjects Class Instances in batch to the connected DB
+func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
+	classes []*models.Object, fields []*string) (BatchObjects, error) {
+	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
 		return nil, err
 	}
@@ -41,56 +41,56 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
-	return b.addActions(ctx, principal, classes, fields)
+	return b.addObjects(ctx, principal, classes, fields)
 }
 
-func (b *BatchManager) addActions(ctx context.Context, principal *models.Principal,
-	classes []*models.Action, fields []*string) (BatchActions, error) {
-	if err := b.validateActionForm(classes); err != nil {
-		return nil, NewErrInvalidUserInput("invalid param 'actions': %v", err)
+func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
+	classes []*models.Object, fields []*string) (BatchObjects, error) {
+	if err := b.validateObjectForm(classes); err != nil {
+		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchActions := b.validateActionsConcurrently(ctx, principal, classes, fields)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
 
 	var (
-		res BatchActions
+		res BatchObjects
 		err error
 	)
-	if res, err = b.vectorRepo.BatchPutActions(ctx, batchActions); err != nil {
-		return nil, NewErrInternal("batch actions: %#v", err)
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
+		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
 	return res, nil
 }
 
-func (b *BatchManager) validateActionForm(classes []*models.Action) error {
+func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 	if len(classes) == 0 {
-		return fmt.Errorf("cannot be empty, need at least one action for batching")
+		return fmt.Errorf("cannot be empty, need at least one object for batching")
 	}
 
 	return nil
 }
 
-func (b *BatchManager) validateActionsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Action, fields []*string) BatchActions {
+func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
+	classes []*models.Object, fields []*string) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
-	c := make(chan BatchAction, len(classes))
+	c := make(chan BatchObject, len(classes))
 
 	wg := new(sync.WaitGroup)
 
 	// Generate a goroutine for each separate request
-	for i, action := range classes {
+	for i, object := range classes {
 		wg.Add(1)
-		b.validateAction(ctx, principal, wg, action, i, &c, fieldsToKeep)
+		b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
 	}
 
 	wg.Wait()
 	close(c)
-	return actionsChanToSlice(c)
+	return objectsChanToSlice(c)
 }
 
-func (b *BatchManager) validateAction(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
+func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
+	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	var id strfmt.UUID
@@ -113,33 +113,33 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	ec.add(err)
 
 	// Create Action object
-	action := &models.Action{}
-	action.LastUpdateTimeUnix = 0
-	action.ID = id
+	object := &models.Object{}
+	object.LastUpdateTimeUnix = 0
+	object.ID = id
 
 	if _, ok := fieldsToKeep["class"]; ok {
-		action.Class = concept.Class
+		object.Class = concept.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
-		action.Schema = concept.Schema
+		object.Schema = concept.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
-		action.CreationTimeUnix = unixNow()
+		object.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.New(s, b.exists, b.config).Action(ctx, action)
+	err = validation.New(s, b.exists, b.config).Object(ctx, object)
 	ec.add(err)
 
-	vector, source, err := b.vectorizer.Action(ctx, action)
+	vector, source, err := b.vectorizer.Object(ctx, object)
 	ec.add(err)
 
-	action.Interpretation = &models.Interpretation{
+	object.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
-	*resultsC <- BatchAction{
+	*resultsC <- BatchObject{
 		UUID:          id,
-		Action:        action,
+		Object:        object,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
 		Vector:        vector,
@@ -147,155 +147,147 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 }
 
 func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	switch k {
-	case kind.Thing:
-		res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
-		return res != nil, err
-	case kind.Action:
-		res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
-		return res != nil, err
-	default:
-		panic("impossible kind")
-	}
+	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+	return res != nil, err
 }
 
-func actionsChanToSlice(c chan BatchAction) BatchActions {
-	result := make([]BatchAction, len(c))
-	for action := range c {
-		result[action.OriginalIndex] = action
+func objectsChanToSlice(c chan BatchObject) BatchObjects {
+	result := make([]BatchObject, len(c))
+	for object := range c {
+		result[object.OriginalIndex] = object
 	}
 
 	return result
 }
 
 // AddThings Class Instances in batch to the connected DB
-func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
-	classes []*models.Thing, fields []*string) (BatchThings, error) {
-	err := b.authorizer.Authorize(principal, "create", "batch/things")
-	if err != nil {
-		return nil, err
-	}
+// func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
+// 	classes []*models.Thing, fields []*string) (BatchThings, error) {
+// 	err := b.authorizer.Authorize(principal, "create", "batch/things")
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	unlock, err := b.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := b.locks.LockConnector()
+// 	if err != nil {
+// 		return nil, NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	return b.addThings(ctx, principal, classes, fields)
-}
+// 	return b.addThings(ctx, principal, classes, fields)
+// }
 
-func (b *BatchManager) addThings(ctx context.Context, principal *models.Principal,
-	classes []*models.Thing, fields []*string) (BatchThings, error) {
-	if err := b.validateThingForm(classes); err != nil {
-		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
-	}
+// func (b *BatchManager) addThings(ctx context.Context, principal *models.Principal,
+// 	classes []*models.Thing, fields []*string) (BatchThings, error) {
+// 	if err := b.validateThingForm(classes); err != nil {
+// 		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
+// 	}
 
-	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
+// 	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
 
-	var (
-		res BatchThings
-		err error
-	)
-	if res, err = b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
-		return nil, NewErrInternal("batch things: %#v", err)
-	}
+// 	var (
+// 		res BatchThings
+// 		err error
+// 	)
+// 	if res, err = b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
+// 		return nil, NewErrInternal("batch things: %#v", err)
+// 	}
 
-	return res, nil
-}
+// 	return res, nil
+// }
 
-func (b *BatchManager) validateThingForm(classes []*models.Thing) error {
-	if len(classes) == 0 {
-		return fmt.Errorf("cannot be empty, need at least one thing for batching")
-	}
+// func (b *BatchManager) validateThingForm(classes []*models.Thing) error {
+// 	if len(classes) == 0 {
+// 		return fmt.Errorf("cannot be empty, need at least one thing for batching")
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func (b *BatchManager) validateThingsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Thing, fields []*string) BatchThings {
-	fieldsToKeep := determineResponseFields(fields)
-	c := make(chan BatchThing, len(classes))
+// func (b *BatchManager) validateThingsConcurrently(ctx context.Context, principal *models.Principal,
+// 	classes []*models.Thing, fields []*string) BatchThings {
+// 	fieldsToKeep := determineResponseFields(fields)
+// 	c := make(chan BatchThing, len(classes))
 
-	wg := new(sync.WaitGroup)
+// 	wg := new(sync.WaitGroup)
 
-	// Generate a goroutine for each separate request
-	for i, thing := range classes {
-		wg.Add(1)
-		b.validateThing(ctx, principal, wg, thing, i, &c, fieldsToKeep)
-	}
+// 	// Generate a goroutine for each separate request
+// 	for i, thing := range classes {
+// 		wg.Add(1)
+// 		b.validateThing(ctx, principal, wg, thing, i, &c, fieldsToKeep)
+// 	}
 
-	wg.Wait()
-	close(c)
-	return thingsChanToSlice(c)
-}
+// 	wg.Wait()
+// 	close(c)
+// 	return thingsChanToSlice(c)
+// }
 
-func (b *BatchManager) validateThing(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
-	defer wg.Done()
+// func (b *BatchManager) validateThing(ctx context.Context, principal *models.Principal,
+// 	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
+// 	defer wg.Done()
 
-	var id strfmt.UUID
+// 	var id strfmt.UUID
 
-	ec := &errorCompounder{}
+// 	ec := &errorCompounder{}
 
-	if concept.ID == "" {
-		// Generate UUID for the new object
-		uuid, err := generateUUID()
-		id = uuid
-		ec.add(err)
-	} else {
-		_, err := uuid.FromString(concept.ID.String())
-		ec.add(err)
-		id = concept.ID
-	}
+// 	if concept.ID == "" {
+// 		// Generate UUID for the new object
+// 		uuid, err := generateUUID()
+// 		id = uuid
+// 		ec.add(err)
+// 	} else {
+// 		_, err := uuid.FromString(concept.ID.String())
+// 		ec.add(err)
+// 		id = concept.ID
+// 	}
 
-	// Validate schema given in body with the weaviate schema
-	s, err := b.schemaManager.GetSchema(principal)
-	ec.add(err)
+// 	// Validate schema given in body with the weaviate schema
+// 	s, err := b.schemaManager.GetSchema(principal)
+// 	ec.add(err)
 
-	// Create Thing object
-	thing := &models.Thing{}
-	thing.LastUpdateTimeUnix = 0
+// 	// Create Thing object
+// 	thing := &models.Thing{}
+// 	thing.LastUpdateTimeUnix = 0
 
-	if _, ok := fieldsToKeep["class"]; ok {
-		thing.Class = concept.Class
-	}
-	if _, ok := fieldsToKeep["schema"]; ok {
-		thing.Schema = concept.Schema
-	}
-	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
-		thing.CreationTimeUnix = unixNow()
-	}
+// 	if _, ok := fieldsToKeep["class"]; ok {
+// 		thing.Class = concept.Class
+// 	}
+// 	if _, ok := fieldsToKeep["schema"]; ok {
+// 		thing.Schema = concept.Schema
+// 	}
+// 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
+// 		thing.CreationTimeUnix = unixNow()
+// 	}
 
-	thing.ID = id
+// 	thing.ID = id
 
-	err = validation.New(s, b.exists, b.config).Thing(ctx, thing)
-	ec.add(err)
+// 	err = validation.New(s, b.exists, b.config).Thing(ctx, thing)
+// 	ec.add(err)
 
-	vector, source, err := b.vectorizer.Thing(ctx, thing)
-	ec.add(err)
+// 	vector, source, err := b.vectorizer.Thing(ctx, thing)
+// 	ec.add(err)
 
-	thing.Interpretation = &models.Interpretation{
-		Source: sourceFromInputElements(source),
-	}
+// 	thing.Interpretation = &models.Interpretation{
+// 		Source: sourceFromInputElements(source),
+// 	}
 
-	*resultsC <- BatchThing{
-		UUID:          id,
-		Thing:         thing,
-		Err:           ec.toError(),
-		OriginalIndex: originalIndex,
-		Vector:        vector,
-	}
-}
+// 	*resultsC <- BatchThing{
+// 		UUID:          id,
+// 		Thing:         thing,
+// 		Err:           ec.toError(),
+// 		OriginalIndex: originalIndex,
+// 		Vector:        vector,
+// 	}
+// }
 
-func thingsChanToSlice(c chan BatchThing) BatchThings {
-	result := make([]BatchThing, len(c))
-	for thing := range c {
-		result[thing.OriginalIndex] = thing
-	}
+// func thingsChanToSlice(c chan BatchThing) BatchThings {
+// 	result := make([]BatchThing, len(c))
+// 	for thing := range c {
+// 		result[thing.OriginalIndex] = thing
+// 	}
 
-	return result
-}
+// 	return result
+// }
 
 type errorCompounder struct {
 	errors []error

@@ -115,14 +115,9 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	return found, nil
 }
 
-func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+func (d *DB) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	underscore traverser.UnderscoreProperties) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Thing, limit, filters, underscore)
-}
-
-func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	underscore traverser.UnderscoreProperties) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Action, limit, filters, underscore)
+	return d.objectSearch(ctx, kind.Object, limit, filters, underscore)
 }
 
 func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,

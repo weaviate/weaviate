@@ -19,8 +19,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
@@ -38,542 +37,277 @@ type kindHandlers struct {
 }
 
 type kindsManager interface {
-	AddThing(context.Context, *models.Principal, *models.Thing) (*models.Thing, error)
-	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)
-	ValidateThing(context.Context, *models.Principal, *models.Thing) error
-	ValidateAction(context.Context, *models.Principal, *models.Action) error
-	GetThing(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Thing, error)
-	GetAction(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Action, error)
-	GetThings(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Thing, error)
-	GetActions(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Action, error)
-	UpdateThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) (*models.Thing, error)
-	UpdateAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) (*models.Action, error)
-	MergeThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) error
-	MergeAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) error
-	DeleteThing(context.Context, *models.Principal, strfmt.UUID) error
-	DeleteAction(context.Context, *models.Principal, strfmt.UUID) error
-	AddThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
-	AddActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
-	UpdateThingReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
-	UpdateActionReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
-	DeleteThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
-	DeleteActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
+	ValidateObject(context.Context, *models.Principal, *models.Object) error
+	GetObject(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Object, error)
+	GetObjects(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Object, error)
+	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
+	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
+	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
+	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 }
 
-func (h *kindHandlers) addThing(params things.ThingsCreateParams,
+func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), principal, params.Body)
+	object, err := h.manager.AddObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewThingsCreateForbidden().
+			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewThingsCreateUnprocessableEntity().
+			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsCreateInternalServerError().
+			return objects.NewObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	schemaMap, ok := thing.Schema.(map[string]interface{})
+	schemaMap, ok := object.Schema.(map[string]interface{})
 	if ok {
-		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	return things.NewThingsCreateOK().WithPayload(thing)
+	return objects.NewObjectsCreateOK().WithPayload(object)
 }
 
-func (h *kindHandlers) validateThing(params things.ThingsValidateParams,
+func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.ValidateThing(params.HTTPRequest.Context(), principal, params.Body)
+	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewThingsValidateForbidden().
+			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewThingsValidateUnprocessableEntity().
+			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsValidateInternalServerError().
+			return objects.NewObjectsValidateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return things.NewThingsValidateOK()
+	return objects.NewObjectsValidateOK()
 }
 
-func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
-	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.AddAction(params.HTTPRequest.Context(), principal, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return actions.NewActionsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	schemaMap, ok := action.Schema.(map[string]interface{})
-	if ok {
-		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
-	}
-
-	return actions.NewActionsCreateOK().WithPayload(action)
-}
-
-func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.ValidateAction(params.HTTPRequest.Context(), principal, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsValidateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return actions.NewActionsValidateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsValidateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return actions.NewActionsValidateOK()
-}
-
-func (h *kindHandlers) getThing(params things.ThingsGetParams,
+func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
 	underscores, err := parseIncludeParam(params.Include)
 	if err != nil {
-		return things.NewThingsGetBadRequest().
+		return objects.NewObjectsGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
+	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewThingsGetForbidden().
+			return objects.NewObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return things.NewThingsGetNotFound()
+			return objects.NewObjectsGetNotFound()
 		default:
-			return things.NewThingsGetInternalServerError().
+			return objects.NewObjectsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	schemaMap, ok := thing.Schema.(map[string]interface{})
+	schemaMap, ok := object.Schema.(map[string]interface{})
 	if ok {
-		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	return things.NewThingsGetOK().WithPayload(thing)
+	return objects.NewObjectsGetOK().WithPayload(object)
 }
 
-func (h *kindHandlers) getAction(params actions.ActionsGetParams,
+func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal) middleware.Responder {
 	underscores, err := parseIncludeParam(params.Include)
 	if err != nil {
-		return actions.NewActionsGetBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
-			return actions.NewActionsGetNotFound()
-		default:
-			return actions.NewActionsGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	schemaMap, ok := action.Schema.(map[string]interface{})
-	if ok {
-		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
-	}
-
-	return actions.NewActionsGetOK().WithPayload(action)
-}
-
-func (h *kindHandlers) getThings(params things.ThingsListParams,
-	principal *models.Principal) middleware.Responder {
-	underscores, err := parseIncludeParam(params.Include)
-	if err != nil {
-		return things.NewThingsListBadRequest().
+		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	var deprecationsRes []*models.Deprecation
 
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
+	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewThingsListForbidden().
+			return objects.NewObjectsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsListInternalServerError().
+			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	for i, thing := range list {
-		schemaMap, ok := thing.Schema.(map[string]interface{})
+	for i, object := range list {
+		schemaMap, ok := object.Schema.(map[string]interface{})
 		if ok {
 			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
 		}
 	}
 
-	return things.NewThingsListOK().
-		WithPayload(&models.ThingsListResponse{
-			Things:       list,
+	return objects.NewObjectsListOK().
+		WithPayload(&models.ObjectsListResponse{
+			Objects:      list,
 			TotalResults: int64(len(list)),
 			Deprecations: deprecationsRes,
 		})
 }
 
-func (h *kindHandlers) getActions(params actions.ActionsListParams,
+func (h *kindHandlers) updateObject(params objects.ObjectsUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	underscores, err := parseIncludeParam(params.Include)
-	if err != nil {
-		return actions.NewActionsListBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	var deprecationsRes []*models.Deprecation
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
+	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewActionsListForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsListInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	for i, action := range list {
-		schemaMap, ok := action.Schema.(map[string]interface{})
-		if ok {
-			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
-		}
-	}
-
-	return actions.NewActionsListOK().
-		WithPayload(&models.ActionsListResponse{
-			Actions:      list,
-			Deprecations: deprecationsRes,
-			TotalResults: int64(len(list)),
-		})
-}
-
-func (h *kindHandlers) updateThing(params things.ThingsUpdateParams,
-	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.UpdateThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsUpdateForbidden().
+			return objects.NewObjectsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewThingsUpdateUnprocessableEntity().
+			return objects.NewObjectsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsUpdateInternalServerError().
+			return objects.NewObjectsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	schemaMap, ok := thing.Schema.(map[string]interface{})
+	schemaMap, ok := object.Schema.(map[string]interface{})
 	if ok {
-		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	return things.NewThingsUpdateOK().WithPayload(thing)
+	return objects.NewObjectsUpdateOK().WithPayload(object)
 }
 
-func (h *kindHandlers) updateAction(params actions.ActionsUpdateParams,
+func (h *kindHandlers) deleteObject(params objects.ObjectsDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.UpdateAction(params.HTTPRequest.Context(), principal, params.ID, params.Body)
+	err := h.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewActionsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return actions.NewActionsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	schemaMap, ok := action.Schema.(map[string]interface{})
-	if ok {
-		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
-	}
-
-	return actions.NewActionsUpdateOK().WithPayload(action)
-}
-
-func (h *kindHandlers) deleteThing(params things.ThingsDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteThing(params.HTTPRequest.Context(), principal, params.ID)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsDeleteForbidden().
+			return objects.NewObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return things.NewThingsDeleteNotFound()
+			return objects.NewObjectsDeleteNotFound()
 		default:
-			return things.NewThingsDeleteInternalServerError().
+			return objects.NewObjectsDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return things.NewThingsDeleteNoContent()
+	return objects.NewObjectsDeleteNoContent()
 }
 
-func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteAction(params.HTTPRequest.Context(), principal, params.ID)
+func (h *kindHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
+	err := h.manager.MergeObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewActionsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
-			return actions.NewActionsDeleteNotFound()
-		default:
-			return actions.NewActionsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return actions.NewActionsDeleteNoContent()
-}
-
-func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
-	err := h.manager.MergeThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsPatchForbidden().
+			return objects.NewObjectsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewThingsUpdateUnprocessableEntity().
+			return objects.NewObjectsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsUpdateInternalServerError().
+			return objects.NewObjectsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return things.NewThingsPatchNoContent()
+	return objects.NewObjectsPatchNoContent()
 }
 
-func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
-	err := h.manager.MergeAction(params.HTTPRequest.Context(), principal, params.ID, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return actions.NewActionsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return actions.NewActionsPatchNoContent()
-}
-
-func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreateParams,
+func (h *kindHandlers) addObjectReference(params objects.ObjectsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.AddThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
+	err := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewThingsReferencesCreateForbidden().
+			return objects.NewObjectsReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewThingsReferencesCreateUnprocessableEntity().
+			return objects.NewObjectsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewThingsReferencesCreateInternalServerError().
+			return objects.NewObjectsReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return things.NewThingsReferencesCreateOK()
+	return objects.NewObjectsReferencesCreateOK()
 }
 
-func (h *kindHandlers) addActionReference(params actions.ActionsReferencesCreateParams,
+func (h *kindHandlers) updateObjectReferences(params objects.ObjectsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.AddActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
+	err := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewActionsReferencesCreateForbidden().
+			return objects.NewObjectsReferencesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewActionsReferencesCreateUnprocessableEntity().
+			return objects.NewObjectsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewActionsReferencesCreateInternalServerError().
+			return objects.NewObjectsReferencesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return actions.NewActionsReferencesCreateOK()
+	return objects.NewObjectsReferencesUpdateOK()
 }
 
-func (h *kindHandlers) updateActionReferences(params actions.ActionsReferencesUpdateParams,
+func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.UpdateActionReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
+	err := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewActionsReferencesUpdateForbidden().
+			return objects.NewObjectsReferencesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewActionsReferencesUpdateUnprocessableEntity().
+			return objects.NewObjectsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewActionsReferencesUpdateInternalServerError().
+			return objects.NewObjectsReferencesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return actions.NewActionsReferencesUpdateOK()
-}
-
-func (h *kindHandlers) updateThingReferences(params things.ThingsReferencesUpdateParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.UpdateThingReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsReferencesUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewThingsReferencesUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return things.NewThingsReferencesUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return things.NewThingsReferencesUpdateOK()
-}
-
-func (h *kindHandlers) deleteActionReference(params actions.ActionsReferencesDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsReferencesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewActionsReferencesDeleteNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsReferencesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return actions.NewActionsReferencesDeleteNoContent()
-}
-
-func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsReferencesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewThingsReferencesDeleteNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return things.NewThingsReferencesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return things.NewThingsReferencesDeleteNoContent()
+	return objects.NewObjectsReferencesDeleteNoContent()
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI,
 	manager *kinds.Manager, config config.Config, logger logrus.FieldLogger) {
 	h := &kindHandlers{manager, logger, config}
 
-	api.ThingsThingsCreateHandler = things.
-		ThingsCreateHandlerFunc(h.addThing)
-	api.ThingsThingsValidateHandler = things.
-		ThingsValidateHandlerFunc(h.validateThing)
-	api.ThingsThingsGetHandler = things.
-		ThingsGetHandlerFunc(h.getThing)
-	api.ThingsThingsDeleteHandler = things.
-		ThingsDeleteHandlerFunc(h.deleteThing)
-	api.ThingsThingsListHandler = things.
-		ThingsListHandlerFunc(h.getThings)
-	api.ThingsThingsUpdateHandler = things.
-		ThingsUpdateHandlerFunc(h.updateThing)
-	api.ThingsThingsPatchHandler = things.
-		ThingsPatchHandlerFunc(h.patchThing)
-	api.ThingsThingsReferencesCreateHandler = things.
-		ThingsReferencesCreateHandlerFunc(h.addThingReference)
-	api.ThingsThingsReferencesDeleteHandler = things.
-		ThingsReferencesDeleteHandlerFunc(h.deleteThingReference)
-	api.ThingsThingsReferencesUpdateHandler = things.
-		ThingsReferencesUpdateHandlerFunc(h.updateThingReferences)
-
-	api.ActionsActionsCreateHandler = actions.
-		ActionsCreateHandlerFunc(h.addAction)
-	api.ActionsActionsValidateHandler = actions.
-		ActionsValidateHandlerFunc(h.validateAction)
-	api.ActionsActionsGetHandler = actions.
-		ActionsGetHandlerFunc(h.getAction)
-	api.ActionsActionsDeleteHandler = actions.
-		ActionsDeleteHandlerFunc(h.deleteAction)
-	api.ActionsActionsListHandler = actions.
-		ActionsListHandlerFunc(h.getActions)
-	api.ActionsActionsUpdateHandler = actions.
-		ActionsUpdateHandlerFunc(h.updateAction)
-	api.ActionsActionsPatchHandler = actions.
-		ActionsPatchHandlerFunc(h.patchAction)
-	api.ActionsActionsReferencesCreateHandler = actions.
-		ActionsReferencesCreateHandlerFunc(h.addActionReference)
-	api.ActionsActionsReferencesDeleteHandler = actions.
-		ActionsReferencesDeleteHandlerFunc(h.deleteActionReference)
-	api.ActionsActionsReferencesUpdateHandler = actions.
-		ActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
+	api.ObjectsObjectsCreateHandler = objects.
+		ObjectsCreateHandlerFunc(h.addObject)
+	api.ObjectsObjectsValidateHandler = objects.
+		ObjectsValidateHandlerFunc(h.validateObject)
+	api.ObjectsObjectsGetHandler = objects.
+		ObjectsGetHandlerFunc(h.getObject)
+	api.ObjectsObjectsDeleteHandler = objects.
+		ObjectsDeleteHandlerFunc(h.deleteObject)
+	api.ObjectsObjectsListHandler = objects.
+		ObjectsListHandlerFunc(h.getObjects)
+	api.ObjectsObjectsUpdateHandler = objects.
+		ObjectsUpdateHandlerFunc(h.updateObject)
+	api.ObjectsObjectsPatchHandler = objects.
+		ObjectsPatchHandlerFunc(h.patchObject)
+	api.ObjectsObjectsReferencesCreateHandler = objects.
+		ObjectsReferencesCreateHandlerFunc(h.addObjectReference)
+	api.ObjectsObjectsReferencesDeleteHandler = objects.
+		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReference)
+	api.ObjectsObjectsReferencesUpdateHandler = objects.
+		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferences)
 }
 
 func (h *kindHandlers) extendSchemaWithAPILinks(schema map[string]interface{}) map[string]interface{} {

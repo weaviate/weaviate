@@ -21,12 +21,12 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-// UpdateAction Class Instance to the connected DB. If the class contains a network
+// UpdateObject Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
-	class *models.Action) (*models.Action, error) {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal, id strfmt.UUID,
+	class *models.Object) (*models.Object, error) {
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -37,38 +37,38 @@ func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateActionToConnectorAndSchema(ctx, principal, id, class)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, id, class)
 }
 
-func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, class *models.Action) (*models.Action, error) {
+func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Object) (*models.Object, error) {
 	if id != class.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalAction, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
+	originalObject, err := m.getObjectFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}
 
 	m.logger.
-		WithField("action", "kinds_update_requested").
-		WithField("kind", kind.Action).
-		WithField("original", originalAction).
+		WithField("object", "kinds_update_requested").
+		WithField("kind", kind.Object).
+		WithField("original", originalObject).
 		WithField("updated", class).
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateAction(ctx, principal, class)
+	err = m.validateObject(ctx, principal, class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid action: %v", err)
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorizeAndPutAction(ctx, class)
+	err = m.vectorizeAndPutObject(ctx, class)
 	if err != nil {
-		return nil, NewErrInternal("update action: %v", err)
+		return nil, NewErrInternal("update object: %v", err)
 	}
 
 	return class, nil
@@ -77,52 +77,52 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 // UpdateThing Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-	if err != nil {
-		return nil, err
-	}
+// func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
+// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := m.locks.LockSchema()
+// 	if err != nil {
+// 		return nil, NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	return m.updateThingToConnectorAndSchema(ctx, principal, id, class)
-}
+// 	return m.updateThingToConnectorAndSchema(ctx, principal, id, class)
+// }
 
-func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
-	if id != class.ID {
-		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
-	}
+// func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
+// 	if id != class.ID {
+// 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
+// 	}
 
-	originalThing, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-	if err != nil {
-		return nil, err
-	}
+// 	originalThing, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	m.logger.
-		WithField("action", "kinds_update_requested").
-		WithField("kind", kind.Thing).
-		WithField("original", originalThing).
-		WithField("updated", class).
-		WithField("id", id).
-		Debug("received update kind request")
+// 	m.logger.
+// 		WithField("action", "kinds_update_requested").
+// 		WithField("kind", kind.Thing).
+// 		WithField("original", originalThing).
+// 		WithField("updated", class).
+// 		WithField("id", id).
+// 		Debug("received update kind request")
 
-	err = m.validateThing(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
-	}
+// 	err = m.validateThing(ctx, principal, class)
+// 	if err != nil {
+// 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+// 	}
 
-	class.LastUpdateTimeUnix = m.timeSource.Now()
+// 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorizeAndPutThing(ctx, class)
-	if err != nil {
-		return nil, NewErrInternal("update thing: %v", err)
-	}
+// 	err = m.vectorizeAndPutThing(ctx, class)
+// 	if err != nil {
+// 		return nil, NewErrInternal("update thing: %v", err)
+// 	}
 
-	return class, nil
-}
+// 	return class, nil
+// }

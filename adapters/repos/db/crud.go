@@ -30,17 +30,9 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (d *DB) PutThing(ctx context.Context, object *models.Thing,
+func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32) error {
-	return d.putObject(ctx, storobj.FromThing(object, vector))
-}
-
-func (d *DB) PutAction(ctx context.Context, object *models.Action,
-	vector []float32) error {
-	return d.putObject(ctx, storobj.FromAction(object, vector))
-}
-
-func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
+	object := storobj.FromObject(obj, vector)
 	idx := d.GetIndex(object.Kind, object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s/%s",
@@ -55,18 +47,9 @@ func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
 	return nil
 }
 
-func (d *DB) DeleteAction(ctx context.Context, className string,
+func (d *DB) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID) error {
-	return d.deleteObject(ctx, kind.Action, className, id)
-}
-
-func (d *DB) DeleteThing(ctx context.Context, className string,
-	id strfmt.UUID) error {
-	return d.deleteObject(ctx, kind.Thing, className, id)
-}
-
-func (d *DB) deleteObject(ctx context.Context, kind kind.Kind, className string,
-	id strfmt.UUID) error {
+	kind := kind.Object
 	idx := d.GetIndex(kind, schema.ClassName(className))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s/%s",
@@ -79,18 +62,6 @@ func (d *DB) deleteObject(ctx context.Context, kind kind.Kind, className string,
 	}
 
 	return nil
-}
-
-func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties,
-	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Thing, id, props, underscore)
-}
-
-func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties,
-	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Action, id, props, underscore)
 }
 
 func (d *DB) MultiGet(ctx context.Context,
@@ -133,9 +104,11 @@ func (d *DB) MultiGet(ctx context.Context,
 	return out, nil
 }
 
-// objectByID checks every index of the particular kind for the ID
-func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID,
-	props traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
+// ObjectByID checks every index of the particular kind for the ID
+func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props traverser.SelectProperties,
+	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	kind := kind.Object
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas

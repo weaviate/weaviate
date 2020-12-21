@@ -24,8 +24,7 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 	}
 
 	return schema.Schema{
-		Actions: m.state.ActionSchema,
-		Things:  m.state.ThingSchema,
+		Objects: m.state.ObjectSchema,
 	}, nil
 }
 
@@ -34,15 +33,13 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 // non-user triggered processes, such as regular updates / maintenance / etc
 func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	return schema.Schema{
-		Actions: m.state.ActionSchema,
-		Things:  m.state.ThingSchema,
+		Objects: m.state.ObjectSchema,
 	}
 }
 
 func (m *Manager) Indexed(className, propertyName string) bool {
 	s := schema.Schema{
-		Actions: m.state.ActionSchema,
-		Things:  m.state.ThingSchema,
+		Objects: m.state.ObjectSchema,
 	}
 	class := s.FindClassByName(schema.ClassName(className))
 	if class == nil {
@@ -64,8 +61,7 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 
 func (m *Manager) VectorizeClassName(className string) bool {
 	s := schema.Schema{
-		Actions: m.state.ActionSchema,
-		Things:  m.state.ThingSchema,
+		Objects: m.state.ObjectSchema,
 	}
 	class := s.FindClassByName(schema.ClassName(className))
 	if class == nil {
@@ -77,8 +73,7 @@ func (m *Manager) VectorizeClassName(className string) bool {
 
 func (m *Manager) VectorizePropertyName(className, propertyName string) bool {
 	s := schema.Schema{
-		Actions: m.state.ActionSchema,
-		Things:  m.state.ThingSchema,
+		Objects: m.state.ObjectSchema,
 	}
 	class := s.FindClassByName(schema.ClassName(className))
 	if class == nil {

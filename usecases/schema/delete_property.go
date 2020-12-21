@@ -18,10 +18,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// DeleteActionProperty to an existing Action
-func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Principal,
+// DeleteObjectProperty to an existing Object
+func (m *Manager) DeleteObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property string) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -32,17 +32,17 @@ func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Pr
 }
 
 // DeleteThingProperty to an existing Thing
-func (m *Manager) DeleteThingProperty(ctx context.Context, principal *models.Principal,
-	class string, property string) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/things")
-	if err != nil {
-		return err
-	}
+// func (m *Manager) DeleteThingProperty(ctx context.Context, principal *models.Principal,
+// 	class string, property string) error {
+// 	err := m.authorizer.Authorize(principal, "update", "schema/things")
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return fmt.Errorf("deleting a property is currently not supported, see " +
-		"https://github.com/semi-technologies/weaviate/issues/973 for details.")
-	// return m.deleteClassProperty(ctx, class, property, kind.Thing)
-}
+// 	return fmt.Errorf("deleting a property is currently not supported, see " +
+// 		"https://github.com/semi-technologies/weaviate/issues/973 for details.")
+// 	// return m.deleteClassProperty(ctx, class, property, kind.Thing)
+// }
 
 // TODO: https://github.com/semi-technologies/weaviate/issues/973
 // func (m *Manager) deleteClassProperty(ctx context.Context, className string, propName string, k kind.Kind) error {

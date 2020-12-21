@@ -52,32 +52,32 @@ func TestClassifications(t *testing.T) {
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
-			err := migrator.AddClass(context.Background(), kind.Thing, class)
+			err := migrator.AddClass(context.Background(), kind.Object, class)
 			require.Nil(t, err)
 		}
 	})
 
 	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{Things: &models.Schema{Classes: classificationTestSchema()}}
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classificationTestSchema()}}
 
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
-			thing := res.Thing()
-			err := repo.PutThing(context.Background(), thing, res.Vector)
+			thing := res.Object()
+			err := repo.PutObject(context.Background(), thing, res.Vector)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
-			thing := res.Thing()
-			err := repo.PutThing(context.Background(), thing, res.Vector)
+			thing := res.Object()
+			err := repo.PutObject(context.Background(), thing, res.Vector)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("finding all unclassified (no filters)", func(t *testing.T) {
-		res, err := repo.GetUnclassified(context.Background(), kind.Thing,
+		res, err := repo.GetUnclassified(context.Background(), kind.Object,
 			"Article", []string{"exactCategory", "mainCategory"}, nil)
 		require.Nil(t, err)
 		require.Len(t, res, 6)
@@ -97,7 +97,7 @@ func TestClassifications(t *testing.T) {
 			},
 		}
 
-		res, err := repo.GetUnclassified(context.Background(), kind.Thing,
+		res, err := repo.GetUnclassified(context.Background(), kind.Object,
 			"Article", []string{"exactCategory", "mainCategory"}, filter)
 		require.Nil(t, err)
 		require.Len(t, res, 1)
@@ -107,12 +107,12 @@ func TestClassifications(t *testing.T) {
 	t.Run("aggregating over item neighbors", func(t *testing.T) {
 		t.Run("close to politics (no filters)", func(t *testing.T) {
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.7, 0.01, 0.01}, kind.Thing, "Article",
+				[]float32{0.7, 0.01, 0.01}, kind.Object, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idCategoryPolitics)),
 					Property:     "exactCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -124,7 +124,7 @@ func TestClassifications(t *testing.T) {
 					},
 				},
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idMainCategoryPoliticsAndSociety)),
 					Property:     "mainCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -143,12 +143,12 @@ func TestClassifications(t *testing.T) {
 
 		t.Run("close to food and drink (no filters)", func(t *testing.T) {
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.01, 0.01, 0.66}, kind.Thing, "Article",
+				[]float32{0.01, 0.01, 0.66}, kind.Object, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryFoodAndDrink)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idCategoryFoodAndDrink)),
 					Property:     "exactCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -160,7 +160,7 @@ func TestClassifications(t *testing.T) {
 					},
 				},
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryFoodAndDrink)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idMainCategoryFoodAndDrink)),
 					Property:     "mainCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -191,12 +191,12 @@ func TestClassifications(t *testing.T) {
 				},
 			}
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.01, 0.01, 0.66}, kind.Thing, "Article",
+				[]float32{0.01, 0.01, 0.66}, kind.Object, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, filter)
 
 			expectedRes := []classification.NeighborRef{
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idCategoryPolitics)),
 					Property:     "exactCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -208,7 +208,7 @@ func TestClassifications(t *testing.T) {
 					},
 				},
 				{
-					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idMainCategoryPoliticsAndSociety)),
 					Property:     "mainCategory",
 					OverallCount: 1,
 					WinningCount: 1,
@@ -281,7 +281,7 @@ const (
 )
 
 func beaconRef(target string) *models.SingleRef {
-	beacon := fmt.Sprintf("weaviate://localhost/things/%s", target)
+	beacon := fmt.Sprintf("weaviate://localhost/%s", target)
 	return &models.SingleRef{Beacon: strfmt.URI(beacon)}
 }
 
@@ -375,7 +375,7 @@ func classificationTestArticles() search.Results {
 
 		// unclassified
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "75ba35af-6a08-40ae-b442-3bec69b355f9",
 			ClassName: "Article",
 			Vector:    []float32{0.78, 0, 0},
@@ -384,7 +384,7 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "f850439a-d3cd-4f17-8fbf-5a64405645cd",
 			ClassName: "Article",
 			Vector:    []float32{0.90, 0, 0},
@@ -393,7 +393,7 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.78, 0},
@@ -402,7 +402,7 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "069410c3-4b9e-4f68-8034-32a066cb7997",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.90, 0},
@@ -411,7 +411,7 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "06a1e824-889c-4649-97f9-1ed3fa401d8e",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.78},
@@ -420,7 +420,7 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "6402e649-b1e0-40ea-b192-a64eab0d5e56",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.90},

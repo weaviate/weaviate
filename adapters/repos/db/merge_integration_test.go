@@ -51,7 +51,7 @@ func Test_MergingObjects(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	schema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "MergeTestTarget",
@@ -100,9 +100,9 @@ func Test_MergingObjects(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Things.Classes {
+		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
 			})
 		}
@@ -117,7 +117,7 @@ func Test_MergingObjects(t *testing.T) {
 	sourceID := strfmt.UUID("8738ddd5-a0ed-408d-a5d6-6f818fd56be6")
 
 	t.Run("add objects", func(t *testing.T) {
-		err := repo.PutThing(context.Background(), &models.Thing{
+		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "MergeTestSource",
 			Schema: map[string]interface{}{
@@ -129,7 +129,7 @@ func Test_MergingObjects(t *testing.T) {
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
 		for i, target := range targets {
-			err = repo.PutThing(context.Background(), &models.Thing{
+			err = repo.PutObject(context.Background(), &models.Object{
 				ID:    target,
 				Class: "MergeTestTarget",
 				Schema: map[string]interface{}{
@@ -144,7 +144,7 @@ func Test_MergingObjects(t *testing.T) {
 		md := kinds.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
-			Kind:  kind.Thing,
+			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"number": 7.0,
 				"int":    int64(9),
@@ -161,10 +161,10 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
-		schema := source.Thing().Schema.(map[string]interface{})
+		schema := source.Object().Schema.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			// from original
 			"string": "only the string prop set",
@@ -186,7 +186,7 @@ func Test_MergingObjects(t *testing.T) {
 		md := kinds.MergeDocument{
 			Class: "WrongClass",
 			ID:    sourceID,
-			Kind:  kind.Thing,
+			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"number": 7.0,
 			},
@@ -198,12 +198,12 @@ func Test_MergingObjects(t *testing.T) {
 	})
 	t.Run("add a reference and replace one prop", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/MergeTestSource/%s/toTarget", sourceID))
+			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
-			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
 				Err:  nil,
@@ -214,7 +214,7 @@ func Test_MergingObjects(t *testing.T) {
 		md := kinds.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
-			Kind:  kind.Thing,
+			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"string": "let's update the string prop",
 			},
@@ -225,13 +225,13 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
-		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target1))
+		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
 		require.Nil(t, err)
 
-		schema := source.Thing().Schema.(map[string]interface{})
+		schema := source.Object().Schema.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			"string": "let's update the string prop",
 			"number": 7.0,
@@ -252,12 +252,12 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("add more references in rapid succession", func(t *testing.T) {
 		// this test case prevents a regression on gh-1016
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/MergeTestSource/%s/toTarget", sourceID))
+			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target2, target3, target4}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
-			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
 				Err:  nil,
@@ -268,7 +268,7 @@ func Test_MergingObjects(t *testing.T) {
 		md := kinds.MergeDocument{
 			Class:      "MergeTestSource",
 			ID:         sourceID,
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			References: refs,
 		}
 		err = repo.Merge(context.Background(), md)
@@ -276,10 +276,10 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
-		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok, fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
 
@@ -288,10 +288,10 @@ func Test_MergingObjects(t *testing.T) {
 			foundBeacons = append(foundBeacons, ref.Beacon.String())
 		}
 		expectedBeacons := []string{
-			fmt.Sprintf("weaviate://localhost/things/%s", target1),
-			fmt.Sprintf("weaviate://localhost/things/%s", target2),
-			fmt.Sprintf("weaviate://localhost/things/%s", target3),
-			fmt.Sprintf("weaviate://localhost/things/%s", target4),
+			fmt.Sprintf("weaviate://localhost/%s", target1),
+			fmt.Sprintf("weaviate://localhost/%s", target2),
+			fmt.Sprintf("weaviate://localhost/%s", target3),
+			fmt.Sprintf("weaviate://localhost/%s", target4),
 		}
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)

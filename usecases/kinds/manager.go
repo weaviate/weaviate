@@ -12,7 +12,7 @@
 // Package kinds provides managers for all kind-related items, such as things
 // and actions. Manager provides methods for "regular" interaction, such as
 // add, get, delete, update, etc. Additionally BatchManager allows for
-// efficient batch-adding of thing/action instances and references.
+// efficient batch-adding of object instances and references.
 package kinds
 
 import (
@@ -62,8 +62,7 @@ type timeSource interface {
 }
 
 type Vectorizer interface {
-	Thing(ctx context.Context, concept *models.Thing) ([]float32, []vectorizer.InputElement, error)
-	Action(ctx context.Context, concept *models.Action) ([]float32, []vectorizer.InputElement, error)
+	Object(ctx context.Context, concept *models.Object) ([]float32, []vectorizer.InputElement, error)
 }
 
 type locks interface {
@@ -76,20 +75,12 @@ type authorizer interface {
 }
 
 type VectorRepo interface {
-	PutThing(ctx context.Context, concept *models.Thing, vector []float32) error
-	PutAction(ctx context.Context, concept *models.Action, vector []float32) error
+	PutObject(ctx context.Context, concept *models.Object, vector []float32) error
+	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
 
-	DeleteAction(ctx context.Context, className string, id strfmt.UUID) error
-	DeleteThing(ctx context.Context, className string, id strfmt.UUID) error
-
-	ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+	ObjectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
 		underscore traverser.UnderscoreProperties) (*search.Result, error)
-	ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
-		underscore traverser.UnderscoreProperties) (*search.Result, error)
-
-	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-		underscore traverser.UnderscoreProperties) (search.Results, error)
-	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 		underscore traverser.UnderscoreProperties) (search.Results, error)
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
