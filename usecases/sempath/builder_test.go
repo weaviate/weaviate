@@ -31,7 +31,7 @@ func TestSemanticPathBuilder(t *testing.T) {
 	input := []search.Result{
 		search.Result{
 			ID:        "7fe919ed-2ef6-4087-856c-a307046bf895",
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ClassName: "Foo",
 			Vector:    []float32{1, 0.1},
 		},

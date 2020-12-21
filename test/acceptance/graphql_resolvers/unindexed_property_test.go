@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
@@ -28,8 +28,8 @@ func Test_UnindexedProperty(t *testing.T) {
 	className := "NoIndexTestClass"
 
 	defer func() {
-		delParams := schema.NewSchemaThingsDeleteParams().WithClassName(className)
-		delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+		delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 		helper.AssertRequestOk(t, delResp, err, nil)
 	}()
 
@@ -50,14 +50,14 @@ func Test_UnindexedProperty(t *testing.T) {
 			},
 		}
 
-		params := schema.NewSchemaThingsCreateParams().WithThingClass(c)
-		resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
 	})
 
 	t.Run("creating an object", func(t *testing.T) {
-		params := things.NewThingsCreateParams().WithBody(
-			&models.Thing{
+		params := objects.NewObjectsCreateParams().WithBody(
+			&models.Object{
 				Class: className,
 				ID:    "f5ffb60f-4c13-4d07-a395-829b2396c7b9",
 				Schema: map[string]interface{}{
@@ -65,32 +65,30 @@ func Test_UnindexedProperty(t *testing.T) {
 					"hiddenName": "zebra",
 				},
 			})
-		resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
+		resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
 	})
 
-	assertGetThingEventually(t, "f5ffb60f-4c13-4d07-a395-829b2396c7b9")
+	assertGetObjectEventually(t, "f5ffb60f-4c13-4d07-a395-829b2396c7b9")
 
 	t.Run("searching for the indexed prop", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						NoIndexTestClass(where:{
-							operator: Equal,
-							valueString: "elephant"
-							path:["name"]
-						}){
-							name
-							hiddenName
-						}
-					}
+			Get {
+				NoIndexTestClass(where:{
+					operator: Equal,
+					valueString: "elephant"
+					path:["name"]
+				}){
+					name
+					hiddenName
 				}
+			}
 		}
 		`
 
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		objects := result.Get("Get", "Things", className).AsSlice()
+		objects := result.Get("Get", className).AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"name": "elephant", "hiddenName": "zebra"},
@@ -102,18 +100,16 @@ func Test_UnindexedProperty(t *testing.T) {
 	t.Run("searching for the non-indexed prop", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						NoIndexTestClass(where:{
-							operator: Equal,
-							valueString: "zebra"
-							path:["hiddenName"]
-						}){
-							name
-							hiddenName
-						}
-					}
+			Get {
+				NoIndexTestClass(where:{
+					operator: Equal,
+					valueString: "zebra"
+					path:["hiddenName"]
+				}){
+					name
+					hiddenName
 				}
+			}
 		}
 		`
 		res, err := QueryGraphQL(t, helper.RootAuth, "", query, nil)
@@ -127,24 +123,24 @@ func referenceToFalse() *bool {
 	return &b
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
+func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 	var (
-		resp *things.ThingsGetOK
+		resp *objects.ObjectsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
+		resp, err = helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.Thing
+	var object *models.Object
 
 	helper.AssertRequestOk(t, resp, err, func() {
-		thing = resp.Payload
+		object = resp.Payload
 	})
 
-	return thing
+	return object
 }

@@ -29,12 +29,12 @@ type schemaManager interface {
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 }
 
-// AddAction Class Instance to the connected DB. If the class contains a network
+// AddObject Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
-	class *models.Action) (*models.Action, error) {
-	err := m.authorizer.Authorize(principal, "create", "actions")
+func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
+	class *models.Object) (*models.Object, error) {
+	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.addActionToConnectorAndSchema(ctx, principal, class)
+	return m.addObjectToConnectorAndSchema(ctx, principal, class)
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
@@ -67,33 +67,33 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
 	return id, nil
 }
 
-func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	class *models.Action) (*models.Action, error) {
-	id, err := m.checkIDOrAssignNew(ctx, kind.Action, class.ID)
+func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	class *models.Object) (*models.Object, error) {
+	id, err := m.checkIDOrAssignNew(ctx, kind.Object, class.ID)
 	if err != nil {
 		return nil, err
 	}
 	class.ID = id
 
-	err = m.validateAction(ctx, principal, class)
+	err = m.validateObject(ctx, principal, class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid action: %v", err)
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	now := m.timeSource.Now()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
 
-	err = m.vectorizeAndPutAction(ctx, class)
+	err = m.vectorizeAndPutObject(ctx, class)
 	if err != nil {
-		return nil, NewErrInternal("add action: %v", err)
+		return nil, NewErrInternal("add object: %v", err)
 	}
 
 	return class, nil
 }
 
-func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Action) error {
-	v, source, err := m.vectorizer.Action(ctx, class)
+func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object) error {
+	v, source, err := m.vectorizer.Object(ctx, class)
 	if err != nil {
 		return fmt.Errorf("vectorize: %v", err)
 	}
@@ -102,7 +102,7 @@ func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Actio
 		Source: sourceFromInputElements(source),
 	}
 
-	err = m.vectorRepo.PutAction(ctx, class, v)
+	err = m.vectorRepo.PutObject(ctx, class, v)
 	if err != nil {
 		return fmt.Errorf("store: %v", err)
 	}
@@ -123,7 +123,7 @@ func sourceFromInputElements(in []vectorizer.InputElement) []*models.Interpretat
 	return out
 }
 
-func (m *Manager) validateAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
+func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, class *models.Object) error {
 	// Validate schema given in body with the weaviate schema
 	if _, err := uuid.FromString(class.ID.String()); err != nil {
 		return err
@@ -134,7 +134,7 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	return validation.New(s, m.exists, m.config).Action(ctx, class)
+	return validation.New(s, m.exists, m.config).Object(ctx, class)
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
@@ -144,76 +144,76 @@ func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool
 // AddThing Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
-	class *models.Thing) (*models.Thing, error) {
-	err := m.authorizer.Authorize(principal, "create", "things")
-	if err != nil {
-		return nil, err
-	}
+// func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
+// 	class *models.Thing) (*models.Thing, error) {
+// 	err := m.authorizer.Authorize(principal, "create", "things")
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := m.locks.LockSchema()
+// 	if err != nil {
+// 		return nil, NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	return m.addThingToConnectorAndSchema(ctx, principal, class)
-}
+// 	return m.addThingToConnectorAndSchema(ctx, principal, class)
+// }
 
-func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	class *models.Thing) (*models.Thing, error) {
-	id, err := m.checkIDOrAssignNew(ctx, kind.Thing, class.ID)
-	if err != nil {
-		return nil, err
-	}
-	class.ID = id
+// func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+// 	class *models.Thing) (*models.Thing, error) {
+// 	id, err := m.checkIDOrAssignNew(ctx, kind.Thing, class.ID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	class.ID = id
 
-	err = m.validateThing(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
-	}
+// 	err = m.validateThing(ctx, principal, class)
+// 	if err != nil {
+// 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+// 	}
 
-	now := m.timeSource.Now()
-	class.CreationTimeUnix = now
-	class.LastUpdateTimeUnix = now
+// 	now := m.timeSource.Now()
+// 	class.CreationTimeUnix = now
+// 	class.LastUpdateTimeUnix = now
 
-	err = m.vectorizeAndPutThing(ctx, class)
-	if err != nil {
-		return nil, NewErrInternal("add thing: %v", err)
-	}
+// 	err = m.vectorizeAndPutThing(ctx, class)
+// 	if err != nil {
+// 		return nil, NewErrInternal("add thing: %v", err)
+// 	}
 
-	return class, nil
-}
+// 	return class, nil
+// }
 
-func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing) error {
-	v, source, err := m.vectorizer.Thing(ctx, class)
-	if err != nil {
-		return fmt.Errorf("vectorize: %v", err)
-	}
+// func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing) error {
+// 	v, source, err := m.vectorizer.Thing(ctx, class)
+// 	if err != nil {
+// 		return fmt.Errorf("vectorize: %v", err)
+// 	}
 
-	class.Interpretation = &models.Interpretation{
-		Source: sourceFromInputElements(source),
-	}
+// 	class.Interpretation = &models.Interpretation{
+// 		Source: sourceFromInputElements(source),
+// 	}
 
-	err = m.vectorRepo.PutThing(ctx, class, v)
-	if err != nil {
-		return fmt.Errorf("store: %v", err)
-	}
+// 	err = m.vectorRepo.PutThing(ctx, class, v)
+// 	if err != nil {
+// 		return fmt.Errorf("store: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func (m *Manager) validateThing(ctx context.Context, principal *models.Principal,
-	class *models.Thing) error {
-	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.FromString(class.ID.String()); err != nil {
-		return err
-	}
+// func (m *Manager) validateThing(ctx context.Context, principal *models.Principal,
+// 	class *models.Thing) error {
+// 	// Validate schema given in body with the weaviate schema
+// 	if _, err := uuid.FromString(class.ID.String()); err != nil {
+// 		return err
+// 	}
 
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return err
-	}
+// 	s, err := m.schemaManager.GetSchema(principal)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return validation.New(s, m.exists, m.config).Thing(ctx, class)
-}
+// 	return validation.New(s, m.exists, m.config).Thing(ctx, class)
+// }

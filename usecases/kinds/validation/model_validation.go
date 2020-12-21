@@ -26,24 +26,24 @@ import (
 type exists func(context.Context, kind.Kind, strfmt.UUID) (bool, error)
 
 const (
-	// ErrorMissingActionThings message
-	ErrorMissingActionThings string = "no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON"
-	// ErrorMissingActionThingsObject message
-	ErrorMissingActionThingsObject string = "no object-thing is added. Add the 'object' inside the 'things' part of the JSON"
-	// ErrorMissingActionThingsSubject message
-	ErrorMissingActionThingsSubject string = "no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON"
-	// ErrorMissingActionThingsObjectLocation message
-	ErrorMissingActionThingsObjectLocation string = "no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON"
-	// ErrorMissingActionThingsObjectType message
-	ErrorMissingActionThingsObjectType string = "no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON"
-	// ErrorInvalidActionThingsObjectType message
-	ErrorInvalidActionThingsObjectType string = "object-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
-	// ErrorMissingActionThingsSubjectLocation message
-	ErrorMissingActionThingsSubjectLocation string = "no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON"
-	// ErrorMissingActionThingsSubjectType message
-	ErrorMissingActionThingsSubjectType string = "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON"
-	// ErrorInvalidActionThingsSubjectType message
-	ErrorInvalidActionThingsSubjectType string = "subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
+	// ErrorMissingActionObjects message
+	ErrorMissingActionObjects string = "no objects, object and subject, are added. Add 'objects' by using the 'objects' key in the root of the JSON"
+	// ErrorMissingActionObjectsObject message
+	ErrorMissingActionObjectsObject string = "no object-thing is added. Add the 'object' inside the 'objects' part of the JSON"
+	// ErrorMissingActionObjectsSubject message
+	ErrorMissingActionObjectsSubject string = "no subject-thing is added. Add the 'subject' inside the 'objects' part of the JSON"
+	// ErrorMissingActionObjectsObjectLocation message
+	ErrorMissingActionObjectsObjectLocation string = "no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON"
+	// ErrorMissingActionObjectsObjectType message
+	ErrorMissingActionObjectsObjectType string = "no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON"
+	// ErrorInvalidActionObjectsObjectType message
+	ErrorInvalidActionObjectsObjectType string = "object-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
+	// ErrorMissingActionObjectsSubjectLocation message
+	ErrorMissingActionObjectsSubjectLocation string = "no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON"
+	// ErrorMissingActionObjectsSubjectType message
+	ErrorMissingActionObjectsSubjectType string = "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON"
+	// ErrorInvalidActionObjectsSubjectType message
+	ErrorInvalidActionObjectsSubjectType string = "subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
 	// ErrorMissingClass message
 	ErrorMissingClass string = "the given class is empty"
 	// ErrorMissingContext message
@@ -73,21 +73,21 @@ func New(schema schema.Schema, exists exists,
 	}
 }
 
-func (v *Validator) Thing(ctx context.Context, thing *models.Thing) error {
-	if err := validateClass(thing.Class); err != nil {
+func (v *Validator) Object(ctx context.Context, object *models.Object) error {
+	if err := validateClass(object.Class); err != nil {
 		return err
 	}
 
-	return v.properties(ctx, kind.Thing, thing)
+	return v.properties(ctx, kind.Object, object)
 }
 
-func (v *Validator) Action(ctx context.Context, action *models.Action) error {
-	if err := validateClass(action.Class); err != nil {
-		return err
-	}
+// func (v *Validator) Action(ctx context.Context, action *models.Action) error {
+// 	if err := validateClass(action.Class); err != nil {
+// 		return err
+// 	}
 
-	return v.properties(ctx, kind.Action, action)
-}
+// 	return v.properties(ctx, kind.Action, action)
+// }
 
 func validateClass(class string) error {
 	// If the given class is empty, return an error

@@ -25,17 +25,15 @@ func gettingObjectsWithFilters(t *testing.T) {
 	t.Run("without filters <- this is the control", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Airport {
-							code
-						}
-					}
+			Get {
+				Airport {
+					code
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		airports := result.Get("Get", "Things", "Airport").AsSlice()
+		airports := result.Get("Get", "Airport").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"code": "10000"},
@@ -50,31 +48,29 @@ func gettingObjectsWithFilters(t *testing.T) {
 	t.Run("with filters applied", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Airport(where:{
-							operator:And
-							operands: [
-								{
-									operator: GreaterThan,
-									valueInt: 600000,
-									path:["inCity", "City", "population"]
-								}
-								{
-									operator: Equal,
-									valueString:"Germany"
-									path:["inCity", "City", "inCountry", "Country", "name"]
-								}
-							]
-						}){
-							code
+			Get {
+				Airport(where:{
+					operator:And
+					operands: [
+						{
+							operator: GreaterThan,
+							valueInt: 600000,
+							path:["inCity", "City", "population"]
 						}
-					}
+						{
+							operator: Equal,
+							valueString:"Germany"
+							path:["inCity", "City", "inCountry", "Country", "name"]
+						}
+					]
+				}){
+					code
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		airports := result.Get("Get", "Things", "Airport").AsSlice()
+		airports := result.Get("Get", "Airport").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"code": "40000"},
@@ -88,32 +84,30 @@ func gettingObjectsWithFilters(t *testing.T) {
 
 		query := `
 			{
-					Aggregate {
-						Things {
-							City(where:{
-								operator:Or
-								operands:[{
-									valueString:"Amsterdam",
-									operator:Equal,
-									path:["name"]
-								}, {
-									valueString:"Berlin",
-									operator:Equal,
-									path:["name"]
-								}]
-							}) {
-								__typename
-								name {
-									__typename
-									count
-								}
-							}
+				Aggregate {
+					City(where:{
+						operator:Or
+						operands:[{
+							valueString:"Amsterdam",
+							operator:Equal,
+							path:["name"]
+						}, {
+							valueString:"Berlin",
+							operator:Equal,
+							path:["name"]
+						}]
+					}) {
+						__typename
+						name {
+							__typename
+							count
 						}
 					}
+				}
 			}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cityMeta := result.Get("Aggregate", "Things", "City").AsSlice()[0]
+		cityMeta := result.Get("Aggregate", "City").AsSlice()[0]
 
 		expected := map[string]interface{}{
 			"__typename": "AggregateCity",
@@ -131,25 +125,23 @@ func gettingObjectsWithFilters(t *testing.T) {
 
 		query := `
 			{
-					Get {
-						Things {
-							Airport(where:{
-								valueString:"Amsterdam",
-								operator:Equal,
-								path:["inCity", "City", "name"]
-							}) {
-							  phone {
-								  internationalFormatted
-									countryCode
-									nationalFormatted
-								}
-							}
+				Get {
+					Airport(where:{
+						valueString:"Amsterdam",
+						operator:Equal,
+						path:["inCity", "City", "name"]
+					}) {
+						phone {
+							internationalFormatted
+							countryCode
+							nationalFormatted
 						}
 					}
+				}
 			}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		airport := result.Get("Get", "Things", "Airport").AsSlice()[0]
+		airport := result.Get("Get", "Airport").AsSlice()[0]
 
 		expected := map[string]interface{}{
 			"phone": map[string]interface{}{
@@ -168,17 +160,15 @@ func gettingObjectsWithFilters(t *testing.T) {
 		query := func(op string, count int) string {
 			return fmt.Sprintf(`
 			{
-					Get {
-						Things {
-							Person(where:{
-								valueInt: %d
-								operator:%s,
-								path:["livesIn"]
-							}) {
-							  name
-							}
-						}
+				Get {
+					Person(where:{
+						valueInt: %d
+						operator:%s,
+						path:["livesIn"]
+					}) {
+						name
 					}
+				}
 			}
 		`, count, op)
 		}
@@ -186,25 +176,25 @@ func gettingObjectsWithFilters(t *testing.T) {
 		t.Run("no refs", func(t *testing.T) {
 			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 0))
 			// Alice should be the only person that has zero places she lives in
-			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 1)
-			name := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
 			assert.Equal(t, "Alice", name)
 		})
 
 		t.Run("exactly one", func(t *testing.T) {
 			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 1))
 			// bob should be the only person that has zero places she lives in
-			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 1)
-			name := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
 			assert.Equal(t, "Bob", name)
 		})
 
 		t.Run("2 or more", func(t *testing.T) {
 			result := AssertGraphQL(t, helper.RootAuth, query("GreaterThanEqual", 2))
 			// both john(2) and petra(3) should match
-			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 2)
-			name1 := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
-			name2 := result.Get("Get", "Things", "Person").AsSlice()[1].(map[string]interface{})["name"]
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 2)
+			name1 := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			name2 := result.Get("Get", "Person").AsSlice()[1].(map[string]interface{})["name"]
 			assert.ElementsMatch(t, []string{"John", "Petra"}, []string{name1.(string), name2.(string)})
 		})
 	})

@@ -36,8 +36,7 @@ type BatchVectorRepo interface {
 }
 
 type batchRepoNew interface {
-	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
-	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
+	BatchPutObjects(ctx context.Context, objects BatchObjects) (BatchObjects, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
 }
 

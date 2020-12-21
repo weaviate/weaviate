@@ -23,9 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
@@ -33,13 +31,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		return nil, nil
 	}
 
-	var schemaModel *models.Schema
-	if object.Kind == kind.Thing {
-		schemaModel = s.index.getSchema.GetSchemaSkipAuth().Things
-	} else {
-		schemaModel = s.index.getSchema.GetSchemaSkipAuth().Actions
-	}
-
+	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
 	c, err := schema.GetClassByName(schemaModel, object.Class().String())
 	if err != nil {
 		return nil, err

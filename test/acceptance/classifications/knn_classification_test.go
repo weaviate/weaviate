@@ -19,7 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/classifications"
-	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
@@ -56,13 +56,13 @@ func knnClassification(t *testing.T) {
 	t.Run("assure changes present", func(t *testing.T) {
 		// wait for latest changes to be indexed / wait for consistency
 		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-			res, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().
+			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSavory), nil)
 			require.Nil(t, err)
 			return res.Payload.Schema.(map[string]interface{})["ofType"] != nil
 		})
 		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-			res, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().
+			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSweet), nil)
 			require.Nil(t, err)
 			return res.Payload.Schema.(map[string]interface{})["ofType"] != nil
@@ -70,8 +70,8 @@ func knnClassification(t *testing.T) {
 	})
 
 	t.Run("inspect unclassified savory", func(t *testing.T) {
-		res, err := helper.Client(t).Things.
-			ThingsGet(things.NewThingsGetParams().
+		res, err := helper.Client(t).Objects.
+			ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSavory).
 				WithInclude(ptString("_classification")), nil)
 
@@ -79,7 +79,7 @@ func knnClassification(t *testing.T) {
 		schema, ok := res.Payload.Schema.(map[string]interface{})
 		require.True(t, ok)
 
-		expectedRefTarget := fmt.Sprintf("weaviate://localhost/things/%s",
+		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",
 			recipeTypeSavory)
 		ref := schema["ofType"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, ref["beacon"].(string), expectedRefTarget)
@@ -88,8 +88,8 @@ func knnClassification(t *testing.T) {
 	})
 
 	t.Run("inspect unclassified sweet", func(t *testing.T) {
-		res, err := helper.Client(t).Things.
-			ThingsGet(things.NewThingsGetParams().
+		res, err := helper.Client(t).Objects.
+			ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSweet).
 				WithInclude(ptString("_classification")), nil)
 
@@ -97,7 +97,7 @@ func knnClassification(t *testing.T) {
 		schema, ok := res.Payload.Schema.(map[string]interface{})
 		require.True(t, ok)
 
-		expectedRefTarget := fmt.Sprintf("weaviate://localhost/things/%s",
+		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",
 			recipeTypeSweet)
 		ref := schema["ofType"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, ref["beacon"].(string), expectedRefTarget)

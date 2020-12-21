@@ -86,8 +86,7 @@ type VectorRepo interface {
 
 type vectorRepo interface {
 	VectorRepo
-	BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error)
-	BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error)
+	BatchPutObjects(ctx context.Context, things kinds.BatchObjects) (kinds.BatchObjects, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k

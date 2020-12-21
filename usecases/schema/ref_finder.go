@@ -52,11 +52,8 @@ func (r *RefFinder) Find(className libschema.ClassName) []filters.Path {
 	schema := r.schemaGetter.GetSchemaSkipAuth()
 
 	var classes []*models.Class
-	if schema.Actions != nil {
-		classes = append(classes, schema.Actions.Classes...)
-	}
-	if schema.Things != nil {
-		classes = append(classes, schema.Things.Classes...)
+	if schema.Objects != nil {
+		classes = append(classes, schema.Objects.Classes...)
 	}
 
 	return r.findInClassList(className, classes, schema)

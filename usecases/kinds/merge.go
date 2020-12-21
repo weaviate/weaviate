@@ -35,27 +35,27 @@ type MergeDocument struct {
 	UnderscoreProperties models.UnderscoreProperties
 }
 
-func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Action) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, updated *models.Object) error {
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
 	if err != nil {
 		return err
 	}
 
-	previous, err := m.retrievePreviousAndValidateMergeAction(ctx, principal, id, updated)
+	previous, err := m.retrievePreviousAndValidateMergeObject(ctx, principal, id, updated)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
-		updated.Class, id, kind.Action)
+		updated.Class, id, kind.Object)
 
-	vector, source, err := m.mergeActionSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
+	vector, source, err := m.mergeObjectSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
 	if err != nil {
 		return NewErrInternal("vectorize merged: %v", err)
 	}
 
 	err = m.vectorRepo.Merge(ctx, MergeDocument{
-		Kind:            kind.Action,
+		Kind:            kind.Object,
 		Class:           updated.Class,
 		ID:              id,
 		PrimitiveSchema: primitive,
@@ -75,36 +75,36 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 	return nil
 }
 
-func (m *Manager) retrievePreviousAndValidateMergeAction(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Action) (*search.Result, error) {
+func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, updated *models.Object) (*search.Result, error) {
 	if updated.Class == "" {
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
 
-	action, err := m.vectorRepo.ActionByID(ctx, id, nil, traverser.UnderscoreProperties{})
+	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}
 
-	if action == nil {
-		return nil, fmt.Errorf("action object with id '%s' does not exist", id)
+	if object == nil {
+		return nil, fmt.Errorf("object with id '%s' does not exist", id)
 	}
 
-	if action.ClassName != updated.Class {
+	if object.ClassName != updated.Class {
 		return nil, fmt.Errorf("class is immutable, but got '%s' for previous class '%s'",
-			updated.Class, action.ClassName)
+			updated.Class, object.ClassName)
 	}
 
 	updated.ID = id
-	err = m.validateAction(ctx, principal, updated)
+	err = m.validateObject(ctx, principal, updated)
 	if err != nil {
 		return nil, err
 	}
 
-	return action, nil
+	return object, nil
 }
 
-func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className string,
+func (m *Manager) mergeObjectSchemasAndVectorize(ctx context.Context, className string,
 	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
 	var merged map[string]interface{}
 	if old == nil {
@@ -122,7 +122,7 @@ func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className 
 		merged = oldMap
 	}
 
-	v, source, err := m.vectorizer.Action(ctx, &models.Action{Class: className, Schema: merged})
+	v, source, err := m.vectorizer.Object(ctx, &models.Object{Class: className, Schema: merged})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,100 +130,100 @@ func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className 
 	return v, sourceFromInputElements(source), nil
 }
 
-func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Thing) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-	if err != nil {
-		return err
-	}
+// func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, updated *models.Thing) error {
+// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+// 	if err != nil {
+// 		return err
+// 	}
 
-	previous, err := m.retrievePreviousAndValidateMergeThing(ctx, principal, id, updated)
-	if err != nil {
-		return NewErrInvalidUserInput("invalid merge: %v", err)
-	}
-	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
-		updated.Class, id, kind.Thing)
+// 	previous, err := m.retrievePreviousAndValidateMergeThing(ctx, principal, id, updated)
+// 	if err != nil {
+// 		return NewErrInvalidUserInput("invalid merge: %v", err)
+// 	}
+// 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
+// 		updated.Class, id, kind.Thing)
 
-	vector, source, err := m.mergeThingSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
-	if err != nil {
-		return NewErrInternal("vectorize merged: %v", err)
-	}
+// 	vector, source, err := m.mergeThingSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
+// 	if err != nil {
+// 		return NewErrInternal("vectorize merged: %v", err)
+// 	}
 
-	err = m.vectorRepo.Merge(ctx, MergeDocument{
-		Kind:            kind.Thing,
-		Class:           updated.Class,
-		ID:              id,
-		PrimitiveSchema: primitive,
-		References:      refs,
-		Vector:          vector,
-		UpdateTime:      m.timeSource.Now(),
-		UnderscoreProperties: models.UnderscoreProperties{
-			Interpretation: &models.Interpretation{
-				Source: source,
-			},
-		},
-	})
-	if err != nil {
-		return NewErrInternal("repo: %v", err)
-	}
+// 	err = m.vectorRepo.Merge(ctx, MergeDocument{
+// 		Kind:            kind.Thing,
+// 		Class:           updated.Class,
+// 		ID:              id,
+// 		PrimitiveSchema: primitive,
+// 		References:      refs,
+// 		Vector:          vector,
+// 		UpdateTime:      m.timeSource.Now(),
+// 		UnderscoreProperties: models.UnderscoreProperties{
+// 			Interpretation: &models.Interpretation{
+// 				Source: source,
+// 			},
+// 		},
+// 	})
+// 	if err != nil {
+// 		return NewErrInternal("repo: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Thing) (*search.Result, error) {
-	if updated.Class == "" {
-		return nil, fmt.Errorf("class is a required (and immutable) field")
-	}
+// func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, updated *models.Thing) (*search.Result, error) {
+// 	if updated.Class == "" {
+// 		return nil, fmt.Errorf("class is a required (and immutable) field")
+// 	}
 
-	thing, err := m.vectorRepo.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
-	if err != nil {
-		return nil, err
-	}
+// 	thing, err := m.vectorRepo.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	if thing == nil {
-		return nil, fmt.Errorf("thing object with id '%s' does not exist", id)
-	}
+// 	if thing == nil {
+// 		return nil, fmt.Errorf("thing object with id '%s' does not exist", id)
+// 	}
 
-	if thing.ClassName != updated.Class {
-		return nil, fmt.Errorf("class is immutable, but got '%s' for previous class '%s'",
-			updated.Class, thing.ClassName)
-	}
+// 	if thing.ClassName != updated.Class {
+// 		return nil, fmt.Errorf("class is immutable, but got '%s' for previous class '%s'",
+// 			updated.Class, thing.ClassName)
+// 	}
 
-	updated.ID = id
-	err = m.validateThing(ctx, principal, updated)
-	if err != nil {
-		return nil, err
-	}
+// 	updated.ID = id
+// 	err = m.validateThing(ctx, principal, updated)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return thing, nil
-}
+// 	return thing, nil
+// }
 
-func (m *Manager) mergeThingSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
-	var merged map[string]interface{}
-	if old == nil {
-		merged = new
-	} else {
-		oldMap, ok := old.(map[string]interface{})
-		if !ok {
-			return nil, nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
-		}
+// func (m *Manager) mergeThingSchemasAndVectorize(ctx context.Context, className string,
+// 	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
+// 	var merged map[string]interface{}
+// 	if old == nil {
+// 		merged = new
+// 	} else {
+// 		oldMap, ok := old.(map[string]interface{})
+// 		if !ok {
+// 			return nil, nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
+// 		}
 
-		for key, value := range new {
-			oldMap[key] = value
-		}
+// 		for key, value := range new {
+// 			oldMap[key] = value
+// 		}
 
-		merged = oldMap
-	}
+// 		merged = oldMap
+// 	}
 
-	v, source, err := m.vectorizer.Thing(ctx, &models.Thing{Class: className, Schema: merged})
-	if err != nil {
-		return nil, nil, err
-	}
+// 	v, source, err := m.vectorizer.Thing(ctx, &models.Thing{Class: className, Schema: merged})
+// 	if err != nil {
+// 		return nil, nil, err
+// 	}
 
-	return v, sourceFromInputElements(source), nil
-}
+// 	return v, sourceFromInputElements(source), nil
+// }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,
 	sourceID strfmt.UUID, sourceKind kind.Kind) (map[string]interface{}, BatchReferences) {

@@ -41,128 +41,68 @@ func Test_Kinds_Authorization(t *testing.T) {
 	tests := []testCase{
 		// single kind
 		testCase{
-			methodName:       "AddThing",
-			additionalArgs:   []interface{}{(*models.Thing)(nil)},
+			methodName:       "AddObject",
+			additionalArgs:   []interface{}{(*models.Object)(nil)},
 			expectedVerb:     "create",
-			expectedResource: "things",
+			expectedResource: "objects",
 		},
 		testCase{
-			methodName:       "AddAction",
-			additionalArgs:   []interface{}{(*models.Action)(nil)},
-			expectedVerb:     "create",
-			expectedResource: "actions",
-		},
-		testCase{
-			methodName:       "ValidateThing",
-			additionalArgs:   []interface{}{(*models.Thing)(nil)},
+			methodName:       "ValidateObject",
+			additionalArgs:   []interface{}{(*models.Object)(nil)},
 			expectedVerb:     "validate",
-			expectedResource: "things",
+			expectedResource: "objects",
 		},
 		testCase{
-			methodName:       "ValidateAction",
-			additionalArgs:   []interface{}{(*models.Action)(nil)},
-			expectedVerb:     "validate",
-			expectedResource: "actions",
-		},
-		testCase{
-			methodName:       "GetThing",
+			methodName:       "GetObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
 			expectedVerb:     "get",
-			expectedResource: "things/foo",
+			expectedResource: "foo",
 		},
 		testCase{
-			methodName:       "GetAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
-			expectedVerb:     "get",
-			expectedResource: "actions/foo",
-		},
-		testCase{
-			methodName:       "DeleteThing",
+			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
 			expectedVerb:     "delete",
-			expectedResource: "things/foo",
+			expectedResource: "foo",
 		},
 		testCase{
-			methodName:       "DeleteAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "delete",
-			expectedResource: "actions/foo",
-		},
-		testCase{
-			methodName:       "UpdateThing",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Thing)(nil)},
+			methodName:       "UpdateObject",
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "things/foo",
+			expectedResource: "foo",
 		},
 		testCase{
-			methodName:       "MergeThing",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Thing)(nil)},
+			methodName:       "MergeObject",
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "things/foo",
-		},
-		testCase{
-			methodName:       "UpdateAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Action)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "actions/foo",
-		},
-		testCase{
-			methodName:       "MergeAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Action)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "actions/foo",
+			expectedResource: "foo",
 		},
 
 		// list kinds
 		testCase{
-			methodName:       "GetThings",
+			methodName:       "GetObjects",
 			additionalArgs:   []interface{}{(*int64)(nil), traverser.UnderscoreProperties{}},
 			expectedVerb:     "list",
-			expectedResource: "things",
-		},
-		testCase{
-			methodName:       "GetActions",
-			additionalArgs:   []interface{}{(*int64)(nil), traverser.UnderscoreProperties{}},
-			expectedVerb:     "list",
-			expectedResource: "actions",
+			expectedResource: "objects",
 		},
 
 		// reference on kinds
 		testCase{
-			methodName:       "AddThingReference",
+			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "things/foo",
+			expectedResource: "foo",
 		},
 		testCase{
-			methodName:       "AddActionReference",
+			methodName:       "DeleteObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "actions/foo",
+			expectedResource: "foo",
 		},
 		testCase{
-			methodName:       "DeleteThingReference",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "things/foo",
-		},
-		testCase{
-			methodName:       "DeleteActionReference",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "actions/foo",
-		},
-		testCase{
-			methodName:       "UpdateThingReferences",
+			methodName:       "UpdateObjectReferences",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (models.MultipleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "things/foo",
-		},
-		testCase{
-			methodName:       "UpdateActionReferences",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (models.MultipleRef)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "actions/foo",
+			expectedResource: "foo",
 		},
 	}
 
@@ -213,18 +153,18 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
-			methodName:       "AddActions",
-			additionalArgs:   []interface{}{[]*models.Action{}, []*string{}},
-			expectedVerb:     "create",
-			expectedResource: "batch/actions",
-		},
+		// testCase{
+		// 	methodName:       "AddActions",
+		// 	additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
+		// 	expectedVerb:     "create",
+		// 	expectedResource: "batch/actions",
+		// },
 
 		testCase{
-			methodName:       "AddThings",
-			additionalArgs:   []interface{}{[]*models.Thing{}, []*string{}},
+			methodName:       "AddObjects",
+			additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
 			expectedVerb:     "create",
-			expectedResource: "batch/things",
+			expectedResource: "batch/objects",
 		},
 
 		testCase{

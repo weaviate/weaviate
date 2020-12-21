@@ -20,26 +20,26 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// UpdateActionProperty of an existing Action Property
-func (m *Manager) UpdateActionProperty(ctx context.Context, principal *models.Principal,
+// UpdateObjectProperty of an existing Object Property
+func (m *Manager) UpdateObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, name string, property *models.Property) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.updateClassProperty(ctx, class, name, property, kind.Action)
+	return m.updateClassProperty(ctx, class, name, property, kind.Object)
 }
 
 // UpdateThingProperty of an existing Thing Property
-func (m *Manager) UpdateThingProperty(ctx context.Context, principal *models.Principal,
-	class string, name string, property *models.Property) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/things")
-	if err != nil {
-		return err
-	}
-	return m.updateClassProperty(ctx, class, name, property, kind.Thing)
-}
+// func (m *Manager) UpdateThingProperty(ctx context.Context, principal *models.Principal,
+// 	class string, name string, property *models.Property) error {
+// 	err := m.authorizer.Authorize(principal, "update", "schema/things")
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return m.updateClassProperty(ctx, class, name, property, kind.Thing)
+// }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClassProperty(ctx context.Context, className string, name string,

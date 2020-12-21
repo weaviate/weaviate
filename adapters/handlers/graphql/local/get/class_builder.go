@@ -57,12 +57,8 @@ func (b *classBuilder) initBeaconClass() {
 	})
 }
 
-func (b *classBuilder) actions() (*graphql.Object, error) {
-	return b.kinds(kind.Action, b.schema.Actions)
-}
-
-func (b *classBuilder) things() (*graphql.Object, error) {
-	return b.kinds(kind.Thing, b.schema.Things)
+func (b *classBuilder) objects() (*graphql.Object, error) {
+	return b.kinds(kind.Object, b.schema.Objects)
 }
 
 func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.Object, error) {
@@ -80,7 +76,7 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 	classes := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Get%ssObj", kindName),
 		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.GetThingsActionsObj, kindName),
+		Description: fmt.Sprintf(descriptions.GetObjectsActionsObj, kindName),
 	})
 
 	return classes, nil

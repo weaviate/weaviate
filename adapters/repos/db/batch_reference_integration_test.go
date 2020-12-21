@@ -52,7 +52,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	schema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "AddingBatchReferencesTestTarget",
@@ -81,9 +81,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Things.Classes {
+		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
 			})
 		}
@@ -97,7 +97,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	sourceID := strfmt.UUID("a3c98a66-be4a-4eaf-8cf3-04648a11d0f7")
 
 	t.Run("add objects", func(t *testing.T) {
-		err := repo.PutThing(context.Background(), &models.Thing{
+		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "AddingBatchReferencesTestSource",
 			Schema: map[string]interface{}{
@@ -109,7 +109,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
 		for i, target := range targets {
-			err = repo.PutThing(context.Background(), &models.Thing{
+			err = repo.PutObject(context.Background(), &models.Object{
 				ID:    target,
 				Class: "AddingBatchReferencesTestTarget",
 				Schema: map[string]interface{}{
@@ -122,13 +122,13 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	t.Run("add reference between them - first batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget",
+			"weaviate://localhost/AddingBatchReferencesTestSource/%s/toTarget",
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
-			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s",
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s",
 				target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
@@ -144,13 +144,13 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	t.Run("add reference between them - second batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget",
+			"weaviate://localhost/AddingBatchReferencesTestSource/%s/toTarget",
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target3, target4}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
-			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
 				Err:           nil,
@@ -164,10 +164,10 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
-		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok, fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
 
@@ -176,10 +176,10 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			foundBeacons = append(foundBeacons, ref.Beacon.String())
 		}
 		expectedBeacons := []string{
-			fmt.Sprintf("weaviate://localhost/things/%s", target1),
-			fmt.Sprintf("weaviate://localhost/things/%s", target2),
-			fmt.Sprintf("weaviate://localhost/things/%s", target3),
-			fmt.Sprintf("weaviate://localhost/things/%s", target4),
+			fmt.Sprintf("weaviate://localhost/%s", target1),
+			fmt.Sprintf("weaviate://localhost/%s", target2),
+			fmt.Sprintf("weaviate://localhost/%s", target3),
+			fmt.Sprintf("weaviate://localhost/%s", target4),
 		}
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
@@ -193,7 +193,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// immutable, the udpated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},
 				Pagination: &filters.Pagination{

@@ -41,8 +41,8 @@ type Schema struct {
 	// Name of the schema.
 	Name string `json:"name,omitempty"`
 
-	// Type of schema, should be "thing" or "action".
-	// Enum: [thing action]
+	// Type of schema, should be "object".
+	// Enum: [object]
 	Type string `json:"type,omitempty"`
 }
 
@@ -110,7 +110,7 @@ var schemaTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["thing","action"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["object"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -120,11 +120,8 @@ func init() {
 
 const (
 
-	// SchemaTypeThing captures enum value "thing"
-	SchemaTypeThing string = "thing"
-
-	// SchemaTypeAction captures enum value "action"
-	SchemaTypeAction string = "action"
+	// SchemaTypeObject captures enum value "object"
+	SchemaTypeObject string = "object"
 )
 
 // prop value enum

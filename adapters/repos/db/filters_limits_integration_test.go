@@ -55,7 +55,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					productClass,
 					companyClass,
@@ -64,9 +64,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, productClass))
+			migrator.AddClass(context.Background(), kind.Object, productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, companyClass))
+			migrator.AddClass(context.Background(), kind.Object, companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -77,7 +77,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), company,
+					repo.PutObject(context.Background(), company,
 						[]float32{0.1, 0.2, 0.01, 0.2}))
 			})
 		}
@@ -97,7 +97,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Thing,
+			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -112,11 +112,11 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 	})
 }
 
-func chainedFilterCompanies(size int) []*models.Thing {
-	out := make([]*models.Thing, size)
+func chainedFilterCompanies(size int) []*models.Object {
+	out := make([]*models.Object, size)
 
 	for i := range out {
-		out[i] = &models.Thing{
+		out[i] = &models.Object{
 			ID:    mustNewUUID(),
 			Class: companyClass.Class,
 			Schema: map[string]interface{}{
@@ -152,7 +152,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					productClass,
 					companyClass,
@@ -161,9 +161,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, productClass))
+			migrator.AddClass(context.Background(), kind.Object, productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, companyClass))
+			migrator.AddClass(context.Background(), kind.Object, companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -174,7 +174,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), company,
+					repo.PutObject(context.Background(), company,
 						[]float32{0.1, 0.2, 0.01, 0.2}))
 			})
 		}
@@ -189,7 +189,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Thing,
+			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -205,7 +205,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Thing,
+			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -219,14 +219,14 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), company,
+					repo.PutObject(context.Background(), company,
 						[]float32{0.1, 0.21, 0.01, 0.2}))
 			})
 		}
 	})
 
 	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(kind.Thing,
+		s := repo.GetIndex(kind.Object,
 			schema.ClassName(companyClass.Class)).Shards["single"]
 		docIDs := s.deletedDocIDs.GetAll()
 		err := s.performCleanup(docIDs)
@@ -242,7 +242,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Thing,
+			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -258,7 +258,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Thing,
+			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -290,7 +290,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					productClass,
 					companyClass,
@@ -299,9 +299,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, productClass))
+			migrator.AddClass(context.Background(), kind.Object, productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, companyClass))
+			migrator.AddClass(context.Background(), kind.Object, companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -312,7 +312,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), company,
+					repo.PutObject(context.Background(), company,
 						[]float32{0.1, 0.2, 0.01, 0.2}))
 			})
 		}
@@ -325,7 +325,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Thing,
+					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 
@@ -341,7 +341,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), company,
+					repo.PutObject(context.Background(), company,
 						[]float32{0.1, 0.21, 0.01, 0.2}))
 			})
 		}
@@ -354,7 +354,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Thing,
+					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 
@@ -364,7 +364,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		})
 
 	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(kind.Thing,
+		s := repo.GetIndex(kind.Object,
 			schema.ClassName(companyClass.Class)).Shards["single"]
 		docIDs := s.deletedDocIDs.GetAll()
 		err := s.performCleanup(docIDs)
@@ -378,7 +378,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Thing,
+					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 

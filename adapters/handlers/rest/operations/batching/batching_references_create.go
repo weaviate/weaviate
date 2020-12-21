@@ -46,7 +46,7 @@ func NewBatchingReferencesCreate(ctx *middleware.Context, handler BatchingRefere
 
 Creates new Cross-References between arbitrary classes in bulk.
 
-Register cross-references between any class items (things or actions) in bulk.
+Register cross-references between any class items (objects or objects) in bulk.
 
 */
 type BatchingReferencesCreate struct {

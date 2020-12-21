@@ -21,10 +21,10 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-// DeleteActionReference from connected DB
-func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.Principal,
+// DeleteObjectReference from connected DB
+func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
 	if err != nil {
 		return err
 	}
@@ -35,87 +35,87 @@ func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	return m.deleteActionReferenceFromConnector(ctx, principal, id, propertyName, property)
+	return m.deleteObjectReferenceFromConnector(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, principal *models.Principal,
+func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
+	// get object to see if it exists
+	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
 
-	action := actionRes.Action()
+	object := objectRes.Object()
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Object, object.Class, propertyName)
 	if err != nil {
 		return err
 	}
 
-	extended, err := m.removeReferenceFromClassProps(action.Schema, propertyName, property)
+	extended, err := m.removeReferenceFromClassProps(object.Schema, propertyName, property)
 	if err != nil {
 		return err
 	}
-	action.Schema = extended
-	action.LastUpdateTimeUnix = m.timeSource.Now()
+	object.Schema = extended
+	object.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
+	err = m.vectorRepo.PutObject(ctx, object, objectRes.Vector)
 	if err != nil {
-		return NewErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store object: %v", err)
 	}
 
 	return nil
 }
 
 // DeleteThingReference from connected DB
-func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-	if err != nil {
-		return err
-	}
+// func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+// 	if err != nil {
+// 		return err
+// 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := m.locks.LockSchema()
+// 	if err != nil {
+// 		return NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	return m.deleteThingReferenceFromConnector(ctx, principal, id, propertyName, property)
-}
+// 	return m.deleteThingReferenceFromConnector(ctx, principal, id, propertyName, property)
+// }
 
-func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-	if err != nil {
-		return err
-	}
+// func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+// 	// get thing to see if it exists
+// 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
+// 	if err != nil {
+// 		return err
+// 	}
 
-	thing := thingRes.Thing()
-	// NOTE: The reference itself is not being validated, to allow for deletion
-	// of broken references
-	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
-	if err != nil {
-		return err
-	}
+// 	thing := thingRes.Thing()
+// 	// NOTE: The reference itself is not being validated, to allow for deletion
+// 	// of broken references
+// 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	extended, err := m.removeReferenceFromClassProps(thing.Schema, propertyName, property)
-	if err != nil {
-		return err
-	}
-	thing.Schema = extended
-	thing.LastUpdateTimeUnix = m.timeSource.Now()
+// 	extended, err := m.removeReferenceFromClassProps(thing.Schema, propertyName, property)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	thing.Schema = extended
+// 	thing.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
-	if err != nil {
-		return NewErrInternal("could not store thing: %v", err)
-	}
+// 	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
+// 	if err != nil {
+// 		return NewErrInternal("could not store thing: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName string,
 	property *models.SingleRef) (interface{}, error) {

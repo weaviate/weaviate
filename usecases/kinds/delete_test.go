@@ -31,7 +31,7 @@ func Test_Delete_Action(t *testing.T) {
 
 	reset := func() {
 		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ActionByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyAction",
 		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
@@ -49,10 +49,10 @@ func Test_Delete_Action(t *testing.T) {
 
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 
-	vectorRepo.On("DeleteAction", "MyAction", id).Return(nil).Once()
+	vectorRepo.On("DeleteObject", "MyAction", id).Return(nil).Once()
 
 	ctx := context.Background()
-	err := manager.DeleteAction(ctx, nil, id)
+	err := manager.DeleteObject(ctx, nil, id)
 
 	assert.Nil(t, err)
 
@@ -67,7 +67,7 @@ func Test_Delete_Thing(t *testing.T) {
 
 	reset := func() {
 		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyThing",
 		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
@@ -85,10 +85,10 @@ func Test_Delete_Thing(t *testing.T) {
 
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 
-	vectorRepo.On("DeleteThing", "MyThing", id).Return(nil).Once()
+	vectorRepo.On("DeleteObject", "MyThing", id).Return(nil).Once()
 
 	ctx := context.Background()
-	err := manager.DeleteThing(ctx, nil, id)
+	err := manager.DeleteObject(ctx, nil, id)
 
 	assert.Nil(t, err)
 

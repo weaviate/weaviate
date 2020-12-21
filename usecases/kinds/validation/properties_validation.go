@@ -43,14 +43,10 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 	var vectorWeights interface{}
 
 	var className string
-	if k == kind.Action {
-		className = object.(*models.Action).Class
-		isp = object.(*models.Action).Schema
-		vectorWeights = object.(*models.Action).VectorWeights
-	} else if k == kind.Thing {
-		className = object.(*models.Thing).Class
-		isp = object.(*models.Thing).Schema
-		vectorWeights = object.(*models.Thing).VectorWeights
+	if k == kind.Object {
+		className = object.(*models.Object).Class
+		isp = object.(*models.Object).Schema
+		vectorWeights = object.(*models.Object).VectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
@@ -91,12 +87,9 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 		returnSchema[propertyKey] = data
 	}
 
-	if k == kind.Action {
-		object.(*models.Action).Schema = returnSchema
-		object.(*models.Action).VectorWeights = vectorWeights
-	} else if k == kind.Thing {
-		object.(*models.Thing).Schema = returnSchema
-		object.(*models.Thing).VectorWeights = vectorWeights
+	if k == kind.Object {
+		object.(*models.Object).Schema = returnSchema
+		object.(*models.Object).VectorWeights = vectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}

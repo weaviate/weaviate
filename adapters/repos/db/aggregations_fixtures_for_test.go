@@ -122,7 +122,7 @@ var companies = []map[string]interface{}{
 		"listedInIndex": true,
 		"makesProduct": models.MultipleRef{
 			&models.SingleRef{
-				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", productsIds[0])),
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", productsIds[0])),
 			},
 		},
 	},

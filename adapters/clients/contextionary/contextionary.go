@@ -98,10 +98,8 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 
 func kindToProto(k kind.Kind) pb.Kind {
 	switch k {
-	case kind.Thing:
+	case kind.Object:
 		return pb.Kind_THING
-	case kind.Action:
-		return pb.Kind_ACTION
 	default:
 		panic(fmt.Sprintf("unknown kind %v", k))
 	}
@@ -110,9 +108,7 @@ func kindToProto(k kind.Kind) pb.Kind {
 func kindFromProto(k pb.Kind) kind.Kind {
 	switch k {
 	case pb.Kind_THING:
-		return kind.Thing
-	case pb.Kind_ACTION:
-		return kind.Action
+		return kind.Object
 	default:
 		panic(fmt.Sprintf("unknown kind %v", k))
 	}

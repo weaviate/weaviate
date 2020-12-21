@@ -17,11 +17,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// ValidateThing without adding it to the database. Can be used in UIs for
+// ValidateObject without adding it to the database. Can be used in UIs for
 // async validation before submitting
-func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal,
-	class *models.Thing) error {
-	err := m.authorizer.Authorize(principal, "validate", "things")
+func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
+	class *models.Object) error {
+	err := m.authorizer.Authorize(principal, "validate", "objects")
 	if err != nil {
 		return err
 	}
@@ -32,9 +32,9 @@ func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal
 	}
 	defer unlock()
 
-	err = m.validateThing(ctx, principal, class)
+	err = m.validateObject(ctx, principal, class)
 	if err != nil {
-		return NewErrInvalidUserInput("invalid thing: %v", err)
+		return NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	return nil
@@ -42,23 +42,23 @@ func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal
 
 // ValidateAction without adding it to the database. Can be used in UIs for
 // async validation before submitting
-func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principal,
-	class *models.Action) error {
-	err := m.authorizer.Authorize(principal, "validate", "actions")
-	if err != nil {
-		return err
-	}
+// func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principal,
+// 	class *models.Action) error {
+// 	err := m.authorizer.Authorize(principal, "validate", "actions")
+// 	if err != nil {
+// 		return err
+// 	}
 
-	unlock, err := m.locks.LockConnector()
-	if err != nil {
-		return NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := m.locks.LockConnector()
+// 	if err != nil {
+// 		return NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	err = m.validateAction(ctx, principal, class)
-	if err != nil {
-		return NewErrInvalidUserInput("invalid action: %v", err)
-	}
+// 	err = m.validateAction(ctx, principal, class)
+// 	if err != nil {
+// 		return NewErrInvalidUserInput("invalid object: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
