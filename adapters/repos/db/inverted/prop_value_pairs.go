@@ -53,7 +53,11 @@ func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int)
 		pv.docIDs = pointers
 	} else {
 		for i, child := range pv.children {
-			err := child.fetchDocIDs(tx, searcher, limit)
+			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+			// otherwise we run into situations where each subfilter on their own
+			// runs into the limit, possibly yielding in "less than limit" results
+			// after merging.
+			err := child.fetchDocIDs(tx, searcher, 0)
 			if err != nil {
 				return errors.Wrapf(err, "nested child %d", i)
 			}
