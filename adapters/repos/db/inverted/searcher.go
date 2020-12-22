@@ -76,6 +76,11 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 			return errors.Wrap(err, "merge doc ids by operator")
 		}
 
+		// cutoff if required, e.g. after merging unlimted filters
+		if len(pointers.docIDs) > limit {
+			pointers.docIDs = pointers.docIDs[:limit]
+		}
+
 		res, err := docid.ObjectsInTx(tx, pointers.IDs())
 		if err != nil {
 			return errors.Wrap(err, "resolve doc ids to objects")
