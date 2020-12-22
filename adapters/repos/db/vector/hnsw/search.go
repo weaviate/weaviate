@@ -321,9 +321,16 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
-		best := res.minimum()
-		entryPointID = best.index
-		entryPointDistance = best.dist
+
+		// There might be situations where we did not find a better entrypoint at
+		// that particular level, so instead we're keeping whatever entrypoint we
+		// had before (i.e. either from a previous level or even the main
+		// entrypoint)
+		if res.root != nil {
+			best := res.minimum()
+			entryPointID = best.index
+			entryPointDistance = best.dist
+		}
 	}
 
 	eps := &binarySearchTreeGeneric{}
