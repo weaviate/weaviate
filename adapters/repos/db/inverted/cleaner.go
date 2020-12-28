@@ -44,7 +44,8 @@ func (c *Cleaner) getDocumentKey(documentID uint64) []byte {
 
 func (c *Cleaner) propHasFrequency(p *models.Property) bool {
 	for i := range p.DataType {
-		if dt := schema.DataType(p.DataType[i]); dt == schema.DataTypeString || dt == schema.DataTypeText {
+		if dt := schema.DataType(p.DataType[i]); dt == schema.DataTypeString ||
+			dt == schema.DataTypeText {
 			return true
 		}
 	}
@@ -54,16 +55,38 @@ func (c *Cleaner) propHasFrequency(p *models.Property) bool {
 func (c *Cleaner) cleanupProperty(tx *bolt.Tx, p *models.Property) error {
 	hasFrequency := c.propHasFrequency(p)
 	id := helpers.BucketFromPropName(p.Name)
+	if err := c.cleanupBucket(tx, id, hasFrequency, p.Name); err != nil {
+		return err
+	}
+
+	if !schema.IsRefDataType(p.DataType) {
+		// we are done
+		return nil
+	}
+
+	countName := helpers.MetaCountProp(p.Name)
+	id = helpers.BucketFromPropName(countName)
+	if err := c.cleanupBucket(tx, id, false, countName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Cleaner) cleanupBucket(tx *bolt.Tx, id []byte,
+	hasFrequency bool, propName string) error {
 	propsBucket := tx.Bucket(id)
 	if propsBucket == nil {
 		return nil
 	}
 	err := propsBucket.ForEach(func(item, data []byte) error {
-		return c.deleteFn(propsBucket, Countable{Data: item}, c.deletedDocIDs, hasFrequency)
+		return c.deleteFn(propsBucket, Countable{Data: item},
+			c.deletedDocIDs, hasFrequency)
 	})
 	if err != nil {
-		return errors.Wrapf(err, "cleanup property %s row", p.Name)
+		return errors.Wrapf(err, "cleanup property %s row", propName)
 	}
+
 	return nil
 }
 
