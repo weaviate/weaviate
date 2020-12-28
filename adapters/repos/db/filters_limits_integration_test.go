@@ -265,3 +265,125 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		assert.Len(t, res, limit)
 	})
 }
+
+// This test aims to prevent a regression on
+// https://github.com/semi-technologies/weaviate/issues/1356
+//
+// It reuses the company-schema from the regular filters test, but runs them in
+// isolation as to not interfere with the existing tests
+func Test_AggregationsAfterUpdates(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(30 * time.Second)
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the class", func(t *testing.T) {
+		schema := schema.Schema{
+			Things: &models.Schema{
+				Classes: []*models.Class{
+					productClass,
+					companyClass,
+				},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), kind.Thing, productClass))
+		require.Nil(t,
+			migrator.AddClass(context.Background(), kind.Thing, companyClass))
+
+		schemaGetter.schema = schema
+	})
+
+	data := chainedFilterCompanies(100)
+
+	t.Run("import companies", func(t *testing.T) {
+		for i, company := range data {
+			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
+				require.Nil(t,
+					repo.PutThing(context.Background(), company,
+						[]float32{0.1, 0.2, 0.01, 0.2}))
+			})
+		}
+	})
+
+	t.Run("verify all with ref count 0 are correctly aggregated",
+		func(t *testing.T) {
+			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			res, err := repo.Aggregate(context.Background(),
+				traverser.AggregateParams{
+					ClassName:        schema.ClassName(companyClass.Class),
+					Filters:          filter,
+					Kind:             kind.Thing,
+					IncludeMetaCount: true,
+				})
+
+			require.Nil(t, err)
+			require.Len(t, res.Groups, 1)
+			assert.Equal(t, res.Groups[0].Count, 100)
+		})
+
+	t.Run("perform updates on each company", func(t *testing.T) {
+		// in this case we're altering the vector position, but it doesn't really
+		// matter - what we want to provoke is to fill up our index with deleted
+		// doc ids
+		for i, company := range data {
+			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
+				require.Nil(t,
+					repo.PutThing(context.Background(), company,
+						[]float32{0.1, 0.21, 0.01, 0.2}))
+			})
+		}
+	})
+
+	t.Run("verify all with ref count 0 are correctly aggregated",
+		func(t *testing.T) {
+			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			res, err := repo.Aggregate(context.Background(),
+				traverser.AggregateParams{
+					ClassName:        schema.ClassName(companyClass.Class),
+					Filters:          filter,
+					Kind:             kind.Thing,
+					IncludeMetaCount: true,
+				})
+
+			require.Nil(t, err)
+			require.Len(t, res.Groups, 1)
+			assert.Equal(t, res.Groups[0].Count, 100)
+		})
+
+	t.Run("manually trigger a clean up", func(t *testing.T) {
+		s := repo.GetIndex(kind.Thing,
+			schema.ClassName(companyClass.Class)).Shards["single"]
+		docIDs := s.deletedDocIDs.GetAll()
+		err := s.performCleanup(docIDs)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify all with ref count 0 are correctly aggregated",
+		func(t *testing.T) {
+			filter := buildFilter("makesProduct", 0, eq, dtInt)
+			res, err := repo.Aggregate(context.Background(),
+				traverser.AggregateParams{
+					ClassName:        schema.ClassName(companyClass.Class),
+					Filters:          filter,
+					Kind:             kind.Thing,
+					IncludeMetaCount: true,
+				})
+
+			require.Nil(t, err)
+			require.Len(t, res.Groups, 1)
+			assert.Equal(t, 100, res.Groups[0].Count)
+		})
+}
