@@ -125,7 +125,8 @@ func (s *Shard) performCleanup(deletedDocIDs []uint64) error {
 		s.db,
 		class,
 		deletedDocIDs,
-		func(b *bolt.Bucket, item inverted.Countable, docIDs []uint64, hasFrequency bool) error {
+		func(b *bolt.Bucket, item inverted.Countable, docIDs []uint64,
+			hasFrequency bool) error {
 			return s.tryDeleteFromInvertedIndicesProp(b, item, docIDs, hasFrequency)
 		},
 	)
