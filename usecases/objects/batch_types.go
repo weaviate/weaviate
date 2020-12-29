@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package kinds
+package objects
 
 import (
 	"github.com/go-openapi/strfmt"

@@ -18,23 +18,23 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type batchKindHandlers struct {
-	manager *kinds.BatchManager
+	manager *objects.BatchManager
 }
 
 func (h *batchKindHandlers) addObjects(params batching.BatchingObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	objects, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
+	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Objects, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return batching.NewBatchingObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case objects.ErrInvalidUserInput:
 			return batching.NewBatchingObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -44,10 +44,10 @@ func (h *batchKindHandlers) addObjects(params batching.BatchingObjectsCreatePara
 	}
 
 	return batching.NewBatchingObjectsCreateOK().
-		WithPayload(h.objectsResponse(objects))
+		WithPayload(h.objectsResponse(objs))
 }
 
-func (h *batchKindHandlers) objectsResponse(input kinds.BatchObjects) []*models.ObjectsGetResponse {
+func (h *batchKindHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
@@ -75,7 +75,7 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 		case errors.Forbidden:
 			return batching.NewBatchingReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case objects.ErrInvalidUserInput:
 			return batching.NewBatchingReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -88,7 +88,7 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 		WithPayload(h.referencesResponse(references))
 }
 
-func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*models.BatchReferenceResponse {
+func (h *batchKindHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
@@ -115,7 +115,7 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 	return response
 }
 
-func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *kinds.BatchManager) {
+func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
 	h := &batchKindHandlers{manager}
 
 	api.BatchingBatchingObjectsCreateHandler = batching.

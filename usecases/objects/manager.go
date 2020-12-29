@@ -9,11 +9,11 @@
 //  CONTACT: hello@semi.technology
 //
 
-// Package kinds provides managers for all kind-related items, such as things
+// package objects provides managers for all kind-related items, such as things
 // and actions. Manager provides methods for "regular" interaction, such as
 // add, get, delete, update, etc. Additionally BatchManager allows for
 // efficient batch-adding of object instances and references.
-package kinds
+package objects
 
 import (
 	"context"
