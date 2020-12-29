@@ -24,7 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -161,7 +161,7 @@ func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (kinds.BatchObjects, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -229,7 +229,7 @@ func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vecto
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (kinds.BatchObjects, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 	for _, batchObject := range objects {

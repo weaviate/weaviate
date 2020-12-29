@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type batchQueue struct {
@@ -25,7 +25,7 @@ type batchQueue struct {
 	originalIndex []int
 }
 
-func (db *DB) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (kinds.BatchObjects, error) {
+func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
 	byIndex := map[string]batchQueue{}
 	for _, item := range objects {
 		for _, index := range db.indices {
@@ -55,7 +55,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (
 	return objects, nil
 }
 
-// func (db *DB) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error) {
+// func (db *DB) BatchPutActions(ctx context.Context, actions objects.BatchActions) (objects.BatchActions, error) {
 // 	byIndex := map[string]batchQueue{}
 // 	for _, item := range actions {
 // 		for _, index := range db.indices {
@@ -85,8 +85,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (
 // 	return actions, nil
 // }
 
-func (db *DB) AddBatchReferences(ctx context.Context, references kinds.BatchReferences) (kinds.BatchReferences, error) {
-	byIndex := map[string]kinds.BatchReferences{}
+func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences) (objects.BatchReferences, error) {
+	byIndex := map[string]objects.BatchReferences{}
 	for _, item := range references {
 		for _, index := range db.indices {
 			if index.Config.Kind != item.From.Kind ||
