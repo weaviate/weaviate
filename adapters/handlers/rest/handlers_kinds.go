@@ -24,7 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	usecasesObjects "github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -57,7 +57,7 @@ func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
 		case errors.Forbidden:
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -82,7 +82,7 @@ func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 		case errors.Forbidden:
 			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -108,7 +108,7 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 		case errors.Forbidden:
 			return objects.NewObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
+		case usecasesObjects.ErrNotFound:
 			return objects.NewObjectsGetNotFound()
 		default:
 			return objects.NewObjectsGetInternalServerError().
@@ -169,7 +169,7 @@ func (h *kindHandlers) updateObject(params objects.ObjectsUpdateParams,
 		case errors.Forbidden:
 			return objects.NewObjectsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -194,7 +194,7 @@ func (h *kindHandlers) deleteObject(params objects.ObjectsDeleteParams,
 		case errors.Forbidden:
 			return objects.NewObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
+		case usecasesObjects.ErrNotFound:
 			return objects.NewObjectsDeleteNotFound()
 		default:
 			return objects.NewObjectsDeleteInternalServerError().
@@ -212,7 +212,7 @@ func (h *kindHandlers) patchObject(params objects.ObjectsPatchParams, principal 
 		case errors.Forbidden:
 			return objects.NewObjectsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -232,7 +232,7 @@ func (h *kindHandlers) addObjectReference(params objects.ObjectsReferencesCreate
 		case errors.Forbidden:
 			return objects.NewObjectsReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrNotFound, usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -252,7 +252,7 @@ func (h *kindHandlers) updateObjectReferences(params objects.ObjectsReferencesUp
 		case errors.Forbidden:
 			return objects.NewObjectsReferencesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrNotFound, usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -272,7 +272,7 @@ func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDel
 		case errors.Forbidden:
 			return objects.NewObjectsReferencesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
+		case usecasesObjects.ErrNotFound, usecasesObjects.ErrInvalidUserInput:
 			return objects.NewObjectsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -285,7 +285,7 @@ func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDel
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI,
-	manager *kinds.Manager, config config.Config, logger logrus.FieldLogger) {
+	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger) {
 	h := &kindHandlers{manager, logger, config}
 
 	api.ObjectsObjectsCreateHandler = objects.

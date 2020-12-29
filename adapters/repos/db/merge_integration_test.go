@@ -26,7 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -141,7 +141,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("merge other previously unset properties into it", func(t *testing.T) {
-		md := kinds.MergeDocument{
+		md := objects.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
 			Kind:  kind.Object,
@@ -183,7 +183,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("trying to merge from unexisting index", func(t *testing.T) {
-		md := kinds.MergeDocument{
+		md := objects.MergeDocument{
 			Class: "WrongClass",
 			ID:    sourceID,
 			Kind:  kind.Object,
@@ -194,24 +194,24 @@ func Test_MergingObjects(t *testing.T) {
 
 		err := repo.Merge(context.Background(), md)
 		assert.Equal(t, fmt.Errorf(
-			"merge from non-existing index for thing/WrongClass"), err)
+			"merge from non-existing index for object/WrongClass"), err)
 	})
 	t.Run("add a reference and replace one prop", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1}
-		refs := make(kinds.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
-			refs[i] = kinds.BatchReference{
+			refs[i] = objects.BatchReference{
 				Err:  nil,
 				From: source,
 				To:   to,
 			}
 		}
-		md := kinds.MergeDocument{
+		md := objects.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
 			Kind:  kind.Object,
@@ -255,17 +255,17 @@ func Test_MergingObjects(t *testing.T) {
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target2, target3, target4}
-		refs := make(kinds.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
-			refs[i] = kinds.BatchReference{
+			refs[i] = objects.BatchReference{
 				Err:  nil,
 				From: source,
 				To:   to,
 			}
 		}
-		md := kinds.MergeDocument{
+		md := objects.MergeDocument{
 			Class:      "MergeTestSource",
 			ID:         sourceID,
 			Kind:       kind.Object,

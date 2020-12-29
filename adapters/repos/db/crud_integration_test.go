@@ -163,7 +163,7 @@ func TestCRUD(t *testing.T) {
 
 		err := repo.PutObject(context.Background(), thing, vector)
 		assert.Equal(t,
-			fmt.Errorf("import into non-existing index for thing/WrongClass"), err)
+			fmt.Errorf("import into non-existing index for object/WrongClass"), err)
 	})
 
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
@@ -770,7 +770,7 @@ func TestCRUD(t *testing.T) {
 			"WrongClass", thingID)
 
 		assert.Equal(t, fmt.Errorf(
-			"delete from non-existing index for thing/WrongClass"), err)
+			"delete from non-existing index for object/WrongClass"), err)
 	})
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",

@@ -27,7 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -126,12 +126,12 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
-		refs := make(kinds.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s",
 				target))
 			require.Nil(t, err)
-			refs[i] = kinds.BatchReference{
+			refs[i] = objects.BatchReference{
 				Err:           nil,
 				From:          source,
 				To:            to,
@@ -148,11 +148,11 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target3, target4}
-		refs := make(kinds.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
-			refs[i] = kinds.BatchReference{
+			refs[i] = objects.BatchReference{
 				Err:           nil,
 				From:          source,
 				To:            to,
