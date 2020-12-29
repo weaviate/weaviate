@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package kinds
+package objects
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 

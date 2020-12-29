@@ -26,7 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -170,13 +170,13 @@ func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
 		return err
 	}
 
-	return d.Merge(ctx, kinds.MergeDocument{
+	return d.Merge(ctx, objects.MergeDocument{
 		Kind:       kind,
 		Class:      className,
 		ID:         source,
 		UpdateTime: time.Now().UnixNano(),
-		References: kinds.BatchReferences{
-			kinds.BatchReference{
+		References: objects.BatchReferences{
+			objects.BatchReference{
 				From: crossref.NewSource(kind, schema.ClassName(className),
 					schema.PropertyName(propName), source),
 				To: target,
@@ -185,7 +185,7 @@ func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
 	})
 }
 
-func (d *DB) Merge(ctx context.Context, merge kinds.MergeDocument) error {
+func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument) error {
 	idx := d.GetIndex(merge.Kind, schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s/%s",

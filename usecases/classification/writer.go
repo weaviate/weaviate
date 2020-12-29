@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type writer interface {
@@ -31,8 +31,8 @@ type batchWriter struct {
 	mutex           sync.RWMutex
 	vectorRepo      vectorRepo
 	batchItemsCount int
-	batchObjects    kinds.BatchObjects
-	saveObjectItems chan kinds.BatchObjects
+	batchObjects    objects.BatchObjects
+	saveObjectItems chan objects.BatchObjects
 	errorCount      int64
 	ec              *errorCompounder
 	cancel          chan struct{}
@@ -49,8 +49,8 @@ func newBatchWriter(vectorRepo vectorRepo) writer {
 	return &batchWriter{
 		vectorRepo:      vectorRepo,
 		batchItemsCount: 0,
-		batchObjects:    kinds.BatchObjects{},
-		saveObjectItems: make(chan kinds.BatchObjects, 1),
+		batchObjects:    objects.BatchObjects{},
+		saveObjectItems: make(chan objects.BatchObjects, 1),
 		errorCount:      0,
 		ec:              &errorCompounder{},
 		cancel:          make(chan struct{}),
@@ -85,7 +85,7 @@ func (r *batchWriter) Stop() batchWriterResults {
 
 func (r *batchWriter) storeObject(item search.Result) error {
 	r.batchItemsCount++
-	batchObject := kinds.BatchObject{
+	batchObject := objects.BatchObject{
 		UUID:          item.ID,
 		Object:        item.Object(),
 		OriginalIndex: r.batchItemsCount,
@@ -94,7 +94,7 @@ func (r *batchWriter) storeObject(item search.Result) error {
 	r.batchObjects = append(r.batchObjects, batchObject)
 	if len(r.batchObjects) >= r.batchTreshold {
 		r.saveObjectItems <- r.batchObjects
-		r.batchObjects = kinds.BatchObjects{}
+		r.batchObjects = objects.BatchObjects{}
 	}
 	return nil
 }
@@ -112,7 +112,7 @@ func (r *batchWriter) batchSave() {
 	}
 }
 
-func (r *batchWriter) saveObjects(items kinds.BatchObjects) {
+func (r *batchWriter) saveObjects(items objects.BatchObjects) {
 	ctx, cancel := contextWithTimeout(5 * time.Second)
 	defer cancel()
 	if len(items) > 0 {
