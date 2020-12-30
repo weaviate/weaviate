@@ -17,8 +17,7 @@ import (
 )
 
 func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
-	schema := s.SemanticSchemaFor(k)
-	class, err := GetClassByName(schema, string(className))
+	class, err := GetClassByName(s.Objects, string(className))
 	if err != nil {
 		return nil
 	}
@@ -28,36 +27,18 @@ func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
 
 // FindClassByName will find either a Thing or Class by name.
 func (s *Schema) FindClassByName(className ClassName) *models.Class {
-	if s.Things != nil {
-		semSchemaClass, err := GetClassByName(s.Things, string(className))
-		if err == nil {
-			return semSchemaClass
-		}
-	}
-
-	if s.Actions != nil {
-		semSchemaClass, err := GetClassByName(s.Actions, string(className))
-		if err == nil {
-			return semSchemaClass
-		}
+	semSchemaClass, err := GetClassByName(s.Objects, string(className))
+	if err == nil {
+		return semSchemaClass
 	}
 
 	return nil
 }
 
 func (s *Schema) GetKindOfClass(className ClassName) (kind.Kind, bool) {
-	if s.Things != nil {
-		_, err := GetClassByName(s.Things, string(className))
-		if err == nil {
-			return kind.Thing, true
-		}
-	}
-
-	if s.Actions != nil {
-		_, err := GetClassByName(s.Actions, string(className))
-		if err == nil {
-			return kind.Action, true
-		}
+	_, err := GetClassByName(s.Objects, string(className))
+	if err == nil {
+		return kind.Object, true
 	}
 
 	return "", false
@@ -78,10 +59,7 @@ func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName Prope
 }
 
 func (s *Schema) GetPropsOfType(propType string) []ClassAndProperty {
-	return append(
-		extractAllOfPropType(s.Actions.Classes, propType),
-		extractAllOfPropType(s.Things.Classes, propType)...,
-	)
+	return extractAllOfPropType(s.Objects.Classes, propType)
 }
 
 func extractAllOfPropType(classes []*models.Class, propType string) []ClassAndProperty {

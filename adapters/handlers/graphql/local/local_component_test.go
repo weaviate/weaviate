@@ -39,9 +39,9 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 
 		// This tests asserts that an action-only schema doesn't lead to errors.
 		testCase{
-			name: "with only actions locally",
+			name: "with only objects locally",
 			localSchema: schema.Schema{
-				Actions: &models.Schema{
+				Objects: &models.Schema{
 					Classes: []*models.Class{
 						&models.Class{
 							Class: "BestLocalAction",
@@ -54,15 +54,14 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 						},
 					},
 				},
-				Things: &models.Schema{},
 			},
 		},
 
 		// This tests asserts that a things-only schema doesn't lead to errors.
 		testCase{
-			name: "with only things locally",
+			name: "with only objects locally",
 			localSchema: schema.Schema{
-				Things: &models.Schema{
+				Objects: &models.Schema{
 					Classes: []*models.Class{
 						&models.Class{
 							Class: "BestLocalThing",
@@ -75,7 +74,6 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 						},
 					},
 				},
-				Actions: &models.Schema{},
 			},
 		},
 
@@ -84,7 +82,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 		testCase{
 			name: "with things without properties locally",
 			localSchema: schema.Schema{
-				Things: &models.Schema{
+				Objects: &models.Schema{
 					Classes: []*models.Class{
 						&models.Class{
 							Class:      "BestLocalThing",
@@ -92,7 +90,6 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 						},
 					},
 				},
-				Actions: &models.Schema{},
 			},
 		},
 
@@ -143,23 +140,10 @@ func (tests testCases) AssertNoError(t *testing.T) {
 
 func validSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "BestLocalThing",
-					Properties: []*models.Property{
-						&models.Property{
-							DataType: []string{"string"},
-							Name:     "myStringProp",
-						},
-					},
-				},
-			},
-		},
-		Actions: &models.Schema{
-			Classes: []*models.Class{
-				&models.Class{
-					Class: "BestLocalAction",
 					Properties: []*models.Property{
 						&models.Property{
 							DataType: []string{"string"},

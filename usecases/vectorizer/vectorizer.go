@@ -59,8 +59,8 @@ func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
 	v.indexCheck = ic
 }
 
-// Thing object to vector
-func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, []InputElement, error) {
+// Object object to vector
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object) ([]float32, []InputElement, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
@@ -69,15 +69,15 @@ func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32
 	return v.object(ctx, object.Class, object.Schema, overrides)
 }
 
-// Action object to vector
-func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, []InputElement, error) {
-	var overrides map[string]string
-	if object.VectorWeights != nil {
-		overrides = object.VectorWeights.(map[string]string)
-	}
+// // Action object to vector
+// func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, []InputElement, error) {
+// 	var overrides map[string]string
+// 	if object.VectorWeights != nil {
+// 		overrides = object.VectorWeights.(map[string]string)
+// 	}
 
-	return v.object(ctx, object.Class, object.Schema, overrides)
-}
+// 	return v.object(ctx, object.Class, object.Schema, overrides)
+// }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string) ([]float32, []InputElement, error) {

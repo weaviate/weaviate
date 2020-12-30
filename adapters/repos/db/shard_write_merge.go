@@ -20,10 +20,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
-func (s *Shard) mergeObject(ctx context.Context, merge kinds.MergeDocument) error {
+func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	idBytes, err := uuid.MustParse(merge.ID.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (s *Shard) mergeObject(ctx context.Context, merge kinds.MergeDocument) erro
 	return nil
 }
 
-func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
+func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 	idBytes []byte) (*storobj.Object, objectInsertStatus, error) {
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
@@ -89,7 +89,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 }
 
 func (s *Shard) mergeObjectData(previous []byte,
-	merge kinds.MergeDocument) (*storobj.Object, error) {
+	merge objects.MergeDocument) (*storobj.Object, error) {
 	var previousObj *storobj.Object
 	if len(previous) == 0 {
 		// DocID must be overwrite after status check, simply set to initial
@@ -110,7 +110,7 @@ func (s *Shard) mergeObjectData(previous []byte,
 }
 
 func mergeProps(previous *storobj.Object,
-	merge kinds.MergeDocument) *storobj.Object {
+	merge objects.MergeDocument) *storobj.Object {
 	next := *previous
 	schema, ok := next.Schema().(map[string]interface{})
 	if !ok || schema == nil {

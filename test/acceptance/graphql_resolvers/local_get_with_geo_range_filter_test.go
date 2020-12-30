@@ -24,24 +24,22 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 		query := `
 		{
 			Get {
-				Things {
-					City(where:{
-						operator: WithinGeoRange
-						path: ["location"]
-						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100000 } }
-					}){
-						name
-						location {
-							latitude
-							longitude
-						}
+				City(where:{
+					operator: WithinGeoRange
+					path: ["location"]
+					valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100000 } }
+				}){
+					name
+					location {
+						latitude
+						longitude
 					}
 				}
 			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{
@@ -60,24 +58,22 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 		query := `
 		{
 			Get {
-				Things {
-					City(where:{
-						operator: WithinGeoRange
-						path: ["location"]
-						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200000 } }
-					}){
-						name
-						location {
-							latitude
-							longitude
-						}
+				City(where:{
+					operator: WithinGeoRange
+					path: ["location"]
+					valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200000 } }
+				}){
+					name
+					location {
+						latitude
+						longitude
 					}
 				}
 			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{
@@ -104,24 +100,22 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 		query := `
 		{
 			Get {
-				Things {
-					City(where:{
-						operator: WithinGeoRange
-						path: ["location"]
-						valueGeoRange: { geoCoordinates: {latitude: 0, longitude: 0} distance: { max: 20 } }
-					}){
-						name
-						location {
-							latitude
-							longitude
-						}
+				City(where:{
+					operator: WithinGeoRange
+					path: ["location"]
+					valueGeoRange: { geoCoordinates: {latitude: 0, longitude: 0} distance: { max: 20 } }
+				}){
+					name
+					location {
+						latitude
+						longitude
 					}
 				}
 			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{

@@ -26,7 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -124,7 +124,7 @@ func (i *Index) putObjectBatch(ctx context.Context,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context,
-	refs kinds.BatchReferences) map[int]error {
+	refs objects.BatchReferences) map[int]error {
 	// TODO: pick the right shard(s) instead of using the "single" shard
 	shard := i.Shards["single"]
 	return shard.addReferencesBatch(ctx, refs)
@@ -213,7 +213,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	return nil
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge kinds.MergeDocument) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
 	shard := i.Shards["single"]

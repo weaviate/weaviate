@@ -30,7 +30,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -54,15 +54,13 @@ func TestBatchPutObjects(t *testing.T) {
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchThingClass(repo, migrator,
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
-	t.Run("creating the action class", testAddBatchActionClass(repo, migrator,
-		schemaGetter))
-	t.Run("batch import things", testBatchImportThings(repo))
-	t.Run("batch import things with geo props", testBatchImportGeoThings(repo))
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 }
 
-func testAddBatchThingClass(repo *DB, migrator *Migrator,
+func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
 	return func(t *testing.T) {
 		class := &models.Class{
@@ -80,44 +78,22 @@ func testAddBatchThingClass(repo *DB, migrator *Migrator,
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, class))
+			migrator.AddClass(context.Background(), kind.Object, class))
 
-		schemaGetter.schema.Things = &models.Schema{
+		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
 	}
 }
 
-func testAddBatchActionClass(repo *DB, migrator *Migrator,
-	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
-	return func(t *testing.T) {
-		class := &models.Class{
-			Class: "ActionForBatching",
-			Properties: []*models.Property{
-				&models.Property{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
-				},
-			},
-		}
-
-		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Action, class))
-
-		schemaGetter.schema.Actions = &models.Schema{
-			Classes: []*models.Class{class},
-		}
-	}
-}
-
-func testBatchImportThings(repo *DB) func(t *testing.T) {
+func testBatchImportObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("with a prior validation error, but nothing to cause errors in the db", func(t *testing.T) {
-			batch := kinds.BatchThings{
-				kinds.BatchThing{
+			batch := objects.BatchObjects{
+				objects.BatchObject{
 					OriginalIndex: 0,
 					Err:           nil,
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "first element",
@@ -127,10 +103,10 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 					UUID:   "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
 					Vector: []float32{1, 2, 3},
 				},
-				kinds.BatchThing{
+				objects.BatchObject{
 					OriginalIndex: 1,
 					Err:           fmt.Errorf("already has a validation error"),
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "second element",
@@ -140,10 +116,10 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 					UUID:   "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
 					Vector: []float32{1, 2, 3},
 				},
-				kinds.BatchThing{
+				objects.BatchObject{
 					OriginalIndex: 2,
 					Err:           nil,
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "third element",
@@ -156,7 +132,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutThings(context.Background(), batch)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -164,7 +140,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -173,24 +149,24 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 
 			t.Run("contains first element", func(t *testing.T) {
-				item, ok := findID(res, batch[0].Thing.ID)
+				item, ok := findID(res, batch[0].Object.ID)
 				require.Equal(t, true, ok, "results should contain our desired id")
 				assert.Equal(t, "first element", item.Schema.(map[string]interface{})["stringProp"])
 			})
 
 			t.Run("contains third element", func(t *testing.T) {
-				item, ok := findID(res, batch[2].Thing.ID)
+				item, ok := findID(res, batch[2].Object.ID)
 				require.Equal(t, true, ok, "results should contain our desired id")
 				assert.Equal(t, "third element", item.Schema.(map[string]interface{})["stringProp"])
 			})
 		})
 
 		t.Run("with an import which will fail", func(t *testing.T) {
-			batch := kinds.BatchThings{
-				kinds.BatchThing{
+			batch := objects.BatchObjects{
+				objects.BatchObject{
 					OriginalIndex: 0,
 					Err:           nil,
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "first element",
@@ -199,10 +175,10 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 					},
 					UUID: "79aebd44-7486-4fed-9334-3a74cc09a1c3",
 				},
-				kinds.BatchThing{
+				objects.BatchObject{
 					OriginalIndex: 1,
 					Err:           fmt.Errorf("already had a prior error"),
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "first element",
@@ -211,10 +187,10 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 					},
 					UUID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
 				},
-				kinds.BatchThing{
+				objects.BatchObject{
 					OriginalIndex: 2,
 					Err:           nil,
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "second element",
@@ -226,7 +202,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutThings(context.Background(), batch)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -237,7 +213,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -246,12 +222,12 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
-				_, ok := findID(res, batch[1].Thing.ID)
+				_, ok := findID(res, batch[1].Object.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
 
 			t.Run("does not contain third element (es error)", func(t *testing.T) {
-				_, ok := findID(res, batch[2].Thing.ID)
+				_, ok := findID(res, batch[2].Object.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
 		})
@@ -259,13 +235,13 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 		t.Run("with a duplicate UUID", func(t *testing.T) {
 			// it should ignore the first one as the second one would overwrite the
 			// first one anyway
-			batch := make(kinds.BatchThings, 53)
+			batch := make(objects.BatchObjects, 53)
 
-			batch[0] = kinds.BatchThing{
+			batch[0] = objects.BatchObject{
 				OriginalIndex: 0,
 				Err:           nil,
 				Vector:        []float32{7, 8, 9},
-				Thing: &models.Thing{
+				Object: &models.Object{
 					Class: "ThingForBatching",
 					Schema: map[string]interface{}{
 						"stringProp": "first element",
@@ -281,11 +257,11 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 				uuid, err := uuid.NewV4()
 				require.Nil(t, err)
 				id := strfmt.UUID(uuid.String())
-				batch[i] = kinds.BatchThing{
+				batch[i] = objects.BatchObject{
 					OriginalIndex: i,
 					Err:           nil,
 					Vector:        []float32{0.05, 0.1, 0.2},
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "ignore me",
@@ -296,11 +272,11 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 				}
 			}
 
-			batch[51] = kinds.BatchThing{
+			batch[51] = objects.BatchObject{
 				OriginalIndex: 51,
 				Err:           fmt.Errorf("already had a prior error"),
 				Vector:        []float32{3, 2, 1},
-				Thing: &models.Thing{
+				Object: &models.Object{
 					Class: "ThingForBatching",
 					Schema: map[string]interface{}{
 						"stringProp": "first element",
@@ -309,11 +285,11 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 				},
 				UUID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
 			}
-			batch[52] = kinds.BatchThing{
+			batch[52] = objects.BatchObject{
 				OriginalIndex: 52,
 				Err:           nil,
 				Vector:        []float32{1, 2, 3},
-				Thing: &models.Thing{
+				Object: &models.Object{
 					Class: "ThingForBatching",
 					Schema: map[string]interface{}{
 						"stringProp": "first element, imported a second time",
@@ -324,7 +300,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutThings(context.Background(), batch)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -334,7 +310,7 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -343,84 +319,14 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 
 			t.Run("does not contain second element (validation error)", func(t *testing.T) {
-				_, ok := findID(res, batch[51].Thing.ID)
+				_, ok := findID(res, batch[51].Object.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
 
 			t.Run("does not contain third element (es error)", func(t *testing.T) {
-				_, ok := findID(res, batch[52].Thing.ID)
+				_, ok := findID(res, batch[52].Object.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
-		})
-	}
-}
-
-func testBatchImportActions(repo *DB) func(t *testing.T) {
-	return func(t *testing.T) {
-		batch := kinds.BatchActions{
-			kinds.BatchAction{
-				OriginalIndex: 0,
-				Err:           nil,
-				Action: &models.Action{
-					Class: "ActionForBatching",
-					Schema: map[string]interface{}{
-						"stringProp": "first element",
-					},
-					ID: "6e90812c-5d56-4e44-8ad2-aac9b992beba",
-				},
-				UUID: "6e90812c-5d56-4e44-8ad2-aac9b992beba",
-			},
-			kinds.BatchAction{
-				OriginalIndex: 1,
-				Err:           fmt.Errorf("already has a validation error"),
-				Action: &models.Action{
-					Class: "ActionForBatching",
-					Schema: map[string]interface{}{
-						"stringProp": "second element",
-					},
-					ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
-				},
-				UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
-			},
-			kinds.BatchAction{
-				OriginalIndex: 2,
-				Err:           nil,
-				Action: &models.Action{
-					Class: "ActionForBatching",
-					Schema: map[string]interface{}{
-						"stringProp": "third element",
-					},
-					ID: "d739abd8-4433-46f9-bc10-93e89cb9d2c6",
-				},
-				UUID: "d739abd8-4433-46f9-bc10-93e89cb9d2c6",
-			},
-		}
-
-		t.Run("can import", func(t *testing.T) {
-			_, err := repo.BatchPutActions(context.Background(), batch)
-			require.Nil(t, err)
-		})
-
-		params := traverser.GetParams{
-			Kind:       kind.Action,
-			ClassName:  "ActionForBatching",
-			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    nil,
-		}
-		res, err := repo.ClassSearch(context.Background(), params)
-		require.Nil(t, err)
-		require.Len(t, res, 2)
-
-		t.Run("contains first element", func(t *testing.T) {
-			item, ok := findID(res, batch[0].Action.ID)
-			require.Equal(t, true, ok, "results should contain our desired id")
-			assert.Equal(t, "first element", item.Schema.(map[string]interface{})["stringProp"])
-		})
-
-		t.Run("contains first element", func(t *testing.T) {
-			item, ok := findID(res, batch[2].Action.ID)
-			require.Equal(t, true, ok, "results should contain our desired id")
-			assert.Equal(t, "third element", item.Schema.(map[string]interface{})["stringProp"])
 		})
 	}
 }
@@ -428,17 +334,17 @@ func testBatchImportActions(repo *DB) func(t *testing.T) {
 // geo props are the first props with property specific indices, so making sure
 // that they work with batches at scale adds value beyond the regular batch
 // import tests
-func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
+func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		size := 500
 		batchSize := 50
 
-		objects := make([]*models.Thing, size)
+		objs := make([]*models.Object, size)
 
 		t.Run("generate random vectors", func(t *testing.T) {
 			for i := 0; i < size; i++ {
 				id, _ := uuid.NewV4()
-				objects[i] = &models.Thing{
+				objs[i] = &models.Object{
 					Class: "ThingForBatching",
 					ID:    strfmt.UUID(id.String()),
 					Schema: map[string]interface{}{
@@ -451,16 +357,16 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 
 		t.Run("import vectors in batches", func(t *testing.T) {
 			for i := 0; i < size; i += batchSize {
-				batch := make(kinds.BatchThings, batchSize)
+				batch := make(objects.BatchObjects, batchSize)
 				for j := 0; j < batchSize; j++ {
-					batch[j] = kinds.BatchThing{
+					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
-						Thing:         objects[i+j],
-						Vector:        objects[i+j].Vector,
+						Object:        objs[i+j],
+						Vector:        objs[i+j].Vector,
 					}
 				}
 
-				res, err := repo.BatchPutThings(context.Background(), batch)
+				res, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -492,13 +398,13 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 					var relevant int
 					var retrieved int
 
-					controlList := bruteForceMaxDist(objects, []float32{
+					controlList := bruteForceMaxDist(objs, []float32{
 						*queryGeo.Latitude,
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
 					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-						Kind:       kind.Thing,
+						Kind:       kind.Object,
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -525,26 +431,26 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("renew vector positions to test batch geo updates", func(t *testing.T) {
-			for i, obj := range objects {
+			for i, obj := range objs {
 				obj.Schema = map[string]interface{}{
 					"location": randGeoCoordinates(),
 				}
-				objects[i] = obj
+				objs[i] = obj
 			}
 		})
 
 		t.Run("import in batches again (as update - same IDs!)", func(t *testing.T) {
 			for i := 0; i < size; i += batchSize {
-				batch := make(kinds.BatchThings, batchSize)
+				batch := make(objects.BatchObjects, batchSize)
 				for j := 0; j < batchSize; j++ {
-					batch[j] = kinds.BatchThing{
+					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
-						Thing:         objects[i+j],
-						Vector:        objects[i+j].Vector,
+						Object:        objs[i+j],
+						Vector:        objs[i+j].Vector,
 					}
 				}
 
-				res, err := repo.BatchPutThings(context.Background(), batch)
+				res, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -558,13 +464,13 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 					var relevant int
 					var retrieved int
 
-					controlList := bruteForceMaxDist(objects, []float32{
+					controlList := bruteForceMaxDist(objs, []float32{
 						*queryGeo.Latitude,
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
 					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-						Kind:       kind.Thing,
+						Kind:       kind.Object,
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -592,13 +498,13 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 	}
 }
 
-func assertAllItemsErrorFree(t *testing.T, res kinds.BatchThings) {
+func assertAllItemsErrorFree(t *testing.T, res objects.BatchObjects) {
 	for _, elem := range res {
 		assert.Nil(t, elem.Err)
 	}
 }
 
-func bruteForceMaxDist(inputs []*models.Thing, query []float32, maxDist float32) []strfmt.UUID {
+func bruteForceMaxDist(inputs []*models.Object, query []float32, maxDist float32) []strfmt.UUID {
 	type distanceAndIndex struct {
 		distance float32
 		index    int

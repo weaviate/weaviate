@@ -14,35 +14,18 @@ package descriptions
 
 // Local
 const (
-	LocalMergeActions = "Merge Actions on a local Weaviate"
-	LocalMergeThings  = "Merge Things on a local Weaviate"
+	LocalMergeObj = "An object used to Merge Objects on a local Weaviate"
+	LocalMerge    = "Merge Objects on a local Weaviate"
 )
 
-const (
-	LocalMergeObj = "An object used to Merge Things or Actions on a local Weaviate"
-	LocalMerge    = "Merge Things or Actions on a local Weaviate"
-)
-
-const LocalMergeThingsActionsObj = "An object used to get %ss on a local Weaviate"
-
-const LocalMergeClassUUID = "The UUID of a Thing or Action, assigned by its local Weaviate"
+const LocalMergeClassUUID = "The UUID of a Object, assigned by its local Weaviate"
 
 // Network
 const (
-	NetworkMerge    = "Merge Things or Actions from a Weaviate in a network"
-	NetworkMergeObj = "An object used to Merge Things or Actions from a Weaviate in a network"
+	NetworkMerge    = "Merge Objects from a Weaviate in a network"
+	NetworkMergeObj = "An object used to Merge Objects from a Weaviate in a network"
 )
 
-const NetworkMergeWeaviateObj = "An object containing Merge Things and Actions fields for network Weaviate instance: "
-
-const (
-	NetworkMergeActions = "Merge Actions from a Weaviate in a network"
-	NetworkMergeThings  = "Merge Things from a Weaviate in a network"
-)
-
-const (
-	NetworkMergeActionsObj = "An object containing the Actions objects on this network Weaviate instance."
-	NetworkMergeThingsObj  = "An object containing the Things objects on this network Weaviate instance."
-)
+const NetworkMergeWeaviateObj = "An object containing Merge Objects fields for network Weaviate instance: "
 
 const NetworkMergeClassUUID = "The UUID of a Thing or Action, assigned by the Weaviate network" // TODO check this with @lauraham

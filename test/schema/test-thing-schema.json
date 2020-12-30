@@ -1,6 +1,6 @@
 {
   "@context": "http://example.org",
-  "type": "thing",
+  "type": "object",
   "version": "1.0.0",
   "name": "example.org - Thing Test",
   "maintainer": "hello@semi.technology",

@@ -24,7 +24,7 @@ func Test_Batch(t *testing.T) {
 	// there is no gql provider if there is no schema, so we need some sort of a schema
 
 	t.Run("setup", func(t *testing.T) {
-		createThingClass(t, &models.Class{
+		createObjectClass(t, &models.Class{
 			Class: "BulkTest",
 			Properties: []*models.Property{
 				&models.Property{
@@ -39,17 +39,17 @@ func Test_Batch(t *testing.T) {
 
 	t.Run("gql results order", gqlResultsOrder)
 
-	deleteThingClass(t, "BulkTest")
+	deleteObjectClass(t, "BulkTest")
 }
 
-func createThingClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
-	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+func createObjectClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func deleteThingClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+func deleteObjectClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
