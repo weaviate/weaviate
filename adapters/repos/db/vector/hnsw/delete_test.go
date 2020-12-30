@@ -28,8 +28,8 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
-			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:       "delete-test",
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
@@ -98,8 +98,8 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
-			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:       "delete-test",
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
@@ -178,8 +178,8 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
-			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:       "delete-test",
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
@@ -415,8 +415,8 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// The underlying test set can be found in vectors_for_test.go
 
 	index, err := New(Config{
-		RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:       "delete-entrypoint-test",
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
@@ -549,8 +549,8 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	//     Level 0: Connections: [1]
 
 	index, err := New(Config{
-		RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:       "more-delete-entrypoint-flakyness-test",
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "more-delete-entrypoint-flakyness-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
@@ -612,8 +612,8 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		return []float32{0.1, 0.2}, nil
 	}
 	index, err := New(Config{
-		RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:       "tombstoned-entrypoint-test",
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstoned-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
