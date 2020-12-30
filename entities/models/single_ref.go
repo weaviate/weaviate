@@ -31,7 +31,7 @@ type SingleRef struct {
 	// Additional Meta information about classifications if the item was part of one
 	Classification *ReferenceMetaClassification `json:"_classification,omitempty"`
 
-	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
+	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
 

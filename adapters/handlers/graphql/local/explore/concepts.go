@@ -19,7 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-// Build builds the object containing the Local->Explore Fields, such as Things/Actions
+// Build builds the object containing the Local->Explore Fields, such as Objects
 func Build() *graphql.Field {
 	return &graphql.Field{
 		Name:        "Explore",

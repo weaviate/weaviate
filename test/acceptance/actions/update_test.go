@@ -11,7 +11,7 @@
 
 package test
 
-// Acceptance tests for actions
+// Acceptance tests for objects
 
 import (
 	"encoding/json"
@@ -19,34 +19,34 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // run from setup_test.go
-func updateActions(t *testing.T) {
+func updateObjects(t *testing.T) {
 	t.Run("update and set number", func(t *testing.T) {
-		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, uuid)
+		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testNumber": 41.0,
 		})
 
-		update := models.Action{}
+		update := models.Object{}
 		update.Schema = schema
-		update.Class = "TestAction"
+		update.Class = "TestObject"
 		update.ID = uuid
 
-		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+		params := objects.NewObjectsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Objects.ObjectsUpdate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedAction := assertGetAction(t, uuid)
-			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			updatedObject := assertGetObject(t, uuid)
+			updatedSchema := updatedObject.Schema.(map[string]interface{})
 			if updatedSchema["testNumber"] == nil {
 				return nil
 			}
@@ -57,25 +57,25 @@ func updateActions(t *testing.T) {
 	})
 
 	t.Run("update and set string", func(t *testing.T) {
-		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, uuid)
+		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testString": "wibbly wobbly",
 		})
 
-		update := models.Action{}
+		update := models.Object{}
 		update.Schema = schema
-		update.Class = "TestAction"
+		update.Class = "TestObject"
 		update.ID = uuid
 
-		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+		params := objects.NewObjectsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Objects.ObjectsUpdate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedAction := assertGetAction(t, uuid)
-			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			updatedObject := assertGetObject(t, uuid)
+			updatedSchema := updatedObject.Schema.(map[string]interface{})
 			return updatedSchema["testString"]
 		}
 		testhelper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
@@ -83,60 +83,60 @@ func updateActions(t *testing.T) {
 
 	t.Run("update and set bool", func(t *testing.T) {
 		t.Parallel()
-		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, uuid)
+		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testTrueFalse": true,
 		})
 
-		update := models.Action{}
+		update := models.Object{}
 		update.Schema = schema
-		update.Class = "TestAction"
+		update.Class = "TestObject"
 		update.ID = uuid
 
-		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+		params := objects.NewObjectsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Objects.ObjectsUpdate(params, nil)
 
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedAction := assertGetAction(t, uuid)
-			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			updatedObject := assertGetObject(t, uuid)
+			updatedSchema := updatedObject.Schema.(map[string]interface{})
 			return updatedSchema["testTrueFalse"]
 		}
 		testhelper.AssertEventuallyEqual(t, true, actualThunk)
 	})
 
-	t.Run("can patch action with cref", func(t *testing.T) {
-		thingToRefID := assertCreateThing(t, "ActionTestThing", nil)
-		assertGetThingEventually(t, thingToRefID)
-		actionID := assertCreateAction(t, "TestAction", nil)
-		assertGetActionEventually(t, actionID)
+	t.Run("can patch object with cref", func(t *testing.T) {
+		thingToRefID := assertCreateObject(t, "ObjectTestThing", nil)
+		assertGetObjectEventually(t, thingToRefID)
+		objectID := assertCreateObject(t, "TestObject", nil)
+		assertGetObjectEventually(t, objectID)
 
-		merge := &models.Action{
-			Class: "TestAction",
+		merge := &models.Object{
+			Class: "TestObject",
 			Schema: map[string]interface{}{
 				"testReference": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", thingToRefID),
 					},
 				},
 			},
 		}
 
 		// Now to try to link
-		params := actions.NewActionsPatchParams().
+		params := objects.NewObjectsPatchParams().
 			WithBody(merge).
-			WithID(actionID)
-		patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
+			WithID(objectID)
+		patchResp, err := helper.Client(t).Objects.ObjectsPatch(params, nil)
 		spew.Dump(err)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 
 		actualThunk := func() interface{} {
-			patchedAction := assertGetAction(t, actionID)
+			patchedObject := assertGetObject(t, objectID)
 
-			rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
+			rawRef, ok := patchedObject.Schema.(map[string]interface{})["testReference"]
 			if !ok {
 				return nil
 			}
@@ -161,6 +161,6 @@ func updateActions(t *testing.T) {
 			return refMap["beacon"]
 		}
 
-		testhelper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
+		testhelper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/%s", thingToRefID), actualThunk)
 	})
 }

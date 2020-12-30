@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-var thingID = "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
+var objectID = "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 func main() {
 	http.HandleFunc("/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
@@ -48,10 +48,10 @@ func main() {
 
 		parsed := removeAllWhiteSpace(body["query"])
 
-		getQuery := `{ Local { Get { Things { Instruments { name } } } } }`
-		getMetaQuery := `{ Local { Meta { Things { Instruments { volume { maximum minimum mean } } } } } }`
-		aggregateQuery := ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`
-		fetchQuery := ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`
+		getQuery := `{ Local { Get { Instruments { name } } } }`
+		getMetaQuery := `{ Local { Meta { Instruments { volume { maximum minimum mean } } } } }`
+		aggregateQuery := ` { Local { Aggregate { Instruments(groupBy:["name"]) { volume { count } } } } }`
+		fetchQuery := ` { Local { Fetch { Objects(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`
 		fetchFuzzyQuery := ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
@@ -94,7 +94,7 @@ func main() {
 		fmt.Fprintf(w, "%s", schemaResponse)
 	})
 
-	http.HandleFunc(fmt.Sprintf("/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc(fmt.Sprintf("/v1/objects/%s", objectID), func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(405)
 			w.Write([]byte("only GET allowed"))
@@ -112,7 +112,7 @@ var graphQLMetaResponse = `{
   "data": {
     "Local": {
       "Meta": {
-        "Things": {
+        "Objects": {
           "Instruments": {
             "volume": {
               "maximum": 110,
@@ -130,13 +130,11 @@ var graphQLAggregateResponse = `{
   "data": {
     "Local": {
       "Aggregate": {
-        "Things": {
-          "Instruments": [{
-            "volume": {
-              "count": 82
-            }
-          }]
-        }
+        "Instruments": [{
+          "volume": {
+            "count": 82
+          }
+        }]
       }
     }
   }
@@ -145,18 +143,16 @@ var graphQLAggregateResponse = `{
 var graphQLFetchResponse = `{
   "data": {
     "Local": {
-      "Fetch": {
-        "Things": [
-					{
-						"beacon": "weaviate://localhost/things/c2b94c9a-fea2-4f9a-ae40-6d63534633f7",
-						"certainty": 0.5
-					},
-					{
-						"beacon": "weaviate://localhost/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
-						"certainty": 0.7
-					}
-				]
-      }
+      "Fetch": [
+        {
+          "beacon": "weaviate://localhost/c2b94c9a-fea2-4f9a-ae40-6d63534633f7",
+          "certainty": 0.5
+        },
+        {
+          "beacon": "weaviate://localhost/32fc9b12-00b8-46b2-962d-63c1f352e090",
+          "certainty": 0.7
+        }
+      ]
     }
   }
 }`
@@ -167,7 +163,7 @@ var graphQLFetchFuzzyResponse = `{
       "Fetch": {
         "Fuzzy": [
 					{
-						"beacon": "weaviate://localhost/things/61c21951-3460-4189-86ad-884a17b70c16",
+						"beacon": "weaviate://localhost/61c21951-3460-4189-86ad-884a17b70c16",
 						"certainty": 0.5
 					}
 				]
@@ -180,22 +176,20 @@ var graphQLGetResponse = `{
   "data": {
     "Local": {
       "Get": {
-        "Things": {
-          "Instruments": [
-            {
-              "name": "Piano"
-            },
-            {
-              "name": "Guitar"
-            },
-            {
-              "name": "Bass Guitar"
-            },
-            {
-              "name": "Talkbox"
-            }
-          ]
-        }
+        "Instruments": [
+          {
+            "name": "Piano"
+          },
+          {
+            "name": "Guitar"
+          },
+          {
+            "name": "Bass Guitar"
+          },
+          {
+            "name": "Talkbox"
+          }
+        ]
       }
     }
   }
@@ -206,21 +200,14 @@ var restThingHappyPathResponse = fmt.Sprintf(`{
 	"schema": {
 		"name": "Talkbox"
 	},
-  "thingId": "%s"
-}`, thingID)
+  "objectId": "%s"
+}`, objectID)
 
 var schemaResponse = `{
-  "actions": {
+  "objects": {
     "version": "0.0.1",
-    "type": "action",
-    "name": "weaviate demo actions schema",
-    "maintainer": "yourfriends@weaviate.com",
-    "classes": []
-  },
-  "things": {
-    "version": "0.0.1",
-    "type": "thing",
-    "name": "weaviate demo things schema",
+    "type": "object",
+    "name": "weaviate demo objects schema",
     "maintainer": "yourfriends@weaviate.com",
     "classes": [
       {

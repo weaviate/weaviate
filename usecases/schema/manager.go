@@ -89,21 +89,18 @@ type authorizer interface {
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {
-	ActionSchema *models.Schema `json:"action"`
-	ThingSchema  *models.Schema `json:"thing"`
+	ObjectSchema *models.Schema `json:"object"`
 }
 
 // SchemaFor a specific kind
 func (s *State) SchemaFor(k kind.Kind) *models.Schema {
 	switch k {
-	case kind.Thing:
-		return s.ThingSchema
-	case kind.Action:
-		return s.ActionSchema
+	case kind.Object:
+		return s.ObjectSchema
 	default:
 		// It is fine to panic here, as this indicates an unrecoverable error in
 		// the program, rather than an invalid input based on user input
-		panic(fmt.Sprintf("Passed wrong neither thing nor action, but %v", k))
+		panic(fmt.Sprintf("Passed wrong object, but %v", k))
 	}
 }
 
@@ -159,13 +156,9 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
 func newSchema() *State {
 	return &State{
-		ActionSchema: &models.Schema{
+		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{},
-			Type:    "action",
-		},
-		ThingSchema: &models.Schema{
-			Classes: []*models.Class{},
-			Type:    "thing",
+			Type:    "object",
 		},
 	}
 }

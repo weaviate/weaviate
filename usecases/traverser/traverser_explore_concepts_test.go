@@ -68,12 +68,12 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher.results = []search.Result{
 			search.Result{
 				ClassName: "BestClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ID:        "123-456-789",
 			},
 			search.Result{
 				ClassName: "AnAction",
-				Kind:      kind.Action,
+				Kind:      kind.Object,
 				ID:        "987-654-321",
 			},
 		}
@@ -83,16 +83,16 @@ func Test_ExploreConcepts(t *testing.T) {
 		assert.Equal(t, []search.Result{
 			search.Result{
 				ClassName: "BestClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ID:        "123-456-789",
-				Beacon:    "weaviate://localhost/things/123-456-789",
+				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
 			search.Result{
 				ClassName: "AnAction",
-				Kind:      kind.Action,
+				Kind:      kind.Object,
 				ID:        "987-654-321",
-				Beacon:    "weaviate://localhost/actions/987-654-321",
+				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 			},
 		}, res)
@@ -123,12 +123,12 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher.results = []search.Result{
 			search.Result{
 				ClassName: "BestClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ID:        "123-456-789",
 			},
 			search.Result{
 				ClassName: "AnAction",
-				Kind:      kind.Action,
+				Kind:      kind.Object,
 				ID:        "987-654-321",
 			},
 		}
@@ -170,12 +170,12 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher.results = []search.Result{
 			search.Result{
 				ClassName: "BestClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ID:        "123-456-789",
 			},
 			search.Result{
 				ClassName: "AnAction",
-				Kind:      kind.Action,
+				Kind:      kind.Object,
 				ID:        "987-654-321",
 			},
 		}
@@ -185,16 +185,16 @@ func Test_ExploreConcepts(t *testing.T) {
 		assert.Equal(t, []search.Result{
 			search.Result{
 				ClassName: "BestClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ID:        "123-456-789",
-				Beacon:    "weaviate://localhost/things/123-456-789",
+				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
 			search.Result{
 				ClassName: "AnAction",
-				Kind:      kind.Action,
+				Kind:      kind.Object,
 				ID:        "987-654-321",
-				Beacon:    "weaviate://localhost/actions/987-654-321",
+				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 			},
 		}, res)

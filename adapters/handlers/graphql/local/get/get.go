@@ -22,57 +22,27 @@ import (
 
 // Build the Local.Get part of the graphql tree
 func Build(schema *schema.Schema, logger logrus.FieldLogger) (*graphql.Field, error) {
-	getKinds := graphql.Fields{}
-
-	if len(schema.Actions.Classes) == 0 && len(schema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
+	if len(schema.Objects.Classes) == 0 {
+		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
 
 	cb := newClassBuilder(schema, logger)
 
-	if len(schema.Actions.Classes) > 0 {
-		actions, err := cb.actions()
+	var err error
+	var objects *graphql.Object
+	if len(schema.Objects.Classes) > 0 {
+		objects, err = cb.objects()
 		if err != nil {
 			return nil, err
-		}
-
-		getKinds["Actions"] = &graphql.Field{
-			Name:        "GetActions",
-			Description: descriptions.GetActions,
-			Type:        actions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Does nothing; pass through the filters
-				return p.Source, nil
-			},
-		}
-	}
-
-	if len(schema.Things.Classes) > 0 {
-		things, err := cb.things()
-		if err != nil {
-			return nil, err
-		}
-
-		getKinds["Things"] = &graphql.Field{
-			Name:        "GetThings",
-			Description: descriptions.GetThings,
-			Type:        things,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Does nothing; pass through the filters
-				return p.Source, nil
-			},
 		}
 	}
 
 	return &graphql.Field{
 		Name:        "Get",
-		Description: descriptions.Get,
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "GetObj",
-			Fields:      getKinds,
-			Description: descriptions.GetObj,
-		}),
+		Description: descriptions.GetObjects,
+		Type:        objects,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// Does nothing; pass through the filters
 			return p.Source, nil
 		},
 	}, nil

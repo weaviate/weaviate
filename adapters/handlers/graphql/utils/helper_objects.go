@@ -31,8 +31,8 @@ type FilterContainer struct {
 	Operands                                    *graphql.InputObject            // Object containing all Operands
 	LocalFilterOptions                          map[string]*graphql.InputObject // Object containing all fields for Local filters
 	NetworkFilterOptions                        map[string]*graphql.InputObject // Object containing all fields for Network filters
-	FetchThingsActionsWhereFilterArgConf        *graphql.ArgumentConfig         // Object containing the Where filter fields for Fetch Things and Actions
-	IntrospectThingsActionsWhereFilterArgConf   *graphql.ArgumentConfig         // Object containing the Where filter fields for Introspect Things and Actions
+	FetchThingsActionsWhereFilterArgConf        *graphql.ArgumentConfig         // Object containing the Where filter fields for Fetch Objects
+	IntrospectThingsActionsWhereFilterArgConf   *graphql.ArgumentConfig         // Object containing the Where filter fields for Introspect Objects
 	WeaviateNetworkWhereKeywordsInpObj          *graphql.InputObject            // Object containing a global filter element
 	WeaviateNetworkIntrospectPropertiesObjField *graphql.Field                  // Object containing a global filter element
 }

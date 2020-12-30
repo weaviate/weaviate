@@ -22,22 +22,20 @@ func gettingObjectsWithUnderscoreProps(t *testing.T) {
 	t.Run("with _interpretation set", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Company {
-						  _interpretation{
-							  source {
-								  concept
-								}
-							}
-							name
+			Get {
+				Company {
+					_interpretation{
+						source {
+							concept
 						}
 					}
+					name
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		companies := result.Get("Get", "Things", "Company").AsSlice()
+		companies := result.Get("Get", "Company").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{
@@ -156,23 +154,21 @@ func gettingObjectsWithUnderscoreProps(t *testing.T) {
 	t.Run("with _nearestNeighbors set", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Company {
-						  _nearestNeighbors{
-							  neighbors {
-								  concept
-									distance
-								}
-							}
-							name
+			Get {
+				Company {
+					_nearestNeighbors{
+						neighbors {
+							concept
+							distance
 						}
 					}
+					name
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		companies := result.Get("Get", "Things", "Company").AsSlice()
+		companies := result.Get("Get", "Company").AsSlice()
 
 		extractNeighbors := func(in interface{}) []interface{} {
 			return in.(map[string]interface{})["_nearestNeighbors"].(map[string]interface{})["neighbors"].([]interface{})
@@ -188,20 +184,18 @@ func gettingObjectsWithUnderscoreProps(t *testing.T) {
 	t.Run("with _featureProjection set", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Company {
-							_featureProjection(dimensions:3){
-								vector
-							}
-							name
-						}
+			Get {
+				Company {
+					_featureProjection(dimensions:3){
+						vector
 					}
+					name
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		companies := result.Get("Get", "Things", "Company").AsSlice()
+		companies := result.Get("Get", "Company").AsSlice()
 
 		extractProjections := func(in interface{}) []interface{} {
 			return in.(map[string]interface{})["_featureProjection"].(map[string]interface{})["vector"].([]interface{})

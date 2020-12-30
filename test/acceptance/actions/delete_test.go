@@ -11,28 +11,28 @@
 
 package test
 
-// Acceptance tests for actions
+// Acceptance tests for objects
 
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
-func removingActions(t *testing.T) {
-	actionId := assertCreateAction(t, "TestAction", map[string]interface{}{})
+func removingObjects(t *testing.T) {
+	objectId := assertCreateObject(t, "TestObject", map[string]interface{}{})
 
 	// Yes, it's created
-	_ = assertGetActionEventually(t, actionId)
+	_ = assertGetObjectEventually(t, objectId)
 
 	// Now perorm the the deletion
-	delResp, err := helper.Client(t).Actions.ActionsDelete(actions.NewActionsDeleteParams().WithID(actionId), nil)
+	delResp, err := helper.Client(t).Objects.ObjectsDelete(objects.NewObjectsDeleteParams().WithID(objectId), nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
-	_ = assertGetActionFailsEventually(t, actionId)
+	_ = assertGetObjectFailsEventually(t, objectId)
 
-	// And verify that the action is gone
-	getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionId), nil)
+	// And verify that the object is gone
+	getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(objectId), nil)
 	helper.AssertRequestFail(t, getResp, err, nil)
 }

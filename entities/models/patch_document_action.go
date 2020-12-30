@@ -34,7 +34,7 @@ type PatchDocumentAction struct {
 	From string `json:"from,omitempty"`
 
 	// merge
-	Merge *Thing `json:"merge,omitempty"`
+	Merge *Object `json:"merge,omitempty"`
 
 	// The operation to be performed.
 	// Required: true

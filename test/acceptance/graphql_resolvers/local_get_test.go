@@ -21,8 +21,8 @@ import (
 // run by setup_test.go
 func gettingObjects(t *testing.T) {
 	t.Run("listing cities without references", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { Things { City { name } } } }")
-		cities := result.Get("Get", "Things", "City").AsSlice()
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"name": "Amsterdam"},
@@ -36,8 +36,8 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with relations", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{ Get { Things { City { name, InCountry { ... on Country { name } } } } } }")
-		cities := result.Get("Get", "Things", "City").AsSlice()
+		result := AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, InCountry { ... on Country { name } } } } }")
+		cities := result.Get("Get", "City").AsSlice()
 
 		expected := parseJSONSlice(`[
     { "name": "Amsterdam",  "InCountry": [{ "name": "Netherlands" }] },

@@ -34,13 +34,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	expectedResult := "class '%s' not present in schema"
 
 	// generate actioncreate content
-	thing1 := &models.Thing{
+	object1 := &models.Object{
 		Class: classOneName,
 		Schema: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
-	thing2 := &models.Thing{
+	object2 := &models.Object{
 		Class: classTwoName,
 		Schema: map[string]interface{}{
 			"testWholeNumber": 1,
@@ -50,13 +50,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	testFields := "ALL"
 
 	// generate request body
-	params := batching.NewBatchingThingsCreateParams().WithBody(batching.BatchingThingsCreateBody{
-		Things: []*models.Thing{thing1, thing2},
-		Fields: []*string{&testFields},
+	params := batching.NewBatchingObjectsCreateParams().WithBody(batching.BatchingObjectsCreateBody{
+		Objects: []*models.Object{object1, object2},
+		Fields:  []*string{&testFields},
 	})
 
 	// perform the request
-	resp, err := helper.BatchingClient(t).BatchingThingsCreate(params, nil)
+	resp, err := helper.BatchingClient(t).BatchingObjectsCreate(params, nil)
 
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
