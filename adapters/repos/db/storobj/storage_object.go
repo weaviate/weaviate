@@ -31,8 +31,7 @@ import (
 type Object struct {
 	MarshallerVersion uint8
 	Kind              kind.Kind     `json:"kind"`
-	Thing             models.Thing  `json:"thing"`
-	Action            models.Action `json:"action"`
+	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	docID             uint64
 }
@@ -45,19 +44,10 @@ func New(k kind.Kind, docID uint64) *Object {
 	}
 }
 
-func FromThing(thing *models.Thing, vector []float32) *Object {
+func FromObject(object *models.Object, vector []float32) *Object {
 	return &Object{
-		Kind:              kind.Thing,
-		Thing:             *thing,
-		Vector:            vector,
-		MarshallerVersion: 1,
-	}
-}
-
-func FromAction(action *models.Action, vector []float32) *Object {
-	return &Object{
-		Kind:              kind.Action,
-		Action:            *action,
+		Kind:              kind.Object,
+		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 	}
@@ -74,10 +64,8 @@ func FromBinary(data []byte) (*Object, error) {
 
 func (ko *Object) Class() schema.ClassName {
 	switch ko.Kind {
-	case kind.Thing:
-		return schema.ClassName(ko.Thing.Class)
-	case kind.Action:
-		return schema.ClassName(ko.Action.Class)
+	case kind.Object:
+		return schema.ClassName(ko.Object.Class)
 	default:
 		panic(fmt.Sprintf("impossible kind: %s", ko.Kind.Name()))
 	}
@@ -93,10 +81,8 @@ func (ko *Object) DocID() uint64 {
 
 func (ko *Object) CreationTimeUnix() int64 {
 	switch ko.Kind {
-	case kind.Thing:
-		return ko.Thing.CreationTimeUnix
-	case kind.Action:
-		return ko.Action.CreationTimeUnix
+	case kind.Object:
+		return ko.Object.CreationTimeUnix
 	default:
 		panic("impossible kind")
 	}
@@ -104,10 +90,8 @@ func (ko *Object) CreationTimeUnix() int64 {
 
 func (ko *Object) ID() strfmt.UUID {
 	switch ko.Kind {
-	case kind.Thing:
-		return ko.Thing.ID
-	case kind.Action:
-		return ko.Action.ID
+	case kind.Object:
+		return ko.Object.ID
 	default:
 		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
 	}
@@ -115,10 +99,8 @@ func (ko *Object) ID() strfmt.UUID {
 
 func (ko *Object) SetID(id strfmt.UUID) {
 	switch ko.Kind {
-	case kind.Thing:
-		ko.Thing.ID = id
-	case kind.Action:
-		ko.Action.ID = id
+	case kind.Object:
+		ko.Object.ID = id
 	default:
 		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
 	}
@@ -126,10 +108,8 @@ func (ko *Object) SetID(id strfmt.UUID) {
 
 func (ko *Object) SetClass(class string) {
 	switch ko.Kind {
-	case kind.Thing:
-		ko.Thing.Class = class
-	case kind.Action:
-		ko.Action.Class = class
+	case kind.Object:
+		ko.Object.Class = class
 	default:
 		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
 	}
@@ -137,10 +117,8 @@ func (ko *Object) SetClass(class string) {
 
 func (ko *Object) LastUpdateTimeUnix() int64 {
 	switch ko.Kind {
-	case kind.Thing:
-		return ko.Thing.LastUpdateTimeUnix
-	case kind.Action:
-		return ko.Action.LastUpdateTimeUnix
+	case kind.Object:
+		return ko.Object.LastUpdateTimeUnix
 	default:
 		panic("impossible kind")
 	}
@@ -150,15 +128,10 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 // object and not generated at runtime
 func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 	switch ko.Kind {
-	case kind.Thing:
+	case kind.Object:
 		return &models.UnderscoreProperties{
-			Classification: ko.Thing.Classification,
-			Interpretation: ko.Thing.Interpretation,
-		}
-	case kind.Action:
-		return &models.UnderscoreProperties{
-			Classification: ko.Action.Classification,
-			Interpretation: ko.Action.Interpretation,
+			Classification: ko.Object.Classification,
+			Interpretation: ko.Object.Interpretation,
 		}
 	default:
 		panic("impossible kind")
@@ -167,10 +140,8 @@ func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 
 func (ko *Object) Schema() models.PropertySchema {
 	switch ko.Kind {
-	case kind.Thing:
-		return ko.Thing.Schema
-	case kind.Action:
-		return ko.Action.Schema
+	case kind.Object:
+		return ko.Object.Schema
 	default:
 		panic("impossible kind")
 	}
@@ -209,10 +180,8 @@ func (ko *Object) SchemaWithUnderscores(
 
 func (ko *Object) SetSchema(schema models.PropertySchema) {
 	switch ko.Kind {
-	case kind.Thing:
-		ko.Thing.Schema = schema
-	case kind.Action:
-		ko.Action.Schema = schema
+	case kind.Object:
+		ko.Object.Schema = schema
 	default:
 		panic("impossible kind")
 	}
@@ -220,10 +189,8 @@ func (ko *Object) SetSchema(schema models.PropertySchema) {
 
 func (ko *Object) VectorWeights() models.VectorWeights {
 	switch ko.Kind {
-	case kind.Thing:
-		return ko.Thing.VectorWeights
-	case kind.Action:
-		return ko.Action.VectorWeights
+	case kind.Object:
+		return ko.Object.VectorWeights
 	default:
 		panic("impossible kind")
 	}
@@ -327,7 +294,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 
 	kindByte := uint8(0)
-	if ko.Kind == kind.Thing {
+	if ko.Kind == kind.Object {
 		kindByte = 1
 	}
 
@@ -451,9 +418,9 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 
 	if kindByte == 1 {
-		ko.Kind = kind.Thing
+		ko.Kind = kind.Object
 	} else {
-		ko.Kind = kind.Action
+		ko.Kind = kind.Object
 	}
 
 	return ko.parseKind(
@@ -488,19 +455,8 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return err
 	}
 
-	if ko.Kind == kind.Thing {
-		ko.Thing = models.Thing{
-			Class:              className,
-			CreationTimeUnix:   create,
-			LastUpdateTimeUnix: update,
-			ID:                 uuid,
-			Schema:             schema,
-			VectorWeights:      vectorWeights,
-			Classification:     underscore.Classification,
-			Interpretation:     underscore.Interpretation,
-		}
-	} else if ko.Kind == kind.Action {
-		ko.Action = models.Action{
+	if ko.Kind == kind.Object {
+		ko.Object = models.Object{
 			Class:              className,
 			CreationTimeUnix:   create,
 			LastUpdateTimeUnix: update,

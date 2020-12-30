@@ -22,17 +22,15 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	t.Run("without grouping <- this is the control", func(t *testing.T) {
 		query := `
 		{
-				Get {
-					Things {
-						Company {
-							name
-						}
-					}
+			Get {
+				Company {
+					name
 				}
+			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		companies := result.Get("Get", "Things", "Company").AsSlice()
+		companies := result.Get("Get", "Company").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"name": "Microsoft Inc."},

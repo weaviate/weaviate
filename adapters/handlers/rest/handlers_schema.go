@@ -25,53 +25,53 @@ type schemaHandlers struct {
 	manager *schemaUC.Manager
 }
 
-func (s *schemaHandlers) addAction(params schema.SchemaActionsCreateParams,
+func (s *schemaHandlers) addObject(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	err := s.manager.AddAction(params.HTTPRequest.Context(), principal, params.ActionClass)
+	err := s.manager.AddObject(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaActionsCreateForbidden().
+			return schema.NewSchemaObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaActionsCreateUnprocessableEntity().
+			return schema.NewSchemaObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaActionsCreateOK().WithPayload(params.ActionClass)
+	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
 }
 
-func (s *schemaHandlers) deleteAction(params schema.SchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteAction(params.HTTPRequest.Context(), principal, params.ClassName)
+func (s *schemaHandlers) deleteObject(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaActionsDeleteForbidden().
+			return schema.NewSchemaObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaActionsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaObjectsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaActionsDeleteOK()
+	return schema.NewSchemaObjectsDeleteOK()
 }
 
-func (s *schemaHandlers) addActionProperty(params schema.SchemaActionsPropertiesAddParams,
+func (s *schemaHandlers) addObjectProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal) middleware.Responder {
-	err := s.manager.AddActionProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	err := s.manager.AddObjectProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaActionsPropertiesAddForbidden().
+			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaActionsPropertiesAddUnprocessableEntity().
+			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaActionsPropertiesAddOK().WithPayload(params.Body)
+	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -87,77 +87,21 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	}
 
 	payload := &schema.SchemaDumpOKBody{
-		Actions: dbSchema.Actions,
-		Things:  dbSchema.Things,
+		Objects: dbSchema.Objects,
 	}
 
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) addThing(params schema.SchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.AddThing(params.HTTPRequest.Context(), principal, params.ThingClass)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.NewSchemaThingsCreateOK().WithPayload(params.ThingClass)
-}
-
-func (s *schemaHandlers) deleteThing(params schema.SchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteThing(params.HTTPRequest.Context(), principal, params.ClassName)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.NewSchemaThingsDeleteOK()
-}
-
-func (s *schemaHandlers) addThingProperty(params schema.SchemaThingsPropertiesAddParams,
-	principal *models.Principal) middleware.Responder {
-	err := s.manager.AddThingProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsPropertiesAddForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsPropertiesAddUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.NewSchemaThingsPropertiesAddOK().WithPayload(params.Body)
-}
-
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
-	api.SchemaSchemaActionsCreateHandler = schema.
-		SchemaActionsCreateHandlerFunc(h.addAction)
-	api.SchemaSchemaActionsDeleteHandler = schema.
-		SchemaActionsDeleteHandlerFunc(h.deleteAction)
-	api.SchemaSchemaActionsPropertiesAddHandler = schema.
-		SchemaActionsPropertiesAddHandlerFunc(h.addActionProperty)
-
-	api.SchemaSchemaThingsCreateHandler = schema.
-		SchemaThingsCreateHandlerFunc(h.addThing)
-	api.SchemaSchemaThingsDeleteHandler = schema.
-		SchemaThingsDeleteHandlerFunc(h.deleteThing)
-	api.SchemaSchemaThingsPropertiesAddHandler = schema.
-		SchemaThingsPropertiesAddHandlerFunc(h.addThingProperty)
+	api.SchemaSchemaObjectsCreateHandler = schema.
+		SchemaObjectsCreateHandlerFunc(h.addObject)
+	api.SchemaSchemaObjectsDeleteHandler = schema.
+		SchemaObjectsDeleteHandlerFunc(h.deleteObject)
+	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
+		SchemaObjectsPropertiesAddHandlerFunc(h.addObjectProperty)
 
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)

@@ -21,10 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestVectorizingThings(t *testing.T) {
+func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
 		name               string
-		input              *models.Thing
+		input              *models.Object
 		expectedClientCall []string
 		noindex            string
 		excludedProperty   string // to simulate a schema where property names aren't vectorized
@@ -33,15 +33,15 @@ func TestVectorizingThings(t *testing.T) {
 
 	tests := []testCase{
 		testCase{
-			name: "empty thing",
-			input: &models.Thing{
+			name: "empty object",
+			input: &models.Object{
 				Class: "Car",
 			},
 			expectedClientCall: []string{"car"},
 		},
 		testCase{
-			name: "thing with one string prop",
-			input: &models.Thing{
+			name: "object with one string prop",
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"brand": "Mercedes",
@@ -51,8 +51,8 @@ func TestVectorizingThings(t *testing.T) {
 		},
 
 		testCase{
-			name: "thing with one non-string prop",
-			input: &models.Thing{
+			name: "object with one non-string prop",
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"power": 300,
@@ -62,8 +62,8 @@ func TestVectorizingThings(t *testing.T) {
 		},
 
 		testCase{
-			name: "thing with a mix of props",
-			input: &models.Thing{
+			name: "object with a mix of props",
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"brand":  "best brand",
@@ -76,7 +76,7 @@ func TestVectorizingThings(t *testing.T) {
 		testCase{
 			name:    "with a noindexed property",
 			noindex: "review",
-			input: &models.Thing{
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"brand":  "best brand",
@@ -90,7 +90,7 @@ func TestVectorizingThings(t *testing.T) {
 		testCase{
 			name:          "with the class name not vectorized",
 			excludedClass: "Car",
-			input: &models.Thing{
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"brand":  "best brand",
@@ -104,7 +104,7 @@ func TestVectorizingThings(t *testing.T) {
 		testCase{
 			name:             "with a property name not vectorized",
 			excludedProperty: "review",
-			input: &models.Thing{
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"brand":  "best brand",
@@ -119,7 +119,7 @@ func TestVectorizingThings(t *testing.T) {
 			name:             "with no schema labels vectorized",
 			excludedProperty: "review",
 			excludedClass:    "Car",
-			input: &models.Thing{
+			input: &models.Object{
 				Class: "Car",
 				Schema: map[string]interface{}{
 					"review": "a very great car",
@@ -130,7 +130,7 @@ func TestVectorizingThings(t *testing.T) {
 
 		testCase{
 			name: "with compound class and prop names",
-			input: &models.Thing{
+			input: &models.Object{
 				Class: "SuperCar",
 				Schema: map[string]interface{}{
 					"brandOfTheCar": "best brand",
@@ -149,7 +149,7 @@ func TestVectorizingThings(t *testing.T) {
 
 			v := New(client, indexer)
 
-			res, _, err := v.Thing(context.Background(), test.input)
+			res, _, err := v.Object(context.Background(), test.input)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)
@@ -181,7 +181,7 @@ func (p *propertyIndexer) VectorizePropertyName(class, prop string) bool {
 func TestVectorizingActions(t *testing.T) {
 	type testCase struct {
 		name               string
-		input              *models.Action
+		input              *models.Object
 		expectedClientCall []string
 		noindex            string
 		excludedProperty   string // to simulate a schema where property names aren't vectorized
@@ -190,15 +190,15 @@ func TestVectorizingActions(t *testing.T) {
 
 	tests := []testCase{
 		testCase{
-			name: "empty thing",
-			input: &models.Action{
+			name: "empty object",
+			input: &models.Object{
 				Class: "Flight",
 			},
 			expectedClientCall: []string{"flight"},
 		},
 		testCase{
-			name: "thing with one string prop",
-			input: &models.Action{
+			name: "object with one string prop",
+			input: &models.Object{
 				Class: "Flight",
 				Schema: map[string]interface{}{
 					"brand": "Mercedes",
@@ -208,8 +208,8 @@ func TestVectorizingActions(t *testing.T) {
 		},
 
 		testCase{
-			name: "thing with one non-string prop",
-			input: &models.Action{
+			name: "object with one non-string prop",
+			input: &models.Object{
 				Class: "Flight",
 				Schema: map[string]interface{}{
 					"length": 300,
@@ -219,8 +219,8 @@ func TestVectorizingActions(t *testing.T) {
 		},
 
 		testCase{
-			name: "thing with a mix of props",
-			input: &models.Action{
+			name: "object with a mix of props",
+			input: &models.Object{
 				Class: "Flight",
 				Schema: map[string]interface{}{
 					"brand":  "best brand",
@@ -238,7 +238,7 @@ func TestVectorizingActions(t *testing.T) {
 			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
 			v := New(client, indexer)
 
-			res, _, err := v.Action(context.Background(), test.input)
+			res, _, err := v.Object(context.Background(), test.input)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)

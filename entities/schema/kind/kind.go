@@ -20,11 +20,8 @@ import (
 // in the future
 type Kind string
 
-// Thing Kind represents real-life things, such as objects and persons
-const Thing Kind = "thing"
-
-// Action Kind represents events and processes
-const Action Kind = "action"
+// Object Kind represents real-life things, such as objects and persons and events and processes
+const Object Kind = "object"
 
 // Name returns the lowercaps name, such as thing, action
 func (k *Kind) Name() string {
@@ -44,10 +41,8 @@ func (k *Kind) AllCapsName() string {
 // Parse parses a string into a typed Kind
 func Parse(name string) (Kind, error) {
 	switch name {
-	case "thing":
-		return Thing, nil
-	case "action":
-		return Action, nil
+	case "object":
+		return Object, nil
 	default:
 		return "", fmt.Errorf("invalid kind: %s", name)
 	}

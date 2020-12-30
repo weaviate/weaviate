@@ -39,13 +39,13 @@ type Result struct {
 
 type Results []Result
 
-func (r Result) Thing() *models.Thing {
+func (r Result) Object() *models.Object {
 	schema, ok := r.Schema.(map[string]interface{})
 	if ok {
 		delete(schema, "uuid")
 	}
 
-	t := &models.Thing{
+	t := &models.Object{
 		Class:              r.ClassName,
 		ID:                 r.ID,
 		Schema:             schema,
@@ -71,55 +71,55 @@ func (r Result) Thing() *models.Thing {
 	return t
 }
 
-func (r Result) Action() *models.Action {
-	schema, ok := r.Schema.(map[string]interface{})
-	if ok {
-		delete(schema, "uuid")
-	}
+// func (r Result) Action() *models.Action {
+// 	schema, ok := r.Schema.(map[string]interface{})
+// 	if ok {
+// 		delete(schema, "uuid")
+// 	}
 
-	t := &models.Action{
-		Class:              r.ClassName,
-		ID:                 r.ID,
-		Schema:             schema,
-		CreationTimeUnix:   r.Created,
-		LastUpdateTimeUnix: r.Updated,
-		VectorWeights:      r.VectorWeights,
-	}
+// 	t := &models.Action{
+// 		Class:              r.ClassName,
+// 		ID:                 r.ID,
+// 		Schema:             schema,
+// 		CreationTimeUnix:   r.Created,
+// 		LastUpdateTimeUnix: r.Updated,
+// 		VectorWeights:      r.VectorWeights,
+// 	}
 
-	if r.UnderscoreProperties != nil {
-		t.Vector = r.UnderscoreProperties.Vector
-		t.Classification = r.UnderscoreProperties.Classification
+// 	if r.UnderscoreProperties != nil {
+// 		t.Vector = r.UnderscoreProperties.Vector
+// 		t.Classification = r.UnderscoreProperties.Classification
 
-		t.Interpretation = r.UnderscoreProperties.Interpretation
-		r.UnderscoreProperties.Interpretation = nil
+// 		t.Interpretation = r.UnderscoreProperties.Interpretation
+// 		r.UnderscoreProperties.Interpretation = nil
 
-		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
-		r.UnderscoreProperties.NearestNeighbors = nil
+// 		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
+// 		r.UnderscoreProperties.NearestNeighbors = nil
 
-		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
-		r.UnderscoreProperties.FeatureProjection = nil
-	}
+// 		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
+// 		r.UnderscoreProperties.FeatureProjection = nil
+// 	}
 
-	return t
-}
+// 	return t
+// }
 
-func (rs Results) Things() []*models.Thing {
-	things := make([]*models.Thing, len(rs))
+func (rs Results) Objects() []*models.Object {
+	objects := make([]*models.Object, len(rs))
 	for i, res := range rs {
-		things[i] = res.Thing()
+		objects[i] = res.Object()
 	}
 
-	return things
+	return objects
 }
 
-func (rs Results) Actions() []*models.Action {
-	actions := make([]*models.Action, len(rs))
-	for i, res := range rs {
-		actions[i] = res.Action()
-	}
+// func (rs Results) Actions() []*models.Action {
+// 	actions := make([]*models.Action, len(rs))
+// 	for i, res := range rs {
+// 		actions[i] = res.Action()
+// 	}
 
-	return actions
-}
+// 	return actions
+// }
 
 func (rs Results) SortByDistanceToVector(vector []float32) (Results, error) {
 	var lastErr error

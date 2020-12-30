@@ -27,11 +27,11 @@ func (d *DB) init() error {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
 
-	things := d.schemaGetter.GetSchemaSkipAuth().Things
-	if things != nil {
-		for _, class := range things.Classes {
+	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
+	if objects != nil {
+		for _, class := range objects.Classes {
 			idx, err := NewIndex(IndexConfig{
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
 			}, d.schemaGetter, d, d.logger)
@@ -43,20 +43,5 @@ func (d *DB) init() error {
 		}
 	}
 
-	actions := d.schemaGetter.GetSchemaSkipAuth().Actions
-	if actions != nil {
-		for _, class := range actions.Classes {
-			idx, err := NewIndex(IndexConfig{
-				Kind:      kind.Action,
-				ClassName: schema.ClassName(class.Class),
-				RootPath:  d.config.RootPath,
-			}, d.schemaGetter, d, d.logger)
-			if err != nil {
-				return errors.Wrap(err, "create index")
-			}
-
-			d.indices[idx.ID()] = idx
-		}
-	}
 	return nil
 }

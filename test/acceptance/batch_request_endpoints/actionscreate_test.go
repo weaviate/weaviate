@@ -11,7 +11,7 @@
 
 // TODO: change this test to simulate a successful query response when the test dataset is implemented.
 
-// Acceptance tests for the batch ActionsCreate endpoint
+// Acceptance tests for the batch ObjectsCreate endpoint
 package batch_request_endpoints
 
 import (
@@ -26,21 +26,21 @@ import (
 
 // Test if batching is working correctly. Sends an OK batch containing two batched requests that refer to non-existing classes.
 // The expected outcome is a 200 batch response containing two batched responses. These batched responses should both contain errors.
-func TestBatchActionsCreateResultsOrder(t *testing.T) {
+func TestBatchObjectsCreateResultsOrder(t *testing.T) {
 	t.Parallel()
 
 	classOneName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516542"
 	classTwoName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516541"
 	expectedResult := "class '%s' not present in schema"
 
-	// generate actioncreate content
-	action1 := &models.Action{
+	// generate objectcreate content
+	object1 := &models.Object{
 		Class: classOneName,
 		Schema: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
-	action2 := &models.Action{
+	object2 := &models.Object{
 		Class: classTwoName,
 		Schema: map[string]interface{}{
 			"testWholeNumber": 1,
@@ -50,24 +50,24 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 	testFields := "ALL"
 
 	// generate request body
-	params := batching.NewBatchingActionsCreateParams().WithBody(batching.BatchingActionsCreateBody{
-		Actions: []*models.Action{action1, action2},
+	params := batching.NewBatchingObjectsCreateParams().WithBody(batching.BatchingObjectsCreateBody{
+		Objects: []*models.Object{object1, object2},
 		Fields:  []*string{&testFields},
 	})
 
 	// perform the request
-	resp, err := helper.BatchingClient(t).BatchingActionsCreate(params, nil)
+	resp, err := helper.BatchingClient(t).BatchingObjectsCreate(params, nil)
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		actionsCreateResponse := resp.Payload
+		objectsCreateResponse := resp.Payload
 
 		// check if the batch response contains two batched responses
-		assert.Equal(t, 2, len(actionsCreateResponse))
+		assert.Equal(t, 2, len(objectsCreateResponse))
 
 		// check if the error message matches the expected outcome (and are therefore returned in the correct order)
-		if len(actionsCreateResponse) == 2 {
-			responseOne := actionsCreateResponse[0].Result.Errors.Error[0].Message
-			responseTwo := actionsCreateResponse[1].Result.Errors.Error[0].Message
+		if len(objectsCreateResponse) == 2 {
+			responseOne := objectsCreateResponse[0].Result.Errors.Error[0].Message
+			responseTwo := objectsCreateResponse[1].Result.Errors.Error[0].Message
 
 			fullExpectedOutcomeOne := fmt.Sprintf(expectedResult, classOneName)
 			assert.Contains(t, responseOne, fullExpectedOutcomeOne)
