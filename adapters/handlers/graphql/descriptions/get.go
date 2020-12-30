@@ -35,12 +35,10 @@ const (
 const NetworkGetWeaviateObj = "An object containing Get Objects fields for network Weaviate instance: "
 
 const (
-	// NetworkGetActions = "Get Actions from a Weaviate in a network"
 	NetworkGetObjects = "Get Objects from a Weaviate in a network"
 )
 
 const (
-	// NetworkGetActionsObj = "An object containing the Actions objects on this network Weaviate instance."
 	NetworkGetObjectsObj = "An object containing the Objects objects on this network Weaviate instance."
 )
 

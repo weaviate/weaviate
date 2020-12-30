@@ -63,21 +63,17 @@ func Test_SchemaRepo(t *testing.T) {
 
 func exampleSchema() schemauc.State {
 	return schemauc.State{
-		// ActionSchema: &models.Schema{
-		// 	Classes: []*models.Class{
-		// 		&models.Class{
-		// 			Class: "MyAction",
-		// 			Properties: []*models.Property{
-		// 				&models.Property{
-		// 					Name:     "myActionProp",
-		// 					DataType: []string{"string"},
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// },
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{
+				&models.Class{
+					Class: "MyAction",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "myActionProp",
+							DataType: []string{"string"},
+						},
+					},
+				},
 				&models.Class{
 					Class: "MyThing",
 					Properties: []*models.Property{

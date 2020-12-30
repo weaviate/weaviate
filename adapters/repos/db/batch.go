@@ -55,36 +55,6 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 	return objects, nil
 }
 
-// func (db *DB) BatchPutActions(ctx context.Context, actions objects.BatchActions) (objects.BatchActions, error) {
-// 	byIndex := map[string]batchQueue{}
-// 	for _, item := range actions {
-// 		for _, index := range db.indices {
-// 			if index.Config.Kind != kind.Action || index.Config.ClassName != schema.ClassName(item.Action.Class) {
-// 				continue
-// 			}
-
-// 			if item.Err != nil {
-// 				// item has a validation error or another reason to ignore
-// 				continue
-// 			}
-
-// 			queue := byIndex[index.ID()]
-// 			queue.objects = append(queue.objects, storobj.FromAction(item.Action, item.Vector))
-// 			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
-// 			byIndex[index.ID()] = queue
-// 		}
-// 	}
-
-// 	for indexID, queue := range byIndex {
-// 		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
-// 		for index, err := range errs {
-// 			actions[queue.originalIndex[index]].Err = err
-// 		}
-// 	}
-
-// 	return actions, nil
-// }
-
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences) (objects.BatchReferences, error) {
 	byIndex := map[string]objects.BatchReferences{}
 	for _, item := range references {
