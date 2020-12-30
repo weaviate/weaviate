@@ -23,8 +23,8 @@ import (
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	index, err := New(Config{
-		RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:       "automatic-tombstone-removal",
+		RootPath:                 "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                       "automatic-tombstone-removal",
 		MakeCommitLoggerThunk:    MakeNoopCommitLogger,
 		MaximumConnections:       30,
 		EFConstruction:           60,
