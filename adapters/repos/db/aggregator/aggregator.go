@@ -37,7 +37,6 @@ func New(db *bolt.DB, params traverser.AggregateParams,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker) *Aggregator {
-	// fmt.Println("New aggregator")
 	return &Aggregator{
 		db:               db,
 		params:           params,
