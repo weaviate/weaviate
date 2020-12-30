@@ -75,7 +75,7 @@ func (ua unfilteredAggregator) parseAndAddBoolRow(agg *boolAggregator, k, v []by
 func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
-		Type: aggregation.PropertyTypeNumerical,
+		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
 	}
 
@@ -106,7 +106,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 func (ua unfilteredAggregator) intProperty(ctx context.Context,
 	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
-		Type: aggregation.PropertyTypeNumerical,
+		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
 	}
 

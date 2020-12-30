@@ -569,8 +569,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -594,8 +594,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -623,8 +623,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -648,8 +648,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -691,8 +691,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:              []string{"string"},
+						Name:                  test.input,
 						VectorizePropertyName: test.vectorize,
 					}
 					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
@@ -725,8 +725,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:              []string{"string"},
+						Name:                  test.input,
 						VectorizePropertyName: test.vectorize,
 					}
 					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
@@ -751,8 +751,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -776,8 +776,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -812,7 +812,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 							&models.Property{
 								DataType:              []string{"string"},
 								VectorizePropertyName: test.vectorize,
-								Name: originalName,
+								Name:                  originalName,
 							},
 						},
 					}
@@ -844,8 +844,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class: "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
-								DataType: []string{"string"},
-								Name:     originalName,
+								DataType:              []string{"string"},
+								Name:                  originalName,
 								VectorizePropertyName: test.vectorize,
 							},
 						},
@@ -881,8 +881,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -906,8 +906,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -938,20 +938,20 @@ func Test_AllUsablePropsNoindexed(t *testing.T) {
 			VectorizeClassName: ptBool(false),
 			Properties: []*models.Property{
 				{
-					DataType: []string{"text"},
-					Name:     "decsription",
-					Index:    ptFalse(),
+					DataType:              []string{"text"},
+					Name:                  "decsription",
+					Index:                 ptFalse(),
 					VectorizePropertyName: false,
 				},
 				{
-					DataType: []string{"string"},
-					Name:     "name",
-					Index:    ptFalse(),
+					DataType:              []string{"string"},
+					Name:                  "name",
+					Index:                 ptFalse(),
 					VectorizePropertyName: false,
 				},
 				{
-					DataType: []string{"int"},
-					Name:     "amount",
+					DataType:              []string{"int"},
+					Name:                  "amount",
 					VectorizePropertyName: false,
 				},
 			},
