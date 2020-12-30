@@ -62,24 +62,22 @@ func Test_Resolve(t *testing.T) {
 			query: `
 			{
 					Aggregate {
-						Things {
-							Car(where:{
-								operator:Or
-								operands:[{
-									valueString:"Fast",
-									operator:Equal,
-									path:["modelName"]
-								}, {
-									valueString:"Slow",
-									operator:Equal,
-									path:["modelName"]
-								}]
-							}) {
+						Car(where:{
+							operator:Or
+							operands:[{
+								valueString:"Fast",
+								operator:Equal,
+								path:["modelName"]
+							}, {
+								valueString:"Slow",
+								operator:Equal,
+								path:["modelName"]
+							}]
+						}) {
+							__typename
+							modelName {
 								__typename
-								modelName {
-									__typename
-									count
-								}
+								count
 							}
 						}
 					}
@@ -134,7 +132,7 @@ func Test_Resolve(t *testing.T) {
 
 			expectedGroupBy: nil,
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"__typename": "AggregateCar",
@@ -148,7 +146,7 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name:  "without grouping prop",
-			query: `{ Aggregate { Things { Car { horsepower { mean } } } } }`,
+			query: `{ Aggregate { Car { horsepower { mean } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
@@ -170,7 +168,7 @@ func Test_Resolve(t *testing.T) {
 
 			expectedGroupBy: nil,
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"horsepower": map[string]interface{}{"mean": 275.7773},
@@ -180,7 +178,7 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name:  "setting limits overall",
-			query: `{ Aggregate { Things { Car(limit:20) { horsepower { mean } } } } }`,
+			query: `{ Aggregate { Car(limit:20) { horsepower { mean } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
@@ -203,7 +201,7 @@ func Test_Resolve(t *testing.T) {
 			expectedGroupBy: nil,
 			expectedLimit:   ptInt(20),
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"horsepower": map[string]interface{}{"mean": 275.7773},
@@ -213,12 +211,12 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name: "with props formerly contained only in Meta",
-			query: `{ Aggregate { Things { Car { 
+			query: `{ Aggregate { Car { 
 				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
 				modelName { type count topOccurrences { value occurs } } 
 				MadeBy { type pointingTo }
 				meta { count }
-				} } } } `,
+				} } } `,
 			expectedIncludeMetaCount: true,
 			expectedProps: []traverser.AggregateProperty{
 				{
@@ -293,7 +291,7 @@ func Test_Resolve(t *testing.T) {
 
 			expectedGroupBy: nil,
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"stillInProduction": map[string]interface{}{
@@ -331,9 +329,9 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name: "with custom limit in topOccurrences",
-			query: `{ Aggregate { Things { Car { 
+			query: `{ Aggregate { Car { 
 				modelName { topOccurrences(limit: 7) { value occurs } } 
-				} } } } `,
+				} } } `,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name: "modelName",
@@ -368,7 +366,7 @@ func Test_Resolve(t *testing.T) {
 
 			expectedGroupBy: nil,
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"modelName": map[string]interface{}{
@@ -389,7 +387,7 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name:  "single prop: mean (with type)",
-			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean type } } } } }`,
+			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean type } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
@@ -412,7 +410,7 @@ func Test_Resolve(t *testing.T) {
 
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"horsepower": map[string]interface{}{
@@ -426,7 +424,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "single prop: mean with groupedBy path/value",
-			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } } }`,
+			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
@@ -451,7 +449,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"horsepower": map[string]interface{}{"mean": 275.7773},
@@ -467,21 +465,19 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name: "single prop: mean with a where filter",
 			query: `{ 
-				Aggregate { 
-					Things { 
-						Car(
-							groupBy:["madeBy", "Manufacturer", "name"]
-							where: {
-								operator: LessThan,
-								valueInt: 200,
-								path: ["horsepower"],
-							}
-						) { 
-							horsepower { 
-								mean 
-							} 
-						} 
-					} 
+				Aggregate {
+					Car(
+						groupBy:["madeBy", "Manufacturer", "name"]
+						where: {
+							operator: LessThan,
+							valueInt: 200,
+							path: ["horsepower"],
+						}
+					) { 
+						horsepower { 
+							mean 
+						}
+					}
 				} 
 			}`,
 			expectedProps: []traverser.AggregateProperty{
@@ -508,7 +504,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"horsepower": map[string]interface{}{
@@ -534,7 +530,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "all int props",
-			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean, median, mode, maximum, minimum, count, sum } } } } }`,
+			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean, median, mode, maximum, minimum, count, sum } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
@@ -566,7 +562,7 @@ func Test_Resolve(t *testing.T) {
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{
 				{
-					pathToField: []string{"Aggregate", "Things", "Car"},
+					pathToField: []string{"Aggregate", "Car"},
 					expectedValue: []interface{}{
 						map[string]interface{}{
 							"horsepower": map[string]interface{}{
@@ -586,7 +582,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "single prop: string",
-			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
+			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } }`,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "modelName",
@@ -611,7 +607,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
+				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"modelName": map[string]interface{}{
@@ -623,7 +619,7 @@ func Test_Resolve(t *testing.T) {
 		},
 	}
 
-	tests.AssertExtraction(t, kind.Thing, "Car")
+	tests.AssertExtraction(t, kind.Object, "Car")
 }
 
 func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className string) {

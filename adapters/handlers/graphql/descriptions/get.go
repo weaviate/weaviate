@@ -14,35 +14,32 @@ package descriptions
 
 // Local
 const (
-	GetActions = "Get Actions on a local Weaviate"
-	GetThings  = "Get Things on a local Weaviate"
+	GetObjects = "Get Objects on a local Weaviate"
 )
 
 const (
-	GetObj = "An object used to Get Things or Actions on a local Weaviate"
-	Get    = "Get Things or Actions on a local Weaviate"
+	GetObj = "An object used to Get Objects on a local Weaviate"
+	Get    = "Get Objects on a local Weaviate"
 )
 
-const GetThingsActionsObj = "An object used to get %ss on a local Weaviate"
+const GetObjectsActionsObj = "An object used to get %ss on a local Weaviate"
 
-const GetClassUUID = "The UUID of a Thing or Action, assigned by its local Weaviate"
+const GetClassUUID = "The UUID of a Object, assigned by its local Weaviate"
 
 // Network
 const (
-	NetworkGet    = "Get Things or Actions from a Weaviate in a network"
-	NetworkGetObj = "An object used to Get Things or Actions from a Weaviate in a network"
+	NetworkGet    = "Get Objects from a Weaviate in a network"
+	NetworkGetObj = "An object used to Get Objects from a Weaviate in a network"
 )
 
-const NetworkGetWeaviateObj = "An object containing Get Things and Actions fields for network Weaviate instance: "
+const NetworkGetWeaviateObj = "An object containing Get Objects fields for network Weaviate instance: "
 
 const (
-	NetworkGetActions = "Get Actions from a Weaviate in a network"
-	NetworkGetThings  = "Get Things from a Weaviate in a network"
+	NetworkGetObjects = "Get Objects from a Weaviate in a network"
 )
 
 const (
-	NetworkGetActionsObj = "An object containing the Actions objects on this network Weaviate instance."
-	NetworkGetThingsObj  = "An object containing the Things objects on this network Weaviate instance."
+	NetworkGetObjectsObj = "An object containing the Objects objects on this network Weaviate instance."
 )
 
-const NetworkGetClassUUID = "The UUID of a Thing or Action, assigned by the Weaviate network" // TODO check this with @lauraham
+const NetworkGetClassUUID = "The UUID of a Object, assigned by the Weaviate network" // TODO check this with @lauraham

@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
@@ -45,15 +45,15 @@ func Test_Classifications(t *testing.T) {
 	t.Run("knn classification", knnClassification)
 
 	// tear down
-	deleteThingClass(t, "Article")
-	deleteThingClass(t, "Category")
-	deleteThingClass(t, "Recipe")
-	deleteThingClass(t, "RecipeType")
+	deleteObjectClass(t, "Article")
+	deleteObjectClass(t, "Category")
+	deleteObjectClass(t, "Recipe")
+	deleteObjectClass(t, "RecipeType")
 }
 
 func setupArticleCategory(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
-		createThingClass(t, &models.Class{
+		createObjectClass(t, &models.Class{
 			Class:              "Category",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
@@ -63,7 +63,7 @@ func setupArticleCategory(t *testing.T) {
 				},
 			},
 		})
-		createThingClass(t, &models.Class{
+		createObjectClass(t, &models.Class{
 			Class:              "Article",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
@@ -80,19 +80,19 @@ func setupArticleCategory(t *testing.T) {
 	})
 
 	t.Run("object setup - categories", func(t *testing.T) {
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Category",
 			Schema: map[string]interface{}{
 				"name": "Food and Drink",
 			},
 		})
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Category",
 			Schema: map[string]interface{}{
 				"name": "Computers and Technology",
 			},
 		})
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Category",
 			Schema: map[string]interface{}{
 				"name": "Politics",
@@ -101,21 +101,21 @@ func setupArticleCategory(t *testing.T) {
 	})
 
 	t.Run("object setup - articles", func(t *testing.T) {
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			ID:    article1,
 			Class: "Article",
 			Schema: map[string]interface{}{
 				"content": "The new Apple Macbook 16 inch provides great performance",
 			},
 		})
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			ID:    article2,
 			Class: "Article",
 			Schema: map[string]interface{}{
 				"content": "I love eating ice cream with my t-bone steak",
 			},
 		})
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			ID:    article3,
 			Class: "Article",
 			Schema: map[string]interface{}{
@@ -124,12 +124,12 @@ func setupArticleCategory(t *testing.T) {
 		})
 	})
 
-	assertGetThingEventually(t, "92f05097-6371-499c-a0fe-3e60ae16fe3d")
+	assertGetObjectEventually(t, "92f05097-6371-499c-a0fe-3e60ae16fe3d")
 }
 
 func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
-		createThingClass(t, &models.Class{
+		createObjectClass(t, &models.Class{
 			Class:              "RecipeType",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
@@ -139,7 +139,7 @@ func setupRecipe(t *testing.T) {
 				},
 			},
 		})
-		createThingClass(t, &models.Class{
+		createObjectClass(t, &models.Class{
 			Class:              "Recipe",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
@@ -156,7 +156,7 @@ func setupRecipe(t *testing.T) {
 	})
 
 	t.Run("object setup - recipe types", func(t *testing.T) {
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "RecipeType",
 			ID:    recipeTypeSavory,
 			Schema: map[string]interface{}{
@@ -164,7 +164,7 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "RecipeType",
 			ID:    recipeTypeSweet,
 			Schema: map[string]interface{}{
@@ -174,79 +174,79 @@ func setupRecipe(t *testing.T) {
 	})
 
 	t.Run("object setup - articles", func(t *testing.T) {
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Mix two eggs with milk and 7 grams of sugar, bake in the oven at 200 degrees",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSweet),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSweet),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Sautee the apples with sugar and add a dash of milk.",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSweet),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSweet),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Mix butter, cream and sugar. Make eggwhites fluffy and mix with the batter",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSweet),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSweet),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Fry the steak in the pan, then sautee the onions in the same pan",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSavory),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSavory),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Cut the potatoes in half and add salt and pepper. Serve with the meat.",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSavory),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSavory),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Recipe",
 			Schema: map[string]interface{}{
 				"content": "Put the pasta and sauce mix in the oven, top with plenty of cheese",
 				"ofType": []interface{}{
 					map[string]interface{}{
-						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", recipeTypeSavory),
+						"beacon": fmt.Sprintf("weaviate://localhost/%s", recipeTypeSavory),
 					},
 				},
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			ID:    unclassifiedSavory,
 			Class: "Recipe",
 			Schema: map[string]interface{}{
@@ -254,7 +254,7 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			ID:    unclassifiedSweet,
 			Class: "Recipe",
 			Schema: map[string]interface{}{
@@ -263,24 +263,24 @@ func setupRecipe(t *testing.T) {
 		})
 	})
 
-	assertGetThingEventually(t, unclassifiedSweet)
+	assertGetObjectEventually(t, unclassifiedSweet)
 }
 
-func createThingClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
-	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+func createObjectClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func createThing(t *testing.T, thing *models.Thing) {
-	params := things.NewThingsCreateParams().WithBody(thing)
-	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
+func createObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func deleteThingClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+func deleteObjectClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
 
@@ -288,24 +288,24 @@ func ptBool(in bool) *bool {
 	return &in
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
+func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 	var (
-		resp *things.ThingsGetOK
+		resp *objects.ObjectsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
+		resp, err = helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.Thing
+	var object *models.Object
 
 	helper.AssertRequestOk(t, resp, err, func() {
-		thing = resp.Payload
+		object = resp.Payload
 	})
 
-	return thing
+	return object
 }

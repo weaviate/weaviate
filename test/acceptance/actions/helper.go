@@ -15,71 +15,70 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/actions"
-	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
-func assertCreateAction(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := actions.NewActionsCreateParams().WithBody(
-		&models.Action{
+func assertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
+	params := objects.NewObjectsCreateParams().WithBody(
+		&models.Object{
 			Class:  className,
 			Schema: schema,
 		})
 
-	resp, err := helper.Client(t).Actions.ActionsCreate(params, nil)
+	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 
-	var actionID strfmt.UUID
+	var objectID strfmt.UUID
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		actionID = resp.Payload.ID
+		objectID = resp.Payload.ID
 	})
 
-	return actionID
+	return objectID
 }
 
-func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.Action {
-	getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+func assertGetObject(t *testing.T, uuid strfmt.UUID) *models.Object {
+	getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 
-	var action *models.Action
+	var object *models.Object
 
 	helper.AssertRequestOk(t, getResp, err, func() {
-		action = getResp.Payload
+		object = getResp.Payload
 	})
 
-	return action
+	return object
 }
 
-func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.Action {
+func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
 	var (
-		resp *actions.ActionsGetOK
+		resp *objects.ObjectsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		resp, err = helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var action *models.Action
+	var object *models.Object
 
 	helper.AssertRequestOk(t, resp, err, func() {
-		action = resp.Payload
+		object = resp.Payload
 	})
 
-	return action
+	return object
 }
 
-func assertGetActionFailsEventually(t *testing.T, uuid strfmt.UUID) error {
+func assertGetObjectFailsEventually(t *testing.T, uuid strfmt.UUID) error {
 	var err error
 
 	checkThunk := func() interface{} {
-		_, err = helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		_, err = helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 		return err != nil
 	}
 
@@ -88,42 +87,42 @@ func assertGetActionFailsEventually(t *testing.T, uuid strfmt.UUID) error {
 	return err
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
-	var (
-		resp *things.ThingsGetOK
-		err  error
-	)
+// func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
+// 	var (
+// 		resp *things.ThingsGetOK
+// 		err  error
+// 	)
 
-	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
-		return err == nil
-	}
+// 	checkThunk := func() interface{} {
+// 		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
+// 		return err == nil
+// 	}
 
-	testhelper.AssertEventuallyEqual(t, true, checkThunk)
+// 	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.Thing
+// 	var thing *models.Thing
 
-	helper.AssertRequestOk(t, resp, err, func() {
-		thing = resp.Payload
-	})
+// 	helper.AssertRequestOk(t, resp, err, func() {
+// 		thing = resp.Payload
+// 	})
 
-	return thing
-}
+// 	return thing
+// }
 
-func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := things.NewThingsCreateParams().WithBody(&models.Thing{
-		Class:  className,
-		Schema: schema,
-	})
+// func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
+// 	params := things.NewThingsCreateParams().WithBody(&models.Thing{
+// 		Class:  className,
+// 		Schema: schema,
+// 	})
 
-	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
+// 	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
 
-	var thingID strfmt.UUID
+// 	var thingID strfmt.UUID
 
-	// Ensure that the response is OK
-	helper.AssertRequestOk(t, resp, err, func() {
-		thingID = resp.Payload.ID
-	})
+// 	// Ensure that the response is OK
+// 	helper.AssertRequestOk(t, resp, err, func() {
+// 		thingID = resp.Payload.ID
+// 	})
 
-	return thingID
-}
+// 	return thingID
+// }

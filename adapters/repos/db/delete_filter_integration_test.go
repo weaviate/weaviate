@@ -69,21 +69,21 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, thingclass))
+			migrator.AddClass(context.Background(), kind.Object, thingclass))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{thingclass},
 			},
 		}
 	})
 
-	var things []*models.Thing
+	var things []*models.Object
 	t.Run("importing 10 initial items", func(t *testing.T) {
-		things = make([]*models.Thing, 10)
+		things = make([]*models.Object, 10)
 		for i := 0; i < 10; i++ {
-			things[i] = &models.Thing{
+			things[i] = &models.Object{
 				Class: className,
 				ID:    mustNewUUID(),
 				Schema: map[string]interface{}{
@@ -93,7 +93,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Vector: []float32{0.1},
 			}
 
-			err := repo.PutThing(context.Background(), things[i], things[i].Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
 			require.Nil(t, err)
 		}
 	})
@@ -106,7 +106,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Schema.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutThing(context.Background(), things[i], things[i].Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
 			require.Nil(t, err)
 		}
 	})
@@ -120,7 +120,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Limit: 5,
 			},
 			Filters: buildFilter("boolProp", true, eq, dtBool),
-			Kind:    kind.Thing,
+			Kind:    kind.Object,
 		})
 		expectedIDs := []strfmt.UUID{
 			things[0].ID, things[1].ID, things[2].ID, things[3].ID, things[4].ID,

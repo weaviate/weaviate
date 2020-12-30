@@ -29,7 +29,7 @@ import (
 func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ClassName: "BestClass",
 			Explore: &ExploreParams{
 				Values: []string{"foo"},
@@ -40,14 +40,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
@@ -90,7 +90,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when an explore param is set and the required certainty not met", func(t *testing.T) {
 		params := GetParams{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ClassName: "BestClass",
 			Explore: &ExploreParams{
 				Values:    []string{"foo"},
@@ -102,11 +102,11 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 			},
 		}
@@ -139,7 +139,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when no explore param is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -147,14 +147,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
@@ -197,7 +197,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _classification prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -208,7 +208,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
@@ -218,7 +218,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
@@ -269,7 +269,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _certainty prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			Filters:      nil,
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
@@ -286,7 +286,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
@@ -331,7 +331,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _interpretation prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -342,7 +342,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
@@ -352,7 +352,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
@@ -415,7 +415,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _nearestNeighbors prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -426,14 +426,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
@@ -447,7 +447,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Thing,
+					Kind: kind.Object,
 					ID:   "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
@@ -464,7 +464,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Action,
+					Kind: kind.Object,
 					ID:   "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
@@ -529,7 +529,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _featureProjection prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -540,14 +540,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
@@ -562,7 +562,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		projector := &fakeProjector{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Thing,
+					Kind: kind.Object,
 					ID:   "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
@@ -574,7 +574,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Action,
+					Kind: kind.Object,
 					ID:   "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
@@ -623,7 +623,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _semanticPath prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -637,14 +637,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Thing,
+				Kind: kind.Object,
 				ID:   "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Action,
+				Kind: kind.Object,
 				ID:   "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
@@ -660,7 +660,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		pathBuilder := &fakePathBuilder{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Thing,
+					Kind: kind.Object,
 					ID:   "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
@@ -687,7 +687,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Thing,
+					Kind: kind.Object,
 					ID:   "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",

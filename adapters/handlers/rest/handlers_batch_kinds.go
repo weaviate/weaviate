@@ -18,89 +18,47 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type batchKindHandlers struct {
-	manager *kinds.BatchManager
+	manager *objects.BatchManager
 }
 
-func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams,
+func (h *batchKindHandlers) addObjects(params batching.BatchingObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	things, err := h.manager.AddThings(params.HTTPRequest.Context(), principal,
-		params.Body.Things, params.Body.Fields)
+	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
+		params.Body.Objects, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return batching.NewBatchingThingsCreateForbidden().
+			return batching.NewBatchingObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return batching.NewBatchingThingsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return batching.NewBatchingThingsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return batching.NewBatchingThingsCreateOK().
-		WithPayload(h.thingsResponse(things))
-}
-
-func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.ThingsGetResponse {
-	response := make([]*models.ThingsGetResponse, len(input))
-	for i, thing := range input {
-		var errorResponse *models.ErrorResponse
-		if thing.Err != nil {
-			errorResponse = errPayloadFromSingleErr(thing.Err)
-		}
-
-		thing.Thing.ID = thing.UUID
-		response[i] = &models.ThingsGetResponse{
-			Thing: *thing.Thing,
-			Result: &models.ThingsGetResponseAO2Result{
-				Errors: errorResponse,
-			},
-		}
-	}
-
-	return response
-}
-
-func (h *batchKindHandlers) addActions(params batching.BatchingActionsCreateParams,
-	principal *models.Principal) middleware.Responder {
-	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), principal,
-		params.Body.Actions, params.Body.Fields)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return batching.NewBatchingActionsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return batching.NewBatchingActionsCreateUnprocessableEntity().
+		case objects.ErrInvalidUserInput:
+			return batching.NewBatchingObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return batching.NewBatchingActionsCreateInternalServerError().
+			return batching.NewBatchingObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return batching.NewBatchingActionsCreateOK().
-		WithPayload(h.actionsResponse(actions))
+	return batching.NewBatchingObjectsCreateOK().
+		WithPayload(h.objectsResponse(objs))
 }
 
-func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.ActionsGetResponse {
-	response := make([]*models.ActionsGetResponse, len(input))
-	for i, action := range input {
+func (h *batchKindHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
+	response := make([]*models.ObjectsGetResponse, len(input))
+	for i, object := range input {
 		var errorResponse *models.ErrorResponse
-		if action.Err != nil {
-			errorResponse = errPayloadFromSingleErr(action.Err)
+		if object.Err != nil {
+			errorResponse = errPayloadFromSingleErr(object.Err)
 		}
 
-		action.Action.ID = action.UUID
-		response[i] = &models.ActionsGetResponse{
-			Action: *action.Action,
-			Result: &models.ActionsGetResponseAO2Result{
+		object.Object.ID = object.UUID
+		response[i] = &models.ObjectsGetResponse{
+			Object: *object.Object,
+			Result: &models.ObjectsGetResponseAO2Result{
 				Errors: errorResponse,
 			},
 		}
@@ -117,7 +75,7 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 		case errors.Forbidden:
 			return batching.NewBatchingReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
+		case objects.ErrInvalidUserInput:
 			return batching.NewBatchingReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -130,7 +88,7 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 		WithPayload(h.referencesResponse(references))
 }
 
-func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*models.BatchReferenceResponse {
+func (h *batchKindHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
@@ -157,13 +115,11 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 	return response
 }
 
-func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *kinds.BatchManager) {
+func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
 	h := &batchKindHandlers{manager}
 
-	api.BatchingBatchingThingsCreateHandler = batching.
-		BatchingThingsCreateHandlerFunc(h.addThings)
-	api.BatchingBatchingActionsCreateHandler = batching.
-		BatchingActionsCreateHandlerFunc(h.addActions)
+	api.BatchingBatchingObjectsCreateHandler = batching.
+		BatchingObjectsCreateHandlerFunc(h.addObjects)
 	api.BatchingBatchingReferencesCreateHandler = batching.
 		BatchingReferencesCreateHandlerFunc(h.addReferences)
 }

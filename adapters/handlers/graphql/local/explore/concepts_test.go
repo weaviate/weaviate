@@ -51,7 +51,7 @@ func Test_ResolveExplore(t *testing.T) {
 			},
 			resolverReturn: []search.Result{
 				search.Result{
-					Beacon:    "weaviate://localhost/things/some-uuid",
+					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
 				},
@@ -60,7 +60,7 @@ func Test_ResolveExplore(t *testing.T) {
 				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "weaviate://localhost/things/some-uuid",
+						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
 						"certainty": float32(0.7),
 					},
@@ -85,7 +85,7 @@ func Test_ResolveExplore(t *testing.T) {
 			},
 			resolverReturn: []search.Result{
 				search.Result{
-					Beacon:    "weaviate://localhost/things/some-uuid",
+					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
 			},
@@ -93,7 +93,7 @@ func Test_ResolveExplore(t *testing.T) {
 				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "weaviate://localhost/things/some-uuid",
+						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
 					},
 				},
@@ -125,7 +125,7 @@ func Test_ResolveExplore(t *testing.T) {
 			},
 			resolverReturn: []search.Result{
 				search.Result{
-					Beacon:    "weaviate://localhost/things/some-uuid",
+					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
 			},
@@ -133,7 +133,7 @@ func Test_ResolveExplore(t *testing.T) {
 				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "weaviate://localhost/things/some-uuid",
+						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
 					},
 				},
@@ -173,7 +173,7 @@ func Test_ResolveExplore(t *testing.T) {
 			},
 			resolverReturn: []search.Result{
 				search.Result{
-					Beacon:    "weaviate://localhost/things/some-uuid",
+					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
 			},
@@ -181,7 +181,7 @@ func Test_ResolveExplore(t *testing.T) {
 				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "weaviate://localhost/things/some-uuid",
+						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
 					},
 				},

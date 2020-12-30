@@ -93,7 +93,7 @@ func (gs *groups) new(item search.Result) {
 }
 
 func (gs groups) flatten(strategy string) (out []search.Result, err error) {
-	gs.logger.WithField("action", "grouping_before_flatten").
+	gs.logger.WithField("object", "grouping_before_flatten").
 		WithField("strategy", strategy).
 		WithField("groups", gs.Elements).
 		Debug("group before flattening")
@@ -110,7 +110,7 @@ func (gs groups) flatten(strategy string) (out []search.Result, err error) {
 		return
 	}
 
-	gs.logger.WithField("action", "grouping_after_flatten").
+	gs.logger.WithField("object", "grouping_after_flatten").
 		WithField("strategy", strategy).
 		WithField("groups", gs.Elements).
 		Debug("group after flattening")

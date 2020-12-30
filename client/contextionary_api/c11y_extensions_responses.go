@@ -83,7 +83,7 @@ func NewC11yExtensionsOK() *C11yExtensionsOK {
 
 /*C11yExtensionsOK handles this case with default header values.
 
-Successfully extended the contextionary with the custom cocnept
+Successfully extended the contextionary with the custom concept
 */
 type C11yExtensionsOK struct {
 	Payload *models.C11yExtension
