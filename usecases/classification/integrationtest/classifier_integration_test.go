@@ -60,52 +60,54 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	size := 400
 	data := largeTestDataSize(size)
 
-	t.Run("creating the classes", func(t *testing.T) {
-		for _, c := range testSchema().Things.Classes {
-			require.Nil(t,
-				migrator.AddClass(context.Background(), kind.Thing, c))
-		}
-
-		sg.schema = testSchema()
-	})
-
-	t.Run("importing the training data", func(t *testing.T) {
-		classified := testDataAlreadyClassified()
-		bt := make(kinds.BatchThings, len(classified))
-		for i, elem := range classified {
-			bt[i] = kinds.BatchThing{
-				OriginalIndex: i,
-				UUID:          elem.ID,
-				Vector:        elem.Vector,
-				Thing:         elem.Thing(),
+	t.Run("preparations", func(t *testing.T) {
+		t.Run("creating the classes", func(t *testing.T) {
+			for _, c := range testSchema().Things.Classes {
+				require.Nil(t,
+					migrator.AddClass(context.Background(), kind.Thing, c))
 			}
-		}
 
-		res, err := vrepo.BatchPutThings(context.Background(), bt)
-		require.Nil(t, err)
-		for _, elem := range res {
-			require.Nil(t, elem.Err)
-		}
-	})
+			sg.schema = testSchema()
+		})
 
-	t.Run("importing the to be classified data", func(t *testing.T) {
-		bt := make(kinds.BatchThings, size)
-		for i, elem := range data {
-			bt[i] = kinds.BatchThing{
-				OriginalIndex: i,
-				UUID:          elem.ID,
-				Vector:        elem.Vector,
-				Thing:         elem.Thing(),
+		t.Run("importing the training data", func(t *testing.T) {
+			classified := testDataAlreadyClassified()
+			bt := make(kinds.BatchThings, len(classified))
+			for i, elem := range classified {
+				bt[i] = kinds.BatchThing{
+					OriginalIndex: i,
+					UUID:          elem.ID,
+					Vector:        elem.Vector,
+					Thing:         elem.Thing(),
+				}
 			}
-		}
-		res, err := vrepo.BatchPutThings(context.Background(), bt)
-		require.Nil(t, err)
-		for _, elem := range res {
-			require.Nil(t, elem.Err)
-		}
+
+			res, err := vrepo.BatchPutThings(context.Background(), bt)
+			require.Nil(t, err)
+			for _, elem := range res {
+				require.Nil(t, elem.Err)
+			}
+		})
+
+		t.Run("importing the to be classified data", func(t *testing.T) {
+			bt := make(kinds.BatchThings, size)
+			for i, elem := range data {
+				bt[i] = kinds.BatchThing{
+					OriginalIndex: i,
+					UUID:          elem.ID,
+					Vector:        elem.Vector,
+					Thing:         elem.Thing(),
+				}
+			}
+			res, err := vrepo.BatchPutThings(context.Background(), bt)
+			require.Nil(t, err)
+			for _, elem := range res {
+				require.Nil(t, elem.Err)
+			}
+		})
 	})
 
-	t.Run("with valid data", func(t *testing.T) {
+	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		classifier := classification.New(sg, repo, vrepo, authorizer, nil, logger)
@@ -170,36 +172,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, 0, len(res))
 		})
-
-		// t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
-		// 	vectorRepo.Lock()
-		// 	require.Len(t, vectorRepo.db, size)
-		// 	vectorRepo.Unlock()
-
-		// 	// t.Run("food", func(t *testing.T) {
-		// 	// 	idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"
-		// 	// 	idArticleFoodTwo := "6402e649-b1e0-40ea-b192-a64eab0d5e56"
-
-		// 	// 	checkRef(t, vectorRepo, idArticleFoodOne, "exactCategory", idCategoryFoodAndDrink)
-		// 	// 	checkRef(t, vectorRepo, idArticleFoodTwo, "mainCategory", idMainCategoryFoodAndDrink)
-		// 	// })
-
-		// 	// t.Run("politics", func(t *testing.T) {
-		// 	// 	idArticlePoliticsOne := "75ba35af-6a08-40ae-b442-3bec69b355f9"
-		// 	// 	idArticlePoliticsTwo := "f850439a-d3cd-4f17-8fbf-5a64405645cd"
-
-		// 	// 	checkRef(t, vectorRepo, idArticlePoliticsOne, "exactCategory", idCategoryPolitics)
-		// 	// 	checkRef(t, vectorRepo, idArticlePoliticsTwo, "mainCategory", idMainCategoryPoliticsAndSociety)
-		// 	// })
-
-		// 	// t.Run("society", func(t *testing.T) {
-		// 	// 	idArticleSocietyOne := "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109"
-		// 	// 	idArticleSocietyTwo := "069410c3-4b9e-4f68-8034-32a066cb7997"
-
-		// 	// 	checkRef(t, vectorRepo, idArticleSocietyOne, "exactCategory", idCategorySociety)
-		// 	// 	checkRef(t, vectorRepo, idArticleSocietyTwo, "mainCategory", idMainCategoryPoliticsAndSociety)
-		// 	// })
-		// })
 	})
 }
 
