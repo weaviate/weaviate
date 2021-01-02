@@ -391,13 +391,13 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 }
 
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {
-	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
+	testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, func() interface{} {
 		class, err := classifier.Get(context.Background(), nil, id)
 		require.Nil(t, err)
 		require.NotNil(t, class)
 
 		return class.Status != models.ClassificationStatusRunning
-	}, "wait until status in no longer running")
+	}, 100*time.Millisecond, 20*time.Second, "wait until status in no longer running")
 }
 
 type fakeVectorizer struct {
