@@ -80,15 +80,6 @@ func New(peerName string, target strfmt.UUID, k kind.Kind) *Ref {
 	}
 }
 
-func parseKind(kinds string) (kind.Kind, error) {
-	switch kinds {
-	case "objects":
-		return kind.Object, nil
-	default:
-		return "", fmt.Errorf("invalid kind, expected 'things' or 'actions', but got '%s'", kinds)
-	}
-}
-
 func (r *Ref) String() string {
 	uri := url.URL{
 		Host:   r.PeerName,

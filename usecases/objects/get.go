@@ -26,7 +26,7 @@ import (
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("%s", id.String()))
+	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return nil, err
 	}

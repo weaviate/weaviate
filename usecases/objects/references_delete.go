@@ -24,7 +24,7 @@ import (
 // DeleteObjectReference from connected DB
 func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
 	}

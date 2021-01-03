@@ -37,7 +37,7 @@ type MergeDocument struct {
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Object) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
 	}
