@@ -27,7 +27,8 @@ type batchQueue struct {
 
 func (db *DB) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error) {
 	byIndex := map[string]batchQueue{}
-	for _, item := range things {
+	for i, item := range things {
+		item.OriginalIndex = i
 		for _, index := range db.indices {
 			if index.Config.Kind != kind.Thing || index.Config.ClassName != schema.ClassName(item.Thing.Class) {
 				continue
