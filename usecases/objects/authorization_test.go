@@ -56,25 +56,25 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:       "GetObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
 			expectedVerb:     "get",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 		testCase{
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
 			expectedVerb:     "delete",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 		testCase{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 		testCase{
 			methodName:       "MergeObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 
 		// list kinds
@@ -90,19 +90,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 		testCase{
 			methodName:       "DeleteObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 		testCase{
 			methodName:       "UpdateObjectReferences",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (models.MultipleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "foo",
+			expectedResource: "objects/foo",
 		},
 	}
 
@@ -121,25 +121,27 @@ func Test_Kinds_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			schemaManager := &fakeSchemaManager{}
-			locks := &fakeLocks{}
-			cfg := &config.WeaviateConfig{}
-			authorizer := &authDenier{}
-			extender := &fakeExtender{}
-			projector := &fakeProjector{}
-			vectorizer := &fakeVectorizer{}
-			vectorRepo := &fakeVectorRepo{}
-			manager := NewManager(locks, schemaManager,
-				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+			t.Run(test.methodName, func(t *testing.T) {
+				schemaManager := &fakeSchemaManager{}
+				locks := &fakeLocks{}
+				cfg := &config.WeaviateConfig{}
+				authorizer := &authDenier{}
+				extender := &fakeExtender{}
+				projector := &fakeProjector{}
+				vectorizer := &fakeVectorizer{}
+				vectorRepo := &fakeVectorRepo{}
+				manager := NewManager(locks, schemaManager,
+					cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 
-			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-			out, _ := callFuncByName(manager, test.methodName, args...)
+				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
+				out, _ := callFuncByName(manager, test.methodName, args...)
 
-			require.Len(t, authorizer.calls, 1, "authorizer must be called")
-			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-				"execution must abort with authorizer error")
-			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-				authorizer.calls[0], "correct paramteres must have been used on authorizer")
+				require.Len(t, authorizer.calls, 1, "authorizer must be called")
+				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
+					"execution must abort with authorizer error")
+				assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
+					authorizer.calls[0], "correct paramteres must have been used on authorizer")
+			})
 		}
 	})
 }
