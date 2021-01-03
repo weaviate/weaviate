@@ -28,7 +28,7 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
 	}

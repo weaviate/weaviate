@@ -22,7 +22,7 @@ import (
 
 // DeleteObject Class Instance from the conncected DB
 func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
-	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("%s", id.String()))
+	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
 	}

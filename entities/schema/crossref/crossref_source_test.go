@@ -155,7 +155,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 				uri:  "weaviate://localhost/SomeClass/c2cd3f91-iSneakedInHere-477e-869a-8da8829e0a4d",
 			},
 			{
-				name: "with an invalid kind", //was /humans/SomeClass
+				name: "with an invalid kind", // was /humans/SomeClass
 				uri:  "weaviate://localhost/SomeClass/c2cd3f91-0160-477e-869a-8da8829e0a4d",
 			},
 			{
