@@ -38,48 +38,9 @@ type Client struct {
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error)
-
 	C11yExtensions(params *C11yExtensionsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yExtensionsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
-}
-
-/*
-  C11yConcepts checks if a concept is part of the contextionary
-
-  Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase
-*/
-func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewC11yConceptsParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "c11y.concepts",
-		Method:             "GET",
-		PathPattern:        "/c11y/concepts/{concept}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &C11yConceptsReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*C11yConceptsOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for c11y.concepts: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
 }
 
 /*
