@@ -53,20 +53,36 @@ func (h *RESTHandlers) getOne(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.inspector.GetWords(r.Context(), concept)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
+		h.writeError(w, err, http.StatusBadRequest)
 		return
 	}
 
 	json, err := res.MarshalBinary()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		h.writeError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Add("content-type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	w.Write(json)
+}
+
+func (h *RESTHandlers) writeError(w http.ResponseWriter, err error, code int) {
+	res := &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: err.Error(),
+	}}}
+
+	json, mErr := res.MarshalBinary()
+	if mErr != nil {
+		// fallback to text
+		w.Header().Add("content-type", "text/plain")
+		w.WriteHeader(code)
+		w.Write([]byte(err.Error()))
+	}
+
+	w.Header().Add("content-type", "application/json")
+	w.WriteHeader(code)
 	w.Write(json)
 }
 
