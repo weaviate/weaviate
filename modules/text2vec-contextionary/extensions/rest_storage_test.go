@@ -22,9 +22,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHandlers(t *testing.T) {
+func Test_StorageHandlers(t *testing.T) {
 	ls := newFakeLoaderStorer()
-	h := NewRESTHandlers(ls)
+	h := NewRESTHandlers(ls, nil)
 
 	extensionAKey := "my-first-extension"
 	extensionAValue := []byte("some-value")
@@ -35,7 +35,7 @@ func TestHandlers(t *testing.T) {
 	t.Run("retrieving a non existent concept", func(t *testing.T) {
 		r := httptest.NewRequest("GET", "/my-concept", nil)
 		w := httptest.NewRecorder()
-		h.Handler().ServeHTTP(w, r)
+		h.StorageHandler().ServeHTTP(w, r)
 
 		res := w.Result()
 		defer res.Body.Close()
@@ -47,7 +47,7 @@ func TestHandlers(t *testing.T) {
 			body := bytes.NewReader(extensionAValue)
 			r := httptest.NewRequest("PUT", fmt.Sprintf("/%s", extensionAKey), body)
 			w := httptest.NewRecorder()
-			h.Handler().ServeHTTP(w, r)
+			h.StorageHandler().ServeHTTP(w, r)
 
 			res := w.Result()
 			defer res.Body.Close()
@@ -58,7 +58,7 @@ func TestHandlers(t *testing.T) {
 			body := bytes.NewReader(extensionBValue)
 			r := httptest.NewRequest("PUT", fmt.Sprintf("/%s", extensionBKey), body)
 			w := httptest.NewRecorder()
-			h.Handler().ServeHTTP(w, r)
+			h.StorageHandler().ServeHTTP(w, r)
 
 			res := w.Result()
 			defer res.Body.Close()
@@ -72,7 +72,7 @@ func TestHandlers(t *testing.T) {
 		r := httptest.NewRequest("PUT", "/some-extension", body)
 
 		w := httptest.NewRecorder()
-		h.Handler().ServeHTTP(w, r)
+		h.StorageHandler().ServeHTTP(w, r)
 
 		res := w.Result()
 		defer res.Body.Close()
@@ -84,7 +84,7 @@ func TestHandlers(t *testing.T) {
 		r := httptest.NewRequest("PUT", "/", body)
 
 		w := httptest.NewRecorder()
-		h.Handler().ServeHTTP(w, r)
+		h.StorageHandler().ServeHTTP(w, r)
 
 		res := w.Result()
 		defer res.Body.Close()
@@ -95,7 +95,7 @@ func TestHandlers(t *testing.T) {
 		t.Run("extension A", func(t *testing.T) {
 			r := httptest.NewRequest("GET", fmt.Sprintf("/%s", extensionAKey), nil)
 			w := httptest.NewRecorder()
-			h.Handler().ServeHTTP(w, r)
+			h.StorageHandler().ServeHTTP(w, r)
 
 			res := w.Result()
 			defer res.Body.Close()
@@ -106,7 +106,7 @@ func TestHandlers(t *testing.T) {
 		t.Run("extension B", func(t *testing.T) {
 			r := httptest.NewRequest("GET", fmt.Sprintf("/%s", extensionBKey), nil)
 			w := httptest.NewRecorder()
-			h.Handler().ServeHTTP(w, r)
+			h.StorageHandler().ServeHTTP(w, r)
 
 			res := w.Result()
 			defer res.Body.Close()
@@ -117,7 +117,7 @@ func TestHandlers(t *testing.T) {
 		t.Run("full dump with trailing slash", func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/", nil)
 			w := httptest.NewRecorder()
-			h.Handler().ServeHTTP(w, r)
+			h.StorageHandler().ServeHTTP(w, r)
 			expectedValue := []byte("some-value\nsome-other-value\n")
 
 			res := w.Result()
@@ -133,7 +133,7 @@ func TestHandlers(t *testing.T) {
 		r := httptest.NewRequest("GET", "/some-extension", body)
 
 		w := httptest.NewRecorder()
-		h.Handler().ServeHTTP(w, r)
+		h.StorageHandler().ServeHTTP(w, r)
 
 		res := w.Result()
 		defer res.Body.Close()

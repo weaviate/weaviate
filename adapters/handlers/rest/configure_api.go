@@ -157,7 +157,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	batchKindsManager := objects.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
-	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
 
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorizer,
@@ -176,7 +175,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, schemaManager)
 	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
 	setupKindBatchHandlers(api, batchKindsManager)
-	setupC11yHandlers(api, vectorInspector, appState.Contextionary)
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Contextionary)
 	setupClassificationHandlers(api, classifier)
@@ -332,7 +330,10 @@ func registerModules(appState *state.State) error {
 	}
 
 	appState.Modules = modules.NewProvider()
-	appState.Modules.Register(modcontextionary.New(storageProvider))
+
+	// TODO: don't pass entire appState in, but only what's needed. Probably only
+	// config?
+	appState.Modules.Register(modcontextionary.New(storageProvider, appState))
 
 	err = appState.Modules.Init()
 	if err != nil {
