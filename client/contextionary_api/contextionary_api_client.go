@@ -40,8 +40,6 @@ type Client struct {
 type ClientService interface {
 	C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error)
 
-	C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error
-
 	C11yExtensions(params *C11yExtensionsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yExtensionsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -82,36 +80,6 @@ func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.Clien
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for c11y.concepts: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
-}
-
-/*
-  C11yCorpusGet checks if a word or word string is part of the contextionary
-
-  Analyzes a sentence based on the contextionary
-*/
-func (a *Client) C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewC11yCorpusGetParams()
-	}
-
-	_, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "c11y.corpus.get",
-		Method:             "POST",
-		PathPattern:        "/c11y/corpus",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &C11yCorpusGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 /*
