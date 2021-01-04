@@ -1,9 +1,8 @@
 module github.com/semi-technologies/weaviate
 
 require (
-	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
+	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296 // indirect
 	github.com/bmatcuk/doublestar v1.1.3
-	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e // indirect
