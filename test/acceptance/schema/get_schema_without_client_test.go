@@ -32,12 +32,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 	require.Nil(t, err)
 
 	expected := map[string]interface{}{
-		"actions": map[string]interface{}{
-			"type":    "action",
-			"classes": []interface{}{},
-		},
-		"things": map[string]interface{}{
-			"type": "thing",
+		"objects": map[string]interface{}{
+			"type": "object",
 			"classes": []interface{}{
 				map[string]interface{}{
 					"class":              "YellowCars",

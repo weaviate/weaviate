@@ -90,8 +90,8 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), kind.Thing, carClass))
-			schemaGetter.schema.Things = &models.Schema{
+				migrator.AddClass(context.Background(), kind.Object, carClass))
+			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
 				},
@@ -101,7 +101,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutThing(context.Background(), &fixture, carVectors[i]))
+					repo.PutObject(context.Background(), &fixture, carVectors[i]))
 			})
 		}
 	}
@@ -327,7 +327,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				}
 				params := traverser.GetParams{
 					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					Kind:         kind.Thing,
+					Kind:         kind.Object,
 					ClassName:    carClass.Class,
 					Pagination:   &filters.Pagination{Limit: test.limit},
 					Filters:      test.filter,
@@ -353,7 +353,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 
 			params := traverser.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
@@ -368,7 +368,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 
 			params := traverser.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
@@ -439,7 +439,7 @@ func testChainedPrimitiveProps(repo *DB,
 			t.Run(test.name, func(t *testing.T) {
 				params := traverser.GetParams{
 					// SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					Kind:       kind.Thing,
+					Kind:       kind.Object,
 					ClassName:  carClass.Class,
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filter,
@@ -550,8 +550,8 @@ func mustParseTime(in string) time.Time {
 	return asTime
 }
 
-var cars = []models.Thing{
-	models.Thing{
+var cars = []models.Object{
+	models.Object{
 		Class: carClass.Class,
 		ID:    carSprinterID,
 		Schema: map[string]interface{}{
@@ -567,7 +567,7 @@ var cars = []models.Thing{
 			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
 		},
 	},
-	models.Thing{
+	models.Object{
 		Class: carClass.Class,
 		ID:    carE63sID,
 		Schema: map[string]interface{}{
@@ -583,7 +583,7 @@ var cars = []models.Thing{
 			"description": "This car has a huge motor, but it's also not exactly lightweight.",
 		},
 	},
-	models.Thing{
+	models.Object{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Schema: map[string]interface{}{
@@ -634,8 +634,8 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), kind.Thing, class)
-		schemaGetter.schema.Things = &models.Schema{
+		migrator.AddClass(context.Background(), kind.Object, class)
+		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
 	})
@@ -660,7 +660,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	upsert := func(t *testing.T) {
 		for i, id := range ids {
-			repo.PutThing(context.Background(), &models.Thing{
+			repo.PutObject(context.Background(), &models.Object{
 				Class: "GeoUpdateTestClass",
 				ID:    id,
 				Schema: map[string]interface{}{

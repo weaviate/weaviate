@@ -32,9 +32,9 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -57,7 +57,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 }
 
 type vectorRepo interface {
-	kinds.BatchVectorRepo
+	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
@@ -65,7 +65,7 @@ type vectorRepo interface {
 }
 
 type vectorizer interface {
-	kinds.Vectorizer
+	objects.Vectorizer
 	traverser.CorpiVectorizer
 	SetIndexChecker(libvectorizer.IndexCheck)
 }
@@ -151,10 +151,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	kindsManager := kinds.NewManager(appState.Locks,
+	kindsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo, nnExtender, featureProjector)
-	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
+	batchKindsManager := objects.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)

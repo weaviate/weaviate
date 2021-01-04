@@ -37,7 +37,7 @@ type Deprecation struct {
 	// The locations within the specified API affected by this deprecation
 	Locations []string `json:"locations"`
 
-	// User-required action to not be affected by the (planned) removal
+	// User-required object to not be affected by the (planned) removal
 	Mitigation string `json:"mitigation,omitempty"`
 
 	// What this deprecation is about

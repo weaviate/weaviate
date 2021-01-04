@@ -38,116 +38,6 @@
         }
       }
     },
-    "Action": {
-      "properties": {
-        "class": {
-          "description": "Type of the Action, defined in the schema.",
-          "type": "string"
-        },
-        "vectorWeights": {
-          "$ref": "#/definitions/VectorWeights"
-        },
-        "schema": {
-          "$ref": "#/definitions/PropertySchema"
-        },
-        "id": {
-          "description": "ID of the Action.",
-          "format": "uuid",
-          "type": "string"
-        },
-        "creationTimeUnix": {
-          "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "lastUpdateTimeUnix": {
-          "description": "Timestamp of the last update made to the Action since epoch UTC.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
-          "$ref": "#/definitions/UnderscorePropertiesClassification"
-        },
-        "_vector": {
-          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
-          "$ref": "#/definitions/C11yVector"
-        },
-        "_interpretation": {
-          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "_nearestNeighbors": {
-          "description": "Additional information about the neighboring concepts of this element",
-          "$ref": "#/definitions/NearestNeighbors"
-        },
-        "_featureProjection": {
-          "description": "A feature projection of the object's vector into lower dimensions for visualization",
-          "$ref": "#/definitions/FeatureProjection"
-        }
-      },
-      "type": "object"
-    },
-    "ActionsGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "properties": {
-            "deprecations": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/Deprecation"
-              }
-            }
-          }
-        },
-        {
-          "properties": {
-            "result": {
-              "description": "Results for this specific Action.",
-              "format": "object",
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "default": "SUCCESS",
-                  "enum": ["SUCCESS", "PENDING", "FAILED"]
-                },
-                "errors": {
-                  "$ref": "#/definitions/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "type": "object"
-    },
-    "ActionsListResponse": {
-      "description": "List of Actions.",
-      "properties": {
-        "actions": {
-          "description": "The actual list of Actions.",
-          "items": {
-            "$ref": "#/definitions/Action"
-          },
-          "type": "array"
-        },
-        "deprecations": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Deprecation"
-          }
-        },
-        "totalResults": {
-          "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
-          "format": "int64",
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
@@ -307,7 +197,7 @@
         },
         "mitigation": {
           "type": "string",
-          "description": "User-required action to not be affected by the (planned) removal"
+          "description": "User-required object to not be affected by the (planned) removal"
         },
         "sinceVersion": {
           "type": "string",
@@ -475,7 +365,7 @@
       },
       "type": "array"
     },
-    "PatchDocumentThing": {
+    "PatchDocumentObject": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "properties": {
         "from": {
@@ -496,7 +386,7 @@
           "type": "object"
         }, 
         "merge": {
-          "$ref": "#/definitions/Thing"
+          "$ref": "#/definitions/Object"
         } 
       },
       "required": ["op", "path"]
@@ -522,7 +412,7 @@
           "type": "object"
         }, 
         "merge": {
-          "$ref": "#/definitions/Thing"
+          "$ref": "#/definitions/Object"
         } 
       },
       "required": ["op", "path"]
@@ -589,8 +479,8 @@
           "type": "string"
         },
         "type": {
-          "description": "Type of schema, should be \"thing\" or \"action\".",
-          "enum": ["thing", "action"],
+          "description": "Type of schema, should be \"object\".",
+          "enum": ["object"],
           "type": "string"
         }
       },
@@ -663,7 +553,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "beacon": {
-          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object",
           "format": "uri",
           "type": "string"
         },
@@ -679,7 +569,7 @@
       }
     },
     "UnderscoreProperties": {
-      "description": "Additional Meta information about a single thing/action object.",
+      "description": "Additional Meta information about a single object object.",
       "properties": {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
@@ -918,14 +808,14 @@
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'actions', 'things' and <className> and <propertyName> must represent the cross-ref property of source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'objects', 'objects' and <className> and <propertyName> must represent the cross-ref property of source class to be used.",
           "format": "uri",
           "type": "string",
-          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+          "example": "weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
         "to": {
-          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
-          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f",
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object",
+          "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
 
           "format": "uri",
           "type": "string"
@@ -1008,10 +898,10 @@
         }
       }
     },
-    "Thing": {
+    "Object": {
       "properties": {
         "class": {
-          "description": "Class of the Thing, defined in the schema.",
+          "description": "Class of the Object, defined in the schema.",
           "type": "string"
         },
         "vectorWeights": {
@@ -1021,17 +911,17 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "id": {
-          "description": "ID of the Thing.",
+          "description": "ID of the Object.",
           "format": "uuid",
           "type": "string"
         },
         "creationTimeUnix": {
-          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "description": "Timestamp of creation of this Object in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
         },
         "lastUpdateTimeUnix": {
-          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "description": "Timestamp of the last Object update in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
         },
@@ -1058,10 +948,10 @@
       },
       "type": "object"
     },
-    "ThingsGetResponse": {
+    "ObjectsGetResponse": {
       "allOf": [
         {
-          "$ref": "#/definitions/Thing"
+          "$ref": "#/definitions/Object"
         },
         {
           "properties": {
@@ -1076,7 +966,7 @@
         {
           "properties": {
             "result": {
-              "description": "Results for this specific Thing.",
+              "description": "Results for this specific Object.",
               "format": "object",
               "properties": {
                 "status": {
@@ -1094,13 +984,13 @@
       ],
       "type": "object"
     },
-    "ThingsListResponse": {
-      "description": "List of Things.",
+    "ObjectsListResponse": {
+      "description": "List of Objects.",
       "properties": {
-        "things": {
-          "description": "The actual list of Things.",
+        "objects": {
+          "description": "The actual list of Objects.",
           "items": {
-            "$ref": "#/definitions/Thing"
+            "$ref": "#/definitions/Object"
           },
           "type": "array"
         },
@@ -1111,7 +1001,7 @@
           }
         },
         "totalResults": {
-          "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of Objects for the query. The number of items in a response may be smaller due to paging.",
           "format": "int64",
           "type": "integer"
         }
@@ -1427,10 +1317,10 @@
         }
       }
     },
-    "/actions": {
+    "/objects": {
       "get": {
-        "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
-        "operationId": "actions.list",
+        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "operationId": "objects.list",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
@@ -1444,7 +1334,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
+              "$ref": "#/definitions/ObjectsListResponse"
             }
           },
           "400": {
@@ -1472,14 +1362,14 @@
             }
           }
         },
-        "summary": "Get a list of Actions.",
-        "tags": ["actions"],
+        "summary": "Get a list of Objects.",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new Action. Provided meta-data and schema values are validated.",
-        "operationId": "actions.create",
+        "description": "Registers a new Object. Provided meta-data and schema values are validated.",
+        "operationId": "objects.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1487,15 +1377,15 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Action created.",
+            "description": "Object created.",
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           },
           "401": {
@@ -1520,16 +1410,16 @@
             }
           }
         },
-        "summary": "Create Actions between two Things (object and subject).",
-        "tags": ["actions"],
+        "summary": "Create Objects between two Objects (object and subject).",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/actions/validate": {
+    "/objects/validate": {
       "post": {
-        "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
-        "operationId": "actions.validate",
+        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
+        "operationId": "objects.validate",
         "x-serviceIds": ["weaviate.local.query.meta"],
         "parameters": [
           {
@@ -1537,7 +1427,7 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           }
         ],
@@ -1567,20 +1457,20 @@
             }
           }
         },
-        "summary": "Validate an Action based on a schema.",
-        "tags": ["actions"],
+        "summary": "Validate an Object based on a schema.",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/actions/{id}": {
+    "/objects/{id}": {
       "delete": {
-        "description": "Deletes an Action from the system.",
-        "operationId": "actions.delete",
+        "description": "Deletes an Object from the system.",
+        "operationId": "objects.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Thing.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1611,18 +1501,18 @@
             }
           }
         },
-        "summary": "Delete an Action based on its UUID.",
-        "tags": ["actions"],
+        "summary": "Delete an Object based on its UUID.",
+        "tags": ["objects"],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true
       },
       "get": {
-        "description": "Lists Actions.",
-        "operationId": "actions.get",
+        "description": "Lists Objects.",
+        "operationId": "objects.get",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1637,7 +1527,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           },
           "400": {
@@ -1665,18 +1555,18 @@
             }
           }
         },
-        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
-        "tags": ["actions"],
+        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "patch": {
-        "description": "Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "actions.patch",
+        "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "operationId": "objects.patch",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1684,12 +1574,12 @@
             "type": "string"
           },
           {
-            "description": "RFC 7396-style patch, the body contains the action object to merge into the existing action object.",
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
             "in": "body",
             "name": "body",
             "required": false,
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           }
         ],
@@ -1725,18 +1615,18 @@
             }
           }
         },
-        "summary": "Update an Action based on its UUID (using patch semantics).",
-        "tags": ["actions"],
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "actions.update",
+        "description": "Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "operationId": "objects.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1748,7 +1638,7 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           }
         ],
@@ -1756,7 +1646,7 @@
           "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/Action"
+              "$ref": "#/definitions/Object"
             }
           },
           "401": {
@@ -1784,20 +1674,20 @@
             }
           }
         },
-        "summary": "Update an Action based on its UUID.",
-        "tags": ["actions"],
+        "summary": "Update an Object based on its UUID.",
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/actions/{id}/references/{propertyName}": {
+    "/objects/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property.",
-        "operationId": "actions.references.create",
+        "operationId": "objects.references.create",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1805,7 +1695,7 @@
             "type": "string"
           },
           {
-            "description": "Unique name of the property related to the Action.",
+            "description": "Unique name of the property related to the Object.",
             "in": "path",
             "name": "propertyName",
             "required": true,
@@ -1847,17 +1737,17 @@
           }
         },
         "summary": "Add a single reference to a class-property.",
-        "tags": ["actions"],
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Replace all references to a class-property.",
-        "operationId": "actions.references.update",
+        "operationId": "objects.references.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1865,7 +1755,7 @@
             "type": "string"
           },
           {
-            "description": "Unique name of the property related to the Action.",
+            "description": "Unique name of the property related to the Object.",
             "in": "path",
             "name": "propertyName",
             "required": true,
@@ -1907,17 +1797,17 @@
           }
         },
         "summary": "Replace all references to a class-property.",
-        "tags": ["actions"],
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "actions.references.delete",
+        "operationId": "objects.references.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
-            "description": "Unique ID of the Action.",
+            "description": "Unique ID of the Object.",
             "format": "uuid",
             "in": "path",
             "name": "id",
@@ -1925,7 +1815,7 @@
             "type": "string"
           },
           {
-            "description": "Unique name of the property related to the Action.",
+            "description": "Unique name of the property related to the Object.",
             "in": "path",
             "name": "propertyName",
             "required": true,
@@ -1967,15 +1857,15 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": ["actions"],
+        "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/batching/things": {
+    "/batching/objects": {
       "post": {
-        "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
-        "operationId": "batching.things.create",
+        "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
+        "operationId": "batching.objects.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1994,10 +1884,10 @@
                     "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
                   }
                 },
-                "things": {
+                "objects": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/Thing"
+                    "$ref": "#/definitions/Object"
                   }
                 }
               }
@@ -2010,7 +1900,7 @@
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
+                "$ref": "#/definitions/ObjectsGetResponse"
               }
             }
           },
@@ -2036,85 +1926,15 @@
             }
           }
         },
-        "summary": "Creates new Things based on a Thing template as a batch.",
-        "tags": ["batching", "things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/batching/actions": {
-      "post": {
-        "description": "Register new Actions in bulk. Given meta-data and schema values are validated.",
-        "operationId": "batching.actions.create",
-        "x-serviceIds": ["weaviate.local.add"],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "properties": {
-                "fields": {
-                  "description": "Define which fields need to be returned. Default value is ALL",
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "default": "ALL",
-                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
-                  }
-                },
-                "actions": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Action"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Request succeeded, see response body to get detailed information about each batched item.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Creates new Actions based on an Action template as a batch.",
-        "tags": ["batching", "actions"],
+        "summary": "Creates new Objects based on a Object template as a batch.",
+        "tags": ["batching", "objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
     "/batching/references": {
       "post": {
-        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "operationId": "batching.references.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
@@ -2327,10 +2147,10 @@
             "schema": {
               "type": "object",
               "properties": {
-                "things": {
+                "objects": {
                   "$ref": "#/definitions/Schema"
                 },
-                "actions": {
+                "objects": {
                   "$ref": "#/definitions/Schema"
                 }
               }
@@ -2354,15 +2174,15 @@
         }
       }
     },
-    "/schema/actions": {
+    "/schema/objects": {
       "post": {
-        "summary": "Create a new Action class in the schema.",
-        "operationId": "schema.actions.create",
+        "summary": "Create a new Object class in the schema.",
+        "operationId": "schema.objects.create",
         "x-serviceIds": ["weaviate.local.add.meta"],
         "tags": ["schema"],
         "parameters": [
           {
-            "name": "actionClass",
+            "name": "objectClass",
             "in": "body",
             "required": true,
             "schema": {
@@ -2372,7 +2192,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the schema.",
+            "description": "Added the new Object class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -2387,7 +2207,7 @@
             }
           },
           "422": {
-            "description": "Invalid Action class",
+            "description": "Invalid Object class",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2401,10 +2221,10 @@
         }
       }
     },
-    "/schema/actions/{className}": {
+    "/schema/objects/{className}": {
       "delete": {
-        "summary": "Remove an Action class (and all data in the instances) from the schema.",
-        "operationId": "schema.actions.delete",
+        "summary": "Remove an Object class (and all data in the instances) from the schema.",
+        "operationId": "schema.objects.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2417,10 +2237,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the schema."
+            "description": "Removed the Object class from the schema."
           },
           "400": {
-            "description": "Could not delete the Action class.",
+            "description": "Could not delete the Object class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2443,10 +2263,10 @@
         }
       }
     },
-    "/schema/actions/{className}/properties": {
+    "/schema/objects/{className}/properties": {
       "post": {
-        "summary": "Add a property to an Action class.",
-        "operationId": "schema.actions.properties.add",
+        "summary": "Add a property to an Object class.",
+        "operationId": "schema.objects.properties.add",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2494,693 +2314,6 @@
             }
           }
         }
-      }
-    },
-    "/schema/things": {
-      "post": {
-        "summary": "Create a new Thing class in the schema.",
-        "operationId": "schema.things.create",
-        "x-serviceIds": ["weaviate.local.add.meta"],
-        "tags": ["schema"],
-        "parameters": [
-          {
-            "name": "thingClass",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Added the new Thing class to the schema.",
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid Thing class.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/schema/things/{className}": {
-      "delete": {
-        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
-        "operationId": "schema.things.delete",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
-        "parameters": [
-          {
-            "name": "className",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed the Thing class from the schema."
-          },
-          "400": {
-            "description": "Could not delete the Thing class.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/schema/things/{className}/properties": {
-      "post": {
-        "summary": "Add a property to a Thing class.",
-        "operationId": "schema.things.properties.add",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
-        "parameters": [
-          {
-            "name": "className",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Added the property.",
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/things": {
-      "get": {
-        "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
-        "operationId": "things.list",
-        "x-serviceIds": ["weaviate.local.query"],
-        "parameters": [
-          {
-            "$ref": "#/parameters/CommonLimitParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonIncludeParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingsListResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Get a list of Things.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "post": {
-        "description": "Registers a new Thing. Given meta-data and schema values are validated.",
-        "operationId": "things.create",
-        "x-serviceIds": ["weaviate.local.add"],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Thing created.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Create a new Thing based on a Thing template.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/validate": {
-      "post": {
-        "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
-        "operationId": "things.validate",
-        "x-serviceIds": ["weaviate.local.query.meta"],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully validated."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Validate Things schema.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{id}": {
-      "delete": {
-        "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
-        "operationId": "things.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Delete a Thing based on its UUID.",
-        "tags": ["things"],
-        "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
-      },
-      "get": {
-        "description": "Returns a particular Thing data.",
-        "operationId": "things.get",
-        "x-serviceIds": ["weaviate.local.query"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonIncludeParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Get a Thing based on its UUID.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "patch": {
-        "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "things.patch",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.",
-            "in": "body",
-            "name": "body",
-            "required": false,
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully applied. No content returned"
-          },
-          "400": {
-            "description": "The patch-JSON is malformed."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "The patch-JSON is valid but unprocessable.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Update a Thing based on its UUID (using patch semantics).",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "put": {
-        "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "things.update",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Update a Thing based on its UUID.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{id}/references/{propertyName}": {
-      "post": {
-        "description": "Add a single reference to a class-property.",
-        "operationId": "things.references.create",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Thing.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/SingleRef"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully added the reference."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Add a single reference to a class-property.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "put": {
-        "description": "Replace all references to a class-property.",
-        "operationId": "things.references.update",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Thing.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/MultipleRef"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully replaced all the references (success is based on the behavior of the datastore)."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Replace all references to a class-property.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "things.references.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "description": "Unique name of the property related to the Thing.",
-            "in": "path",
-            "name": "propertyName",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/SingleRef"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
       }
     },
     "/c11y/concepts/{concept}": {
@@ -3251,7 +2384,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successfully extended the contextionary with the custom cocnept",
+            "description": "Successfully extended the contextionary with the custom concept",
             "schema": {
               "$ref": "#/definitions/C11yExtension"
             }
@@ -3462,11 +2595,11 @@
   "swagger": "2.0",
   "tags": [
     {
-      "name": "actions"
+      "name": "objects"
     },
     {
       "name": "batching",
-      "description": "These operations allow to execute batch requests for Things and Actions. Mostly used for importing large datasets."
+      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
     },
     {
       "name": "graphql"
@@ -3476,9 +2609,6 @@
     },
     {
       "name": "P2P"
-    },
-    {
-      "name": "things"
     },
     {
       "name": "contextionary-API",

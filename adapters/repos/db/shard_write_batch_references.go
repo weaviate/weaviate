@@ -20,12 +20,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) addReferencesBatch(ctx context.Context,
-	refs kinds.BatchReferences) map[int]error {
+	refs objects.BatchReferences) map[int]error {
 	return newReferencesBatcher(s).References(ctx, refs)
 }
 
@@ -36,7 +36,7 @@ type referencesBatcher struct {
 	sync.Mutex
 	shard                    *Shard
 	errs                     map[int]error
-	refs                     kinds.BatchReferences
+	refs                     objects.BatchReferences
 	additionalStorageUpdates map[uint64]additionalStorageUpdate // by docID
 }
 
@@ -56,14 +56,14 @@ func newReferencesBatcher(s *Shard) *referencesBatcher {
 }
 
 func (b *referencesBatcher) References(ctx context.Context,
-	refs kinds.BatchReferences) map[int]error {
+	refs objects.BatchReferences) map[int]error {
 	b.init(refs)
 	b.storeInObjectStore(ctx)
 	b.storeAdditionalStorage(ctx)
 	return b.errs
 }
 
-func (b *referencesBatcher) init(refs kinds.BatchReferences) {
+func (b *referencesBatcher) init(refs objects.BatchReferences) {
 	b.refs = refs
 	b.errs = map[int]error{} // int represents original index
 }
@@ -81,7 +81,7 @@ func (b *referencesBatcher) storeInObjectStore(
 
 		batch := b.refs[i:end]
 		wg.Add(1)
-		go func(i int, batch kinds.BatchReferences) {
+		go func(i int, batch objects.BatchReferences) {
 			defer wg.Done()
 			var affectedIndices []int
 			if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
@@ -100,7 +100,7 @@ func (b *referencesBatcher) storeInObjectStore(
 }
 
 func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
-	batchId int, batch kinds.BatchReferences) ([]int, error) {
+	batchId int, batch objects.BatchReferences) ([]int, error) {
 	var affectedIndices []int
 	for i := range batch {
 		// so we can reference potential errors
@@ -233,13 +233,13 @@ func (b *referencesBatcher) setErrorAtIndex(err error, index int) {
 	b.errs[index] = err
 }
 
-func mergeDocFromBatchReference(ref kinds.BatchReference) kinds.MergeDocument {
-	return kinds.MergeDocument{
+func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
+	return objects.MergeDocument{
 		Kind:       ref.From.Kind,
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
 		UpdateTime: time.Now().UnixNano(),
-		References: kinds.BatchReferences{ref},
+		References: objects.BatchReferences{ref},
 	}
 }
 

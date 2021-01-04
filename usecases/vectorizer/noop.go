@@ -41,13 +41,8 @@ func (n *NoOpVectorizer) NormalizedDistance(a, b []float32) (float32, error) {
 	return 0, nil
 }
 
-// Thing is not implemented in the NoOpVectorizer
-func (n *NoOpVectorizer) Thing(ctx context.Context, concept *models.Thing) ([]float32, error) {
-	return []float32{}, nil
-}
-
-// Action is not implemented in the NoOpVectorizer
-func (n *NoOpVectorizer) Action(ctx context.Context, concept *models.Action) ([]float32, error) {
+// Object is not implemented in the NoOpVectorizer
+func (n *NoOpVectorizer) Object(ctx context.Context, concept *models.Object) ([]float32, error) {
 	return []float32{}, nil
 }
 
