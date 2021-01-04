@@ -1910,19 +1910,14 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
-        "contextionaryVersion": {
-          "description": "Version of the contextionary service connected to weaviate",
-          "type": "string"
-        },
-        "contextionaryWordCount": {
-          "description": "Number of total words in the contextionary",
-          "type": "number",
-          "format": "int"
-        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
           "format": "url"
+        },
+        "modules": {
+          "description": "Module-specific meta information",
+          "type": "object"
         },
         "version": {
           "description": "Version of weaviate you are currently running",
@@ -4622,19 +4617,14 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
-        "contextionaryVersion": {
-          "description": "Version of the contextionary service connected to weaviate",
-          "type": "string"
-        },
-        "contextionaryWordCount": {
-          "description": "Number of total words in the contextionary",
-          "type": "number",
-          "format": "int"
-        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
           "format": "url"
+        },
+        "modules": {
+          "description": "Module-specific meta information",
+          "type": "object"
         },
         "version": {
           "description": "Version of weaviate you are currently running",
