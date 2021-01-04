@@ -346,14 +346,9 @@
           "description": "Version of weaviate you are currently running",
           "type": "string"
         },
-        "contextionaryWordCount": {
-          "description": "Number of total words in the contextionary",
-          "type": "number",
-          "format": "int"
-        },
-        "contextionaryVersion": {
-          "description": "Version of the contextionary service connected to weaviate",
-          "type": "string"
+        "modules": {
+          "description": "Module-specific meta information",
+          "type": "object"
         }
       },
       "type": "object"

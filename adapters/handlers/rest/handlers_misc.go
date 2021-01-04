@@ -62,10 +62,18 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 		}
 
 		res := &models.Meta{
-			Hostname:               serverConfig.GetHostAddress(),
-			Version:                swj.Info.Version,
-			ContextionaryVersion:   c11yVersion,
-			ContextionaryWordCount: c11yWordCount,
+			Hostname: serverConfig.GetHostAddress(),
+			Version:  swj.Info.Version,
+
+			// TODO: When doing actual modularization, don't hard-code the module
+			// value, but ask each module for the meta info they want to provide
+			// dynamically
+			Modules: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"version":   c11yVersion,
+					"wordCount": c11yWordCount,
+				},
+			},
 		}
 
 		return meta.NewMetaGetOK().WithPayload(res)
