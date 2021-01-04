@@ -2316,58 +2316,6 @@
         }
       }
     },
-    "/c11y/extensions/": {
-      "post": {
-        "description": "Extend the contextionary with your own custom concepts",
-        "operationId": "c11y.extensions",
-        "x-serviceIds": ["weaviate.extensions.post"],
-        "parameters": [
-          {
-            "description": "Description and definition of the concept to extend the contextionary with",
-            "in": "body",
-            "name": "extension",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully extended the contextionary with the custom concept",
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          },
-          "400": {
-            "description": "Incorrect request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Extend the contextionary with custom concepts",
-        "tags": ["contextionary-API"]
-      }
-    },
     "/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.",
