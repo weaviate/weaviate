@@ -67,7 +67,7 @@ func TestHandlers(t *testing.T) {
 		defer res.Body.Close()
 		json, err := ioutil.ReadAll(res.Body)
 		require.Nil(t, err)
-		expected := `invalid input`
+		expected := `{"error":[{"message":"invalid input"}]}`
 
 		assert.Equal(t, http.StatusBadRequest, res.StatusCode)
 		assert.Equal(t, expected, string(json))
