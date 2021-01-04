@@ -2418,40 +2418,6 @@
         "tags": ["contextionary-API"]
       }
     },
-    "/c11y/corpus": {
-      "post": {
-        "description": "Analyzes a sentence based on the contextionary",
-        "operationId": "c11y.corpus.get",
-        "x-serviceIds": ["weaviate.c11y.corpus.get"],
-        "parameters": [
-          {
-            "description": "A text corpus",
-            "in": "body",
-            "name": "corpus",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "description": "The text corpus.",
-              "properties": {
-                "corpus": {
-                  "type": "string",
-                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Checks if a word or wordString is part of the contextionary.",
-        "tags": ["contextionary-API"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.",

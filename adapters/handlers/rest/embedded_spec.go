@@ -330,44 +330,6 @@ func init() {
         ]
       }
     },
-    "/c11y/corpus": {
-      "post": {
-        "description": "Analyzes a sentence based on the contextionary",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "c11y.corpus.get",
-        "parameters": [
-          {
-            "description": "A text corpus",
-            "name": "corpus",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "The text corpus.",
-              "type": "object",
-              "properties": {
-                "corpus": {
-                  "type": "string",
-                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.c11y.corpus.get"
-        ]
-      }
-    },
     "/c11y/extensions/": {
       "post": {
         "description": "Extend the contextionary with your own custom concepts",
@@ -3109,44 +3071,6 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.c11y.words.get"
-        ]
-      }
-    },
-    "/c11y/corpus": {
-      "post": {
-        "description": "Analyzes a sentence based on the contextionary",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "c11y.corpus.get",
-        "parameters": [
-          {
-            "description": "A text corpus",
-            "name": "corpus",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "The text corpus.",
-              "type": "object",
-              "properties": {
-                "corpus": {
-                  "type": "string",
-                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.c11y.corpus.get"
         ]
       }
     },
