@@ -11,12 +11,12 @@
 
 package test
 
-// Acceptance tests for actions
+// Acceptance tests for objects
 
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -26,31 +26,31 @@ import (
 )
 
 // run from setup_test.go
-func actionReferences(t *testing.T) {
+func objectReferences(t *testing.T) {
 	t.Run("can add reference individually", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, toPointToUuid)
+		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, toPointToUuid)
 
-		uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{})
+		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{})
 
 		// Verify that testReferences is empty
-		updatedAction := assertGetActionEventually(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedSchema := updatedObject.Schema.(map[string]interface{})
 		assert.Nil(t, updatedSchema["testReferences"])
 
 		// Append a property reference
-		params := actions.NewActionsReferencesCreateParams().
+		params := objects.NewObjectsReferencesCreateParams().
 			WithID(uuid).
 			WithPropertyName("testReferences").
-			WithBody(crossref.New("localhost", toPointToUuid, kind.Action).SingleRef())
+			WithBody(crossref.New("localhost", toPointToUuid, kind.Object).SingleRef())
 
-		updateResp, err := helper.Client(t).Actions.ActionsReferencesCreate(params, nil)
+		updateResp, err := helper.Client(t).Objects.ObjectsReferencesCreate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		checkThunk := func() interface{} {
-			resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+			resp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 			if err != nil {
 				t.Log(err)
 				return false
@@ -66,35 +66,35 @@ func actionReferences(t *testing.T) {
 	t.Run("can replace all properties", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuidFirst := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		toPointToUuidLater := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, toPointToUuidFirst)
-		assertGetActionEventually(t, toPointToUuidLater)
+		toPointToUuidFirst := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		toPointToUuidLater := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, toPointToUuidFirst)
+		assertGetObjectEventually(t, toPointToUuidLater)
 
-		uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
+		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuidFirst, kind.Action).SingleRef(),
+				crossref.New("localhost", toPointToUuidFirst, kind.Object).SingleRef(),
 			},
 		})
 
 		// Verify that testReferences is empty
-		updatedAction := assertGetActionEventually(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedSchema := updatedObject.Schema.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
 		// Replace
-		params := actions.NewActionsReferencesUpdateParams().
+		params := objects.NewObjectsReferencesUpdateParams().
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(models.MultipleRef{
-				crossref.New("localhost", toPointToUuidLater, kind.Action).SingleRef(),
+				crossref.New("localhost", toPointToUuidLater, kind.Object).SingleRef(),
 			})
 
-		updateResp, err := helper.Client(t).Actions.ActionsReferencesUpdate(params, nil)
+		updateResp, err := helper.Client(t).Objects.ObjectsReferencesUpdate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		checkThunk := func() interface{} {
-			resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+			resp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 			if err != nil {
 				t.Log(err)
 				return false
@@ -110,33 +110,33 @@ func actionReferences(t *testing.T) {
 	t.Run("remove property individually", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, toPointToUuid)
+		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, toPointToUuid)
 
-		uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
+		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
+				crossref.New("localhost", toPointToUuid, kind.Object).SingleRef(),
 			},
 		})
 
 		// Verify that testReferences is not empty
-		updatedAction := assertGetActionEventually(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedSchema := updatedObject.Schema.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
 		// Delete a property reference
-		params := actions.NewActionsReferencesDeleteParams().
+		params := objects.NewObjectsReferencesDeleteParams().
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(
-				crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
+				crossref.New("localhost", toPointToUuid, kind.Object).SingleRef(),
 			)
 
-		updateResp, err := helper.Client(t).Actions.ActionsReferencesDelete(params, nil)
+		updateResp, err := helper.Client(t).Objects.ObjectsReferencesDelete(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		checkThunk := func() interface{} {
-			resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+			resp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
 			if err != nil {
 				t.Log(err)
 				return false

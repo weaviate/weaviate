@@ -15,18 +15,16 @@ package descriptions
 // AGGREGATE
 const (
 	AggregateProperty = "Aggregate this property"
-	AggregateThings   = "Aggregate Things on a local Weaviate"
-	AggregateActions  = "Aggregate Things on a local Weaviate"
+	AggregateObjects  = "Aggregate Objects on a local Weaviate"
 )
 
 const GroupBy = "Specify which properties to group by"
 
 const (
-	AggregateObj            = "An object allowing Aggregation of Things and Actions"
 	AggregatePropertyObject = "An object containing Aggregation information about this property"
 )
 
-const AggregateThingsActionsObj = "An object allowing Aggregation of %ss on a local Weaviate"
+const AggregateObjectsObj = "An object allowing Aggregation of %ss on a local Weaviate"
 
 const (
 	AggregateMean      = "Aggregate on the mean of numeric property values"
@@ -51,17 +49,12 @@ const (
 )
 
 // NETWORK
-const NetworkAggregateWeaviateObj = "An object containing Get Things and Actions fields for network Weaviate instance: "
+const NetworkAggregateWeaviateObj = "An object containing Get Objects fields for network Weaviate instance: "
 
-const NetworkAggregate = "Perform Aggregation of Things and Actions"
-
-const (
-	NetworkAggregateThings  = "Aggregate Things on a network Weaviate"
-	NetworkAggregateActions = "Aggregate Things on a network Weaviate"
-)
+const NetworkAggregate = "Perform Aggregation of Objects"
 
 const (
-	NetworkAggregateObj            = "An object allowing Aggregation of Things and Actions"
+	NetworkAggregateObj            = "An object allowing Aggregation of Objects"
 	NetworkAggregatePropertyObject = "An object containing Aggregation information about this property"
 )
 

@@ -20,26 +20,15 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// AddActionProperty to an existing Action
-func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Principal,
+// AddObjectProperty to an existing Object
+func (m *Manager) AddObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.addClassProperty(ctx, principal, class, property, kind.Action)
-}
-
-// AddThingProperty to an existing Thing
-func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/things")
-	if err != nil {
-		return err
-	}
-
-	return m.addClassProperty(ctx, principal, class, property, kind.Thing)
+	return m.addClassProperty(ctx, principal, class, property, kind.Object)
 }
 
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,

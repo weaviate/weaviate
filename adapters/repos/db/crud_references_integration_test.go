@@ -43,7 +43,7 @@ func TestNestedReferences(t *testing.T) {
 	}()
 
 	refSchema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "Planet",
@@ -118,9 +118,9 @@ func TestNestedReferences(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
-		for _, class := range refSchema.Things.Classes {
+		for _, class := range refSchema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
 			})
 		}
@@ -130,8 +130,8 @@ func TestNestedReferences(t *testing.T) {
 	schemaGetter.schema = refSchema
 
 	t.Run("importing some thing objects with references", func(t *testing.T) {
-		objects := []models.Thing{
-			models.Thing{
+		objects := []models.Object{
+			models.Object{
 				Class: "Planet",
 				Schema: map[string]interface{}{
 					"name": "Earth",
@@ -139,52 +139,52 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
 				CreationTimeUnix: 1566464889,
 			},
-			models.Thing{
+			models.Object{
 				Class: "Continent",
 				Schema: map[string]interface{}{
 					"name": "North America",
 					"onPlanet": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
+							Beacon: "weaviate://localhost/32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
 						},
 					},
 				},
 				ID:               "4aad8154-e7f3-45b8-81a6-725171419e55",
 				CreationTimeUnix: 1566464892,
 			},
-			models.Thing{
+			models.Object{
 				Class: "Country",
 				Schema: map[string]interface{}{
 					"name": "USA",
 					"onContinent": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55",
+							Beacon: "weaviate://localhost/4aad8154-e7f3-45b8-81a6-725171419e55",
 						},
 					},
 				},
 				ID:               "18c80a16-346a-477d-849d-9d92e5040ac9",
 				CreationTimeUnix: 1566464896,
 			},
-			models.Thing{
+			models.Object{
 				Class: "City",
 				Schema: map[string]interface{}{
 					"name": "San Francisco",
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/18c80a16-346a-477d-849d-9d92e5040ac9",
+							Beacon: "weaviate://localhost/18c80a16-346a-477d-849d-9d92e5040ac9",
 						},
 					},
 				},
 				ID:               "2297e094-6218-43d4-85b1-3d20af752f23",
 				CreationTimeUnix: 1566464899,
 			},
-			models.Thing{
+			models.Object{
 				Class: "Place",
 				Schema: map[string]interface{}{
 					"name": "Tim Apple's Fruit Bar",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
+							Beacon: "weaviate://localhost/2297e094-6218-43d4-85b1-3d20af752f23",
 						},
 					},
 				},
@@ -195,7 +195,7 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutThing(context.Background(), &thing,
+				err := repo.PutObject(context.Background(), &thing,
 					[]float32{1, 2, 3, 4, 5, 6, 7})
 				require.Nil(t, err)
 			})
@@ -244,7 +244,7 @@ func TestNestedReferences(t *testing.T) {
 			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			fullyNestedSelectProperties(), traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
@@ -268,7 +268,7 @@ func TestNestedReferences(t *testing.T) {
 						// avoiding the costly resolving of it, if we don't need it.
 						"inCountry": models.MultipleRef{
 							&models.SingleRef{
-								Beacon: "weaviate://localhost/things/18c80a16-346a-477d-849d-9d92e5040ac9",
+								Beacon: "weaviate://localhost/18c80a16-346a-477d-849d-9d92e5040ac9",
 							},
 						},
 					},
@@ -278,21 +278,21 @@ func TestNestedReferences(t *testing.T) {
 			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
-		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			partiallyNestedSelectProperties(), traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 
 		expectedSchema := map[string]interface{}{
 			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 			"inCity": models.MultipleRef{
 				&models.SingleRef{
-					Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
+					Beacon: "weaviate://localhost/2297e094-6218-43d4-85b1-3d20af752f23",
 				},
 			},
 			"name": "Tim Apple's Fruit Bar",
@@ -304,13 +304,13 @@ func TestNestedReferences(t *testing.T) {
 	})
 
 	t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
-		newPlace := models.Thing{
+		newPlace := models.Object{
 			Class: "Place",
 			Schema: map[string]interface{}{
 				"name": "John Oliver's Avocados",
 				"inCity": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
+						Beacon: "weaviate://localhost/2297e094-6218-43d4-85b1-3d20af752f23",
 					},
 				},
 			},
@@ -318,7 +318,7 @@ func TestNestedReferences(t *testing.T) {
 			CreationTimeUnix: 1566464912,
 		}
 
-		err := repo.PutThing(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
+		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
 		require.Nil(t, err)
 	})
 }
@@ -415,7 +415,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	}()
 
 	schema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "AddingReferencesTestTarget",
@@ -451,9 +451,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Things.Classes {
+		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
 			})
 		}
@@ -465,7 +465,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	sourceID := strfmt.UUID("0826c61b-85c1-44ac-aebb-cfd07ace6a57")
 
 	t.Run("add objects", func(t *testing.T) {
-		err := repo.PutThing(context.Background(), &models.Thing{
+		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "AddingReferencesTestSource",
 			Schema: map[string]interface{}{
@@ -474,7 +474,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		}, []float32{0.5})
 		require.Nil(t, err)
 
-		err = repo.PutThing(context.Background(), &models.Thing{
+		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    targetID,
 			Class: "AddingReferencesTestTarget",
 			Schema: map[string]interface{}{
@@ -482,7 +482,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			},
 		}, []float32{0.5})
 
-		err = repo.PutThing(context.Background(), &models.Thing{
+		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    target2ID,
 			Class: "AddingReferencesTestTarget",
 			Schema: map[string]interface{}{
@@ -493,22 +493,22 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("add reference between them", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Thing,
+		err := repo.AddReference(context.Background(), kind.Object,
 			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", targetID)),
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
 			})
 		assert.Nil(t, err)
 	})
 
 	t.Run("check reference was added", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil,
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
 			traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
-		require.NotNil(t, source.Thing())
-		require.NotNil(t, source.Thing().Schema)
+		require.NotNil(t, source.Object())
+		require.NotNil(t, source.Object().Schema)
 
-		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok,
 			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
@@ -518,29 +518,29 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			foundBeacons = append(foundBeacons, ref.Beacon.String())
 		}
 		expectedBeacons := []string{
-			fmt.Sprintf("weaviate://localhost/things/%s", targetID),
+			fmt.Sprintf("weaviate://localhost/%s", targetID),
 		}
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Thing,
+		err := repo.AddReference(context.Background(), kind.Object,
 			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", target2ID)),
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
 			})
 		assert.Nil(t, err)
 	})
 
 	t.Run("check both references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil,
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
 			traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
-		require.NotNil(t, source.Thing())
-		require.NotNil(t, source.Thing().Schema)
+		require.NotNil(t, source.Object())
+		require.NotNil(t, source.Object().Schema)
 
-		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok,
 			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
@@ -550,8 +550,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			foundBeacons = append(foundBeacons, ref.Beacon.String())
 		}
 		expectedBeacons := []string{
-			fmt.Sprintf("weaviate://localhost/things/%s", targetID),
-			fmt.Sprintf("weaviate://localhost/things/%s", target2ID),
+			fmt.Sprintf("weaviate://localhost/%s", targetID),
+			fmt.Sprintf("weaviate://localhost/%s", target2ID),
 		}
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)

@@ -30,7 +30,7 @@ func Test_Composer(t *testing.T) {
 	t.Run("adding a class", func(t *testing.T) {
 		ctx := context.Background()
 		class := &models.Class{Class: "Foo"}
-		kind := kind.Thing
+		kind := kind.Object
 
 		t.Run("no errors", func(t *testing.T) {
 			m1.On("AddClass", ctx, kind, class).Return(nil).Once()
@@ -69,7 +69,7 @@ func Test_Composer(t *testing.T) {
 	t.Run("dropping a class", func(t *testing.T) {
 		ctx := context.Background()
 		class := "Foo"
-		kind := kind.Thing
+		kind := kind.Object
 
 		t.Run("no errors", func(t *testing.T) {
 			m1.On("DropClass", ctx, kind, class).Return(nil).Once()
@@ -107,7 +107,7 @@ func Test_Composer(t *testing.T) {
 
 	t.Run("updating a class", func(t *testing.T) {
 		ctx := context.Background()
-		kind := kind.Thing
+		kind := kind.Object
 		class := "Foo"
 		newName := "Bar"
 
@@ -154,7 +154,7 @@ func Test_Composer(t *testing.T) {
 	t.Run("adding a property", func(t *testing.T) {
 		ctx := context.Background()
 		class := "Foo"
-		kind := kind.Thing
+		kind := kind.Object
 		prop := &models.Property{Name: "Prop"}
 
 		t.Run("no errors", func(t *testing.T) {
@@ -197,7 +197,7 @@ func Test_Composer(t *testing.T) {
 	t.Run("dropping a property", func(t *testing.T) {
 		ctx := context.Background()
 		class := "Foo"
-		kind := kind.Thing
+		kind := kind.Object
 		prop := "someProp"
 
 		t.Run("no errors", func(t *testing.T) {
@@ -239,7 +239,7 @@ func Test_Composer(t *testing.T) {
 
 	t.Run("updating a property", func(t *testing.T) {
 		ctx := context.Background()
-		kind := kind.Thing
+		kind := kind.Object
 		class := "Foo"
 		prop := "someProp"
 		newName := "otherProp"
@@ -286,7 +286,7 @@ func Test_Composer(t *testing.T) {
 
 	t.Run("updating a property, extending the data type list", func(t *testing.T) {
 		ctx := context.Background()
-		kind := kind.Thing
+		kind := kind.Object
 		class := "Foo"
 		prop := "someProp"
 		dataType := "newDataType"

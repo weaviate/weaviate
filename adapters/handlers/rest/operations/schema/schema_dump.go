@@ -91,22 +91,15 @@ func (o *SchemaDump) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model SchemaDumpOKBody
 type SchemaDumpOKBody struct {
 
-	// actions
-	Actions *models.Schema `yaml:"actions,omitempty" json:"actions,omitempty"`
-
-	// things
-	Things *models.Schema `yaml:"things,omitempty" json:"things,omitempty"`
+	// objects
+	Objects *models.Schema `yaml:"objects,omitempty" json:"objects,omitempty"`
 }
 
 // Validate validates this schema dump o k body
 func (o *SchemaDumpOKBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateActions(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := o.validateThings(formats); err != nil {
+	if err := o.validateObjects(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -116,34 +109,16 @@ func (o *SchemaDumpOKBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *SchemaDumpOKBody) validateActions(formats strfmt.Registry) error {
+func (o *SchemaDumpOKBody) validateObjects(formats strfmt.Registry) error {
 
-	if swag.IsZero(o.Actions) { // not required
+	if swag.IsZero(o.Objects) { // not required
 		return nil
 	}
 
-	if o.Actions != nil {
-		if err := o.Actions.Validate(formats); err != nil {
+	if o.Objects != nil {
+		if err := o.Objects.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("schemaDumpOK" + "." + "actions")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (o *SchemaDumpOKBody) validateThings(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Things) { // not required
-		return nil
-	}
-
-	if o.Things != nil {
-		if err := o.Things.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("schemaDumpOK" + "." + "things")
+				return ve.ValidateName("schemaDumpOK" + "." + "objects")
 			}
 			return err
 		}

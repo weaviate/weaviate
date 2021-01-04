@@ -59,23 +59,18 @@ func ParseSource(uriString string) (*RefSource, error) {
 	}
 
 	pathSegments := strings.Split(uri.Path, "/")
-	if len(pathSegments) != 5 {
+	if len(pathSegments) != 4 {
 		return nil, fmt.Errorf(
-			"invalid cref URI: must use long-form: path must be of format '/{things,actions}/<className>/<uuid>/<propertyName>', but got '%s'",
+			"invalid cref URI: must use long-form: path must be of format '/<className>/<uuid>/<propertyName>', but got '%s'",
 			uri.Path)
 	}
 
-	if ok := strfmt.IsUUID(pathSegments[3]); !ok {
+	if ok := strfmt.IsUUID(pathSegments[2]); !ok {
 		return nil, fmt.Errorf("invalid cref URI: 2nd path segment must be uuid, but got '%s'",
 			pathSegments[3])
 	}
 
-	k, err := parseKind(pathSegments[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid cref URI: %s", err)
-	}
-
-	class := pathSegments[2]
+	class := pathSegments[1]
 	if class == "" {
 		return nil, fmt.Errorf("className cannot be empty")
 	}
@@ -84,7 +79,7 @@ func ParseSource(uriString string) (*RefSource, error) {
 		return nil, fmt.Errorf("className must start with an uppercase letter, but got %s", class)
 	}
 
-	property := pathSegments[4]
+	property := pathSegments[3]
 	if property == "" {
 		return nil, fmt.Errorf("property cannot be empty")
 	}
@@ -92,8 +87,8 @@ func ParseSource(uriString string) (*RefSource, error) {
 	return &RefSource{
 		Local:    (uri.Host == "localhost"),
 		PeerName: uri.Host,
-		TargetID: strfmt.UUID(pathSegments[3]),
-		Kind:     k,
+		TargetID: strfmt.UUID(pathSegments[2]),
+		Kind:     kind.Object,
 		Class:    schema.ClassName(class),
 		Property: schema.PropertyName(property),
 	}, nil
@@ -103,20 +98,8 @@ func (r *RefSource) String() string {
 	uri := url.URL{
 		Host:   r.PeerName,
 		Scheme: "weaviate",
-		Path:   fmt.Sprintf("/%s/%s/%s/%s", pluralizeKindName(r.Kind), r.Class, r.TargetID, r.Property),
+		Path:   fmt.Sprintf("/%s/%s/%s", r.Class, r.TargetID, r.Property),
 	}
 
 	return uri.String()
 }
-
-// func pluralizeKindName(k kind.Kind) string {
-// 	return strings.ToLower(k.Name()) + "s"
-// }
-
-// // SingleRef converts the parsed Ref back into the API helper construct
-// // containing a stringified representation (URI format) of the Ref
-// func (r *Ref) SingleRef() *models.SingleRef {
-// 	return &models.SingleRef{
-// 		Beacon: strfmt.URI(r.String()),
-// 	}
-// }
