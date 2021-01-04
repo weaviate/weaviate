@@ -332,7 +332,10 @@ func registerModules(appState *state.State) error {
 	}
 
 	appState.Modules = modules.NewProvider()
-	appState.Modules.Register(modcontextionary.New(storageProvider))
+
+	// TODO: don't pass entire appState in, but only what's needed. Probably only
+	// config?
+	appState.Modules.Register(modcontextionary.New(storageProvider, appState))
 
 	err = appState.Modules.Init()
 	if err != nil {
