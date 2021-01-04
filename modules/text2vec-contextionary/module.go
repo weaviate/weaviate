@@ -15,13 +15,17 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	"github.com/semi-technologies/weaviate/usecases/modules"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
-func New(sp modules.StorageProvider) *ContextionaryModule {
+func New(sp modules.StorageProvider, state *state.State) *ContextionaryModule {
 	return &ContextionaryModule{
 		storageProvider: sp,
+		appState:        state,
 	}
 }
 
@@ -31,6 +35,8 @@ func New(sp modules.StorageProvider) *ContextionaryModule {
 type ContextionaryModule struct {
 	storageProvider modules.StorageProvider
 	extensions      *extensions.RESTHandlers
+	concepts        *concepts.RESTHandlers
+	appState        *state.State
 }
 
 func (m *ContextionaryModule) Name() string {
@@ -40,6 +46,10 @@ func (m *ContextionaryModule) Name() string {
 func (m *ContextionaryModule) Init() error {
 	if err := m.initExtensions(); err != nil {
 		return errors.Wrap(err, "init extensions")
+	}
+
+	if err := m.initConcepts(); err != nil {
+		return errors.Wrap(err, "init concepts")
 	}
 
 	return nil
@@ -57,13 +67,21 @@ func (m *ContextionaryModule) initExtensions() error {
 	return nil
 }
 
+func (m *ContextionaryModule) initConcepts() error {
+	uc := vectorizer.NewInspector(m.appState.Contextionary)
+	m.concepts = concepts.NewRESTHandlers(uc)
+
+	return nil
+}
+
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("/extensions-storage/", http.StripPrefix("/extensions-storage", m.extensions.Handler()))
+	mux.Handle("/concepts/", http.StripPrefix("/concepts", m.concepts.Handler()))
 
 	return mux
 }
 
 // verify we implement the modules.Module interface
-var _ = modules.Module(New(nil))
+var _ = modules.Module(New(nil, nil))
