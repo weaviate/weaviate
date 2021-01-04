@@ -15,12 +15,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
