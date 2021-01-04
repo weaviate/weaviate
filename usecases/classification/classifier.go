@@ -231,8 +231,12 @@ func (c *Classifier) parseAndSetDefaults(params *models.Classification) error {
 
 func (c *Classifier) parseKNNSettings(params *models.Classification) error {
 	raw := params.Settings
-
 	settings := &ParamsKNN{}
+	if raw == nil {
+		settings.SetDefaults()
+		params.Settings = settings
+		return nil
+	}
 
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
@@ -253,8 +257,12 @@ func (c *Classifier) parseKNNSettings(params *models.Classification) error {
 
 func (c *Classifier) parseContextualSettings(params *models.Classification) error {
 	raw := params.Settings
-
 	settings := &ParamsContextual{}
+	if raw == nil {
+		settings.SetDefaults()
+		params.Settings = settings
+		return nil
+	}
 
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
