@@ -93,10 +93,9 @@ func (r *batchWriter) Stop() batchWriterResults {
 func (r *batchWriter) storeThing(item search.Result) error {
 	r.batchItemsCount++
 	batchThing := kinds.BatchThing{
-		UUID:          item.ID,
-		Thing:         item.Thing(),
-		OriginalIndex: r.batchItemsCount,
-		Vector:        item.Vector,
+		UUID:   item.ID,
+		Thing:  item.Thing(),
+		Vector: item.Vector,
 	}
 	r.batchThings = append(r.batchThings, batchThing)
 	if len(r.batchThings) >= r.batchTreshold {
@@ -109,10 +108,9 @@ func (r *batchWriter) storeThing(item search.Result) error {
 func (r *batchWriter) storeAction(item search.Result) error {
 	r.batchItemsCount++
 	batchAction := kinds.BatchAction{
-		UUID:          item.ID,
-		Action:        item.Action(),
-		OriginalIndex: r.batchItemsCount,
-		Vector:        item.Vector,
+		UUID:   item.ID,
+		Action: item.Action(),
+		Vector: item.Vector,
 	}
 	r.batchActions = append(r.batchActions, batchAction)
 	if len(r.batchActions) >= r.batchTreshold {
@@ -138,7 +136,11 @@ func (r *batchWriter) batchSave() {
 }
 
 func (r *batchWriter) saveThings(items kinds.BatchThings) {
-	ctx, cancel := contextWithTimeout(5 * time.Second)
+	// we need to allow quite some time as this is now a batch, no longer just a
+	// single item and we don't have any control over what other load is
+	// currently going on, such as imports. TODO: should this be
+	// user-configurable?
+	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 
 	if len(items) > 0 {

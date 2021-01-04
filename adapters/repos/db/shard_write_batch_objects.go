@@ -97,15 +97,18 @@ func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
 
 func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
 	batchId int, batch []*storobj.Object) ([]int, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, errors.Wrapf(err, "begin transaction %d of batch", batchId)
-	}
-
 	var affectedIndices []int
 
 	for j := range batch {
 		// so we can reference potential errors
 		affectedIndices = append(affectedIndices, batchId+j)
+	}
+
+	// only check context after assigning affected indices, otherwise a context
+	// error can never be assigned to the correct items, see
+	// https://github.com/semi-technologies/weaviate/issues/1363
+	if err := ctx.Err(); err != nil {
+		return affectedIndices, errors.Wrapf(err, "begin transaction %d of batch", batchId)
 	}
 
 	for j, object := range batch {
