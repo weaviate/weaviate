@@ -76,59 +76,6 @@ func (m *Manager) updateObjectReferenceToConnectorAndSchema(ctx context.Context,
 	return nil
 }
 
-// UpdateThingReferences Class Instance to the connected DB. If the class contains a network
-// ref, it has a side-effect on the schema: The schema will be updated to
-// include this particular network ref class.
-// func (m *Manager) UpdateThingReferences(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	unlock, err := m.locks.LockSchema()
-// 	if err != nil {
-// 		return NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	return m.updateThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, refs)
-// }
-
-// func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-// 	// get thing to see if it exists
-// 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	thing := thingRes.Thing()
-// 	err = m.validateReferences(ctx, refs)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	updatedSchema, err := m.replaceClassPropReferences(thing.Schema, propertyName, refs)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	thing.Schema = updatedSchema
-// 	thing.LastUpdateTimeUnix = m.timeSource.Now()
-
-// 	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
-// 	if err != nil {
-// 		return NewErrInternal("could not store thing: %v", err)
-// 	}
-
-// 	return nil
-// }
-
 func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
 	err := validation.New(schema.Schema{}, m.exists, m.config).
 		ValidateMultipleRef(ctx, references, "reference not found")

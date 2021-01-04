@@ -31,17 +31,6 @@ func (m *Manager) AddObjectProperty(ctx context.Context, principal *models.Princ
 	return m.addClassProperty(ctx, principal, class, property, kind.Object)
 }
 
-// AddThingProperty to an existing Thing
-// func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Principal,
-// 	class string, property *models.Property) error {
-// 	err := m.authorizer.Authorize(principal, "update", "schema/things")
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return m.addClassProperty(ctx, principal, class, property, kind.Thing)
-// }
-
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
 	prop *models.Property, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()

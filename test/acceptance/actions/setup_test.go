@@ -105,18 +105,6 @@ func deleteObjectClass(t *testing.T, class string) {
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
 
-// func createThingClass(t *testing.T, class *models.Class) {
-// 	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
-// 	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
-// 	helper.AssertRequestOk(t, resp, err, nil)
-// }
-
-// func deleteThingClass(t *testing.T, class string) {
-// 	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
-// 	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
-// 	helper.AssertRequestOk(t, delRes, err, nil)
-// }
-
 func ptBool(in bool) *bool {
 	return &in
 }
