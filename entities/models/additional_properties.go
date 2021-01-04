@@ -22,13 +22,13 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// UnderscoreProperties Additional Meta information about a single object object.
+// AdditionalProperties Additional Meta information about a single object object.
 //
-// swagger:model UnderscoreProperties
-type UnderscoreProperties struct {
+// swagger:model AdditionalProperties
+type AdditionalProperties struct {
 
 	// If this object was subject of a classificiation, additional meta info about this classification is available here
-	Classification *UnderscorePropertiesClassification `json:"classification,omitempty"`
+	Classification *AdditionalPropertiesClassification `json:"classification,omitempty"`
 
 	// The concepts vector projected into a lower dimensional space (for visualization purposes)
 	FeatureProjection *FeatureProjection `json:"featureProjection,omitempty"`
@@ -46,8 +46,8 @@ type UnderscoreProperties struct {
 	Vector C11yVector `json:"vector,omitempty"`
 }
 
-// Validate validates this underscore properties
-func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
+// Validate validates this additional properties
+func (m *AdditionalProperties) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassification(formats); err != nil {
@@ -80,7 +80,7 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateClassification(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Classification) { // not required
 		return nil
@@ -98,7 +98,7 @@ func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *UnderscoreProperties) validateFeatureProjection(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateFeatureProjection(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.FeatureProjection) { // not required
 		return nil
@@ -116,7 +116,7 @@ func (m *UnderscoreProperties) validateFeatureProjection(formats strfmt.Registry
 	return nil
 }
 
-func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateInterpretation(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Interpretation) { // not required
 		return nil
@@ -134,7 +134,7 @@ func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateNearestNeighbors(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.NearestNeighbors) { // not required
 		return nil
@@ -152,7 +152,7 @@ func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry)
 	return nil
 }
 
-func (m *UnderscoreProperties) validateSemanticPath(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateSemanticPath(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.SemanticPath) { // not required
 		return nil
@@ -170,7 +170,7 @@ func (m *UnderscoreProperties) validateSemanticPath(formats strfmt.Registry) err
 	return nil
 }
 
-func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
+func (m *AdditionalProperties) validateVector(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Vector) { // not required
 		return nil
@@ -187,7 +187,7 @@ func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *UnderscoreProperties) MarshalBinary() ([]byte, error) {
+func (m *AdditionalProperties) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -195,8 +195,8 @@ func (m *UnderscoreProperties) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *UnderscoreProperties) UnmarshalBinary(b []byte) error {
-	var res UnderscoreProperties
+func (m *AdditionalProperties) UnmarshalBinary(b []byte) error {
+	var res AdditionalProperties
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

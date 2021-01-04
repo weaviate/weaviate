@@ -104,7 +104,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, traverser.UnderscoreProperties{})
+			}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}

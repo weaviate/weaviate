@@ -209,28 +209,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
@@ -275,28 +275,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaNoRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
@@ -337,28 +337,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaNoRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
@@ -437,28 +437,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)

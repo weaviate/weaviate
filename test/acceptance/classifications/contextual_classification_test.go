@@ -71,7 +71,9 @@ func contextualClassification(t *testing.T) {
 {
   Get {
 		Article {
-			uuid
+			_additional {
+				id
+			}
 			OfCategory {
 				... on Category {
 					name
@@ -89,7 +91,7 @@ func contextualClassification(t *testing.T) {
 	articles := gres.Get("Get", "Article").AsSlice()
 	for _, article := range articles {
 		actual := article.(map[string]interface{})["OfCategory"].([]interface{})[0].(map[string]interface{})["name"].(string)
-		id := article.(map[string]interface{})["uuid"].(string)
+		id := article.(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string)
 		assert.Equal(t, expectedCategoriesByID[strfmt.UUID(id)], actual)
 	}
 }

@@ -96,14 +96,14 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, underscores traverser.UnderscoreProperties) (*search.Result, error) {
-	args := f.Called(id, props, underscores)
+	id strfmt.UUID, props traverser.SelectProperties, additional traverser.AdditionalProperties) (*search.Result, error) {
+	args := f.Called(id, props, additional)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
-	args := f.Called(limit, filters, underscores)
+	filters *filters.LocalFilter, additional traverser.AdditionalProperties) (search.Results, error) {
+	args := f.Called(limit, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 

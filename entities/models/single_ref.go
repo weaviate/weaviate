@@ -28,9 +28,6 @@ import (
 // swagger:model SingleRef
 type SingleRef struct {
 
-	// Additional Meta information about classifications if the item was part of one
-	Classification *ReferenceMetaClassification `json:"_classification,omitempty"`
-
 	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
@@ -38,6 +35,9 @@ type SingleRef struct {
 	// If using a concept reference (rather than a direct reference), specify the desired class name here
 	// Format: uri
 	Class strfmt.URI `json:"class,omitempty"`
+
+	// Additional Meta information about classifications if the item was part of one
+	Classification *ReferenceMetaClassification `json:"classification,omitempty"`
 
 	// If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.
 	// Format: uri
@@ -51,15 +51,15 @@ type SingleRef struct {
 func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateClassification(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateBeacon(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateClass(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateClassification(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -70,24 +70,6 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Classification) { // not required
-		return nil
-	}
-
-	if m.Classification != nil {
-		if err := m.Classification.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("_classification")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -112,6 +94,24 @@ func (m *SingleRef) validateClass(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("class", "body", "uri", m.Class.String(), formats); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Classification) { // not required
+		return nil
+	}
+
+	if m.Classification != nil {
+		if err := m.Classification.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("classification")
+			}
+			return err
+		}
 	}
 
 	return nil

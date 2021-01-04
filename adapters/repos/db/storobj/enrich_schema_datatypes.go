@@ -196,7 +196,7 @@ func parseCrossRef(value []interface{}) (models.MultipleRef, error) {
 			Beacon: strfmt.URI(beaconStr),
 		}
 
-		c, ok := asMap["_classification"]
+		c, ok := asMap["classification"]
 		if ok {
 			classification, err := parseRefClassificationMeta(c)
 			if err != nil {
@@ -214,7 +214,7 @@ func parseRefClassificationMeta(in interface{}) (*models.ReferenceMetaClassifica
 	out := &models.ReferenceMetaClassification{}
 	asMap, ok := in.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected _classfication to be map - got %T", in)
+		return nil, fmt.Errorf("expected classification to be map - got %T", in)
 	}
 
 	if cod, err := extractFloat64(asMap, "closestOverallDistance"); err != nil {

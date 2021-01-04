@@ -164,7 +164,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		refs := source.Object().Schema.(map[string]interface{})["toTarget"]

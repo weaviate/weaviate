@@ -25,13 +25,13 @@ import (
 
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Object, error) {
+	id strfmt.UUID, additional traverser.AdditionalProperties) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return nil, err
 	}
 
-	if underscore.FeatureProjection != nil {
+	if additional.FeatureProjection != nil {
 		return nil, fmt.Errorf("feature projection is not possible on a non-list request")
 	}
 
@@ -41,7 +41,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	res, err := m.getObjectFromRepo(ctx, id, underscore)
+	res, err := m.getObjectFromRepo(ctx, id, additional)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	limit *int64, underscore traverser.UnderscoreProperties) ([]*models.Object, error) {
+	limit *int64, additional traverser.AdditionalProperties) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -63,12 +63,12 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.getObjectsFromRepo(ctx, limit, underscore)
+	return m.getObjectsFromRepo(ctx, limit, additional)
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
-	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-	res, err := m.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, underscore)
+	additional traverser.AdditionalProperties) (*search.Result, error) {
+	res, err := m.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, additional)
 	if err != nil {
 		return nil, NewErrInternal("repo: object by id: %v", err)
 	}
@@ -77,7 +77,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no object with id '%s'", id)
 	}
 
-	if underscore.NearestNeighbors {
+	if additional.NearestNeighbors {
 		res, err = m.nnExtender.Single(ctx, res, nil)
 		if err != nil {
 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
@@ -88,22 +88,22 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
-	underscore traverser.UnderscoreProperties) ([]*models.Object, error) {
+	additional traverser.AdditionalProperties) ([]*models.Object, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
-	res, err := m.vectorRepo.ObjectSearch(ctx, smartLimit, nil, underscore)
+	res, err := m.vectorRepo.ObjectSearch(ctx, smartLimit, nil, additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
 
-	if underscore.NearestNeighbors {
+	if additional.NearestNeighbors {
 		res, err = m.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
 		}
 	}
 
-	if underscore.FeatureProjection != nil {
+	if additional.FeatureProjection != nil {
 		res, err = m.projector.Reduce(res, &projector.Params{Enabled: true})
 		if err != nil {
 			return nil, NewErrInternal("perform feature projection: %v", err)
