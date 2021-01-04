@@ -662,78 +662,38 @@ func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal, object *
 	return object, nil
 }
 
-// func (f *fakeManager) AddAction(_ context.Context, _ *models.Principal, action *models.Action) (*models.Action, error) {
-// 	return action, nil
-// }
-
 func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
 	panic("not implemented") // TODO: Implement
 }
-
-// func (f *fakeManager) ValidateAction(_ context.Context, _ *models.Principal, _ *models.Action) error {
-// 	panic("not implemented") // TODO: Implement
-// }
 
 func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Object, error) {
 	return f.getObjectReturn, nil
 }
 
-// func (f *fakeManager) GetAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Action, error) {
-// 	return f.getObjectReturn, nil
-// }
-
 func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Object, error) {
 	return f.getObjectsReturn, nil
 }
-
-// func (f *fakeManager) GetActions(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Action, error) {
-// 	return f.getActionsReturn, nil
-// }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, object *models.Object) (*models.Object, error) {
 	return object, nil
 }
 
-// func (f *fakeManager) UpdateAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, action *models.Action) (*models.Action, error) {
-// 	return action, nil
-// }
-
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Object) error {
 	panic("not implemented") // TODO: Implement
 }
-
-// func (f *fakeManager) MergeAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Action) error {
-// 	panic("not implemented") // TODO: Implement
-// }
 
 func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal, _ strfmt.UUID) error {
 	panic("not implemented") // TODO: Implement
 }
 
-// func (f *fakeManager) DeleteAction(_ context.Context, _ *models.Principal, _ strfmt.UUID) error {
-// 	panic("not implemented") // TODO: Implement
-// }
-
 func (f *fakeManager) AddObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
 	panic("not implemented") // TODO: Implement
 }
-
-// func (f *fakeManager) AddActionReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-// 	panic("not implemented") // TODO: Implement
-// }
 
 func (f *fakeManager) UpdateObjectReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
 	panic("not implemented") // TODO: Implement
 }
 
-// func (f *fakeManager) UpdateActionReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
-// 	panic("not implemented") // TODO: Implement
-// }
-
 func (f *fakeManager) DeleteObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
 	panic("not implemented") // TODO: Implement
 }
-
-// func (f *fakeManager) DeleteActionReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-// 	panic("not implemented") // TODO: Implement
-// }

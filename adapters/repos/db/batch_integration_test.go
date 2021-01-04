@@ -328,6 +328,54 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
 		})
+
+		t.Run("when a context expires", func(t *testing.T) {
+			// it should ignore the first one as the second one would overwrite the
+			// first one anyway
+			size := 50
+			batch := make(objects.BatchObjects, size)
+			// add 50 more nonsensical items, so we cross the transaction threshold
+
+			for i := 0; i < size; i++ {
+				uuid, err := uuid.NewV4()
+				require.Nil(t, err)
+				id := strfmt.UUID(uuid.String())
+				batch[i] = objects.BatchObject{
+					Err:    nil,
+					Vector: []float32{0.05, 0.1, 0.2},
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Schema: map[string]interface{}{
+							"stringProp": "ignore me",
+						},
+						ID: id,
+					},
+					UUID: id,
+				}
+			}
+
+			t.Run("can import", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+				defer cancel()
+
+				batchRes, err := repo.BatchPutObjects(ctx, batch)
+				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+
+				t.Run("some elements have error'd due to context", func(t *testing.T) {
+					require.Len(t, batchRes, 50)
+
+					errCount := 0
+					for _, elem := range batchRes {
+						if elem.Err != nil {
+							errCount++
+							assert.Contains(t, elem.Err.Error(), "context deadline exceeded")
+						}
+					}
+
+					assert.True(t, errCount > 0)
+				})
+			})
+		})
 	}
 }
 

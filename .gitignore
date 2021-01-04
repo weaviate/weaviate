@@ -91,6 +91,7 @@ esbackups/
 adapters/repos/db/testdata/
 adapters/repos/db/vector/hnsw/testdata
 adapters/repos/classifications/testdata
+usecases/classification/integrationtest/testdata
 adapters/repos/schema/testdata
 adapters/repos/modules/testdata/
 

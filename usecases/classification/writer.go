@@ -50,7 +50,7 @@ func newBatchWriter(vectorRepo vectorRepo) writer {
 		vectorRepo:      vectorRepo,
 		batchItemsCount: 0,
 		batchObjects:    objects.BatchObjects{},
-		saveObjectItems: make(chan objects.BatchObjects, 1),
+		saveObjectItems: make(chan objects.BatchObjects),
 		errorCount:      0,
 		ec:              &errorCompounder{},
 		cancel:          make(chan struct{}),
@@ -113,8 +113,13 @@ func (r *batchWriter) batchSave() {
 }
 
 func (r *batchWriter) saveObjects(items objects.BatchObjects) {
-	ctx, cancel := contextWithTimeout(5 * time.Second)
+	// we need to allow quite some time as this is now a batch, no longer just a
+	// single item and we don't have any control over what other load is
+	// currently going on, such as imports. TODO: should this be
+	// user-configurable?
+	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
+
 	if len(items) > 0 {
 		saved, err := r.vectorRepo.BatchPutObjects(ctx, items)
 		if err != nil {

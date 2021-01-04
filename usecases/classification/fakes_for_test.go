@@ -79,10 +79,11 @@ func newFakeVectorRepoKNN(unclassified, classified search.Results) *fakeVectorRe
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepoKNN struct {
 	sync.Mutex
-	unclassified     []search.Result
-	classified       []search.Result
-	db               map[strfmt.UUID]*models.Object
-	errorOnAggregate error
+	unclassified      []search.Result
+	classified        []search.Result
+	db                map[strfmt.UUID]*models.Object
+	errorOnAggregate  error
+	batchStorageDelay time.Duration
 }
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
@@ -104,7 +105,7 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 	defer f.Unlock()
 
 	// simulate that this takes some time
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(1 * time.Millisecond)
 
 	if ki != kind.Object {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
@@ -163,6 +164,11 @@ func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
+
+	if f.batchStorageDelay > 0 {
+		time.Sleep(f.batchStorageDelay)
+	}
+
 	for _, batchObject := range objects {
 		f.db[batchObject.Object.ID] = batchObject.Object
 	}

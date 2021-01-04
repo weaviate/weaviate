@@ -66,49 +66,6 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	return m.getObjectsFromRepo(ctx, limit, underscore)
 }
 
-// GetAction Class from connected DB
-// func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Action, error) {
-// 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if underscore.FeatureProjection != nil {
-// 		return nil, fmt.Errorf("feature projection is not possible on a non-list request")
-// 	}
-
-// 	unlock, err := m.locks.LockConnector()
-// 	if err != nil {
-// 		return nil, NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	action, err := m.getActionFromRepo(ctx, id, underscore)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return action.Action(), nil
-// }
-
-// GetActions Class from connected DB
-// func (m *Manager) GetActions(ctx context.Context, principal *models.Principal,
-// 	limit *int64, underscore traverser.UnderscoreProperties) ([]*models.Action, error) {
-// 	err := m.authorizer.Authorize(principal, "list", "actions")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	unlock, err := m.locks.LockConnector()
-// 	if err != nil {
-// 		return nil, NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	return m.getActionsFromRepo(ctx, limit, underscore)
-// }
-
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 	underscore traverser.UnderscoreProperties) (*search.Result, error) {
 	res, err := m.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, underscore)
@@ -155,53 +112,6 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
 
 	return res.Objects(), nil
 }
-
-// func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
-// 	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-// 	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, underscore)
-// 	if err != nil {
-// 		return nil, NewErrInternal("repo: action by id: %v", err)
-// 	}
-
-// 	if res == nil {
-// 		return nil, NewErrNotFound("no action with id '%s'", id)
-// 	}
-
-// 	if underscore.NearestNeighbors {
-// 		res, err = m.nnExtender.Single(ctx, res, nil)
-// 		if err != nil {
-// 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
-// 		}
-// 	}
-
-// 	return res, nil
-// }
-
-// func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
-// 	underscore traverser.UnderscoreProperties) ([]*models.Action, error) {
-// 	smartLimit := m.localLimitOrGlobalLimit(limit)
-
-// 	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, underscore)
-// 	if err != nil {
-// 		return nil, NewErrInternal("list actions: %v", err)
-// 	}
-
-// 	if underscore.NearestNeighbors {
-// 		res, err = m.nnExtender.Multi(ctx, res, nil)
-// 		if err != nil {
-// 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
-// 		}
-// 	}
-
-// 	if underscore.FeatureProjection != nil {
-// 		res, err = m.projector.Reduce(res, &projector.Params{Enabled: true})
-// 		if err != nil {
-// 			return nil, NewErrInternal("perform feature projection: %v", err)
-// 		}
-// 	}
-
-// 	return res.Actions(), nil
-// }
 
 func (m *Manager) localLimitOrGlobalLimit(paramMaxResults *int64) int {
 	maxResults := m.config.Config.QueryDefaults.Limit
