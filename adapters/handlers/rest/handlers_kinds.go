@@ -39,8 +39,8 @@ type kindHandlers struct {
 type kindsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
-	GetObject(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Object, error)
-	GetObjects(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Object, error)
+	GetObject(context.Context, *models.Principal, strfmt.UUID, traverser.AdditionalProperties) (*models.Object, error)
+	GetObjects(context.Context, *models.Principal, *int64, traverser.AdditionalProperties) ([]*models.Object, error)
 	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
@@ -96,13 +96,13 @@ func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 
 func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
-	underscores, err := parseIncludeParam(params.Include)
+	additional, err := parseIncludeParam(params.Include)
 	if err != nil {
 		return objects.NewObjectsGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal, params.ID, underscores)
+	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal, params.ID, additional)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -126,7 +126,7 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 
 func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal) middleware.Responder {
-	underscores, err := parseIncludeParam(params.Include)
+	additional, err := parseIncludeParam(params.Include)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -134,7 +134,7 @@ func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 
 	var deprecationsRes []*models.Deprecation
 
-	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Limit, underscores)
+	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Limit, additional)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -345,8 +345,8 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 	return ref
 }
 
-func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
-	out := traverser.UnderscoreProperties{}
+func parseIncludeParam(in *string) (traverser.AdditionalProperties, error) {
+	out := traverser.AdditionalProperties{}
 	if in == nil {
 		return out, nil
 	}
@@ -355,16 +355,16 @@ func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
 
 	for _, prop := range parts {
 		switch prop {
-		case "_classification", "classification":
+		case "classification":
 			out.Classification = true
 			out.RefMeta = true
-		case "_interpretation", "interpretation":
+		case "interpretation":
 			out.Interpretation = true
-		case "_nearestNeighbors", "nearestNeighbors", "nearestneighbors", "_nearestneighbors", "nearest-neighbors", "nearest_neighbors", "_nearest_neighbors":
+		case "nearestNeighbors", "nearestneighbors", "nearest-neighbors", "nearest_neighbors":
 			out.NearestNeighbors = true
-		case "_featureProjection", "featureProjection", "featureprojection", "_featureprojection", "feature-projection", "feature_projection", "_feature_projection":
+		case "featureProjection", "featureprojection", "feature-projection", "feature_projection":
 			out.FeatureProjection = &projector.Params{}
-		case "_vector", "vector":
+		case "vector":
 			out.Vector = true
 
 		default:

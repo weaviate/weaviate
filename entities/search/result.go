@@ -33,7 +33,7 @@ type Result struct {
 	Schema               models.PropertySchema
 	Created              int64
 	Updated              int64
-	UnderscoreProperties *models.UnderscoreProperties
+	AdditionalProperties *models.AdditionalProperties
 	VectorWeights        map[string]string
 }
 
@@ -54,18 +54,8 @@ func (r Result) Object() *models.Object {
 		VectorWeights:      r.VectorWeights,
 	}
 
-	if r.UnderscoreProperties != nil {
-		t.Vector = r.UnderscoreProperties.Vector
-		t.Classification = r.UnderscoreProperties.Classification
-
-		t.Interpretation = r.UnderscoreProperties.Interpretation
-		r.UnderscoreProperties.Interpretation = nil
-
-		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
-		r.UnderscoreProperties.NearestNeighbors = nil
-
-		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
-		r.UnderscoreProperties.FeatureProjection = nil
+	if r.AdditionalProperties != nil {
+		t.Additional = r.AdditionalProperties
 	}
 
 	return t

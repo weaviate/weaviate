@@ -182,10 +182,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
 	require.Nil(t, err)
 
-	beforeDeleteObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.UnderscoreProperties{})
+	beforeDeleteObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
-	beforeDeleteObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.UnderscoreProperties{})
+	beforeDeleteObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
 	// drop the index
@@ -216,10 +216,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, testClassName)
 	require.Nil(t, err)
 
-	afterRecreateObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.UnderscoreProperties{})
+	afterRecreateObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
-	afterRecreateObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.UnderscoreProperties{})
+	afterRecreateObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
 	// insert some data in the recreated index
@@ -234,10 +234,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.UnderscoreProperties{})
+	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
-	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.UnderscoreProperties{})
+	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
 	require.Nil(t, err)
 
 	assert.Equal(t, 3, len(indexFilesBeforeDelete))

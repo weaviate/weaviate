@@ -111,7 +111,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, traverser.UnderscoreProperties{})
+			}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -143,7 +143,7 @@ func TestUpdateJourney(t *testing.T) {
 			id := updateTestData()[0].ID
 
 			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
-				traverser.UnderscoreProperties{})
+				traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
@@ -197,7 +197,7 @@ func TestUpdateJourney(t *testing.T) {
 			id := updateTestData()[2].ID
 
 			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
-				traverser.UnderscoreProperties{})
+				traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)

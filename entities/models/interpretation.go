@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// Interpretation This underscore property contains additional info about the how the class was vectorized
+// Interpretation This additional property contains additional info about the how the class was vectorized
 //
 // swagger:model Interpretation
 type Interpretation struct {

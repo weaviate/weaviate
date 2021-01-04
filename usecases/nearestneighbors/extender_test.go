@@ -39,8 +39,8 @@ func TestExtender(t *testing.T) {
 		testData := &search.Result{
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
-			UnderscoreProperties: &models.UnderscoreProperties{
-				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+			AdditionalProperties: &models.AdditionalProperties{
+				Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
 			},
@@ -49,8 +49,8 @@ func TestExtender(t *testing.T) {
 		expectedResult := &search.Result{
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
-			UnderscoreProperties: &models.UnderscoreProperties{
-				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+			AdditionalProperties: &models.AdditionalProperties{
+				Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
 				NearestNeighbors: &models.NearestNeighbors{
@@ -96,8 +96,8 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				UnderscoreProperties: &models.UnderscoreProperties{
-					Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -108,7 +108,7 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item1"},
 				Vector: vectors[0],
-				UnderscoreProperties: &models.UnderscoreProperties{
+				AdditionalProperties: &models.AdditionalProperties{
 					NearestNeighbors: &models.NearestNeighbors{
 						Neighbors: []*models.NearestNeighbor{
 							&models.NearestNeighbor{
@@ -130,7 +130,7 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item2"},
 				Vector: vectors[1],
-				UnderscoreProperties: &models.UnderscoreProperties{
+				AdditionalProperties: &models.AdditionalProperties{
 					NearestNeighbors: &models.NearestNeighbors{
 						Neighbors: []*models.NearestNeighbor{
 							&models.NearestNeighbor{
@@ -152,8 +152,8 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				UnderscoreProperties: &models.UnderscoreProperties{
-					Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 					NearestNeighbors: &models.NearestNeighbors{

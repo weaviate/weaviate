@@ -666,11 +666,11 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Object, error) {
+func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.AdditionalProperties) (*models.Object, error) {
 	return f.getObjectReturn, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ traverser.AdditionalProperties) ([]*models.Object, error) {
 	return f.getObjectsReturn, nil
 }
 

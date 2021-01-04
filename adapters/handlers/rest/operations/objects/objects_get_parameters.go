@@ -47,7 +47,7 @@ type ObjectsGetParams struct {
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
+	/*Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 	  In: query
 	*/
 	Include *string
