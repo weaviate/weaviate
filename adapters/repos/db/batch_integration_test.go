@@ -333,17 +333,17 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			// it should ignore the first one as the second one would overwrite the
 			// first one anyway
 			size := 50
-			batch := make(kinds.BatchThings, size)
+			batch := make(objects.BatchObjects, size)
 			// add 50 more nonsensical items, so we cross the transaction threshold
 
 			for i := 0; i < size; i++ {
 				uuid, err := uuid.NewV4()
 				require.Nil(t, err)
 				id := strfmt.UUID(uuid.String())
-				batch[i] = kinds.BatchThing{
+				batch[i] = objects.BatchObject{
 					Err:    nil,
 					Vector: []float32{0.05, 0.1, 0.2},
-					Thing: &models.Thing{
+					Object: &models.Object{
 						Class: "ThingForBatching",
 						Schema: map[string]interface{}{
 							"stringProp": "ignore me",
@@ -358,7 +358,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 				defer cancel()
 
-				batchRes, err := repo.BatchPutThings(ctx, batch)
+				batchRes, err := repo.BatchPutObjects(ctx, batch)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {

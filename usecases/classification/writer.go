@@ -49,13 +49,8 @@ func newBatchWriter(vectorRepo vectorRepo) writer {
 	return &batchWriter{
 		vectorRepo:      vectorRepo,
 		batchItemsCount: 0,
-<<<<<<< HEAD
-		batchObjects:    kinds.BatchObjects{},
-		saveObjectItems: make(chan kinds.BatchObjects),
-=======
 		batchObjects:    objects.BatchObjects{},
-		saveObjectItems: make(chan objects.BatchObjects, 1),
->>>>>>> 87cd3582 (renamed usecases/kinds to usecases/objects)
+		saveObjectItems: make(chan objects.BatchObjects),
 		errorCount:      0,
 		ec:              &errorCompounder{},
 		cancel:          make(chan struct{}),
@@ -117,7 +112,7 @@ func (r *batchWriter) batchSave() {
 	}
 }
 
-func (r *batchWriter) saveObjects(items kinds.BatchObjects) {
+func (r *batchWriter) saveObjects(items objects.BatchObjects) {
 	// we need to allow quite some time as this is now a batch, no longer just a
 	// single item and we don't have any control over what other load is
 	// currently going on, such as imports. TODO: should this be
