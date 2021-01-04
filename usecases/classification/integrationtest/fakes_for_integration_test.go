@@ -67,7 +67,7 @@ func (f *fakeClassificationRepo) Get(ctx context.Context, id strfmt.UUID) (*mode
 
 func testSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "ExactCategory",
@@ -159,7 +159,7 @@ func largeTestDataSize(size int) search.Results {
 
 	for i := range out {
 		out[i] = search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        mustUUID(),
 			ClassName: "Article",
 			Vector:    []float32{0.02, 0, 0},
@@ -178,7 +178,7 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 }
 
 func beaconRef(target string) *models.SingleRef {
-	beacon := fmt.Sprintf("weaviate://localhost/things/%s", target)
+	beacon := fmt.Sprintf("weaviate://localhost/%s", target)
 	return &models.SingleRef{Beacon: strfmt.URI(beacon)}
 }
 

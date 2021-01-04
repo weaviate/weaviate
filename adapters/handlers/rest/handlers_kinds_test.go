@@ -17,8 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -27,48 +26,48 @@ import (
 )
 
 func TestEnrichObjectsWithLinks(t *testing.T) {
-	t.Run("add thing", func(t *testing.T) {
+	t.Run("add object", func(t *testing.T) {
 		type test struct {
 			name           string
-			thing          *models.Thing
-			expectedResult *models.Thing
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				thing:          &models.Thing{Class: "Foo", Schema: nil},
-				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -78,14 +77,14 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					addThingReturn: test.thing,
+					addObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.addThing(things.ThingsCreateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
-					Body:        test.thing,
+				res := h.addObject(objects.ObjectsCreateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*things.ThingsCreateOK)
+				parsed, ok := res.(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -94,48 +93,48 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 	// This test "with an origin conifgured" is not repeated for every handler,
 	// as testing this feature once was deemed sufficient
-	t.Run("add thing - with an origin configured", func(t *testing.T) {
+	t.Run("add object - with an origin configured", func(t *testing.T) {
 		type test struct {
 			name           string
-			thing          *models.Thing
-			expectedResult *models.Thing
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				thing:          &models.Thing{Class: "Foo", Schema: nil},
-				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "https://awesomehost.com/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "https://awesomehost.com/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -145,63 +144,63 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					addThingReturn: test.thing,
+					addObjectReturn: test.object,
 				}
 				config := config.Config{Origin: "https://awesomehost.com"}
 				h := &kindHandlers{manager: fakeManager, config: config}
-				res := h.addThing(things.ThingsCreateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
-					Body:        test.thing,
+				res := h.addObject(objects.ObjectsCreateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*things.ThingsCreateOK)
+				parsed, ok := res.(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
 	})
 
-	t.Run("get thing", func(t *testing.T) {
+	t.Run("get object", func(t *testing.T) {
 		type test struct {
 			name           string
-			thing          *models.Thing
-			expectedResult *models.Thing
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				thing:          &models.Thing{Class: "Foo", Schema: nil},
-				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -211,48 +210,48 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getThingReturn: test.thing,
+					getObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.getThing(things.ThingsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/things", nil)}, nil)
-				parsed, ok := res.(*things.ThingsGetOK)
+				res := h.getObject(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+				parsed, ok := res.(*objects.ObjectsGetOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
 	})
 
-	t.Run("get things", func(t *testing.T) {
+	t.Run("get objects", func(t *testing.T) {
 		type test struct {
 			name           string
-			thing          []*models.Thing
-			expectedResult []*models.Thing
+			object         []*models.Object
+			expectedResult []*models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				thing:          []*models.Thing{&models.Thing{Class: "Foo", Schema: nil}},
-				expectedResult: []*models.Thing{&models.Thing{Class: "Foo", Schema: nil}},
+				object:         []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
+				expectedResult: []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				thing: []*models.Thing{
-					&models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Thing{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
 				},
-				expectedResult: []*models.Thing{
-					&models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Thing{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
@@ -260,33 +259,33 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				thing: []*models.Thing{
-					&models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Thing{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
 							&models.SingleRef{
-								Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+								Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 							},
 						},
 					}},
 				},
-				expectedResult: []*models.Thing{
-					&models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Thing{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
 							&models.SingleRef{
-								Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
-								Href:   "/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+								Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+								Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 							},
 						},
 					}},
@@ -297,59 +296,59 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getThingsReturn: test.thing,
+					getObjectsReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.getThings(things.ThingsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/things", nil)}, nil)
-				parsed, ok := res.(*things.ThingsListOK)
+				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+				parsed, ok := res.(*objects.ObjectsListOK)
 				require.True(t, ok)
-				assert.Equal(t, test.expectedResult, parsed.Payload.Things)
+				assert.Equal(t, test.expectedResult, parsed.Payload.Objects)
 			})
 		}
 	})
 
-	t.Run("update thing", func(t *testing.T) {
+	t.Run("update object", func(t *testing.T) {
 		type test struct {
 			name           string
-			thing          *models.Thing
-			expectedResult *models.Thing
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				thing:          &models.Thing{Class: "Foo", Schema: nil},
-				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -359,62 +358,62 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					updateThingReturn: test.thing,
+					updateObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.updateThing(things.ThingsUpdateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
-					Body:        test.thing,
+				res := h.updateObject(objects.ObjectsUpdateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*things.ThingsUpdateOK)
+				parsed, ok := res.(*objects.ObjectsUpdateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
 	})
 
-	t.Run("add action", func(t *testing.T) {
+	t.Run("add object", func(t *testing.T) {
 		type test struct {
 			name           string
-			action         *models.Action
-			expectedResult *models.Action
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				action:         &models.Action{Class: "Foo", Schema: nil},
-				expectedResult: &models.Action{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -424,62 +423,62 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					addActionReturn: test.action,
+					addObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.addAction(actions.ActionsCreateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/actions", nil),
-					Body:        test.action,
+				res := h.addObject(objects.ObjectsCreateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*actions.ActionsCreateOK)
+				parsed, ok := res.(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
 	})
 
-	t.Run("get action", func(t *testing.T) {
+	t.Run("get object", func(t *testing.T) {
 		type test struct {
 			name           string
-			action         *models.Action
-			expectedResult *models.Action
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				action:         &models.Action{Class: "Foo", Schema: nil},
-				expectedResult: &models.Action{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -489,48 +488,48 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getActionReturn: test.action,
+					getObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.getAction(actions.ActionsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/actions", nil)}, nil)
-				parsed, ok := res.(*actions.ActionsGetOK)
+				res := h.getObject(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+				parsed, ok := res.(*objects.ObjectsGetOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
 	})
 
-	t.Run("get actions", func(t *testing.T) {
+	t.Run("get objects", func(t *testing.T) {
 		type test struct {
 			name           string
-			action         []*models.Action
-			expectedResult []*models.Action
+			object         []*models.Object
+			expectedResult []*models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				action:         []*models.Action{&models.Action{Class: "Foo", Schema: nil}},
-				expectedResult: []*models.Action{&models.Action{Class: "Foo", Schema: nil}},
+				object:         []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
+				expectedResult: []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				action: []*models.Action{
-					&models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Action{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
 				},
-				expectedResult: []*models.Action{
-					&models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Action{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
@@ -538,33 +537,33 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				action: []*models.Action{
-					&models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Action{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
 							&models.SingleRef{
-								Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+								Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 							},
 						},
 					}},
 				},
-				expectedResult: []*models.Action{
-					&models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: []*models.Object{
+					&models.Object{Class: "Foo", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Action{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Schema: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
 							&models.SingleRef{
-								Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
-								Href:   "/v1/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+								Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+								Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 							},
 						},
 					}},
@@ -575,59 +574,59 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getActionsReturn: test.action,
+					getObjectsReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.getActions(actions.ActionsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/actions", nil)}, nil)
-				parsed, ok := res.(*actions.ActionsListOK)
+				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
+				parsed, ok := res.(*objects.ObjectsListOK)
 				require.True(t, ok)
-				assert.Equal(t, test.expectedResult, parsed.Payload.Actions)
+				assert.Equal(t, test.expectedResult, parsed.Payload.Objects)
 			})
 		}
 	})
 
-	t.Run("update action", func(t *testing.T) {
+	t.Run("update object", func(t *testing.T) {
 		type test struct {
 			name           string
-			action         *models.Action
-			expectedResult *models.Action
+			object         *models.Object
+			expectedResult *models.Object
 		}
 
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				action:         &models.Action{Class: "Foo", Schema: nil},
-				expectedResult: &models.Action{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Schema: nil},
+				expectedResult: &models.Object{Class: "Foo", Schema: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
-				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
-							Href:   "/v1/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Beacon: "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
 						},
 					},
 				}},
@@ -637,14 +636,14 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					updateActionReturn: test.action,
+					updateObjectReturn: test.object,
 				}
 				h := &kindHandlers{manager: fakeManager}
-				res := h.updateAction(actions.ActionsUpdateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/actions", nil),
-					Body:        test.action,
+				res := h.updateObject(objects.ObjectsUpdateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*actions.ActionsUpdateOK)
+				parsed, ok := res.(*objects.ObjectsUpdateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -653,92 +652,48 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 }
 
 type fakeManager struct {
-	getThingReturn     *models.Thing
-	getActionReturn    *models.Action
-	addThingReturn     *models.Thing
-	addActionReturn    *models.Action
-	getThingsReturn    []*models.Thing
-	getActionsReturn   []*models.Action
-	updateThingReturn  *models.Thing
-	updateActionReturn *models.Action
+	getObjectReturn    *models.Object
+	addObjectReturn    *models.Object
+	getObjectsReturn   []*models.Object
+	updateObjectReturn *models.Object
 }
 
-func (f *fakeManager) AddThing(_ context.Context, _ *models.Principal, thing *models.Thing) (*models.Thing, error) {
-	return thing, nil
+func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal, object *models.Object) (*models.Object, error) {
+	return object, nil
 }
 
-func (f *fakeManager) AddAction(_ context.Context, _ *models.Principal, action *models.Action) (*models.Action, error) {
-	return action, nil
-}
-
-func (f *fakeManager) ValidateThing(_ context.Context, _ *models.Principal, _ *models.Thing) error {
+func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) ValidateAction(_ context.Context, _ *models.Principal, _ *models.Action) error {
+func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Object, error) {
+	return f.getObjectReturn, nil
+}
+
+func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Object, error) {
+	return f.getObjectsReturn, nil
+}
+
+func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, object *models.Object) (*models.Object, error) {
+	return object, nil
+}
+
+func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Object) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) GetThing(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Thing, error) {
-	return f.getThingReturn, nil
-}
-
-func (f *fakeManager) GetAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Action, error) {
-	return f.getActionReturn, nil
-}
-
-func (f *fakeManager) GetThings(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Thing, error) {
-	return f.getThingsReturn, nil
-}
-
-func (f *fakeManager) GetActions(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Action, error) {
-	return f.getActionsReturn, nil
-}
-
-func (f *fakeManager) UpdateThing(_ context.Context, _ *models.Principal, _ strfmt.UUID, thing *models.Thing) (*models.Thing, error) {
-	return thing, nil
-}
-
-func (f *fakeManager) UpdateAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, action *models.Action) (*models.Action, error) {
-	return action, nil
-}
-
-func (f *fakeManager) MergeThing(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Thing) error {
+func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal, _ strfmt.UUID) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) MergeAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Action) error {
+func (f *fakeManager) AddObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) DeleteThing(_ context.Context, _ *models.Principal, _ strfmt.UUID) error {
+func (f *fakeManager) UpdateObjectReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) DeleteAction(_ context.Context, _ *models.Principal, _ strfmt.UUID) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) AddThingReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) AddActionReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) UpdateThingReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) UpdateActionReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) DeleteThingReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-	panic("not implemented") // TODO: Implement
-}
-
-func (f *fakeManager) DeleteActionReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
+func (f *fakeManager) DeleteObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
 	panic("not implemented") // TODO: Implement
 }

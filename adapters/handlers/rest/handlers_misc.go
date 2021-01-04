@@ -102,23 +102,13 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
 					},
 					&models.Link{
-						Name:              "CRUD things schema",
-						Href:              fmt.Sprintf("%s/v1/schema/things{/:className}", origin),
+						Name:              "CRUD schema",
+						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
 						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
 					},
 					&models.Link{
-						Name:              "CRUD actions schema",
-						Href:              fmt.Sprintf("%s/v1/schema/actions{/:className}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
-					},
-					&models.Link{
-						Name:              "CRUD things",
-						Href:              fmt.Sprintf("%s/v1/things{/:id}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
-					},
-					&models.Link{
-						Name:              "CRUD actions",
-						Href:              fmt.Sprintf("%s/v1/actions{/:id}", origin),
+						Name:              "CRUD objects",
+						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
 						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
 					},
 					&models.Link{

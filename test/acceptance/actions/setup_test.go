@@ -19,10 +19,10 @@ import (
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
-func Test_Actions(t *testing.T) {
+func Test_Objects(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
-		createThingClass(t, &models.Class{
-			Class:              "ActionTestThing",
+		createObjectClass(t, &models.Class{
+			Class:              "ObjectTestThing",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
@@ -31,8 +31,8 @@ func Test_Actions(t *testing.T) {
 				},
 			},
 		})
-		createActionClass(t, &models.Class{
-			Class:              "TestAction",
+		createObjectClass(t, &models.Class{
+			Class:              "TestObject",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
@@ -57,21 +57,21 @@ func Test_Actions(t *testing.T) {
 				},
 				&models.Property{
 					Name:     "testReference",
-					DataType: []string{"ActionTestThing"},
+					DataType: []string{"ObjectTestThing"},
 				},
 			},
 		})
-		createActionClass(t, &models.Class{
-			Class:              "TestActionTwo",
+		createObjectClass(t, &models.Class{
+			Class:              "TestObjectTwo",
 			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testReference",
-					DataType: []string{"TestAction"},
+					DataType: []string{"TestObject"},
 				},
 				&models.Property{
 					Name:     "testReferences",
-					DataType: []string{"TestAction"},
+					DataType: []string{"TestObject"},
 				},
 				&models.Property{
 					Name:     "testString",
@@ -82,38 +82,26 @@ func Test_Actions(t *testing.T) {
 	})
 
 	// tests
-	t.Run("adding actions", addingActions)
-	t.Run("removing actions", removingActions)
-	t.Run("action references", actionReferences)
-	t.Run("updating actions", updateActions)
+	t.Run("adding objects", addingObjects)
+	t.Run("removing objects", removingObjects)
+	t.Run("object references", objectReferences)
+	t.Run("updating objects", updateObjects)
 
 	// tear down
-	deleteThingClass(t, "ActionTestThing")
-	deleteActionClass(t, "TestAction")
-	deleteActionClass(t, "TestActionTwo")
+	deleteObjectClass(t, "ObjectTestThing")
+	deleteObjectClass(t, "TestObject")
+	deleteObjectClass(t, "TestObjectTwo")
 }
 
-func createActionClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaActionsCreateParams().WithActionClass(class)
-	resp, err := helper.Client(t).Schema.SchemaActionsCreate(params, nil)
+func createObjectClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func deleteActionClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaActionsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaActionsDelete(delParams, nil)
-	helper.AssertRequestOk(t, delRes, err, nil)
-}
-
-func createThingClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
-	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-}
-
-func deleteThingClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+func deleteObjectClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
 

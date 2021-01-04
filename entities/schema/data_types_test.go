@@ -56,7 +56,7 @@ func TestNonExistingClassSingleRef(t *testing.T) {
 func TestExistingClassSingleRef(t *testing.T) {
 	s := Empty()
 
-	s.Actions.Classes = append(s.Actions.Classes, &models.Class{
+	s.Objects.Classes = append(s.Objects.Classes, &models.Class{
 		Class: "ExistingClass",
 	})
 

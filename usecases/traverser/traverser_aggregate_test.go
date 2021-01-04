@@ -41,7 +41,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		params := AggregateParams{
 			ClassName: "MyClass",
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
@@ -126,7 +126,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		params := AggregateParams{
 			ClassName: "MyClass",
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
@@ -256,7 +256,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 }
 
 var aggregateTestSchema = schema.Schema{
-	Things: &models.Schema{
+	Objects: &models.Schema{
 		Classes: []*models.Class{
 			&models.Class{
 				Class: "AnotherClass",

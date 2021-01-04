@@ -58,7 +58,7 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 		},
 	}
 	fakeSchema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				testClass,
 			},
@@ -67,7 +67,7 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -97,13 +97,13 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := shard.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
+		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
 		require.Nil(t, err)
 	}
 
@@ -213,7 +213,7 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 		},
 	}
 	fakeSchema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				testClass,
 			},
@@ -222,7 +222,7 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -259,13 +259,13 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := shard.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
+		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
 		require.Nil(t, err)
 	}
 
@@ -412,7 +412,7 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 		},
 	}
 	fakeSchema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				testClass,
 			},
@@ -421,7 +421,7 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -458,13 +458,13 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := shard.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
+		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
 		require.Nil(t, err)
 	}
 
@@ -492,13 +492,13 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 
 	// perform update operation
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := shard.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, float32(i), 0.01}))
+		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, float32(i), 0.01}))
 		require.Nil(t, err)
 	}
 

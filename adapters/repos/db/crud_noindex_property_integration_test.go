@@ -62,11 +62,11 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, thingclass))
+			migrator.AddClass(context.Background(), kind.Object, thingclass))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{thingclass},
 			},
 		}
@@ -75,7 +75,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	thingID := strfmt.UUID("9f119c4f-80da-4ae5-bfd1-e4b63054125f")
 
 	t.Run("adding a thing", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
@@ -86,13 +86,13 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), thingID,
+		res, err := repo.ObjectByID(context.Background(), thingID,
 			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
@@ -106,7 +106,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
 		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,

@@ -47,7 +47,7 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 		fmt.Println(err)
 	}()
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
@@ -145,7 +145,7 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 	}()
 
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
@@ -232,7 +232,7 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 		fmt.Println(err)
 	}()
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
@@ -319,7 +319,7 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 		fmt.Println(err)
 	}()
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
@@ -416,7 +416,7 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 		fmt.Println(err)
 	}()
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
@@ -503,7 +503,7 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 		fmt.Println(err)
 	}()
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+		RootPath: dirName, Kind: kind.Object, ClassName: "Test",
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)

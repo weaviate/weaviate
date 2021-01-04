@@ -23,8 +23,8 @@ import (
 )
 
 func TestStorageObjectMarshalling(t *testing.T) {
-	before := FromThing(
-		&models.Thing{
+	before := FromObject(
+		&models.Object{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
@@ -69,8 +69,8 @@ func TestStorageObjectMarshalling(t *testing.T) {
 }
 
 func TestNewStorageObject(t *testing.T) {
-	t.Run("things", func(t *testing.T) {
-		so := New(kind.Thing, 12)
+	t.Run("objects", func(t *testing.T) {
+		so := New(kind.Object, 12)
 
 		t.Run("check index id", func(t *testing.T) {
 			assert.Equal(t, uint64(12), so.docID)
@@ -108,9 +108,9 @@ func TestNewStorageObject(t *testing.T) {
 			assert.True(t, so.Valid())
 		})
 
-		t.Run("make sure it's identical with an object created from an existing thing",
+		t.Run("make sure it's identical with an object created from an existing object",
 			func(t *testing.T) {
-				alt := FromThing(&models.Thing{
+				alt := FromObject(&models.Object{
 					Class: "MyClass",
 					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
 					Schema: map[string]interface{}{
@@ -123,8 +123,8 @@ func TestNewStorageObject(t *testing.T) {
 			})
 	})
 
-	t.Run("actions", func(t *testing.T) {
-		so := New(kind.Action, 12)
+	t.Run("objects", func(t *testing.T) {
+		so := New(kind.Object, 12)
 
 		t.Run("check index id", func(t *testing.T) {
 			assert.Equal(t, uint64(12), so.docID)
@@ -164,7 +164,7 @@ func TestNewStorageObject(t *testing.T) {
 
 		t.Run("make sure it's identical with an object created from an existing action",
 			func(t *testing.T) {
-				alt := FromAction(&models.Action{
+				alt := FromObject(&models.Object{
 					Class: "MyClass",
 					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
 					Schema: map[string]interface{}{
