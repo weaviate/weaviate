@@ -69,54 +69,6 @@ func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, princi
 	return nil
 }
 
-// DeleteThingReference from connected DB
-// func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	unlock, err := m.locks.LockSchema()
-// 	if err != nil {
-// 		return NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	return m.deleteThingReferenceFromConnector(ctx, principal, id, propertyName, property)
-// }
-
-// func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-// 	// get thing to see if it exists
-// 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	thing := thingRes.Thing()
-// 	// NOTE: The reference itself is not being validated, to allow for deletion
-// 	// of broken references
-// 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	extended, err := m.removeReferenceFromClassProps(thing.Schema, propertyName, property)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	thing.Schema = extended
-// 	thing.LastUpdateTimeUnix = m.timeSource.Now()
-
-// 	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
-// 	if err != nil {
-// 		return NewErrInternal("could not store thing: %v", err)
-// 	}
-
-// 	return nil
-// }
-
 func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName string,
 	property *models.SingleRef) (interface{}, error) {
 	if props == nil {

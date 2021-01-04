@@ -81,14 +81,6 @@ func (v *Validator) Object(ctx context.Context, object *models.Object) error {
 	return v.properties(ctx, kind.Object, object)
 }
 
-// func (v *Validator) Action(ctx context.Context, action *models.Action) error {
-// 	if err := validateClass(action.Class); err != nil {
-// 		return err
-// 	}
-
-// 	return v.properties(ctx, kind.Action, action)
-// }
-
 func validateClass(class string) error {
 	// If the given class is empty, return an error
 	if class == "" {

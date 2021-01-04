@@ -39,26 +39,3 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 
 	return nil
 }
-
-// ValidateAction without adding it to the database. Can be used in UIs for
-// async validation before submitting
-// func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principal,
-// 	class *models.Action) error {
-// 	err := m.authorizer.Authorize(principal, "validate", "actions")
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	unlock, err := m.locks.LockConnector()
-// 	if err != nil {
-// 		return NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	err = m.validateAction(ctx, principal, class)
-// 	if err != nil {
-// 		return NewErrInvalidUserInput("invalid object: %v", err)
-// 	}
-
-// 	return nil
-// }
