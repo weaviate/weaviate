@@ -23,15 +23,9 @@ import (
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
-	for _, otherClass := range m.state.SchemaFor(kind.Action).Classes {
+	for _, otherClass := range m.state.SchemaFor(kind.Object).Classes {
 		if className == otherClass.Class {
-			return fmt.Errorf("Name '%s' already used as a name for an Action class", className)
-		}
-	}
-
-	for _, otherClass := range m.state.SchemaFor(kind.Thing).Classes {
-		if className == otherClass.Class {
-			return fmt.Errorf("Name '%s' already used as a name for a Thing class", className)
+			return fmt.Errorf("Name '%s' already used as a name for an Object class", className)
 		}
 	}
 

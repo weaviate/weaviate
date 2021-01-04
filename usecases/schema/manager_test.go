@@ -63,9 +63,9 @@ var schemaTests = []struct {
 	fn   func(*testing.T, *Manager)
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
-	{name: "AddThingClass", fn: testAddThingClass},
-	{name: "AddThingClassWithVectorizedName", fn: testAddThingClassWithVectorizedName},
-	{name: "RemoveThingClass", fn: testRemoveThingClass},
+	{name: "AddObjectClass", fn: testAddObjectClass},
+	{name: "AddObjectClassWithVectorizedName", fn: testAddObjectClassWithVectorizedName},
+	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
 	{name: "UpdateClassName", fn: testUpdateClassName},
@@ -85,25 +85,25 @@ func testUpdateMeta(t *testing.T, lsm *Manager) {
 	schema, err := lsm.GetSchema(nil)
 	require.Nil(t, err)
 
-	assert.Equal(t, schema.Things.Maintainer, strfmt.Email(""))
-	assert.Equal(t, schema.Things.Name, "")
+	assert.Equal(t, schema.Objects.Maintainer, strfmt.Email(""))
+	assert.Equal(t, schema.Objects.Name, "")
 
-	assert.Nil(t, lsm.UpdateMeta(context.Background(), kind.Thing, "http://new/context", "person@example.org", "somename"))
+	assert.Nil(t, lsm.UpdateMeta(context.Background(), kind.Object, "http://new/context", "person@example.org", "somename"))
 
 	schema, err = lsm.GetSchema(nil)
 	require.Nil(t, err)
 
-	assert.Equal(t, schema.Things.Maintainer, strfmt.Email("person@example.org"))
-	assert.Equal(t, schema.Things.Name, "somename")
+	assert.Equal(t, schema.Objects.Maintainer, strfmt.Email("person@example.org"))
+	assert.Equal(t, schema.Objects.Name, "somename")
 }
 
-func testAddThingClass(t *testing.T, lsm *Manager) {
+func testAddObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	thingClasses := testGetClassNames(lsm, kind.Thing)
-	assert.NotContains(t, thingClasses, "Car")
+	objectClasses := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClasses, "Car")
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(false),
 		Properties: []*models.Property{{
@@ -114,54 +114,54 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	thingClasses = testGetClassNames(lsm, kind.Thing)
-	assert.Contains(t, thingClasses, "Car")
+	objectClasses = testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClasses, "Car")
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
 }
 
-func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
+func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	thingClasses := testGetClassNames(lsm, kind.Thing)
-	assert.NotContains(t, thingClasses, "Car")
+	objectClasses := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClasses, "Car")
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
 
-	thingClasses = testGetClassNames(lsm, kind.Thing)
-	assert.Contains(t, thingClasses, "Car")
+	objectClasses = testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClasses, "Car")
 	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
-func testRemoveThingClass(t *testing.T, lsm *Manager) {
+func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
 
-	thingClasses := testGetClassNames(lsm, kind.Thing)
-	assert.Contains(t, thingClasses, "Car")
+	objectClasses := testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClasses, "Car")
 
 	// Now delete the class
-	err = lsm.DeleteThing(context.Background(), nil, "Car")
+	err = lsm.DeleteObject(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 
-	thingClasses = testGetClassNames(lsm, kind.Thing)
-	assert.NotContains(t, thingClasses, "Car")
+	objectClasses = testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClasses, "Car")
 }
 
 func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
 	})
@@ -169,7 +169,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add it again
-	err = lsm.AddThing(context.Background(), nil, &models.Class{
+	err = lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
 	})
@@ -180,7 +180,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
 	})
@@ -188,7 +188,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
-	err = lsm.AddAction(context.Background(), nil, &models.Class{
+	err = lsm.AddObject(context.Background(), nil, &models.Class{
 		VectorizeClassName: ptBool(true),
 		Class:              "Car",
 	})
@@ -200,42 +200,43 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a simple class.
-	assert.Nil(t, lsm.AddThing(context.Background(), nil,
+	assert.Nil(t, lsm.AddObject(context.Background(), nil,
 		&models.Class{VectorizeClassName: ptBool(true), Class: "InitialName"}))
 
 	// Rename it
 	updated := models.Class{
 		Class: "NewName",
 	}
-	assert.Nil(t, lsm.UpdateThing(context.Background(), nil, "InitialName", &updated))
+	assert.Nil(t, lsm.UpdateObject(context.Background(), nil, "InitialName", &updated))
 
-	thingClasses := testGetClassNames(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	assert.Equal(t, thingClasses[0], "NewName")
+	objectClasses := testGetClassNames(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Equal(t, objectClasses[0], "NewName")
 }
 
 func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class to rename
-	assert.Nil(t, lsm.AddThing(context.Background(), nil,
+	assert.Nil(t, lsm.AddObject(context.Background(), nil,
 		&models.Class{Class: "InitialName", VectorizeClassName: ptBool(true)}))
 
 	// Create another class, that we'll collide names with.
 	// For some extra action, use a Action class here.
-	assert.Nil(t, lsm.AddAction(context.Background(), nil,
+	assert.Nil(t, lsm.AddObject(context.Background(), nil,
 		&models.Class{Class: "ExistingClass", VectorizeClassName: ptBool(true)}))
 
 	// Try to rename a class to one that already exists
 	update := &models.Class{Class: "ExistingClass"}
-	err := lsm.UpdateThing(context.Background(), nil, "InitialName", update)
+	err := lsm.UpdateObject(context.Background(), nil, "InitialName", update)
 	// Should fail
 	assert.NotNil(t, err)
 
 	// Should not change the original name
-	thingClasses := testGetClassNames(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	assert.Equal(t, thingClasses[0], "InitialName")
+	objectClasses := testGetClassNames(lsm, kind.Object)
+	require.Len(t, objectClasses, 2)
+	assert.Equal(t, objectClasses[0], "InitialName")
+	assert.Equal(t, objectClasses[1], "ExistingClass")
 }
 
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
@@ -259,17 +260,17 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 3)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
-	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	require.Len(t, objectClasses[0].Properties, 3)
+	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
+	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
 
 	assert.True(t, lsm.Indexed("Car", "color"), "color should be indexed")
 	assert.False(t, lsm.Indexed("Car", "colorRaw"), "color should not be indexed")
@@ -290,7 +291,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -304,7 +305,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Ma
 		{Name: "color", DataType: []string{""}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -323,22 +324,22 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	assert.Len(t, thingClasses[0].Properties, 1)
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Len(t, objectClasses[0].Properties, 1)
 
 	// Now drop the property
-	lsm.DeleteThingProperty(context.Background(), nil, "Car", "color")
+	lsm.DeleteObjectProperty(context.Background(), nil, "Car", "color")
 
-	thingClasses = testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	assert.Len(t, thingClasses[0].Properties, 0)
+	objectClasses = testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Len(t, objectClasses[0].Properties, 0)
 }
 
 func testUpdatePropertyName(t *testing.T, lsm *Manager) {
@@ -349,7 +350,7 @@ func testUpdatePropertyName(t *testing.T, lsm *Manager) {
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -359,15 +360,15 @@ func testUpdatePropertyName(t *testing.T, lsm *Manager) {
 	updated := &models.Property{
 		Name: "smell",
 	}
-	err = lsm.UpdateThingProperty(context.Background(), nil, "Car", "color", updated)
+	err = lsm.UpdateObjectProperty(context.Background(), nil, "Car", "color", updated)
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "smell")
-	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	require.Len(t, objectClasses[0].Properties, 1)
+	assert.Equal(t, objectClasses[0].Properties[0].Name, "smell")
+	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
 }
 
 func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
@@ -379,7 +380,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 		{Name: "smell", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -389,15 +390,15 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 	updated := &models.Property{
 		Name: "smell",
 	}
-	err = lsm.UpdateThingProperty(context.Background(), nil, "Car", "color", updated)
+	err = lsm.UpdateObjectProperty(context.Background(), nil, "Car", "color", updated)
 	assert.NotNil(t, err)
 
 	// Check that the name is updated
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 2)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
-	assert.Equal(t, thingClasses[0].Properties[1].Name, "smell")
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	require.Len(t, objectClasses[0].Properties, 2)
+	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
+	assert.Equal(t, objectClasses[0].Properties[1].Name, "smell")
 }
 
 func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
@@ -408,7 +409,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Properties:         properties,
 		VectorizeClassName: ptBool(true),
@@ -416,17 +417,17 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Thing, "Car", "madeBy", "RemoteInstance/Builder")
+	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Object, "Car", "madeBy", "RemoteInstance/Builder")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, thingClasses[0].Properties[0].DataType, 2)
-	assert.Equal(t, thingClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
-	assert.Equal(t, thingClasses[0].Properties[0].DataType[1], "RemoteInstance/Builder")
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	require.Len(t, objectClasses[0].Properties, 1)
+	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
+	require.Len(t, objectClasses[0].Properties[0].DataType, 2)
+	assert.Equal(t, objectClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
+	assert.Equal(t, objectClasses[0].Properties[0].DataType[1], "RemoteInstance/Builder")
 }
 
 func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
@@ -437,7 +438,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Properties:         properties,
 		VectorizeClassName: ptBool(true),
@@ -445,16 +446,16 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Thing, "Car", "madeBy", "RemoteInstance/Manufacturer")
+	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Object, "Car", "madeBy", "RemoteInstance/Manufacturer")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, thingClasses[0].Properties[0].DataType, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	require.Len(t, objectClasses[0].Properties, 1)
+	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
+	require.Len(t, objectClasses[0].Properties[0].DataType, 1)
+	assert.Equal(t, objectClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
 }
 
 // This grant parent test setups up the temporary directory needed for the tests.

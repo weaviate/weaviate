@@ -19,27 +19,27 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// UpdateAction which exists
-func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal,
+// UpdateObject which exists
+func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	name string, class *models.Class) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.updateClass(ctx, name, class, kind.Action)
+	return m.updateClass(ctx, name, class, kind.Object)
 }
 
 // UpdateThing which exists
-func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
-	name string, class *models.Class) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/things")
-	if err != nil {
-		return err
-	}
+// func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
+// 	name string, class *models.Class) error {
+// 	err := m.authorizer.Authorize(principal, "update", "schema/things")
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return m.updateClass(ctx, name, class, kind.Thing)
-}
+// 	return m.updateClass(ctx, name, class, kind.Thing)
+// }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClass(ctx context.Context, className string,

@@ -19,24 +19,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// DeleteAction Class to the schema
-func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, class string) error {
-	err := m.authorizer.Authorize(principal, "delete", "schema/actions")
+// DeleteObject Class to the schema
+func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, class string) error {
+	err := m.authorizer.Authorize(principal, "delete", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.deleteClass(ctx, class, kind.Action)
-}
-
-// DeleteThing Class to the schema
-func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, class string) error {
-	err := m.authorizer.Authorize(principal, "delete", "schema/things")
-	if err != nil {
-		return err
-	}
-
-	return m.deleteClass(ctx, class, kind.Thing)
+	return m.deleteClass(ctx, class, kind.Object)
 }
 
 func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind) error {

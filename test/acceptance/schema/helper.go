@@ -17,14 +17,14 @@ import (
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
-// Helper function to get all the names of Thing classes.
-func GetThingClassNames(t *testing.T) []string {
+// Helper function to get all the names of Object classes.
+func GetObjectClassNames(t *testing.T) []string {
 	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
 	var names []string
 
 	// Extract all names
 	helper.AssertRequestOk(t, resp, err, func() {
-		for _, class := range resp.Payload.Things.Classes {
+		for _, class := range resp.Payload.Objects.Classes {
 			names = append(names, class.Class)
 		}
 	})
@@ -33,16 +33,16 @@ func GetThingClassNames(t *testing.T) []string {
 }
 
 // Helper function to get all the names of Action classes.
-func GetActionClassNames(t *testing.T) []string {
-	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
-	var names []string
+// func GetActionClassNames(t *testing.T) []string {
+// 	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
+// 	var names []string
 
-	// Extract all names
-	helper.AssertRequestOk(t, resp, err, func() {
-		for _, class := range resp.Payload.Actions.Classes {
-			names = append(names, class.Class)
-		}
-	})
+// 	// Extract all names
+// 	helper.AssertRequestOk(t, resp, err, func() {
+// 		for _, class := range resp.Payload.Actions.Classes {
+// 			names = append(names, class.Class)
+// 		}
+// 	})
 
-	return names
-}
+// 	return names
+// }

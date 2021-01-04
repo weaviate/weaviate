@@ -14,18 +14,8 @@ package descriptions
 
 // Local
 const (
-	LocalMetaActions = "Get Meta information about Actions on a local Weaviate"
-	LocalMetaThings  = "Get Meta information about Things on a local Weaviate"
-)
-
-const (
-	LocalMetaThingsObj  = "An object used to Get Meta information about Things on a local Weaviate"
-	LocalMetaActionsObj = "An object used to Get Meta information about Actions on a local Weaviate"
-)
-
-const (
-	LocalMetaObj = "An object used to Get Meta information about Things or Actions on a local Weaviate"
-	LocalMeta    = "Get Meta information about Things or Actions on a local Weaviate"
+	LocalMetaObj = "An object used to Get Meta information about Objects on a local Weaviate"
+	LocalMeta    = "Get Meta information about Objects on a local Weaviate"
 )
 
 const (
@@ -55,19 +45,9 @@ const (
 
 // Network
 const (
-	NetworkMeta            = "Get meta information about Things or Actions from a Weaviate in a network"
-	NetworkMetaObj         = "An object used to Get meta information about Things or Actions from a Weaviate in a network"
-	NetworkMetaWeaviateObj = "An object containing the Meta Things and Actions fields for network Weaviate instance: "
-)
-
-const (
-	NetworkMetaActions = "Get Meta information about Actions from a network Weaviate"
-	NetworkMetaThings  = "Get Meta information about Things from a network Weaviate"
-)
-
-const (
-	NetworkMetaThingsObj  = "An object used to Get Meta information about Things on a network Weaviate"
-	NetworkMetaActionsObj = "An object used to Get Meta information about Actions on a network Weaviate"
+	NetworkMeta            = "Get meta information about Objects from a Weaviate in a network"
+	NetworkMetaObj         = "An object used to Get meta information about Objects from a Weaviate in a network"
+	NetworkMetaWeaviateObj = "An object containing the Meta Objects fields for network Weaviate instance: "
 )
 
 const (

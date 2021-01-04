@@ -52,19 +52,19 @@ func TestRefFilters(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
-		schemaGetter.schema.Things = &models.Schema{}
-		for _, class := range parkingGaragesSchema().Things.Classes {
+		schemaGetter.schema.Objects = &models.Schema{}
+		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
-				schemaGetter.schema.Things.Classes = append(schemaGetter.schema.Things.Classes, class)
+				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
 		}
 	})
 
 	t.Run("importing with various combinations of props", func(t *testing.T) {
-		objects := []models.Thing{
-			models.Thing{
+		objects := []models.Object{
+			models.Object{
 				Class: "MultiRefParkingGarage",
 				Schema: map[string]interface{}{
 					"name": "Luxury Parking Garage",
@@ -76,7 +76,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
 				CreationTimeUnix: 1566469890,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefParkingGarage",
 				Schema: map[string]interface{}{
 					"name": "Crappy Parking Garage",
@@ -88,7 +88,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
 				CreationTimeUnix: 1566469892,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefParkingLot",
 				Schema: map[string]interface{}{
 					"name": "Fancy Parking Lot",
@@ -96,7 +96,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
 				CreationTimeUnix: 1566469894,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefParkingLot",
 				Schema: map[string]interface{}{
 					"name": "The worst parking lot youve ever seen",
@@ -104,7 +104,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
 				CreationTimeUnix: 1566469897,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefCar",
 				Schema: map[string]interface{}{
 					"name": "Car which is parked no where",
@@ -112,81 +112,81 @@ func TestRefFilters(t *testing.T) {
 				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
 				CreationTimeUnix: 1566469899,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefCar",
 				Schema: map[string]interface{}{
 					"name": "Car which is parked in a garage",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+							Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 					},
 				},
 				ID:               "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
 				CreationTimeUnix: 1566469902,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefCar",
 				Schema: map[string]interface{}{
 					"name": "Car which is parked in a lot",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+							Beacon: "weaviate://localhost/1023967b-9512-475b-8ef9-673a110b695d",
 						},
 					},
 				},
 				ID:               "21ab5130-627a-4268-baef-1a516bd6cad4",
 				CreationTimeUnix: 1566469906,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefCar",
 				Schema: map[string]interface{}{
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+							Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+							Beacon: "weaviate://localhost/1023967b-9512-475b-8ef9-673a110b695d",
 						},
 					},
 				},
 				ID:               "533673a7-2a5c-4e1c-b35d-a3809deabace",
 				CreationTimeUnix: 1566469909,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefDriver",
 				Schema: map[string]interface{}{
 					"name": "Johny Drivemuch",
 					"drives": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/533673a7-2a5c-4e1c-b35d-a3809deabace",
+							Beacon: "weaviate://localhost/533673a7-2a5c-4e1c-b35d-a3809deabace",
 						},
 					},
 				},
 				ID:               "9653ab38-c16b-4561-80df-7a7e19300dd0",
 				CreationTimeUnix: 1566469912,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefPerson",
 				Schema: map[string]interface{}{
 					"name": "Jane Doughnut",
 					"friendsWith": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/9653ab38-c16b-4561-80df-7a7e19300dd0",
+							Beacon: "weaviate://localhost/9653ab38-c16b-4561-80df-7a7e19300dd0",
 						},
 					},
 				},
 				ID:               "91ad23a3-07ba-4d4c-9836-76c57094f734",
 				CreationTimeUnix: 1566469915,
 			},
-			models.Thing{
+			models.Object{
 				Class: "MultiRefSociety",
 				Schema: map[string]interface{}{
 					"name": "Cool People",
 					"hasMembers": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/91ad23a3-07ba-4d4c-9836-76c57094f734",
+							Beacon: "weaviate://localhost/91ad23a3-07ba-4d4c-9836-76c57094f734",
 						},
 					},
 				},
@@ -197,7 +197,7 @@ func TestRefFilters(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutThing(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7})
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7})
 				require.Nil(t, err)
 			})
 		}
@@ -472,12 +472,12 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
-		schemaGetter.schema.Things = &models.Schema{}
-		for _, class := range cityCountryAirportSchema().Things.Classes {
+		schemaGetter.schema.Objects = &models.Schema{}
+		for _, class := range cityCountryAirportSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				err := migrator.AddClass(context.Background(), kind.Object, class)
 				require.Nil(t, err)
-				schemaGetter.schema.Things.Classes = append(schemaGetter.schema.Things.Classes, class)
+				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
 		}
 	})
@@ -497,7 +497,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	)
 
 	t.Run("import all data objects", func(t *testing.T) {
-		objects := []*models.Thing{
+		objects := []*models.Object{
 			{
 				Class: "Country",
 				ID:    netherlands,
@@ -527,7 +527,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
 							Beacon: strfmt.URI(
-								strfmt.URI(crossref.New("localhost", netherlands, kind.Thing).String()),
+								strfmt.URI(crossref.New("localhost", netherlands, kind.Object).String()),
 							),
 						},
 					},
@@ -541,7 +541,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", netherlands, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", netherlands, kind.Object).String()),
 						},
 					},
 				},
@@ -554,7 +554,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(3470000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Object).String()),
 						},
 					},
 				},
@@ -567,7 +567,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Object).String()),
 						},
 					},
 					"location": &models.GeoCoordinates{
@@ -601,7 +601,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					},
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", amsterdam, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", amsterdam, kind.Object).String()),
 						},
 					},
 				},
@@ -613,7 +613,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "20000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", rotterdam, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", rotterdam, kind.Object).String()),
 						},
 					},
 				},
@@ -625,7 +625,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "30000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf, kind.Object).String()),
 						},
 					},
 				},
@@ -637,7 +637,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "40000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", berlin, kind.Thing).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", berlin, kind.Object).String()),
 						},
 					},
 				},
@@ -645,7 +645,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		}
 
 		for _, obj := range objects {
-			require.Nil(t, repo.PutThing(context.Background(), obj, []float32{0.1}))
+			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}))
 		}
 	})
 
@@ -775,7 +775,7 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) traverse
 			Limit: 10,
 		},
 		ClassName: className,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 	}
 }
 

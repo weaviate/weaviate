@@ -20,26 +20,15 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// AddAction Class to the schema
-func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
+// AddObject Class to the schema
+func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	class *models.Class) error {
-	err := m.authorizer.Authorize(principal, "create", "schema/actions")
+	err := m.authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	return m.addClass(ctx, principal, class, kind.Action)
-}
-
-// AddThing Class to the schema
-func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
-	class *models.Class) error {
-	err := m.authorizer.Authorize(principal, "create", "schema/things")
-	if err != nil {
-		return err
-	}
-
-	return m.addClass(ctx, principal, class, kind.Thing)
+	return m.addClass(ctx, principal, class, kind.Object)
 }
 
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,

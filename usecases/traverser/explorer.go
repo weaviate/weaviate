@@ -295,5 +295,5 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 }
 
 func beacon(res search.Result) string {
-	return fmt.Sprintf("weaviate://localhost/%ss/%s", res.Kind.Name(), res.ID)
+	return fmt.Sprintf("weaviate://localhost/%s", res.ID)
 }
