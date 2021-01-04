@@ -71,38 +71,6 @@ func (r Result) Object() *models.Object {
 	return t
 }
 
-// func (r Result) Action() *models.Action {
-// 	schema, ok := r.Schema.(map[string]interface{})
-// 	if ok {
-// 		delete(schema, "uuid")
-// 	}
-
-// 	t := &models.Action{
-// 		Class:              r.ClassName,
-// 		ID:                 r.ID,
-// 		Schema:             schema,
-// 		CreationTimeUnix:   r.Created,
-// 		LastUpdateTimeUnix: r.Updated,
-// 		VectorWeights:      r.VectorWeights,
-// 	}
-
-// 	if r.UnderscoreProperties != nil {
-// 		t.Vector = r.UnderscoreProperties.Vector
-// 		t.Classification = r.UnderscoreProperties.Classification
-
-// 		t.Interpretation = r.UnderscoreProperties.Interpretation
-// 		r.UnderscoreProperties.Interpretation = nil
-
-// 		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
-// 		r.UnderscoreProperties.NearestNeighbors = nil
-
-// 		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
-// 		r.UnderscoreProperties.FeatureProjection = nil
-// 	}
-
-// 	return t
-// }
-
 func (rs Results) Objects() []*models.Object {
 	objects := make([]*models.Object, len(rs))
 	for i, res := range rs {
@@ -111,15 +79,6 @@ func (rs Results) Objects() []*models.Object {
 
 	return objects
 }
-
-// func (rs Results) Actions() []*models.Action {
-// 	actions := make([]*models.Action, len(rs))
-// 	for i, res := range rs {
-// 		actions[i] = res.Action()
-// 	}
-
-// 	return actions
-// }
 
 func (rs Results) SortByDistanceToVector(vector []float32) (Results, error) {
 	var lastErr error

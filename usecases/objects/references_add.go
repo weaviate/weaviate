@@ -71,53 +71,6 @@ func (m *Manager) addObjectReferenceToConnectorAndSchema(ctx context.Context, pr
 	return nil
 }
 
-// AddThingReference Class Instance to the connected DB. If the class contains a network
-// ref, it has a side-effect on the schema: The schema will be updated to
-// include this particular network ref class.
-// func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	unlock, err := m.locks.LockSchema()
-// 	if err != nil {
-// 		return NewErrInternal("could not acquire lock: %v", err)
-// 	}
-// 	defer unlock()
-
-// 	return m.addThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
-// }
-
-// func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-// 	// get thing to see if it exists
-// 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	thing := thingRes.Thing()
-// 	err = m.validateReference(ctx, property)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
-// 		propertyName, property)
-// 	if err != nil {
-// 		return NewErrInternal("add reference to vector repo: %v", err)
-// 	}
-
-// 	return nil
-// }
-
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
 	err := validation.New(schema.Schema{}, m.exists, m.config).
 		ValidateSingleRef(ctx, reference, "reference not found")

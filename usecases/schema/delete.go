@@ -29,16 +29,6 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 	return m.deleteClass(ctx, class, kind.Object)
 }
 
-// DeleteThing Class to the schema
-// func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, class string) error {
-// 	err := m.authorizer.Authorize(principal, "delete", "schema/things")
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return m.deleteClass(ctx, class, kind.Thing)
-// }
-
 func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {

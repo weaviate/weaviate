@@ -20,7 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// Vectorizer turns things and actions into vectors
+// Vectorizer turns objects into vectors
 type Vectorizer struct {
 	client     client
 	indexCheck IndexCheck
@@ -68,16 +68,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object) ([]float
 
 	return v.object(ctx, object.Class, object.Schema, overrides)
 }
-
-// // Action object to vector
-// func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, []InputElement, error) {
-// 	var overrides map[string]string
-// 	if object.VectorWeights != nil {
-// 		overrides = object.VectorWeights.(map[string]string)
-// 	}
-
-// 	return v.object(ctx, object.Class, object.Schema, overrides)
-// }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string) ([]float32, []InputElement, error) {

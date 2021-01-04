@@ -31,17 +31,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	return m.addClass(ctx, principal, class, kind.Object)
 }
 
-// // AddThing Class to the schema
-// func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
-// 	class *models.Class) error {
-// 	err := m.authorizer.Authorize(principal, "create", "schema/things")
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return m.addClass(ctx, principal, class, kind.Thing)
-// }
-
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class *models.Class, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
