@@ -26,14 +26,11 @@ import (
 // swagger:model Meta
 type Meta struct {
 
-	// Version of the contextionary service connected to weaviate
-	ContextionaryVersion string `json:"contextionaryVersion,omitempty"`
-
-	// Number of total words in the contextionary
-	ContextionaryWordCount int64 `json:"contextionaryWordCount,omitempty"`
-
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
+
+	// Module-specific meta information
+	Modules interface{} `json:"modules,omitempty"`
 
 	// Version of weaviate you are currently running
 	Version string `json:"version,omitempty"`
