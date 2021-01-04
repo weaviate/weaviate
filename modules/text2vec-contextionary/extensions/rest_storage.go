@@ -17,17 +17,32 @@ import (
 )
 
 type RESTHandlers struct {
-	Mux *http.ServeMux
-	ls  LoaderStorer
+	ls    LoaderStorer
+	proxy Proxy
 }
 
-func NewRESTHandlers(ls LoaderStorer) *RESTHandlers {
+func NewRESTHandlers(ls LoaderStorer, proxy Proxy) *RESTHandlers {
 	return &RESTHandlers{
+		ls:    ls,
+		proxy: proxy,
+	}
+}
+
+type RESTStorageHandlers struct {
+	ls LoaderStorer
+}
+
+func newRESTStorageHandlers(ls LoaderStorer) *RESTStorageHandlers {
+	return &RESTStorageHandlers{
 		ls: ls,
 	}
 }
 
-func (h *RESTHandlers) Handler() http.Handler {
+func (h *RESTHandlers) StorageHandler() http.Handler {
+	return newRESTStorageHandlers(h.ls).Handler()
+}
+
+func (h *RESTStorageHandlers) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -40,7 +55,7 @@ func (h *RESTHandlers) Handler() http.Handler {
 	})
 }
 
-func (h *RESTHandlers) get(w http.ResponseWriter, r *http.Request) {
+func (h *RESTStorageHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.String()) == 0 || h.extractConcept(r) == "" {
 		h.getAll(w, r)
 		return
@@ -49,7 +64,7 @@ func (h *RESTHandlers) get(w http.ResponseWriter, r *http.Request) {
 	h.getOne(w, r)
 }
 
-func (h *RESTHandlers) getOne(w http.ResponseWriter, r *http.Request) {
+func (h *RESTStorageHandlers) getOne(w http.ResponseWriter, r *http.Request) {
 	concept := h.extractConcept(r)
 	if concept == "" {
 		w.WriteHeader(http.StatusNotFound)
@@ -71,7 +86,7 @@ func (h *RESTHandlers) getOne(w http.ResponseWriter, r *http.Request) {
 	w.Write(res)
 }
 
-func (h *RESTHandlers) getAll(w http.ResponseWriter, r *http.Request) {
+func (h *RESTStorageHandlers) getAll(w http.ResponseWriter, r *http.Request) {
 	res, err := h.ls.LoadAll()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -82,7 +97,7 @@ func (h *RESTHandlers) getAll(w http.ResponseWriter, r *http.Request) {
 	w.Write(res)
 }
 
-func (h *RESTHandlers) put(w http.ResponseWriter, r *http.Request) {
+func (h *RESTStorageHandlers) put(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	concept := h.extractConcept(r)
 	if len(concept) == 0 {
@@ -103,7 +118,7 @@ func (h *RESTHandlers) put(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *RESTHandlers) extractConcept(r *http.Request) string {
+func (h *RESTStorageHandlers) extractConcept(r *http.Request) string {
 	// cutoff leading slash, consider the rest the concept
 	return r.URL.String()[1:]
 }

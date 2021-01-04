@@ -62,7 +62,7 @@ func (m *ContextionaryModule) initExtensions() error {
 	}
 
 	uc := extensions.NewUseCase(storage)
-	m.extensions = extensions.NewRESTHandlers(uc)
+	m.extensions = extensions.NewRESTHandlers(uc, m.appState.Contextionary)
 
 	return nil
 }
@@ -77,7 +77,10 @@ func (m *ContextionaryModule) initConcepts() error {
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("/extensions-storage/", http.StripPrefix("/extensions-storage", m.extensions.Handler()))
+	mux.Handle("/extensions-storage/", http.StripPrefix("/extensions-storage",
+		m.extensions.StorageHandler()))
+	mux.Handle("/extensions", http.StripPrefix("/extensions",
+		m.extensions.UserFacingHandler()))
 	mux.Handle("/concepts/", http.StripPrefix("/concepts", m.concepts.Handler()))
 
 	return mux
