@@ -53,8 +53,8 @@ func newBatchWriter(vectorRepo vectorRepo) writer {
 		batchItemsCount: 0,
 		batchThings:     kinds.BatchThings{},
 		batchActions:    kinds.BatchActions{},
-		saveThingItems:  make(chan kinds.BatchThings, 1),
-		saveActionItems: make(chan kinds.BatchActions, 1),
+		saveThingItems:  make(chan kinds.BatchThings),
+		saveActionItems: make(chan kinds.BatchActions),
 		errorCount:      0,
 		ec:              &errorCompounder{},
 		cancel:          make(chan struct{}),
@@ -140,6 +140,7 @@ func (r *batchWriter) batchSave() {
 func (r *batchWriter) saveThings(items kinds.BatchThings) {
 	ctx, cancel := contextWithTimeout(5 * time.Second)
 	defer cancel()
+
 	if len(items) > 0 {
 		saved, err := r.vectorRepo.BatchPutThings(ctx, items)
 		if err != nil {
