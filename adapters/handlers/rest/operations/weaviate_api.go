@@ -73,9 +73,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BatchingBatchingReferencesCreateHandler: batching.BatchingReferencesCreateHandlerFunc(func(params batching.BatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batching.BatchingReferencesCreate has not yet been implemented")
 		}),
-		ContextionaryAPIC11yConceptsHandler: contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation contextionary_api.C11yConcepts has not yet been implemented")
-		}),
 		ContextionaryAPIC11yExtensionsHandler: contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation contextionary_api.C11yExtensions has not yet been implemented")
 		}),
@@ -200,8 +197,6 @@ type WeaviateAPI struct {
 	BatchingBatchingObjectsCreateHandler batching.BatchingObjectsCreateHandler
 	// BatchingBatchingReferencesCreateHandler sets the operation handler for the batching references create operation
 	BatchingBatchingReferencesCreateHandler batching.BatchingReferencesCreateHandler
-	// ContextionaryAPIC11yConceptsHandler sets the operation handler for the c11y concepts operation
-	ContextionaryAPIC11yConceptsHandler contextionary_api.C11yConceptsHandler
 	// ContextionaryAPIC11yExtensionsHandler sets the operation handler for the c11y extensions operation
 	ContextionaryAPIC11yExtensionsHandler contextionary_api.C11yExtensionsHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
@@ -329,9 +324,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BatchingBatchingReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "batching.BatchingReferencesCreateHandler")
-	}
-	if o.ContextionaryAPIC11yConceptsHandler == nil {
-		unregistered = append(unregistered, "contextionary_api.C11yConceptsHandler")
 	}
 	if o.ContextionaryAPIC11yExtensionsHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yExtensionsHandler")
@@ -514,10 +506,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/references"] = batching.NewBatchingReferencesCreate(o.context, o.BatchingBatchingReferencesCreateHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/c11y/concepts/{concept}"] = contextionary_api.NewC11yConcepts(o.context, o.ContextionaryAPIC11yConceptsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
