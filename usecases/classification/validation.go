@@ -71,11 +71,7 @@ func (v *Validator) contextualTypeFeasibility() {
 		return
 	}
 
-	if v.subject.K != nil {
-		v.errors.addf("field 'k' can only be set for type 'knn', but got type 'contextual'")
-	}
-
-	if v.subject.TrainingSetWhere != nil {
+	if v.subject.Filters != nil && v.subject.Filters.TrainingSetWhere != nil {
 		v.errors.addf("type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
 	}
 }
@@ -85,7 +81,7 @@ func (v *Validator) knnTypeFeasibility() {
 		return
 	}
 
-	if v.subject.TargetWhere != nil {
+	if v.subject.Filters != nil && v.subject.Filters.TargetWhere != nil {
 		v.errors.addf("type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'")
 	}
 }

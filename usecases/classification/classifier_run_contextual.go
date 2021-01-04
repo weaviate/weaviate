@@ -26,11 +26,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
+// TODO: all of this must be served by the module in the future
 type contextualItemClassifier struct {
 	item        search.Result
 	itemIndex   int
 	kind        kind.Kind
 	params      models.Classification
+	settings    *ParamsContextual
 	classifier  *Classifier
 	writer      writer
 	schema      schema.Schema
@@ -54,6 +56,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 			itemIndex:   itemIndex,
 			kind:        kind,
 			params:      params,
+			settings:    params.Settings.(*ParamsContextual), // safe assertion after parsing
 			classifier:  c,
 			writer:      writer,
 			schema:      schema,
@@ -194,21 +197,21 @@ func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string
 		tfscores := c.context.tfidf[c.params.BasedOnProperties[0]].GetAllTerms(c.itemIndex)
 		// dereferencing these optional parameters is safe, as defaults are
 		// explicility set in classifier.Schedule()
-		if c.isInIgPercentile(int(*c.params.InformationGainCutoffPercentile), word, targetProp) &&
-			c.isInTfPercentile(tfscores, int(*c.params.TfidfCutoffPercentile), word) {
+		if c.isInIgPercentile(int(*c.settings.InformationGainCutoffPercentile), word, targetProp) &&
+			c.isInTfPercentile(tfscores, int(*c.settings.TfidfCutoffPercentile), word) {
 			corpus = append(corpus, word)
 		}
 	}
 
 	// use minimum words if len is currently less
-	limit := int(*c.params.MinimumUsableWords)
+	limit := int(*c.settings.MinimumUsableWords)
 	if len(corpus) < limit {
 		corpus = c.getTopNWords(targetProp, limit)
 	}
 
 	corpusStr := strings.ToLower(strings.Join(corpus, " "))
-	boosts := c.boostByInformationGain(targetProp, int(*c.params.InformationGainCutoffPercentile),
-		float32(*c.params.InformationGainMaximumBoost))
+	boosts := c.boostByInformationGain(targetProp, int(*c.settings.InformationGainCutoffPercentile),
+		float32(*c.settings.InformationGainMaximumBoost))
 	return corpusStr, boosts, nil
 }
 
