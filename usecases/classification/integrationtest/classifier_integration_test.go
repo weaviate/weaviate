@@ -29,7 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/classification"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -62,9 +62,9 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
-			for _, c := range testSchema().Things.Classes {
+			for _, c := range testSchema().Objects.Classes {
 				require.Nil(t,
-					migrator.AddClass(context.Background(), kind.Thing, c))
+					migrator.AddClass(context.Background(), kind.Object, c))
 			}
 
 			sg.schema = testSchema()
@@ -72,17 +72,17 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 		t.Run("importing the training data", func(t *testing.T) {
 			classified := testDataAlreadyClassified()
-			bt := make(kinds.BatchThings, len(classified))
+			bt := make(objects.BatchObjects, len(classified))
 			for i, elem := range classified {
-				bt[i] = kinds.BatchThing{
+				bt[i] = objects.BatchObject{
 					OriginalIndex: i,
 					UUID:          elem.ID,
 					Vector:        elem.Vector,
-					Thing:         elem.Thing(),
+					Object:        elem.Object(),
 				}
 			}
 
-			res, err := vrepo.BatchPutThings(context.Background(), bt)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -90,16 +90,16 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		})
 
 		t.Run("importing the to be classified data", func(t *testing.T) {
-			bt := make(kinds.BatchThings, size)
+			bt := make(objects.BatchObjects, size)
 			for i, elem := range data {
-				bt[i] = kinds.BatchThing{
+				bt[i] = objects.BatchObject{
 					OriginalIndex: i,
 					UUID:          elem.ID,
 					Vector:        elem.Vector,
-					Thing:         elem.Thing(),
+					Object:        elem.Object(),
 				}
 			}
-			res, err := vrepo.BatchPutThings(context.Background(), bt)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -166,7 +166,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100000,
 				},
-				Kind: kind.Thing,
+				Kind: kind.Object,
 			})
 
 			require.Nil(t, err)
