@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	bolt "go.etcd.io/bbolt"
 )
 
 type Status uint8

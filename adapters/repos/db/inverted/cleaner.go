@@ -15,11 +15,11 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	bolt "go.etcd.io/bbolt"
 )
 
 type deleteFn func(b *bolt.Bucket, item Countable, docIDs []uint64, hasFrequency bool) error
