@@ -16,10 +16,10 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	bolt "go.etcd.io/bbolt"
 )
 
 // ObjectsinTx resolves all the specified pointers to actual objects.  This

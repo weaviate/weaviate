@@ -16,10 +16,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	bolt "go.etcd.io/bbolt"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator

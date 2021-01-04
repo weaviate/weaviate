@@ -15,10 +15,10 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	bolt "go.etcd.io/bbolt"
 )
 
 type propValuePair struct {

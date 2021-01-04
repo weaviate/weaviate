@@ -17,9 +17,9 @@ import (
 	"encoding/binary"
 	"hash/crc64"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (fs *Searcher) docPointers(prop []byte,
