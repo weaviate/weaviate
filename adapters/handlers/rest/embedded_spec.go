@@ -276,62 +276,6 @@ func init() {
         ]
       }
     },
-    "/c11y/extensions/": {
-      "post": {
-        "description": "Extend the contextionary with your own custom concepts",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Extend the contextionary with custom concepts",
-        "operationId": "c11y.extensions",
-        "parameters": [
-          {
-            "description": "Description and definition of the concept to extend the contextionary with",
-            "name": "extension",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully extended the contextionary with the custom concept",
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          },
-          "400": {
-            "description": "Incorrect request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.extensions.post"
-        ]
-      }
-    },
     "/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
@@ -2963,62 +2907,6 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.add"
-        ]
-      }
-    },
-    "/c11y/extensions/": {
-      "post": {
-        "description": "Extend the contextionary with your own custom concepts",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Extend the contextionary with custom concepts",
-        "operationId": "c11y.extensions",
-        "parameters": [
-          {
-            "description": "Description and definition of the concept to extend the contextionary with",
-            "name": "extension",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully extended the contextionary with the custom concept",
-            "schema": {
-              "$ref": "#/definitions/C11yExtension"
-            }
-          },
-          "400": {
-            "description": "Incorrect request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.extensions.post"
         ]
       }
     },

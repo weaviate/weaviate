@@ -23,7 +23,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/client/batching"
 	"github.com/semi-technologies/weaviate/client/classifications"
-	"github.com/semi-technologies/weaviate/client/contextionary_api"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/client/meta"
 	"github.com/semi-technologies/weaviate/client/objects"
@@ -76,7 +75,6 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Transport = transport
 	cli.Batching = batching.New(transport, formats)
 	cli.Classifications = classifications.New(transport, formats)
-	cli.ContextionaryAPI = contextionary_api.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
@@ -131,8 +129,6 @@ type Weaviate struct {
 
 	Classifications classifications.ClientService
 
-	ContextionaryAPI contextionary_api.ClientService
-
 	Graphql graphql.ClientService
 
 	Meta meta.ClientService
@@ -153,7 +149,6 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
 	c.Batching.SetTransport(transport)
 	c.Classifications.SetTransport(transport)
-	c.ContextionaryAPI.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Objects.SetTransport(transport)
