@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	bolt "go.etcd.io/bbolt"
 )
 
 // return value map[int]error gives the error for the index as it received it
