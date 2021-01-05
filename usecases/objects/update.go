@@ -66,7 +66,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 
 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorizeAndPutObject(ctx, class)
+	err = m.vectorizeAndPutObject(ctx, class, principal)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
