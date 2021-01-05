@@ -52,7 +52,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if prop.Index != nil && !*prop.Index {
+		if prop.IndexInverted != nil && !*prop.IndexInverted {
 			continue
 		}
 

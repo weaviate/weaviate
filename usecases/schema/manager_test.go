@@ -380,24 +380,43 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 	assert.Equal(t, objectClasses[1], "ExistingClass")
 }
 
+// TODO: parts of this test contain text2vec-contextionary logic, but parts are
+// also general logic
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	var properties []*models.Property = []*models.Property{
 		{
-			Name:                  "color",
-			DataType:              []string{"string"},
-			VectorizePropertyName: true,
-		},
-		{
-			Name:     "colorRaw",
+			Name:     "color",
 			DataType: []string{"string"},
-			Index:    pointerToFalse(),
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizePropertyName": true,
+				},
+			},
 		},
 		{
-			Name:                  "content",
-			DataType:              []string{"string"},
-			VectorizePropertyName: false,
+			Name:          "colorRaw",
+			DataType:      []string{"string"},
+			IndexInverted: pointerToFalse(),
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"skip": true,
+				},
+			},
+		},
+		{
+			Name:     "content",
+			DataType: []string{"string"},
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizePropertyName": false,
+				},
+			},
+		},
+		{
+			Name:     "allDefault",
+			DataType: []string{"string"},
 		},
 	}
 
@@ -409,14 +428,19 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	objectClasses := testGetClasses(lsm, kind.Object)
 	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 3)
+	require.Len(t, objectClasses[0].Properties, 4)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
 
-	assert.True(t, lsm.Indexed("Car", "color"), "color should be indexed")
-	assert.False(t, lsm.Indexed("Car", "colorRaw"), "color should not be indexed")
+	assert.True(t, lsm.IndexedInverted("Car", "color"), "color should be indexed")
+	assert.True(t, lsm.IndexedContextionary("Car", "color"), "color should be indexed")
+	assert.False(t, lsm.IndexedInverted("Car", "colorRaw"), "color should not be indexed")
+	assert.False(t, lsm.IndexedContextionary("Car", "colorRaw"), "color should not be indexed")
+	assert.True(t, lsm.IndexedInverted("Car", "allDefault"), "allDefault should be indexed")
+	assert.True(t, lsm.IndexedContextionary("Car", "allDefault"), "allDefault should be indexed")
 
 	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
+	assert.False(t, lsm.VectorizePropertyName("Car", "allDefault"), "allDefault prop should not be vectorized")
 	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
 }
 
