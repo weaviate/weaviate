@@ -13,13 +13,14 @@ package objects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
@@ -84,27 +85,70 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
 
-	err = m.vectorizeAndPutObject(ctx, class)
+	err = m.vectorizeAndPutObject(ctx, class, principal)
 	if err != nil {
-		return nil, NewErrInternal("add object: %v", err)
+		return nil, err
 	}
 
 	return class, nil
 }
 
-func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object) error {
-	v, source, err := m.vectorizer.Object(ctx, class)
+func (m *Manager) getVectorizerOfClass(className string,
+	principal *models.Principal) (string, error) {
+	s, err := m.schemaManager.GetSchema(principal)
 	if err != nil {
-		return fmt.Errorf("vectorize: %v", err)
+		return "", err
 	}
 
-	class.Interpretation = &models.Interpretation{
-		Source: sourceFromInputElements(source),
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		// this should be impossible by the time this method gets called, but let's
+		// be 100% certain
+		return "", errors.Errorf("class %s not present", className)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, class, v)
+	return class.Vectorizer, nil
+}
+
+func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object,
+	principal *models.Principal) error {
+	vectorizer, err := m.getVectorizerOfClass(class.Class, principal)
 	if err != nil {
-		return fmt.Errorf("store: %v", err)
+		return err
+	}
+
+	// TODO: dynamically discover modules and lose any understanding of internals
+	// of modules
+	switch vectorizer {
+	case config.VectorizerModuleNone:
+		if err := m.validateVectorPresent(class); err != nil {
+			return NewErrInvalidUserInput("%v", err)
+		}
+	case config.VectorizerModuleText2VecContextionary:
+		v, source, err := m.vectorizer.Object(ctx, class)
+		if err != nil {
+			return NewErrInternal("text2vec-contextionary: vectorize: %v", err)
+		}
+
+		class.Interpretation = &models.Interpretation{
+			Source: sourceFromInputElements(source),
+		}
+		class.Vector = v
+	}
+
+	err = m.vectorRepo.PutObject(ctx, class, class.Vector)
+	if err != nil {
+		return NewErrInternal("store: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) validateVectorPresent(class *models.Object) error {
+	if len(class.Vector) == 0 {
+		return errors.Errorf("this class is configured to use vectorizer 'none' " +
+			"thus a vector must be present when importing, got: field 'vector' is empty " +
+			"or contains a zero-length vector")
 	}
 
 	return nil
