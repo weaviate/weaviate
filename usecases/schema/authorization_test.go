@@ -20,6 +20,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -113,7 +114,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
-					logger, &fakeC11y{}, authorizer, nil)
+					logger, &fakeC11y{}, authorizer, nil, config.Config{})
 				require.Nil(t, err)
 
 				var args []interface{}

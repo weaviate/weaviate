@@ -36,6 +36,7 @@ type Manager struct {
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
+	config           config.Config
 }
 
 type SchemaGetter interface {
@@ -63,8 +64,9 @@ type c11yClient interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	logger logrus.FieldLogger, c11yClient c11yClient,
-	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
+	authorizer authorizer, swd stopwordDetector, config config.Config) (*Manager, error) {
 	m := &Manager{
+		config:           config,
 		migrator:         migrator,
 		repo:             repo,
 		locks:            locks,
