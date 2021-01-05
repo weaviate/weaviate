@@ -41,6 +41,7 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	m.setClassDefaults(class)
 
 	err = m.validateCanAddClass(ctx, principal, k, class)
 	if err != nil {
@@ -56,6 +57,16 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 
 	return m.migrator.AddClass(ctx, k, class)
 	// TODO gh-846: Rollback state upate if migration fails
+}
+
+func (m *Manager) setClassDefaults(class *models.Class) {
+	if class.Vectorizer == "" {
+		class.Vectorizer = m.config.DefaultVectorizerModule
+	}
+
+	if class.VectorIndexType == "" {
+		class.VectorIndexType = "hnsw"
+	}
 }
 
 func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, knd kind.Kind, class *models.Class) error {
@@ -101,6 +112,11 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	// no-index every prop, there is a chance we don't have enough info to build
 	// vectors. See validation function for details.
 	err = m.validatePropertyIndexState(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.validateVectorSettings(ctx, class)
 	if err != nil {
 		return err
 	}

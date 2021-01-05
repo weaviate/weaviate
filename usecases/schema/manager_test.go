@@ -16,12 +16,12 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // TODO: These tests don't match the overall testing style in Weaviate.
@@ -65,6 +65,10 @@ var schemaTests = []struct {
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithVectorizedName", fn: testAddObjectClassWithVectorizedName},
+	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
+	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
+	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
+	{name: "AddObjectClassWithWrongIndexType", fn: testAddObjectClassWrongIndexType},
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
@@ -100,14 +104,11 @@ func testUpdateMeta(t *testing.T, lsm *Manager) {
 func testAddObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClasses := testGetClassNames(lsm, kind.Object)
-	assert.NotContains(t, objectClasses, "Car")
+	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
 		Class: "Car",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{},
-		},
 		Properties: []*models.Property{{
 			DataType: []string{"string"},
 			Name:     "dummy",
@@ -116,9 +117,108 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClasses = testGetClassNames(lsm, kind.Object)
-	assert.Contains(t, objectClasses, "Car")
+	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClassesNames, "Car")
+
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
+}
+
+func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClassesNames, "Car")
+
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
+		Vectorizer:      config.VectorizerModuleText2VecContextionary,
+		VectorIndexType: "hnsw",
+		Class:           "Car",
+		Properties: []*models.Property{{
+			DataType: []string{"string"},
+			Name:     "dummy",
+		}},
+	})
+
+	assert.Nil(t, err)
+
+	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClassesNames, "Car")
+
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
+	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
+	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
+}
+
+func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
+	t.Parallel()
+	lsm.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
+
+	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClassesNames, "Car")
+
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
+		Class: "Car",
+		Properties: []*models.Property{{
+			DataType: []string{"string"},
+			Name:     "dummy",
+		}},
+	})
+
+	assert.Nil(t, err)
+
+	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	assert.Contains(t, objectClassesNames, "Car")
+
+	objectClasses := testGetClasses(lsm, kind.Object)
+	require.Len(t, objectClasses, 1)
+	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
+	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
+	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
+}
+
+func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClassesNames, "Car")
+
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
+		Class:      "Car",
+		Vectorizer: "vectorizer-5000000",
+		Properties: []*models.Property{{
+			DataType: []string{"string"},
+			Name:     "dummy",
+		}},
+	})
+
+	require.NotNil(t, err)
+	assert.Equal(t, "unrecognized or unsupported vectorizer \"vectorizer-5000000\"",
+		err.Error())
+}
+
+func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	assert.NotContains(t, objectClassesNames, "Car")
+
+	err := lsm.AddObject(context.Background(), nil, &models.Class{
+		Class:           "Car",
+		VectorIndexType: "vector-index-2-million",
+		Properties: []*models.Property{{
+			DataType: []string{"string"},
+			Name:     "dummy",
+		}},
+	})
+
+	require.NotNil(t, err)
+	assert.Equal(t, "unrecognized or unsupported vectorIndexType "+
+		"\"vector-index-2-million\"", err.Error())
 }
 
 func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
@@ -517,7 +617,8 @@ func TestSchema(t *testing.T) {
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
+		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone})
 	if err != nil {
 		panic(err.Error())
 	}

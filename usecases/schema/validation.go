@@ -17,9 +17,11 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
@@ -180,4 +182,35 @@ func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.
 		"meaning that it cannot be used to determine the vector position. To fix this, set " +
 		"'vectorizeClassName' to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from indexing.")
+}
+
+func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
+	if err := m.validateVectorizer(ctx, class); err != nil {
+		return err
+	}
+
+	if err := m.validateVectorIndex(ctx, class); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Manager) validateVectorizer(ctx context.Context, class *models.Class) error {
+	switch class.Vectorizer {
+	case config.VectorizerModuleNone, config.VectorizerModuleText2VecContextionary:
+		return nil
+	default:
+		return errors.Errorf("unrecognized or unsupported vectorizer %q", class.Vectorizer)
+	}
+}
+
+func (m *Manager) validateVectorIndex(ctx context.Context, class *models.Class) error {
+	switch class.VectorIndexType {
+	case "hnsw":
+		return nil
+	default:
+		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
+			class.VectorIndexType)
+	}
 }
