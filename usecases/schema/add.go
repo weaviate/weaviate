@@ -85,7 +85,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
 		err = m.validatePropertyName(ctx, class.Class, property.Name,
-			property.VectorizePropertyName)
+			property.ModuleConfig)
 		if err != nil {
 			return err
 		}

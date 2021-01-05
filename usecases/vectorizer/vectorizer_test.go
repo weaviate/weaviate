@@ -166,7 +166,11 @@ type propertyIndexer struct {
 	excludedProperty string
 }
 
-func (p *propertyIndexer) Indexed(className, property string) bool {
+func (p *propertyIndexer) IndexedInverted(className, property string) bool {
+	panic("IndexedInverted should not matter to the vectorizer")
+}
+
+func (p *propertyIndexer) IndexedContextionary(className, property string) bool {
 	return property != p.noIndex
 }
 

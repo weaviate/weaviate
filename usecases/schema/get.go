@@ -37,7 +37,7 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	}
 }
 
-func (m *Manager) Indexed(className, propertyName string) bool {
+func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	s := schema.Schema{
 		Objects: m.state.ObjectSchema,
 	}
@@ -48,11 +48,30 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 
 	for _, prop := range class.Properties {
 		if prop.Name == propertyName {
-			if prop.Index == nil {
+			if prop.IndexInverted == nil {
 				return true
 			}
 
-			return *prop.Index
+			return *prop.IndexInverted
+		}
+	}
+
+	return false
+}
+
+// TODO: This is text2vec-contextionary specific logic and should be moved there
+func (m *Manager) IndexedContextionary(className, propertyName string) bool {
+	s := schema.Schema{
+		Objects: m.state.ObjectSchema,
+	}
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return false
+	}
+
+	for _, prop := range class.Properties {
+		if prop.Name == propertyName {
+			return m.indexPropertyInVectorIndex(prop.ModuleConfig)
 		}
 	}
 
@@ -84,7 +103,7 @@ func (m *Manager) VectorizePropertyName(className, propertyName string) bool {
 
 	for _, prop := range class.Properties {
 		if prop.Name == propertyName {
-			return prop.VectorizePropertyName
+			return m.vectorizePropertyName(prop.ModuleConfig)
 		}
 	}
 
