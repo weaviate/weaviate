@@ -481,35 +481,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
-						}},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[0].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
+							DataType: []string{"string"},
+							Name:     test.input,
+							ModuleConfig: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{
+									"vectorizePropertyName": test.vectorize,
+								},
+							},
 						}},
 					}
 
@@ -537,35 +515,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
-						}},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[0].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
+							DataType: []string{"string"},
+							Name:     test.input,
+							ModuleConfig: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{
+									"vectorizePropertyName": test.vectorize,
+								},
+							},
 						}},
 					}
 
@@ -607,44 +563,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType:              []string{"string"},
-						Name:                  test.input,
-						VectorizePropertyName: test.vectorize,
-					}
-					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
-					t.Log(err)
-					require.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[1].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
+						DataType: []string{"string"},
+						Name:     test.input,
+						ModuleConfig: map[string]interface{}{
+							"text2vec-contextionary": map[string]interface{}{
+								"vectorizePropertyName": test.vectorize,
 							},
 						},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					property := &models.Property{
-						DataType:              []string{"string"},
-						Name:                  test.input,
-						VectorizePropertyName: test.vectorize,
 					}
 					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
@@ -669,35 +594,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
-						}},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[0].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
+							DataType: []string{"string"},
+							Name:     test.input,
+							ModuleConfig: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{
+									"vectorizePropertyName": test.vectorize,
+								},
+							},
 						}},
 					}
 
@@ -730,44 +633,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class:      "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
-								DataType:              []string{"string"},
-								VectorizePropertyName: test.vectorize,
-								Name:                  originalName,
-							},
-						},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					updatedProperty := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
-					}
-					err = m.UpdateObjectProperty(context.Background(), nil, "ValidName", originalName, updatedProperty)
-					t.Log(err)
-					require.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[0].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{
-							&models.Property{
-								DataType:              []string{"string"},
-								Name:                  originalName,
-								VectorizePropertyName: test.vectorize,
+								DataType: []string{"string"},
+								ModuleConfig: map[string]interface{}{
+									"text2vec-contextionary": map[string]interface{}{
+										"vectorizePropertyName": test.vectorize,
+									},
+								},
+								Name: originalName,
 							},
 						},
 					}
@@ -803,35 +675,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
-						}},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					schema, _ := m.GetSchema(nil)
-					propName := schema.Objects.Classes[0].Properties[0].Name
-					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Vectorizer: "text2vec-contextionary",
-						Class:      "ValidName",
-						Properties: []*models.Property{{
-							DataType:              []string{"string"},
-							Name:                  test.input,
-							VectorizePropertyName: test.vectorize,
+							DataType: []string{"string"},
+							Name:     test.input,
+							ModuleConfig: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{
+									"vectorizePropertyName": test.vectorize,
+								},
+							},
 						}},
 					}
 
@@ -866,21 +716,34 @@ func Test_AllUsablePropsNoindexed(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					DataType:              []string{"text"},
-					Name:                  "decsription",
-					Index:                 ptFalse(),
-					VectorizePropertyName: false,
+					DataType: []string{"text"},
+					Name:     "decsription",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": false,
+							"skip":               true,
+						},
+					},
 				},
 				{
-					DataType:              []string{"string"},
-					Name:                  "name",
-					Index:                 ptFalse(),
-					VectorizePropertyName: false,
+					DataType: []string{"string"},
+					Name:     "name",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": false,
+							"skip":               true,
+						},
+					},
 				},
 				{
-					DataType:              []string{"int"},
-					Name:                  "amount",
-					VectorizePropertyName: false,
+					DataType: []string{"int"},
+					Name:     "amount",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": false,
+							"skip":               true,
+						},
+					},
 				},
 			},
 		}
@@ -889,9 +752,4 @@ func Test_AllUsablePropsNoindexed(t *testing.T) {
 		err := m.AddObject(context.Background(), nil, class)
 		assert.NotNil(t, err)
 	})
-}
-
-func ptFalse() *bool {
-	f := false
-	return &f
 }

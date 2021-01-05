@@ -48,9 +48,9 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			Name:     "stringProp",
 			DataType: []string{string(schema.DataTypeString)},
 		}, {
-			Name:     "hiddenStringProp",
-			DataType: []string{string(schema.DataTypeString)},
-			Index:    ptBool(false),
+			Name:          "hiddenStringProp",
+			DataType:      []string{string(schema.DataTypeString)},
+			IndexInverted: ptBool(false),
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{}
