@@ -1972,10 +1972,6 @@ func init() {
           "description": "Additional information about the neighboring concepts of this element",
           "$ref": "#/definitions/NearestNeighbors"
         },
-        "_vector": {
-          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/C11yVector"
-        },
         "class": {
           "description": "Class of the Object, defined in the schema.",
           "type": "string"
@@ -1997,6 +1993,10 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
@@ -4684,10 +4684,6 @@ func init() {
           "description": "Additional information about the neighboring concepts of this element",
           "$ref": "#/definitions/NearestNeighbors"
         },
-        "_vector": {
-          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/C11yVector"
-        },
         "class": {
           "description": "Class of the Object, defined in the schema.",
           "type": "string"
@@ -4709,6 +4705,10 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"

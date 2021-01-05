@@ -40,9 +40,6 @@ type Object struct {
 	// Additional information about the neighboring concepts of this element
 	NearestNeighbors *NearestNeighbors `json:"_nearestNeighbors,omitempty"`
 
-	// This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
-	Vector C11yVector `json:"_vector,omitempty"`
-
 	// Class of the Object, defined in the schema.
 	Class string `json:"class,omitempty"`
 
@@ -58,6 +55,9 @@ type Object struct {
 
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
+
+	// This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.
+	Vector C11yVector `json:"vector,omitempty"`
 
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
@@ -83,11 +83,11 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateVector(formats); err != nil {
+	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateID(formats); err != nil {
+	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -169,6 +169,19 @@ func (m *Object) validateNearestNeighbors(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Object) validateID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.ID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *Object) validateVector(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Vector) { // not required
@@ -177,21 +190,8 @@ func (m *Object) validateVector(formats strfmt.Registry) error {
 
 	if err := m.Vector.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("_vector")
+			return ve.ValidateName("vector")
 		}
-		return err
-	}
-
-	return nil
-}
-
-func (m *Object) validateID(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ID) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
 	}
 
