@@ -131,7 +131,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Logger, appState.Contextionary,
-		appState.Authorizer, appState.StopwordDetector)
+		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -216,6 +216,13 @@ func startupRoutine() *state.State {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+
+	logger.WithFields(logrus.Fields{
+		"action":                    "startup",
+		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
+	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
+		"schema classes without an explicit vectorizer setting, will use this "+
+		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")

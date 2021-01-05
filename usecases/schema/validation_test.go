@@ -30,6 +30,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 		vectorize bool
 	}
 
+	// TODO: most or all of these contain text2vec-contextionary-specific logic
 	// for all test cases keep in mind that the word "carrot" is not present in
 	// the fake c11y, but every other word is.
 	//
@@ -170,35 +171,16 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names without keywords or properties", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.Class{
-						Class:              test.input,
-						VectorizeClassName: &test.vectorize,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
+					moduleConfig := map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": test.vectorize,
 						},
 					}
 
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m, kind.Object)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class:              test.input,
-						VectorizeClassName: &test.vectorize,
+						Vectorizer:   "text2vec-contextionary",
+						Class:        test.input,
+						ModuleConfig: moduleConfig,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -226,35 +208,15 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names with valid keywords", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.Class{
-						Class:              test.input,
-						VectorizeClassName: &test.vectorize,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
+					moduleConfig := map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": test.vectorize,
 						},
 					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					t.Log(err)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m, kind.Object)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class:              test.input,
-						VectorizeClassName: &test.vectorize,
+						Vectorizer:   "text2vec-contextionary",
+						Class:        test.input,
+						ModuleConfig: moduleConfig,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -285,9 +247,15 @@ func Test_Validation_ClassNames(t *testing.T) {
 			for _, test := range tests {
 				originalName := "ValidOriginalName"
 				t.Run(test.name+" as thing class", func(t *testing.T) {
+					moduleConfig := map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": test.vectorize,
+						},
+					}
 					class := &models.Class{
-						Class:              originalName,
-						VectorizeClassName: &test.vectorize,
+						Vectorizer:   "text2vec-contextionary",
+						Class:        originalName,
+						ModuleConfig: moduleConfig,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -302,7 +270,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					// now try to update
 					updatedClass := &models.Class{
-						Class: test.input,
+						Vectorizer: "text2vec-contextionary",
+						Class:      test.input,
 					}
 
 					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
@@ -317,39 +286,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
 
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Class:              originalName,
-						VectorizeClassName: &test.vectorize,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					// now try to update
-					updatedClass := &models.Class{
-						Class:              test.input,
-						VectorizeClassName: &test.vectorize,
-					}
-
-					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m, kind.Object)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
 			}
 		})
 
@@ -358,9 +294,15 @@ func Test_Validation_ClassNames(t *testing.T) {
 				originalName := "ValidOriginalName"
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
+					moduleConfig := map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": test.vectorize,
+						},
+					}
 					class := &models.Class{
-						Class:              originalName,
-						VectorizeClassName: &test.vectorize,
+						Vectorizer:   "text2vec-contextionary",
+						Class:        originalName,
+						ModuleConfig: moduleConfig,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -375,39 +317,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					// now update
 					updatedClass := &models.Class{
-						Class: test.input,
-					}
-					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
-					assert.Equal(t, test.valid, err == nil)
-
-					// only proceed if input was supposed to be valid
-					if test.valid == false {
-						return
-					}
-
-					classNames := testGetClassNames(m, kind.Object)
-					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-				})
-
-				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.Class{
-						Class:              originalName,
-						VectorizeClassName: &test.vectorize,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
-					}
-
-					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
-					require.Nil(t, err)
-
-					// now update
-					updatedClass := &models.Class{
-						Class: test.input,
+						Vectorizer: "text2vec-contextionary",
+						Class:      test.input,
 					}
 					err = m.UpdateObject(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
@@ -567,7 +478,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -592,7 +504,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -621,7 +534,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -646,7 +560,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -677,7 +592,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -711,7 +627,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -749,7 +666,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -774,7 +692,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -807,7 +726,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
 								DataType:              []string{"string"},
@@ -841,7 +761,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
 								DataType:              []string{"string"},
@@ -879,7 +800,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -904,7 +826,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: "ValidName",
+						Vectorizer: "text2vec-contextionary",
+						Class:      "ValidName",
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
@@ -934,8 +857,13 @@ func Test_Validation_PropertyNames(t *testing.T) {
 func Test_AllUsablePropsNoindexed(t *testing.T) {
 	t.Run("all schema vectorization turned off", func(t *testing.T) {
 		class := &models.Class{
-			Class:              "ValidName",
-			VectorizeClassName: ptBool(false),
+			Vectorizer: "text2vec-contextionary",
+			Class:      "ValidName",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": false,
+				},
+			},
 			Properties: []*models.Property{
 				{
 					DataType:              []string{"text"},

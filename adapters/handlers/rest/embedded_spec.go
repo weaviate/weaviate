@@ -1506,6 +1506,10 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "moduleConfig": {
+          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "type": "object"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -1513,10 +1517,17 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
-        "vectorizeClassName": {
-          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
-          "type": "boolean",
-          "x-nullable": true
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "type": "string"
         }
       }
     },
@@ -4181,6 +4192,10 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "moduleConfig": {
+          "description": "Configuration specific to modules this Weaviate instance has installed",
+          "type": "object"
+        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -4188,10 +4203,17 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
-        "vectorizeClassName": {
-          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
-          "type": "boolean",
-          "x-nullable": true
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "type": "string"
         }
       }
     },

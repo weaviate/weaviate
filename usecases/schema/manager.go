@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
@@ -35,6 +36,7 @@ type Manager struct {
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
+	config           config.Config
 }
 
 type SchemaGetter interface {
@@ -62,8 +64,9 @@ type c11yClient interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	logger logrus.FieldLogger, c11yClient c11yClient,
-	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
+	authorizer authorizer, swd stopwordDetector, config config.Config) (*Manager, error) {
 	m := &Manager{
+		config:           config,
 		migrator:         migrator,
 		repo:             repo,
 		locks:            locks,
@@ -163,13 +166,44 @@ func newSchema() *State {
 	}
 }
 
+// TODO: this sholud be part of the text2vec-contextionary module
 // VectorizeClassName is the only safe way to access this property, as it could
 // otherwise be nil. It is also the single place a default is set
 func VectorizeClassName(class *models.Class) bool {
+	if class.Vectorizer != config.VectorizerModuleText2VecContextionary {
+		// this class doesn't use the text2-vec module, so it can never be true
+		return false
+	}
+
 	const defaultValue = true
-	if class.VectorizeClassName == nil {
+
+	// TODO: This is not the right place to parse module config, as part of the
+	// modularziation this should be done in a different place. However, for now,
+	// with only one hard-coded module, this is helpful:
+	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
 		return defaultValue
 	}
 
-	return *class.VectorizeClassName
+	t2vConfig, ok := moduleConfig["text2vec-contextionary"]
+	if !ok {
+		return defaultValue
+	}
+
+	asMap, ok := t2vConfig.(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	vCN, ok := asMap["vectorizeClassName"]
+	if !ok {
+		return defaultValue
+	}
+
+	asBool, ok := vCN.(bool)
+	if !ok {
+		return defaultValue
+	}
+
+	return asBool
 }

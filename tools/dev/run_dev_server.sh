@@ -16,6 +16,7 @@ case $CONFIG in
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -28,6 +29,7 @@ case $CONFIG in
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -46,6 +48,7 @@ case $CONFIG in
       AUTHENTICATION_OIDC_CLIENT_ID=demo \
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

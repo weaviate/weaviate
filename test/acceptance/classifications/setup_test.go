@@ -54,8 +54,12 @@ func Test_Classifications(t *testing.T) {
 func setupArticleCategory(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class:              "Category",
-			VectorizeClassName: ptBool(true),
+			Class: "Category",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "name",
@@ -64,8 +68,12 @@ func setupArticleCategory(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class:              "Article",
-			VectorizeClassName: ptBool(true),
+			Class: "Article",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "content",
@@ -130,8 +138,12 @@ func setupArticleCategory(t *testing.T) {
 func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class:              "RecipeType",
-			VectorizeClassName: ptBool(true),
+			Class: "RecipeType",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "name",
@@ -140,8 +152,12 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class:              "Recipe",
-			VectorizeClassName: ptBool(true),
+			Class: "Recipe",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "content",
@@ -282,10 +298,6 @@ func deleteObjectClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }
 
 func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {

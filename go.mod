@@ -49,7 +49,7 @@ require (
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0
-	honnef.co/go/tools v0.0.1-2020.1.5 // indirect
+	honnef.co/go/tools v0.0.1-2020.1.5
 	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 

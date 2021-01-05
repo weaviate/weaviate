@@ -83,8 +83,23 @@ func FromEnv(config *Config) error {
 		config.QueryDefaults.Limit = int64(asInt)
 	}
 
+	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
+		config.DefaultVectorizerModule = v
+	} else {
+		// env not set, this could either mean, we already have a value from a file
+		// or we explicitly want to set the value to "none"
+		if config.DefaultVectorizerModule == "" {
+			config.DefaultVectorizerModule = VectorizerModuleNone
+		}
+	}
+
 	return nil
 }
+
+const VectorizerModuleNone = "none"
+
+// TODO: This should be retrieved dynamically from all installed modules
+const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
 func enabled(value string) bool {
 	if value == "" {

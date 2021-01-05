@@ -18,6 +18,7 @@ import (
 	"regexp"
 
 	"github.com/go-openapi/swag"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
@@ -33,20 +34,36 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name           string         `json:"name" yaml:"name"`
-	Debug          bool           `json:"debug" yaml:"debug"`
-	QueryDefaults  QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
-	Contextionary  Contextionary  `json:"contextionary" yaml:"contextionary"`
-	Authentication Authentication `json:"authentication" yaml:"authentication"`
-	Authorization  Authorization  `json:"authorization" yaml:"authorization"`
-	Origin         string         `json:"origin" yaml:"origin"`
-	Persistence    Persistence    `json:"persistence" yaml:"persistence"`
+	Name                    string         `json:"name" yaml:"name"`
+	Debug                   bool           `json:"debug" yaml:"debug"`
+	QueryDefaults           QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
+	Contextionary           Contextionary  `json:"contextionary" yaml:"contextionary"`
+	Authentication          Authentication `json:"authentication" yaml:"authentication"`
+	Authorization           Authorization  `json:"authorization" yaml:"authorization"`
+	Origin                  string         `json:"origin" yaml:"origin"`
+	Persistence             Persistence    `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 }
 
 // Validate the non-nested parameters. Nested objects must provide their own
 // validation methods
 func (c Config) Validate() error {
+	if err := c.validateDefaultVectorizerModule(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (c Config) validateDefaultVectorizerModule() error {
+	switch c.DefaultVectorizerModule {
+	// TODO: retrieve dynamically from modules
+	case VectorizerModuleNone, VectorizerModuleText2VecContextionary:
+		return nil
+	default:
+		return errors.Errorf("unrecognized default vectorizer module: %q",
+			c.DefaultVectorizerModule)
+	}
 }
 
 // QueryDefaults for optional parameters
@@ -102,7 +119,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
 		logger.WithField("action", "config_load").WithField("config_file_path", DefaultConfigFile).
-			Info("no config file specified, using default")
+			Info("no config file specified, using default or environment based")
 	}
 
 	// Read config file
