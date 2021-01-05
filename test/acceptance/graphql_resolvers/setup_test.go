@@ -65,8 +65,12 @@ func deleteObjectClass(t *testing.T, class string) {
 
 func addTestSchema(t *testing.T) {
 	createObjectClass(t, &models.Class{
-		Class:              "Country",
-		VectorizeClassName: ptBool(true),
+		Class: "Country",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -76,8 +80,12 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class:              "City",
-		VectorizeClassName: ptBool(true),
+		Class: "City",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -99,8 +107,12 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class:              "Airport",
-		VectorizeClassName: ptBool(true),
+		Class: "Airport",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "code",
@@ -118,8 +130,12 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class:              "Company",
-		VectorizeClassName: ptBool(false),
+		Class: "Company",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": false,
+			},
+		},
 		Properties: []*models.Property{
 			&models.Property{
 				Name:                  "name",
@@ -135,8 +151,12 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class:              "Person",
-		VectorizeClassName: ptBool(false),
+		Class: "Person",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": false,
+			},
+		},
 		Properties: []*models.Property{
 			&models.Property{
 				Name:                  "name",
@@ -417,8 +437,4 @@ func addTestDataPersons(t *testing.T) {
 	}
 
 	assertGetObjectEventually(t, companies[len(companies)-1].id)
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }

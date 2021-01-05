@@ -22,8 +22,12 @@ import (
 func Test_Objects(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class:              "TestObject",
-			VectorizeClassName: ptBool(true),
+			Class: "TestObject",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testString",
@@ -73,8 +77,4 @@ func deleteObjectClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }
