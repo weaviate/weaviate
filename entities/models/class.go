@@ -35,11 +35,20 @@ type Class struct {
 	// Description of the class.
 	Description string `json:"description,omitempty"`
 
+	// Configuration specific to modules this Weaviate instance has installed
+	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
+
 	// The properties of the class.
 	Properties []*Property `json:"properties"`
 
-	// Set this to true if the object vector should include the class name in calculating the overall vector position
-	VectorizeClassName *bool `json:"vectorizeClassName,omitempty"`
+	// Vector-index config, that is specific to the type of index selected in vectorIndexType
+	VectorIndexConfig interface{} `json:"vectorIndexConfig,omitempty"`
+
+	// Name of the vector index to use, eg. (HNSW)
+	VectorIndexType string `json:"vectorIndexType,omitempty"`
+
+	// Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.
+	Vectorizer string `json:"vectorizer,omitempty"`
 }
 
 // Validate validates this class

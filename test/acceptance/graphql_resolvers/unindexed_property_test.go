@@ -35,8 +35,12 @@ func Test_UnindexedProperty(t *testing.T) {
 
 	t.Run("creating a class with two string props", func(t *testing.T) {
 		c := &models.Class{
-			Class:              className,
-			VectorizeClassName: ptBool(true),
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "name",

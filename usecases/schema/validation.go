@@ -47,6 +47,8 @@ func (m *Manager) validateClassName(ctx context.Context, knd kind.Kind, classNam
 		return nil
 	}
 
+	// TODO: everything that follows should be part of the text2vec-contextionary
+	// module
 	camelParts := camelcase.Split(className)
 	stopWordsFound := 0
 	for _, part := range camelParts {
@@ -135,6 +137,8 @@ func (m *Manager) validatePropertyName(ctx context.Context, className string, pr
 	return nil
 }
 
+// TODO: This validates text2vec-contextionary specific logic
+//
 // Generally the user is free to "noindex" as many properties as they want.
 // However, we need to be able to build a vector from every object imported. If
 // the user decides not to index the classname and additionally no-indexes all
@@ -142,6 +146,11 @@ func (m *Manager) validatePropertyName(ctx context.Context, className string, pr
 // able to build a vector. In this case we should fail early and deny
 // validation.
 func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.Class) error {
+	if class.Vectorizer != "text2vec-contextionary" {
+		// this is text2vec-contextionary specific, so skip in other cases
+		return nil
+	}
+
 	if VectorizeClassName(class) {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further

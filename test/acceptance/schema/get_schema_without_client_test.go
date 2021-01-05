@@ -36,9 +36,13 @@ func testGetSchemaWithoutClient(t *testing.T) {
 			"type": "object",
 			"classes": []interface{}{
 				map[string]interface{}{
-					"class":              "YellowCars",
-					"properties":         (interface{})(nil),
-					"vectorizeClassName": true,
+					"class":      "YellowCars",
+					"properties": (interface{})(nil),
+					"moduleConfig": map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": true,
+						},
+					},
 				},
 			},
 		},

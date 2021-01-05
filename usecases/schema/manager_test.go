@@ -104,8 +104,10 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	assert.NotContains(t, objectClasses, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(false),
+		Class: "Car",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{},
+		},
 		Properties: []*models.Property{{
 			DataType: []string{"string"},
 			Name:     "dummy",
@@ -126,8 +128,13 @@ func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
 	assert.NotContains(t, objectClasses, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	})
 
 	assert.Nil(t, err)
@@ -141,8 +148,13 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	})
 
 	assert.Nil(t, err)
@@ -162,16 +174,26 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again
 	err = lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	})
 
 	assert.NotNil(t, err)
@@ -181,16 +203,26 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
 	err = lsm.AddObject(context.Background(), nil, &models.Class{
-		VectorizeClassName: ptBool(true),
-		Class:              "Car",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
 	})
 
 	assert.NotNil(t, err)
@@ -201,11 +233,20 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 
 	// Create a simple class.
 	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{VectorizeClassName: ptBool(true), Class: "InitialName"}))
+		&models.Class{
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			Class:      "InitialName",
+			Vectorizer: "text2vec-contextionary",
+		}))
 
 	// Rename it
 	updated := models.Class{
-		Class: "NewName",
+		Class:      "NewName",
+		Vectorizer: "text2vec-contextionary",
 	}
 	assert.Nil(t, lsm.UpdateObject(context.Background(), nil, "InitialName", &updated))
 
@@ -219,12 +260,12 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 
 	// Create a class to rename
 	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{Class: "InitialName", VectorizeClassName: ptBool(true)}))
+		&models.Class{Class: "InitialName"}))
 
 	// Create another class, that we'll collide names with.
 	// For some extra action, use a Action class here.
 	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{Class: "ExistingClass", VectorizeClassName: ptBool(true)}))
+		&models.Class{Class: "ExistingClass"}))
 
 	// Try to rename a class to one that already exists
 	update := &models.Class{Class: "ExistingClass"}
@@ -410,9 +451,8 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	}
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		Properties:         properties,
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Properties: properties,
 	})
 	assert.Nil(t, err)
 
@@ -439,9 +479,8 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	}
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		Properties:         properties,
-		VectorizeClassName: ptBool(true),
+		Class:      "Car",
+		Properties: properties,
 	})
 	assert.Nil(t, err)
 
@@ -505,8 +544,4 @@ func testGetClassNames(l *Manager, k kind.Kind) []string {
 	}
 
 	return names
-}
-
-func ptBool(in bool) *bool {
-	return &in
 }
