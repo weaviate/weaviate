@@ -42,40 +42,22 @@ type Classification struct {
 	// error message if status == failed
 	Error string `json:"error,omitempty"`
 
+	// filters
+	Filters *ClassificationFilters `json:"filters,omitempty"`
+
 	// ID to uniquely identify this classification run
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
-	// Only available on type=contextual. All words in a source corpus are ranked by their information gain against the possible target objects. A cutoff percentile of 40 implies that the top 40% are used and the bottom 60% are cut-off.
-	InformationGainCutoffPercentile *int32 `json:"informationGainCutoffPercentile,omitempty"`
-
-	// Only available on type=contextual. Words in a corpus will receive an additional boost based on how high they are ranked according to information gain. Setting this value to 3 implies that the top-ranked word will be ranked 3 times as high as the bottom ranked word. The curve in between is logarithmic. A maximum boost of 1 implies that no boosting occurs.
-	InformationGainMaximumBoost *int32 `json:"informationGainMaximumBoost,omitempty"`
-
-	// k-value when using k-Neareast-Neighbor
-	K *int32 `json:"k,omitempty"`
-
 	// additional meta information about the classification
 	Meta *ClassificationMeta `json:"meta,omitempty"`
 
-	// Only available on type=contextual. Both IG and tf-idf are mechanisms to remove words from the corpora. However, on very short corpora this could lead to a removal of all words, or all but a single word. This value guarantees that - regardless of tf-idf and IG score - always at least n words are used.
-	MinimumUsableWords *int32 `json:"minimumUsableWords,omitempty"`
-
-	// limit the objects to be classified
-	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
+	// classification-type specific settings
+	Settings interface{} `json:"settings,omitempty"`
 
 	// status of this classification
 	// Enum: [running completed failed]
 	Status string `json:"status,omitempty"`
-
-	// Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
-	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
-
-	// Only available on type=contextual. All words in a corpus are ranked by their tf-idf score. A cutoff percentile of 80 implies that the top 80% are used and the bottom 20% are cut-off. This is very effective to remove words that occur in almost all objects, such as filler and stop words.
-	TfidfCutoffPercentile *int32 `json:"tfidfCutoffPercentile,omitempty"`
-
-	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'
-	TrainingSetWhere *WhereFilter `json:"trainingSetWhere,omitempty"`
 
 	// which algorythim to use for classifications
 	// Enum: [knn contextual]
@@ -86,6 +68,10 @@ type Classification struct {
 func (m *Classification) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateFilters(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
@@ -94,19 +80,7 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceWhere(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateStatus(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateTargetWhere(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateTrainingSetWhere(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -117,6 +91,24 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Classification) validateFilters(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Filters) { // not required
+		return nil
+	}
+
+	if m.Filters != nil {
+		if err := m.Filters.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -143,24 +135,6 @@ func (m *Classification) validateMeta(formats strfmt.Registry) error {
 		if err := m.Meta.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("meta")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Classification) validateSourceWhere(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.SourceWhere) { // not required
-		return nil
-	}
-
-	if m.SourceWhere != nil {
-		if err := m.SourceWhere.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("sourceWhere")
 			}
 			return err
 		}
@@ -210,42 +184,6 @@ func (m *Classification) validateStatus(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *Classification) validateTargetWhere(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.TargetWhere) { // not required
-		return nil
-	}
-
-	if m.TargetWhere != nil {
-		if err := m.TargetWhere.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("targetWhere")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Classification) validateTrainingSetWhere(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.TrainingSetWhere) { // not required
-		return nil
-	}
-
-	if m.TrainingSetWhere != nil {
-		if err := m.TrainingSetWhere.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("trainingSetWhere")
-			}
-			return err
-		}
 	}
 
 	return nil
@@ -305,6 +243,115 @@ func (m *Classification) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *Classification) UnmarshalBinary(b []byte) error {
 	var res Classification
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// ClassificationFilters classification filters
+//
+// swagger:model ClassificationFilters
+type ClassificationFilters struct {
+
+	// limit the objects to be classified
+	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
+
+	// Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
+	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
+
+	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'
+	TrainingSetWhere *WhereFilter `json:"trainingSetWhere,omitempty"`
+}
+
+// Validate validates this classification filters
+func (m *ClassificationFilters) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateSourceWhere(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetWhere(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTrainingSetWhere(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.SourceWhere) { // not required
+		return nil
+	}
+
+	if m.SourceWhere != nil {
+		if err := m.SourceWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "sourceWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TargetWhere) { // not required
+		return nil
+	}
+
+	if m.TargetWhere != nil {
+		if err := m.TargetWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "targetWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ClassificationFilters) validateTrainingSetWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TrainingSetWhere) { // not required
+		return nil
+	}
+
+	if m.TrainingSetWhere != nil {
+		if err := m.TrainingSetWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "trainingSetWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ClassificationFilters) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ClassificationFilters) UnmarshalBinary(b []byte) error {
+	var res ClassificationFilters
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -140,8 +140,10 @@ func Test_ValidateUserInput(t *testing.T) {
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
-				TargetWhere:        &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
-				Type:               ptString("knn"),
+				Filters: &models.ClassificationFilters{
+					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+				},
+				Type: ptString("knn"),
 			},
 			expectedError: fmt.Errorf("invalid classification: type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'"),
 		},
@@ -159,24 +161,15 @@ func Test_ValidateUserInput(t *testing.T) {
 		},
 
 		testcase{
-			name: "type is contextual, but k is set",
-			input: models.Classification{
-				Class:              "Article",
-				BasedOnProperties:  []string{"description"},
-				ClassifyProperties: []string{"exactCategory"},
-				Type:               ptString("contextual"),
-				K:                  ptInt(7),
-			},
-			expectedError: fmt.Errorf("invalid classification: field 'k' can only be set for type 'knn', but got type 'contextual'"),
-		},
-		testcase{
 			name: "trainingSetWhere is set",
 			input: models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
-				TrainingSetWhere:   &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
-				Type:               ptString("contextual"),
+				Filters: &models.ClassificationFilters{
+					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+				},
+				Type: ptString("contextual"),
 			},
 			expectedError: fmt.Errorf("invalid classification: type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'"),
 		},
@@ -189,11 +182,6 @@ func Test_ValidateUserInput(t *testing.T) {
 			assert.Equal(t, test.expectedError, err)
 		})
 	}
-}
-
-func ptInt(in int) *int32 {
-	a := int32(in)
-	return &a
 }
 
 func ptString(in string) *string {

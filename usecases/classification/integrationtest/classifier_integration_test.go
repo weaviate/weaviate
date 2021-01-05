@@ -15,6 +15,7 @@ package classification_integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -112,12 +113,13 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		classifier := classification.New(sg, repo, vrepo, authorizer, nil, logger)
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
