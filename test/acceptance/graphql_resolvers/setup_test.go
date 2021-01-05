@@ -138,14 +138,22 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			&models.Property{
-				Name:                  "name",
-				DataType:              []string{"string"},
-				VectorizePropertyName: false,
+				Name:     "name",
+				DataType: []string{"string"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
 			},
 			&models.Property{
-				Name:                  "inCity",
-				DataType:              []string{"City"},
-				VectorizePropertyName: false,
+				Name:     "inCity",
+				DataType: []string{"City"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
 			},
 		},
 	})
@@ -159,14 +167,22 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			&models.Property{
-				Name:                  "name",
-				DataType:              []string{"string"},
-				VectorizePropertyName: false,
+				Name:     "name",
+				DataType: []string{"string"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
 			},
 			&models.Property{
-				Name:                  "livesIn",
-				DataType:              []string{"City"},
-				VectorizePropertyName: false,
+				Name:     "livesIn",
+				DataType: []string{"City"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
 			},
 		},
 	})

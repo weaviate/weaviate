@@ -95,13 +95,16 @@ func validatePropertyNameUniqueness(propertyName string, class *models.Class) er
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyName(ctx context.Context, className string, propertyName string, vectorizeProperty bool) error {
+func (m *Manager) validatePropertyName(ctx context.Context, className string,
+	propertyName string, moduleConfig interface{}) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
 	}
 
-	if !vectorizeProperty {
+	// TODO: everything below this line is specific to the text2vec-contextionary
+	// module and should be moved there
+	if !m.vectorizePropertyName(moduleConfig) {
 		// user does not want to vectorize this property name, so we don't have to
 		// validate it
 		return nil
@@ -140,6 +143,78 @@ func (m *Manager) validatePropertyName(ctx context.Context, className string, pr
 }
 
 // TODO: This validates text2vec-contextionary specific logic
+func (m *Manager) vectorizePropertyName(in interface{}) bool {
+	defaultValue := false
+
+	if in == nil {
+		return defaultValue
+	}
+
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	t2vc, ok := asMap["text2vec-contextionary"]
+	if !ok {
+		return defaultValue
+	}
+
+	t2vcMap, ok := t2vc.(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	vec, ok := t2vcMap["vectorizePropertyName"]
+	if !ok {
+		return defaultValue
+	}
+
+	asBool, ok := vec.(bool)
+	if !ok {
+		return defaultValue
+	}
+
+	return asBool
+}
+
+// TODO: This validates text2vec-contextionary specific logic
+func (m *Manager) indexPropertyInVectorIndex(in interface{}) bool {
+	defaultValue := true
+
+	if in == nil {
+		return defaultValue
+	}
+
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	t2vc, ok := asMap["text2vec-contextionary"]
+	if !ok {
+		return defaultValue
+	}
+
+	t2vcMap, ok := t2vc.(map[string]interface{})
+	if !ok {
+		return defaultValue
+	}
+
+	skip, ok := t2vcMap["skip"]
+	if !ok {
+		return defaultValue
+	}
+
+	skipBool, ok := skip.(bool)
+	if !ok {
+		return defaultValue
+	}
+
+	return !skipBool
+}
+
+// TODO: This validates text2vec-contextionary specific logic
 //
 // Generally the user is free to "noindex" as many properties as they want.
 // However, we need to be able to build a vector from every object imported. If
@@ -171,7 +246,7 @@ func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.
 			continue
 		}
 
-		if prop.Index == nil || *prop.Index {
+		if m.indexPropertyInVectorIndex(prop.ModuleConfig) {
 			// found at least one, this is a valid schema
 			return nil
 		}

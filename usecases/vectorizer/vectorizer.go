@@ -11,6 +11,10 @@
 
 package vectorizer
 
+// TODO: This entire package should be part of the text2vec-contextionary
+// module, if methods/objects in here are used from non-modular code, they
+// probably shouldn't be in here
+
 import (
 	"context"
 	"fmt"
@@ -45,7 +49,7 @@ type client interface {
 
 // IndexCheck returns whether a property of a class should be indexed
 type IndexCheck interface {
-	Indexed(className, property string) bool
+	IndexedContextionary(className, property string) bool
 	VectorizeClassName(className string) bool
 	VectorizePropertyName(className, propertyName string) bool
 }
@@ -79,7 +83,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
-			if !v.indexCheck.Indexed(className, prop) {
+			if !v.indexCheck.IndexedContextionary(className, prop) {
 				continue
 			}
 

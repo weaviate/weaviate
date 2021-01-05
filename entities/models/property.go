@@ -32,14 +32,14 @@ type Property struct {
 	// Description of the property.
 	Description string `json:"description,omitempty"`
 
-	// Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true
-	Index *bool `json:"index,omitempty"`
+	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules
+	IndexInverted *bool `json:"indexInverted,omitempty"`
+
+	// Configuratino specific to modules this Weaviate instance has installed
+	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
-
-	// Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.
-	VectorizePropertyName bool `json:"vectorizePropertyName,omitempty"`
 }
 
 // Validate validates this property
