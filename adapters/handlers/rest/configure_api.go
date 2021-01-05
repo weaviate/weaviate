@@ -217,6 +217,13 @@ func startupRoutine() *state.State {
 		logger.Exit(1)
 	}
 
+	logger.WithFields(logrus.Fields{
+		"action":                    "startup",
+		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
+	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
+		"schema classes without an explicit vectorizer setting, will use this "+
+		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
+
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")
 
