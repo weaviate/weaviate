@@ -37,7 +37,9 @@ func knnClassification(t *testing.T) {
 				ClassifyProperties: []string{"ofType"},
 				BasedOnProperties:  []string{"content"},
 				Type:               ptString("knn"),
-				K:                  ptInt32(5), // should lead to 3 winners & 2 losers
+				Settings: map[string]interface{}{
+					"k": 5,
+				},
 			}), nil)
 		require.Nil(t, err)
 		id = res.Payload.ID
@@ -104,10 +106,6 @@ func knnClassification(t *testing.T) {
 
 		verifyMetaDistances(t, ref)
 	})
-}
-
-func ptInt32(in int32) *int32 {
-	return &in
 }
 
 func verifyMetaDistances(t *testing.T, ref map[string]interface{}) {

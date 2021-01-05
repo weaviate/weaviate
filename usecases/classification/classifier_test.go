@@ -13,6 +13,7 @@ package classification
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,12 +53,13 @@ func Test_Classifier_KNN(t *testing.T) {
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
@@ -126,12 +128,13 @@ func Test_Classifier_KNN(t *testing.T) {
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
 		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
@@ -173,12 +176,13 @@ func Test_Classifier_KNN(t *testing.T) {
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
 		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
@@ -291,12 +295,13 @@ func Test_Classifier_Contextual(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
@@ -338,12 +343,13 @@ func Test_Classifier_Contextual(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
 
-		k := int32(1)
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			K:                  &k,
+			Settings: map[string]interface{}{
+				"k": json.Number("1"),
+			},
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {

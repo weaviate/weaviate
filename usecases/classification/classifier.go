@@ -13,10 +13,12 @@ package classification
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
@@ -117,12 +119,15 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	err = NewValidator(c.schemaGetter, params).Do()
+	err = c.parseAndSetDefaults(&params)
 	if err != nil {
 		return nil, err
 	}
 
-	c.setDefaultValuesForOptionalFields(&params)
+	err = NewValidator(c.schemaGetter, params).Do()
+	if err != nil {
+		return nil, err
+	}
 
 	if err := c.assignNewID(&params); err != nil {
 		return nil, fmt.Errorf("classification: assign id: %v", err)
@@ -150,17 +155,21 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 }
 
 func extractFilters(params models.Classification) (filters, error) {
-	source, err := filterext.Parse(params.SourceWhere)
+	if params.Filters == nil {
+		return filters{}, nil
+	}
+
+	source, err := filterext.Parse(params.Filters.SourceWhere)
 	if err != nil {
 		return filters{}, fmt.Errorf("field 'sourceWhere': %v", err)
 	}
 
-	trainingSet, err := filterext.Parse(params.TrainingSetWhere)
+	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere)
 	if err != nil {
 		return filters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
 	}
 
-	target, err := filterext.Parse(params.TargetWhere)
+	target, err := filterext.Parse(params.Filters.TargetWhere)
 	if err != nil {
 		return filters{}, fmt.Errorf("field 'targetWhere': %v", err)
 	}
@@ -198,29 +207,139 @@ func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id st
 	return c.repo.Get(ctx, id)
 }
 
-func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classification) {
+func (c *Classifier) parseAndSetDefaults(params *models.Classification) error {
 	if params.Type == nil {
 		defaultType := "knn"
 		params.Type = &defaultType
 	}
 
 	if *params.Type == "knn" {
-		c.setDefaultsForKNN(params)
+		if err := c.parseKNNSettings(params); err != nil {
+			return errors.Wrapf(err, "parse knn specific settings")
+		}
 	}
 
+	// TODO: This must be done as part of the module for full modularization
 	if *params.Type == "contextual" {
-		c.setDefaultsForContextual(params)
+		if err := c.parseContextualSettings(params); err != nil {
+			return errors.Wrapf(err, "parse knn specific settings")
+		}
 	}
+
+	return nil
 }
 
-func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
+func (c *Classifier) parseKNNSettings(params *models.Classification) error {
+	raw := params.Settings
+	settings := &ParamsKNN{}
+	if raw == nil {
+		settings.SetDefaults()
+		params.Settings = settings
+		return nil
+	}
+
+	asMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return errors.Errorf("settings must be an object got %T", raw)
+	}
+
+	v, err := extractNumberFromMap(asMap, "k")
+	if err != nil {
+		return err
+	}
+	settings.K = v
+
+	settings.SetDefaults()
+	params.Settings = settings
+
+	return nil
+}
+
+func (c *Classifier) parseContextualSettings(params *models.Classification) error {
+	raw := params.Settings
+	settings := &ParamsContextual{}
+	if raw == nil {
+		settings.SetDefaults()
+		params.Settings = settings
+		return nil
+	}
+
+	asMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return errors.Errorf("settings must be an object got %T", raw)
+	}
+
+	v, err := extractNumberFromMap(asMap, "minimumUsableWords")
+	if err != nil {
+		return err
+	}
+	settings.MinimumUsableWords = v
+
+	v, err = extractNumberFromMap(asMap, "informationGainCutoffPercentile")
+	if err != nil {
+		return err
+	}
+	settings.InformationGainCutoffPercentile = v
+
+	v, err = extractNumberFromMap(asMap, "informationGainMaximumBoost")
+	if err != nil {
+		return err
+	}
+	settings.InformationGainMaximumBoost = v
+
+	v, err = extractNumberFromMap(asMap, "tfidfCutoffPercentile")
+	if err != nil {
+		return err
+	}
+	settings.TfidfCutoffPercentile = v
+
+	settings.SetDefaults()
+	params.Settings = settings
+
+	return nil
+}
+
+func extractNumberFromMap(in map[string]interface{}, field string) (*int32, error) {
+	unparsed, present := in[field]
+	if present {
+		parsed, ok := unparsed.(json.Number)
+		if !ok {
+			return nil, errors.Errorf("settings.%s must be number, got %T",
+				field, unparsed)
+		}
+
+		asInt64, err := parsed.Int64()
+		if err != nil {
+			return nil, errors.Wrapf(err, "settings.%s", field)
+		}
+
+		asInt32 := int32(asInt64)
+		return &asInt32, nil
+	}
+
+	return nil, nil
+}
+
+type ParamsKNN struct {
+	K *int32 `json:"k"`
+}
+
+func (params *ParamsKNN) SetDefaults() {
 	if params.K == nil {
 		defaultK := int32(3)
 		params.K = &defaultK
 	}
 }
 
-func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
+// TODO: this must be provided by the module when actual modularization occurs
+type ParamsContextual struct {
+	MinimumUsableWords              *int32 `json:"minimumUsableWords"`
+	InformationGainCutoffPercentile *int32 `json:"informationGainCutoffPercentile"`
+	InformationGainMaximumBoost     *int32 `json:"informationGainMaximumBoost"`
+	TfidfCutoffPercentile           *int32 `json:"tfidfCutoffPercentile"`
+}
+
+func (params *ParamsContextual) SetDefaults() {
 	if params.MinimumUsableWords == nil {
 		defaultParam := int32(3)
 		params.MinimumUsableWords = &defaultParam

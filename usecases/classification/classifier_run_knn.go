@@ -25,10 +25,13 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 
+	// this type assertion is safe to make, since we have passed the parsing stage
+	settings := params.Settings.(*ParamsKNN)
+
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		kind, item.ClassName,
-		params.ClassifyProperties, int(*params.K), filters.trainingSet)
+		params.ClassifyProperties, int(*settings.K), filters.trainingSet)
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
 	}
