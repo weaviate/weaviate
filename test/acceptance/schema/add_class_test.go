@@ -62,8 +62,12 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
 
 	tc := &models.Class{
-		Class:              randomObjectClassName,
-		VectorizeClassName: ptBool(true),
+		Class: randomObjectClassName,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
 	}
 
 	t.Log("Creating class")
@@ -180,7 +184,3 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 // 	// And verify that the class does not exist anymore.
 // 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 // }
-
-func ptBool(in bool) *bool {
-	return &in
-}

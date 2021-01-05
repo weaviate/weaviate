@@ -126,15 +126,13 @@ func cityCountryAirportSchema() schema.Schema {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:              "Country",
-					VectorizeClassName: ptBool(true),
+					Class: "Country",
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}},
 					},
 				},
 				{
-					Class:              "City",
-					VectorizeClassName: ptBool(true),
+					Class: "City",
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}},
 						{Name: "inCountry", DataType: []string{"Country"}},
@@ -143,8 +141,7 @@ func cityCountryAirportSchema() schema.Schema {
 					},
 				},
 				{
-					Class:              "Airport",
-					VectorizeClassName: ptBool(true),
+					Class: "Airport",
 					Properties: []*models.Property{
 						{Name: "code", DataType: []string{"string"}},
 						{Name: "phone", DataType: []string{"phoneNumber"}},

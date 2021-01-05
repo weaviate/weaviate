@@ -59,6 +59,7 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 	return false
 }
 
+// TODO: This is text2vec-contextionary specific logic
 func (m *Manager) VectorizeClassName(className string) bool {
 	s := schema.Schema{
 		Objects: m.state.ObjectSchema,
@@ -71,6 +72,7 @@ func (m *Manager) VectorizeClassName(className string) bool {
 	return VectorizeClassName(class)
 }
 
+// TODO: This is text2vec-contextionary specific logic
 func (m *Manager) VectorizePropertyName(className, propertyName string) bool {
 	s := schema.Schema{
 		Objects: m.state.ObjectSchema,
