@@ -23,10 +23,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UnderscorePropertiesClassification This underscore property contains additional info about the classification which affected this object
+// AdditionalPropertiesClassification This additional property contains additional info about the classification which affected this object
 //
-// swagger:model UnderscorePropertiesClassification
-type UnderscorePropertiesClassification struct {
+// swagger:model AdditionalPropertiesClassification
+type AdditionalPropertiesClassification struct {
 
 	// The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is "knn" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.
 	BasedOn []string `json:"basedOn"`
@@ -46,8 +46,8 @@ type UnderscorePropertiesClassification struct {
 	Scope []string `json:"scope"`
 }
 
-// Validate validates this underscore properties classification
-func (m *UnderscorePropertiesClassification) Validate(formats strfmt.Registry) error {
+// Validate validates this additional properties classification
+func (m *AdditionalPropertiesClassification) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCompleted(formats); err != nil {
@@ -64,7 +64,7 @@ func (m *UnderscorePropertiesClassification) Validate(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *UnderscorePropertiesClassification) validateCompleted(formats strfmt.Registry) error {
+func (m *AdditionalPropertiesClassification) validateCompleted(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Completed) { // not required
 		return nil
@@ -77,7 +77,7 @@ func (m *UnderscorePropertiesClassification) validateCompleted(formats strfmt.Re
 	return nil
 }
 
-func (m *UnderscorePropertiesClassification) validateID(formats strfmt.Registry) error {
+func (m *AdditionalPropertiesClassification) validateID(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.ID) { // not required
 		return nil
@@ -91,7 +91,7 @@ func (m *UnderscorePropertiesClassification) validateID(formats strfmt.Registry)
 }
 
 // MarshalBinary interface implementation
-func (m *UnderscorePropertiesClassification) MarshalBinary() ([]byte, error) {
+func (m *AdditionalPropertiesClassification) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -99,8 +99,8 @@ func (m *UnderscorePropertiesClassification) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *UnderscorePropertiesClassification) UnmarshalBinary(b []byte) error {
-	var res UnderscorePropertiesClassification
+func (m *AdditionalPropertiesClassification) UnmarshalBinary(b []byte) error {
+	var res AdditionalPropertiesClassification
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

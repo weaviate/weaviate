@@ -195,13 +195,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-	t.Run("when the _classification prop is set", func(t *testing.T) {
+	t.Run("when the classification prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				Classification: true,
 			},
 		}
@@ -213,7 +213,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
-				UnderscoreProperties: &models.UnderscoreProperties{
+				AdditionalProperties: &models.AdditionalProperties{
 					Classification: nil,
 				},
 			},
@@ -223,8 +223,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
-				UnderscoreProperties: &models.UnderscoreProperties{
-					Classification: &models.UnderscorePropertiesClassification{
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
 				},
@@ -260,14 +260,16 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"age": 200,
-					"_classification": &models.UnderscorePropertiesClassification{
-						ID: "1234",
+					"_additional": map[string]interface{}{
+						"classification": &models.AdditionalPropertiesClassification{
+							ID: "1234",
+						},
 					},
 				}, res[1])
 		})
 	})
 
-	t.Run("when the _certainty prop is set", func(t *testing.T) {
+	t.Run("when the certainty prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:         kind.Object,
 			Filters:      nil,
@@ -279,7 +281,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Limit:     100,
 				Certainty: 0,
 			},
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				Certainty: true,
 			},
 		}
@@ -323,19 +325,20 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t, 2, len(resMap))
 			assert.Contains(t, resMap, "age")
 			assert.Equal(t, 200, resMap["age"])
-			assert.Contains(t, resMap, "_certainty")
+			additionalMap := resMap["_additional"]
+			assert.Contains(t, additionalMap, "certainty")
 			// Certainty is fixed to 0.69 in this mock
-			assert.InEpsilon(t, 0.31, resMap["_certainty"], 0.000001)
+			assert.InEpsilon(t, 0.31, additionalMap.(map[string]interface{})["certainty"], 0.000001)
 		})
 	})
 
-	t.Run("when the _interpretation prop is set", func(t *testing.T) {
+	t.Run("when the interpretation prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				Interpretation: true,
 			},
 		}
@@ -347,7 +350,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
-				UnderscoreProperties: &models.UnderscoreProperties{
+				AdditionalProperties: &models.AdditionalProperties{
 					Interpretation: nil,
 				},
 			},
@@ -357,7 +360,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
-				UnderscoreProperties: &models.UnderscoreProperties{
+				AdditionalProperties: &models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{
 							&models.InterpretationSource{
@@ -400,12 +403,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"age": 200,
-					"_interpretation": &models.Interpretation{
-						Source: []*models.InterpretationSource{
-							&models.InterpretationSource{
-								Concept:    "foo",
-								Weight:     0.123,
-								Occurrence: 123,
+					"_additional": map[string]interface{}{
+						"interpretation": &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
+									Concept:    "foo",
+									Weight:     0.123,
+									Occurrence: 123,
+								},
 							},
 						},
 					},
@@ -413,13 +418,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-	t.Run("when the _nearestNeighbors prop is set", func(t *testing.T) {
+	t.Run("when the nearestNeighbors prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				NearestNeighbors: true,
 			},
 		}
@@ -452,7 +457,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
 							Neighbors: []*models.NearestNeighbor{
 								&models.NearestNeighbor{
@@ -469,7 +474,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
 							Neighbors: []*models.NearestNeighbor{
 								&models.NearestNeighbor{
@@ -503,11 +508,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
-					"_nearestNeighbors": &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
-								Concept:  "foo",
-								Distance: 0.1,
+					"_additional": map[string]interface{}{
+						"nearestNeighbors": &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.1,
+								},
 							},
 						},
 					},
@@ -515,11 +522,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Bar",
-					"_nearestNeighbors": &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
-								Concept:  "bar",
-								Distance: 0.1,
+					"_additional": map[string]interface{}{
+						"nearestNeighbors": &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "bar",
+									Distance: 0.1,
+								},
 							},
 						},
 					},
@@ -527,13 +536,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-	t.Run("when the _featureProjection prop is set", func(t *testing.T) {
+	t.Run("when the featureProjection prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				FeatureProjection: &libprojector.Params{},
 			},
 		}
@@ -567,7 +576,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{0, 1},
 						},
@@ -579,7 +588,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{1, 0},
 						},
@@ -607,27 +616,31 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
-					"_featureProjection": &models.FeatureProjection{
-						Vector: []float32{0, 1},
+					"_additional": map[string]interface{}{
+						"featureProjection": &models.FeatureProjection{
+							Vector: []float32{0, 1},
+						},
 					},
 				}, res[0])
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Bar",
-					"_featureProjection": &models.FeatureProjection{
-						Vector: []float32{1, 0},
+					"_additional": map[string]interface{}{
+						"featureProjection": &models.FeatureProjection{
+							Vector: []float32{1, 0},
+						},
 					},
 				}, res[1])
 		})
 	})
 
-	t.Run("when the _semanticPath prop is set", func(t *testing.T) {
+	t.Run("when the semanticPath prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			UnderscoreProperties: UnderscoreProperties{
+			AdditionalProperties: AdditionalProperties{
 				SemanticPath: &sempath.Params{},
 			},
 			Explore: &ExploreParams{
@@ -665,7 +678,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						SemanticPath: &models.SemanticPath{
 							Path: []*models.SemanticPathElement{
 								&models.SemanticPathElement{
@@ -692,7 +705,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						SemanticPath: &models.SemanticPath{
 							Path: []*models.SemanticPathElement{
 								&models.SemanticPathElement{
@@ -734,21 +747,23 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
-					"_semanticPath": &models.SemanticPath{
-						Path: []*models.SemanticPathElement{
-							&models.SemanticPathElement{
-								Concept:            "pathelem1",
-								DistanceToQuery:    0,
-								DistanceToResult:   2.1,
-								DistanceToPrevious: nil,
-								DistanceToNext:     ptFloat32(0.5),
-							},
-							&models.SemanticPathElement{
-								Concept:            "pathelem2",
-								DistanceToQuery:    2.1,
-								DistanceToResult:   0,
-								DistanceToPrevious: ptFloat32(0.5),
-								DistanceToNext:     nil,
+					"_additional": map[string]interface{}{
+						"semanticPath": &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
 							},
 						},
 					},
@@ -756,21 +771,23 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Bar",
-					"_semanticPath": &models.SemanticPath{
-						Path: []*models.SemanticPathElement{
-							&models.SemanticPathElement{
-								Concept:            "pathelem1",
-								DistanceToQuery:    0,
-								DistanceToResult:   2.1,
-								DistanceToPrevious: nil,
-								DistanceToNext:     ptFloat32(0.5),
-							},
-							&models.SemanticPathElement{
-								Concept:            "pathelem2",
-								DistanceToQuery:    2.1,
-								DistanceToResult:   0,
-								DistanceToPrevious: ptFloat32(0.5),
-								DistanceToNext:     nil,
+					"_additional": map[string]interface{}{
+						"semanticPath": &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
 							},
 						},
 					},

@@ -1311,6 +1311,67 @@ func init() {
     }
   },
   "definitions": {
+    "AdditionalProperties": {
+      "description": "Additional Meta information about a single object object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/AdditionalPropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
+        },
+        "interpretation": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
+        "semanticPath": {
+          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
+          "$ref": "#/definitions/SemanticPath"
+        }
+      }
+    },
+    "AdditionalPropertiesClassification": {
+      "description": "This additional property contains additional info about the classification which affected this object",
+      "properties": {
+        "basedOn": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -1837,7 +1898,7 @@ func init() {
       }
     },
     "Interpretation": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "description": "This additional property contains additional info about the how the class was vectorized",
       "properties": {
         "source": {
           "description": "The input that was used to vectorize this object",
@@ -1849,7 +1910,7 @@ func init() {
       }
     },
     "InterpretationSource": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "description": "This additional property contains additional info about the how the class was vectorized",
       "properties": {
         "concept": {
           "type": "string"
@@ -1954,21 +2015,8 @@ func init() {
     "Object": {
       "type": "object",
       "properties": {
-        "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/UnderscorePropertiesClassification"
-        },
-        "_featureProjection": {
-          "description": "A feature projection of the object's vector into lower dimensions for visualization",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "_interpretation": {
-          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "_nearestNeighbors": {
-          "description": "Additional information about the neighboring concepts of this element",
-          "$ref": "#/definitions/NearestNeighbors"
+        "additional": {
+          "$ref": "#/definitions/AdditionalProperties"
         },
         "class": {
           "description": "Class of the Object, defined in the schema.",
@@ -2380,10 +2428,6 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
-        "_classification": {
-          "description": "Additional Meta information about classifications if the item was part of one",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
           "type": "string",
@@ -2394,6 +2438,10 @@ func init() {
           "type": "string",
           "format": "uri"
         },
+        "classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "href": {
           "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
           "type": "string",
@@ -2402,71 +2450,6 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        }
-      }
-    },
-    "UnderscoreProperties": {
-      "description": "Additional Meta information about a single object object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/UnderscorePropertiesClassification"
-        },
-        "featureProjection": {
-          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "interpretation": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "nearestNeighbors": {
-          "description": "Neighboring concepts of your search results",
-          "$ref": "#/definitions/NearestNeighbors"
-        },
-        "semanticPath": {
-          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
-          "$ref": "#/definitions/SemanticPath"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
-        }
-      }
-    },
-    "UnderscorePropertiesClassification": {
-      "description": "This underscore property contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       }
     },
@@ -2584,7 +2567,7 @@ func init() {
   "parameters": {
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
       "name": "include",
       "in": "query"
     },
@@ -3161,7 +3144,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
             "name": "include",
             "in": "query"
           }
@@ -3327,7 +3310,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
             "name": "include",
             "in": "query"
           }
@@ -3933,6 +3916,67 @@ func init() {
     }
   },
   "definitions": {
+    "AdditionalProperties": {
+      "description": "Additional Meta information about a single object object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/AdditionalPropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
+        },
+        "interpretation": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
+        "semanticPath": {
+          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
+          "$ref": "#/definitions/SemanticPath"
+        }
+      }
+    },
+    "AdditionalPropertiesClassification": {
+      "description": "This additional property contains additional info about the classification which affected this object",
+      "properties": {
+        "basedOn": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -4547,7 +4591,7 @@ func init() {
       }
     },
     "Interpretation": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "description": "This additional property contains additional info about the how the class was vectorized",
       "properties": {
         "source": {
           "description": "The input that was used to vectorize this object",
@@ -4559,7 +4603,7 @@ func init() {
       }
     },
     "InterpretationSource": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "description": "This additional property contains additional info about the how the class was vectorized",
       "properties": {
         "concept": {
           "type": "string"
@@ -4664,21 +4708,8 @@ func init() {
     "Object": {
       "type": "object",
       "properties": {
-        "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/UnderscorePropertiesClassification"
-        },
-        "_featureProjection": {
-          "description": "A feature projection of the object's vector into lower dimensions for visualization",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "_interpretation": {
-          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "_nearestNeighbors": {
-          "description": "Additional information about the neighboring concepts of this element",
-          "$ref": "#/definitions/NearestNeighbors"
+        "additional": {
+          "$ref": "#/definitions/AdditionalProperties"
         },
         "class": {
           "description": "Class of the Object, defined in the schema.",
@@ -5108,10 +5139,6 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
-        "_classification": {
-          "description": "Additional Meta information about classifications if the item was part of one",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/\u003cuuid\u003e for the example of a local cross-ref to an object",
           "type": "string",
@@ -5122,6 +5149,10 @@ func init() {
           "type": "string",
           "format": "uri"
         },
+        "classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "href": {
           "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
           "type": "string",
@@ -5130,71 +5161,6 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        }
-      }
-    },
-    "UnderscoreProperties": {
-      "description": "Additional Meta information about a single object object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/UnderscorePropertiesClassification"
-        },
-        "featureProjection": {
-          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "interpretation": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "nearestNeighbors": {
-          "description": "Neighboring concepts of your search results",
-          "$ref": "#/definitions/NearestNeighbors"
-        },
-        "semanticPath": {
-          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
-          "$ref": "#/definitions/SemanticPath"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
-        }
-      }
-    },
-    "UnderscorePropertiesClassification": {
-      "description": "This underscore property contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       }
     },
@@ -5321,7 +5287,7 @@ func init() {
   "parameters": {
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
       "name": "include",
       "in": "query"
     },

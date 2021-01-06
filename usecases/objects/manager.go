@@ -79,9 +79,9 @@ type VectorRepo interface {
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
 
 	ObjectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
-		underscore traverser.UnderscoreProperties) (*search.Result, error)
+		additional traverser.AdditionalProperties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-		underscore traverser.UnderscoreProperties) (search.Results, error)
+		additional traverser.AdditionalProperties) (search.Results, error)
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 

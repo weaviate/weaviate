@@ -68,11 +68,11 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 			return nil, fmt.Errorf("object %d: %v", i, err)
 		}
 
-		if in[i].UnderscoreProperties == nil {
-			in[i].UnderscoreProperties = &models.UnderscoreProperties{}
+		if in[i].AdditionalProperties == nil {
+			in[i].AdditionalProperties = &models.AdditionalProperties{}
 		}
 
-		in[i].UnderscoreProperties.SemanticPath = path
+		in[i].AdditionalProperties.SemanticPath = path
 	}
 
 	return in, nil
@@ -173,11 +173,11 @@ func (f *PathBuilder) extractNeighbors(in []search.Result) []*models.NearestNeig
 	var out []*models.NearestNeighbor
 
 	for _, obj := range in {
-		if obj.UnderscoreProperties == nil || obj.UnderscoreProperties.NearestNeighbors == nil {
+		if obj.AdditionalProperties == nil || obj.AdditionalProperties.NearestNeighbors == nil {
 			continue
 		}
 
-		out = append(out, obj.UnderscoreProperties.NearestNeighbors.Neighbors...)
+		out = append(out, obj.AdditionalProperties.NearestNeighbors.Neighbors...)
 	}
 
 	return out
