@@ -133,15 +133,15 @@ func init() {
         }
       }
     },
-    "/batching/objects": {
+    "/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
-          "batching",
+          "batch",
           "objects"
         ],
         "summary": "Creates new Objects based on a Object template as a batch.",
-        "operationId": "batching.objects.create",
+        "operationId": "batch.objects.create",
         "parameters": [
           {
             "name": "body",
@@ -214,15 +214,15 @@ func init() {
         ]
       }
     },
-    "/batching/references": {
+    "/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "tags": [
-          "batching",
+          "batch",
           "references"
         ],
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "operationId": "batching.references.create",
+        "operationId": "batch.references.create",
         "parameters": [
           {
             "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
@@ -2599,7 +2599,7 @@ func init() {
     },
     {
       "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
-      "name": "batching"
+      "name": "batch"
     },
     {
       "name": "graphql"
@@ -2728,15 +2728,15 @@ func init() {
         }
       }
     },
-    "/batching/objects": {
+    "/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
-          "batching",
+          "batch",
           "objects"
         ],
         "summary": "Creates new Objects based on a Object template as a batch.",
-        "operationId": "batching.objects.create",
+        "operationId": "batch.objects.create",
         "parameters": [
           {
             "name": "body",
@@ -2809,15 +2809,15 @@ func init() {
         ]
       }
     },
-    "/batching/references": {
+    "/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "tags": [
-          "batching",
+          "batch",
           "references"
         ],
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "operationId": "batching.references.create",
+        "operationId": "batch.references.create",
         "parameters": [
           {
             "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
@@ -5319,7 +5319,7 @@ func init() {
     },
     {
       "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
-      "name": "batching"
+      "name": "batch"
     },
     {
       "name": "graphql"

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/batching"
+	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -63,11 +63,11 @@ func createObject(t *testing.T, object *models.Object) {
 }
 
 func createObjectsBatch(t *testing.T, objects []*models.Object) {
-	params := batching.NewBatchingObjectsCreateParams().
-		WithBody(batching.BatchingObjectsCreateBody{
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
-	resp, err := helper.Client(t).Batching.BatchingObjectsCreate(params, nil)
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	for _, elem := range resp.Payload {
 		assert.Nil(t, elem.Result.Errors)
