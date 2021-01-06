@@ -93,7 +93,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+			traverser.SelectProperties{}, traverser.AdditionalProperties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",

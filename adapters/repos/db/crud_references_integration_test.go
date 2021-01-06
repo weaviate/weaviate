@@ -245,7 +245,7 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), traverser.UnderscoreProperties{})
+			fullyNestedSelectProperties(), traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -279,14 +279,14 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), traverser.UnderscoreProperties{})
+			partiallyNestedSelectProperties(), traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+			traverser.SelectProperties{}, traverser.AdditionalProperties{})
 
 		expectedSchema := map[string]interface{}{
 			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
@@ -502,7 +502,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check reference was added", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.UnderscoreProperties{})
+			traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
@@ -534,7 +534,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check both references are now present", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.UnderscoreProperties{})
+			traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())

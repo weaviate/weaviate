@@ -66,7 +66,7 @@ func (d *DB) DeleteObject(ctx context.Context, className string,
 
 func (d *DB) MultiGet(ctx context.Context,
 	query []multi.Identifier,
-	underscore traverser.UnderscoreProperties) ([]search.Result, error) {
+	additional traverser.AdditionalProperties) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 
 	for i, q := range query {
@@ -96,7 +96,7 @@ func (d *DB) MultiGet(ctx context.Context,
 			if obj == nil {
 				continue
 			}
-			res := obj.SearchResult(underscore)
+			res := obj.SearchResult(additional)
 			out[queries[i].OriginalPosition] = *res
 		}
 	}
@@ -107,7 +107,7 @@ func (d *DB) MultiGet(ctx context.Context,
 // ObjectByID checks every index of the particular kind for the ID
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties,
-	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	additional traverser.AdditionalProperties) (*search.Result, error) {
 	kind := kind.Object
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -117,13 +117,13 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 			continue
 		}
 
-		res, err := index.objectByID(ctx, id, props, underscore)
+		res, err := index.objectByID(ctx, id, props, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
 		if res != nil {
-			result = res.SearchResult(underscore)
+			result = res.SearchResult(additional)
 			break
 		}
 	}
@@ -132,13 +132,13 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 		return nil, nil
 	}
 
-	return d.enrichRefsForSingle(ctx, result, props, underscore)
+	return d.enrichRefsForSingle(ctx, result, props, additional)
 }
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
-		Do(ctx, []search.Result{*obj}, props, underscore)
+		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
 	}

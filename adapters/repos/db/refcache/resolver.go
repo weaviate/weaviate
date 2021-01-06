@@ -28,7 +28,7 @@ type Resolver struct {
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) error
+	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, additional traverser.AdditionalProperties) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -37,18 +37,18 @@ func NewResolver(cacher cacher) *Resolver {
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) ([]search.Result, error) {
-	if err := r.cacher.Build(ctx, objects, properties, underscore); err != nil {
+	properties traverser.SelectProperties, additional traverser.AdditionalProperties) ([]search.Result, error) {
+	if err := r.cacher.Build(ctx, objects, properties, additional); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
-	return r.parseObjects(objects, properties, underscore)
+	return r.parseObjects(objects, properties, additional)
 }
 
 func (r *Resolver) parseObjects(objects []search.Result, properties traverser.SelectProperties,
-	underscore traverser.UnderscoreProperties) ([]search.Result, error) {
+	additional traverser.AdditionalProperties) ([]search.Result, error) {
 	for i, obj := range objects {
-		parsed, err := r.parseObject(obj, properties, underscore)
+		parsed, err := r.parseObject(obj, properties, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "parse at position %d", i)
 		}
@@ -60,7 +60,7 @@ func (r *Resolver) parseObjects(objects []search.Result, properties traverser.Se
 }
 
 func (r *Resolver) parseObject(object search.Result, properties traverser.SelectProperties,
-	underscore traverser.UnderscoreProperties) (search.Result, error) {
+	additional traverser.AdditionalProperties) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
 	}

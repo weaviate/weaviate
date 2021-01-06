@@ -25,33 +25,35 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:      kind.Object,
-		ClassName: "SomeThing",
-		Properties: []traverser.SelectProperty{
-			{
-				Name:        "uuid",
-				IsPrimitive: true,
-			},
+		Kind:       kind.Object,
+		ClassName:  "SomeThing",
+		Properties: []traverser.SelectProperty{{Name: "_additional"}},
+		AdditionalProperties: traverser.AdditionalProperties{
+			ID: true,
 		},
 	}
 
 	resolverResponse := []interface{}{
 		map[string]interface{}{
-			"uuid": "some-uuid-for-the-local-class",
+			"_additional": map[string]interface{}{
+				"id": "some-uuid-for-the-local-class",
+			},
 		},
 	}
 
 	resolver.On("GetClass", expectedParams).
 		Return(resolverResponse, nil).Once()
 
-	query := "{ Get { SomeThing { uuid } } }"
+	query := "{ Get { SomeThing { _additional { id } } } }"
 	result := resolver.AssertResolve(t, query).Result
 
 	expectedResult := map[string]interface{}{
 		"Get": map[string]interface{}{
 			"SomeThing": []interface{}{
 				map[string]interface{}{
-					"uuid": "some-uuid-for-the-local-class",
+					"_additional": map[string]interface{}{
+						"id": "some-uuid-for-the-local-class",
+					},
 				},
 			},
 		},

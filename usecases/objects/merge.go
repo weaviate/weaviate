@@ -32,7 +32,7 @@ type MergeDocument struct {
 	References           BatchReferences
 	Vector               []float32
 	UpdateTime           int64
-	UnderscoreProperties models.UnderscoreProperties
+	AdditionalProperties models.AdditionalProperties
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
@@ -62,7 +62,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		References:      refs,
 		Vector:          vector,
 		UpdateTime:      m.timeSource.Now(),
-		UnderscoreProperties: models.UnderscoreProperties{
+		AdditionalProperties: models.AdditionalProperties{
 			Interpretation: &models.Interpretation{
 				Source: source,
 			},
@@ -81,7 +81,7 @@ func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, pr
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
 
-	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, traverser.UnderscoreProperties{})
+	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, traverser.AdditionalProperties{})
 	if err != nil {
 		return nil, err
 	}

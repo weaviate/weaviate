@@ -161,7 +161,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		schema := source.Object().Schema.(map[string]interface{})
@@ -225,7 +225,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
@@ -276,7 +276,7 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
