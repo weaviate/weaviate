@@ -47,7 +47,7 @@ type Object struct {
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
 
-	// This object's position in the Contextionary vector space
+	// This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.
 	Vector C11yVector `json:"vector,omitempty"`
 
 	// vector weights

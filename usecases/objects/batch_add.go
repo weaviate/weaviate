@@ -13,16 +13,18 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -116,6 +118,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object := &models.Object{}
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
+	object.Vector = concept.Vector
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		object.Class = concept.Class
@@ -130,29 +133,83 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.exists, b.config).Object(ctx, object)
 	ec.add(err)
 
-	vector, source, err := b.vectorizer.Object(ctx, object)
+	err = b.obtainVector(ctx, object, principal)
 	ec.add(err)
-
-	if object.Additional == nil {
-		object.Additional = &models.AdditionalProperties{}
-	}
-
-	object.Additional.Interpretation = &models.Interpretation{
-		Source: sourceFromInputElements(source),
-	}
 
 	*resultsC <- BatchObject{
 		UUID:          id,
 		Object:        object,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
-		Vector:        vector,
+		Vector:        object.Vector,
 	}
 }
 
 func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
 	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 	return res != nil, err
+}
+
+func (b *BatchManager) getVectorizerOfClass(className string,
+	principal *models.Principal) (string, error) {
+	s, err := b.schemaManager.GetSchema(principal)
+	if err != nil {
+		return "", err
+	}
+
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		// this should be impossible by the time this method gets called, but let's
+		// be 100% certain
+		return "", errors.Errorf("class %s not present", className)
+	}
+
+	return class.Vectorizer, nil
+}
+
+// TODO: too much repitition between here and add.go. Vector obtainer should be
+// outscoped to be its own type used by both
+func (b *BatchManager) obtainVector(ctx context.Context, class *models.Object,
+	principal *models.Principal) error {
+	vectorizer, err := b.getVectorizerOfClass(class.Class, principal)
+	if err != nil {
+		return err
+	}
+
+	// TODO: dynamically discover modules and lose any understanding of internals
+	// of modules
+	switch vectorizer {
+	case config.VectorizerModuleNone:
+		if err := b.validateVectorPresent(class); err != nil {
+			return NewErrInvalidUserInput("%v", err)
+		}
+	case config.VectorizerModuleText2VecContextionary:
+		v, source, err := b.vectorizer.Object(ctx, class)
+		if err != nil {
+			return NewErrInternal("text2vec-contextionary: vectorize: %v", err)
+		}
+
+		if class.Additional == nil {
+			class.Additional = &models.AdditionalProperties{}
+		}
+
+		class.Additional.Interpretation = &models.Interpretation{
+			Source: sourceFromInputElements(source),
+		}
+		class.Vector = v
+	}
+
+	return nil
+}
+
+func (b *BatchManager) validateVectorPresent(class *models.Object) error {
+	if len(class.Vector) == 0 {
+		return errors.Errorf("this class is configured to use vectorizer 'none' " +
+			"thus a vector must be present when importing, got: field 'vector' is empty " +
+			"or contains a zero-length vector")
+	}
+
+	return nil
 }
 
 func objectsChanToSlice(c chan BatchObject) BatchObjects {
@@ -188,7 +245,7 @@ func (ec *errorCompounder) toError() error {
 		msg.WriteString(err.Error())
 	}
 
-	return errors.New(msg.String())
+	return errors.Errorf(msg.String())
 }
 
 func unixNow() int64 {

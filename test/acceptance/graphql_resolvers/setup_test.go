@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/batching"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_GraphQL(t *testing.T) {
@@ -29,6 +31,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
+	t.Run("import test data (custom vector class)", addTestDataCVC)
 
 	// tests
 	t.Run("getting objects", gettingObjects)
@@ -36,6 +39,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
+	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -43,6 +47,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "City")
 	deleteObjectClass(t, "Airport")
 	deleteObjectClass(t, "Company")
+	deleteObjectClass(t, "CustomVectorClass")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
@@ -55,6 +60,18 @@ func createObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
+}
+
+func createObjectsBatch(t *testing.T, objects []*models.Object) {
+	params := batching.NewBatchingObjectsCreateParams().
+		WithBody(batching.BatchingObjectsCreateBody{
+			Objects: objects,
+		})
+	resp, err := helper.Client(t).Batching.BatchingObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp.Payload {
+		assert.Nil(t, elem.Result.Errors)
+	}
 }
 
 func deleteObjectClass(t *testing.T, class string) {
@@ -186,6 +203,12 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 	})
+
+	createObjectClass(t, &models.Class{
+		Class:      "CustomVectorClass",
+		Vectorizer: "none",
+		Properties: []*models.Property{},
+	})
 }
 
 const (
@@ -200,6 +223,9 @@ const (
 	airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
 	airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
 	airport4    strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
+	cvc1        strfmt.UUID = "1ffeb3e1-1258-4c2a-afc3-55543f6c44b8"
+	cvc2        strfmt.UUID = "df22e5c4-5d17-49f9-a71d-f392a82bc086"
+	cvc3        strfmt.UUID = "c28a039a-d509-4c2e-940a-8b109e5bebf4"
 )
 
 func addTestDataCityAirport(t *testing.T) {
@@ -453,4 +479,29 @@ func addTestDataPersons(t *testing.T) {
 	}
 
 	assertGetObjectEventually(t, companies[len(companies)-1].id)
+}
+
+func addTestDataCVC(t *testing.T) {
+	// add one object indivdually
+	createObject(t, &models.Object{
+		Class:  "CustomVectorClass",
+		ID:     cvc1,
+		Vector: []float32{1.1, 0.1, 0.1},
+	})
+
+	assertGetObjectEventually(t, cvc1)
+
+	createObjectsBatch(t, []*models.Object{
+		{
+			Class:  "CustomVectorClass",
+			ID:     cvc2,
+			Vector: []float32{0.1, 1.1, 0.1},
+		},
+		{
+			Class:  "CustomVectorClass",
+			ID:     cvc3,
+			Vector: []float32{0.1, 0.1, 1.1},
+		},
+	})
+	assertGetObjectEventually(t, cvc3)
 }
