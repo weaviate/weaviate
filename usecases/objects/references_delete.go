@@ -54,11 +54,11 @@ func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, princi
 		return err
 	}
 
-	extended, err := m.removeReferenceFromClassProps(object.Schema, propertyName, property)
+	extended, err := m.removeReferenceFromClassProps(object.Properties, propertyName, property)
 	if err != nil {
 		return err
 	}
-	object.Schema = extended
+	object.Properties = extended
 	object.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorRepo.PutObject(ctx, object, objectRes.Vector)

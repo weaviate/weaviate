@@ -36,13 +36,13 @@ func TestBatchObjectsCreateResultsOrder(t *testing.T) {
 	// generate objectcreate content
 	object1 := &models.Object{
 		Class: classOneName,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
 	object2 := &models.Object{
 		Class: classTwoName,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"testWholeNumber": 1,
 		},
 	}

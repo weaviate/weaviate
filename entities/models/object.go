@@ -44,8 +44,8 @@ type Object struct {
 	// Timestamp of the last Object update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
-	// schema
-	Schema PropertySchema `json:"schema,omitempty"`
+	// properties
+	Properties PropertySchema `json:"properties,omitempty"`
 
 	// This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.
 	Vector C11yVector `json:"vector,omitempty"`

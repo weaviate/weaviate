@@ -61,11 +61,11 @@ func (m *Manager) updateObjectReferenceToConnectorAndSchema(ctx context.Context,
 		return err
 	}
 
-	updatedSchema, err := m.replaceClassPropReferences(object.Schema, propertyName, refs)
+	updatedSchema, err := m.replaceClassPropReferences(object.Properties, propertyName, refs)
 	if err != nil {
 		return err
 	}
-	object.Schema = updatedSchema
+	object.Properties = updatedSchema
 	object.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorRepo.PutObject(ctx, object, objectRes.Vector)

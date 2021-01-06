@@ -120,7 +120,7 @@ func Test_MergingObjects(t *testing.T) {
 		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "MergeTestSource",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"string": "only the string prop set",
 			},
 		}, []float32{0.5})
@@ -132,7 +132,7 @@ func Test_MergingObjects(t *testing.T) {
 			err = repo.PutObject(context.Background(), &models.Object{
 				ID:    target,
 				Class: "MergeTestTarget",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
 			}, []float32{0.5})
@@ -164,7 +164,7 @@ func Test_MergingObjects(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
-		schema := source.Object().Schema.(map[string]interface{})
+		schema := source.Object().Properties.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			// from original
 			"string": "only the string prop set",
@@ -231,7 +231,7 @@ func Test_MergingObjects(t *testing.T) {
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target1))
 		require.Nil(t, err)
 
-		schema := source.Object().Schema.(map[string]interface{})
+		schema := source.Object().Properties.(map[string]interface{})
 		expectedSchema := map[string]interface{}{
 			"string": "let's update the string prop",
 			"number": 7.0,
@@ -279,7 +279,7 @@ func Test_MergingObjects(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
-		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok, fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
 

@@ -80,7 +80,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
 			Class:              "ThingClassWithNoIndexProps",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp":       "some value",
 				"hiddenStringProp": "some hidden value",
 			},

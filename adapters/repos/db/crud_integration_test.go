@@ -113,7 +113,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "some value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
@@ -157,7 +157,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
 			Class:              "WrongClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "some value",
 			},
 		}
@@ -182,7 +182,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 10000020,
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "updated value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
@@ -212,7 +212,7 @@ func TestCRUD(t *testing.T) {
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
 			VectorWeights:      map[string]string(nil),
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "updated value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
@@ -327,7 +327,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "some value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
@@ -357,7 +357,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 1000003,
 			ID:                 actionID,
 			Class:              "TheBestActionClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "some act-citing value",
 				"refProp": models.MultipleRef{
 					&models.SingleRef{
@@ -478,7 +478,7 @@ func TestCRUD(t *testing.T) {
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"stringProp": "some value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
