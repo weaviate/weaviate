@@ -203,34 +203,34 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 		validateNeighbors(t, neighbors0, neighbors1, neighbors2)
 	})
 
-	// t.Run("with _additional featureProjection set", func(t *testing.T) {
-	// 	query := `
-	// 	{
-	// 		Get {
-	// 			Company {
-	// 				_additional {
-	// 					featureProjection(dimensions:3){
-	// 						vector
-	// 					}
-	// 				}
-	// 				name
-	// 			}
-	// 		}
-	// 	}
-	// 	`
-	// 	result := AssertGraphQL(t, helper.RootAuth, query)
-	// 	companies := result.Get("Get", "Company").AsSlice()
+	t.Run("with _additional featureProjection set", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company {
+					_additional {
+						featureProjection(dimensions:3){
+							vector
+						}
+					}
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
 
-	// 	extractProjections := func(in interface{}) []interface{} {
-	// 		return in.(map[string]interface{})["_additional"].(map[string]interface{})["featureProjection"].(map[string]interface{})["vector"].([]interface{})
-	// 	}
+		extractProjections := func(in interface{}) []interface{} {
+			return in.(map[string]interface{})["_additional"].(map[string]interface{})["featureProjection"].(map[string]interface{})["vector"].([]interface{})
+		}
 
-	// 	projections0 := extractProjections(companies[0])
-	// 	projections1 := extractProjections(companies[1])
-	// 	projections2 := extractProjections(companies[2])
+		projections0 := extractProjections(companies[0])
+		projections1 := extractProjections(companies[1])
+		projections2 := extractProjections(companies[2])
 
-	// 	validateProjections(t, 3, projections0, projections1, projections2)
-	// })
+		validateProjections(t, 3, projections0, projections1, projections2)
+	})
 }
 
 func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
