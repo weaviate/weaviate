@@ -54,7 +54,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		testCase{
 			methodName:       "GetObject",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.AdditionalProperties{}},
 			expectedVerb:     "get",
 			expectedResource: "objects/foo",
 		},
@@ -80,7 +80,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// list kinds
 		testCase{
 			methodName:       "GetObjects",
-			additionalArgs:   []interface{}{(*int64)(nil), traverser.UnderscoreProperties{}},
+			additionalArgs:   []interface{}{(*int64)(nil), traverser.AdditionalProperties{}},
 			expectedVerb:     "list",
 			expectedResource: "objects",
 		},

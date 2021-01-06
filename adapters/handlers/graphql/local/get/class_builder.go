@@ -95,12 +95,7 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 
-			classProperties["uuid"] = &graphql.Field{
-				Description: descriptions.GetClassUUID,
-				Type:        graphql.String,
-			}
-
-			b.underscoreFields(classProperties, kindName, class)
+			b.additionalFields(classProperties, kindName, class)
 
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
@@ -129,19 +124,34 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 	})
 }
 
-func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName string, class *models.Class) {
-	classProperties["_classification"] = b.underscoreClassificationField(kindName, class)
-	classProperties["_interpretation"] = b.underscoreInterpretationField(kindName, class)
-	classProperties["_nearestNeighbors"] = b.underscoreNNField(kindName, class)
-	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
-	classProperties["_semanticPath"] = b.underscoreSemanticPathField(kindName, class)
-	classProperties["_certainty"] = b.underscoreCertaintyField(kindName, class)
+func (b *classBuilder) additionalFields(classProperties graphql.Fields, kindName string, class *models.Class) {
+	additionalProperties := graphql.Fields{}
+	additionalProperties["classification"] = b.additionalClassificationField(kindName, class)
+	additionalProperties["interpretation"] = b.additionalInterpretationField(kindName, class)
+	additionalProperties["nearestNeighbors"] = b.additionalNNField(kindName, class)
+	additionalProperties["featureProjection"] = b.additionalFeatureProjectionField(kindName, class)
+	additionalProperties["semanticPath"] = b.additionalSemanticPathField(kindName, class)
+	additionalProperties["certainty"] = b.additionalCertaintyField(kindName, class)
+	additionalProperties["id"] = b.additionalIDField()
+	classProperties["_additional"] = &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name:   fmt.Sprintf("%sAdditional", class.Class),
+			Fields: additionalProperties,
+		}),
+	}
 }
 
-func (b *classBuilder) underscoreClassificationField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalIDField() *graphql.Field {
+	return &graphql.Field{
+		Description: descriptions.GetClassUUID,
+		Type:        graphql.String,
+	}
+}
+
+func (b *classBuilder) additionalClassificationField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sUnderscoreClassification", class.Class),
+			Name: fmt.Sprintf("%sAdditionalClassification", class.Class),
 			Fields: graphql.Fields{
 				"id":               &graphql.Field{Type: graphql.String},
 				"basedOn":          &graphql.Field{Type: graphql.NewList(graphql.String)},
@@ -153,13 +163,13 @@ func (b *classBuilder) underscoreClassificationField(kindName string, class *mod
 	}
 }
 
-func (b *classBuilder) underscoreInterpretationField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalInterpretationField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sUnderscoreInterpretation", class.Class),
+			Name: fmt.Sprintf("%sAdditionalInterpretation", class.Class),
 			Fields: graphql.Fields{
 				"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sUnderscoreInterpretationSource", class.Class),
+					Name: fmt.Sprintf("%sAdditionalInterpretationSource", class.Class),
 					Fields: graphql.Fields{
 						"concept":    &graphql.Field{Type: graphql.String},
 						"weight":     &graphql.Field{Type: graphql.Float},
@@ -171,13 +181,13 @@ func (b *classBuilder) underscoreInterpretationField(kindName string, class *mod
 	}
 }
 
-func (b *classBuilder) underscoreNNField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalNNField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sUnderscoreNearestNeighbors", class.Class),
+			Name: fmt.Sprintf("%sAdditionalNearestNeighbors", class.Class),
 			Fields: graphql.Fields{
 				"neighbors": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sUnderscoreNearestNeighborsNeighbor", class.Class),
+					Name: fmt.Sprintf("%sAdditionalNearestNeighborsNeighbor", class.Class),
 					Fields: graphql.Fields{
 						"concept":  &graphql.Field{Type: graphql.String},
 						"distance": &graphql.Field{Type: graphql.Float},
@@ -188,7 +198,7 @@ func (b *classBuilder) underscoreNNField(kindName string, class *models.Class) *
 	}
 }
 
-func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalFeatureProjectionField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Args: graphql.FieldConfigArgument{
 			"algorithm": &graphql.ArgumentConfig{
@@ -213,7 +223,7 @@ func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *
 			},
 		},
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sUnderscoreFeatureProjection", class.Class),
+			Name: fmt.Sprintf("%sAdditionalFeatureProjection", class.Class),
 			Fields: graphql.Fields{
 				"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
 			},
@@ -221,13 +231,13 @@ func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *
 	}
 }
 
-func (b *classBuilder) underscoreSemanticPathField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalSemanticPathField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sUnderscoreSemanticPath", class.Class),
+			Name: fmt.Sprintf("%sAdditionalSemanticPath", class.Class),
 			Fields: graphql.Fields{
 				"path": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sUnderscoreSemanticPathElement", class.Class),
+					Name: fmt.Sprintf("%sAdditionalSemanticPathElement", class.Class),
 					Fields: graphql.Fields{
 						"concept":            &graphql.Field{Type: graphql.String},
 						"distanceToQuery":    &graphql.Field{Type: graphql.Float},
@@ -241,7 +251,7 @@ func (b *classBuilder) underscoreSemanticPathField(kindName string, class *model
 	}
 }
 
-func (b *classBuilder) underscoreCertaintyField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalCertaintyField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Float,
 	}

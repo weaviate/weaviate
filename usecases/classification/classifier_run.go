@@ -138,11 +138,11 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 	params models.Classification, classified []string) {
 	// don't overwrite existing non-classification meta info
-	if item.UnderscoreProperties == nil {
-		item.UnderscoreProperties = &models.UnderscoreProperties{}
+	if item.AdditionalProperties == nil {
+		item.AdditionalProperties = &models.AdditionalProperties{}
 	}
 
-	item.UnderscoreProperties.Classification = &models.UnderscorePropertiesClassification{
+	item.AdditionalProperties.Classification = &models.AdditionalPropertiesClassification{
 		ID:               params.ID,
 		Scope:            params.ClassifyProperties,
 		ClassifiedFields: classified,
