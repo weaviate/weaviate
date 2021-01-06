@@ -110,7 +110,7 @@ func (m *Manager) getVectorizerOfClass(className string,
 	return class.Vectorizer, nil
 }
 
-func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object,
+func (m *Manager) obtainVector(ctx context.Context, class *models.Object,
 	principal *models.Principal) error {
 	vectorizer, err := m.getVectorizerOfClass(class.Class, principal)
 	if err != nil {
@@ -134,6 +134,16 @@ func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Objec
 			Source: sourceFromInputElements(source),
 		}
 		class.Vector = v
+	}
+
+	return nil
+}
+
+func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object,
+	principal *models.Principal) error {
+	err := m.obtainVector(ctx, class, principal)
+	if err != nil {
+		return err
 	}
 
 	err = m.vectorRepo.PutObject(ctx, class, class.Vector)
