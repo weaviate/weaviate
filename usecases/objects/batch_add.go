@@ -189,7 +189,11 @@ func (b *BatchManager) obtainVector(ctx context.Context, class *models.Object,
 			return NewErrInternal("text2vec-contextionary: vectorize: %v", err)
 		}
 
-		class.Interpretation = &models.Interpretation{
+		if class.Additional == nil {
+			class.Additional = &models.AdditionalProperties{}
+		}
+
+		class.Additional.Interpretation = &models.Interpretation{
 			Source: sourceFromInputElements(source),
 		}
 		class.Vector = v
