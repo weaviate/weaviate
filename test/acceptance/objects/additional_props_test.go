@@ -22,7 +22,7 @@ import (
 )
 
 func searchNeighbors(t *testing.T) {
-	listParams := objects.NewObjectsListParams().WithInclude(ptString("_nearestNeighbors"))
+	listParams := objects.NewObjectsListParams().WithInclude(ptString("nearestNeighbors"))
 	res, err := helper.Client(t).Objects.ObjectsList(listParams, nil)
 	require.Nil(t, err, "should not error")
 
@@ -38,14 +38,14 @@ func searchNeighbors(t *testing.T) {
 		err = json.Unmarshal(b, &untyped)
 		require.Nil(t, err)
 
-		return untyped["_nearestNeighbors"].(map[string]interface{})["neighbors"].([]interface{})
+		return untyped["additional"].(map[string]interface{})["nearestNeighbors"].(map[string]interface{})["neighbors"].([]interface{})
 	}
 
 	validateNeighbors(t, extractNeighbor(res.Payload.Objects[0]), extractNeighbor(res.Payload.Objects[1]))
 }
 
 func featureProjection(t *testing.T) {
-	listParams := objects.NewObjectsListParams().WithInclude(ptString("_featureProjection"))
+	listParams := objects.NewObjectsListParams().WithInclude(ptString("featureProjection"))
 	res, err := helper.Client(t).Objects.ObjectsList(listParams, nil)
 	require.Nil(t, err, "should not error")
 
@@ -61,7 +61,7 @@ func featureProjection(t *testing.T) {
 		err = json.Unmarshal(b, &untyped)
 		require.Nil(t, err)
 
-		return untyped["_featureProjection"].(map[string]interface{})["vector"].([]interface{})
+		return untyped["additional"].(map[string]interface{})["featureProjection"].(map[string]interface{})["vector"].([]interface{})
 	}
 
 	validateProjections(t, 2, extractProjection(res.Payload.Objects[0]), extractProjection(res.Payload.Objects[1]))

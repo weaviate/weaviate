@@ -45,7 +45,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 func (m *Manager) updateObjectReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 	// get object to see if it exists
-	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.UnderscoreProperties{})
+	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.AdditionalProperties{})
 	if err != nil {
 		return err
 	}

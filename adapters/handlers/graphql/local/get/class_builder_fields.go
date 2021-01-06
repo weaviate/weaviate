@@ -255,7 +255,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-		properties, underscore, err := extractProperties(selectionsOfClass, p.Info.Fragments)
+		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +281,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Properties:           properties,
 			Explore:              exploreParams,
 			Group:                group,
-			UnderscoreProperties: underscore,
+			AdditionalProperties: additional,
 		}
 
 		return func() (interface{}, error) {
@@ -333,8 +333,14 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
-func isUnderscore(name string) bool {
-	return name[0] == '_'
+func isAdditional(name string) bool {
+	switch name {
+	case "classification", "interpretation", "nearestNeighbors",
+		"featureProjection", "semanticPath", "certainty", "id":
+		return true
+	default:
+		return false
+	}
 }
 
 func fieldNameIsOfObjectButNonReferenceType(field string) bool {
@@ -351,16 +357,16 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, traverser.UnderscoreProperties, error) {
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, traverser.AdditionalProperties, error) {
 	var properties []traverser.SelectProperty
-	var underscoreProps traverser.UnderscoreProperties
+	var additionalProps traverser.AdditionalProperties
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
 		property := traverser.SelectProperty{Name: name}
 
-		property.IsPrimitive = isPrimitive(field.SelectionSet) || isUnderscore(name)
+		property.IsPrimitive = isPrimitive(field.SelectionSet) || isAdditional(name)
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
@@ -370,14 +376,34 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 					if s.Name.Value == "__typename" {
 						property.IncludeTypeName = true
 						continue
+					} else if s.Name.Value == "_additional" {
+						continue
+					} else if isAdditional(s.Name.Value) {
+						switch s.Name.Value {
+						case "classification":
+							additionalProps.Classification = true
+						case "interpretation":
+							additionalProps.Interpretation = true
+						case "nearestNeighbors":
+							additionalProps.NearestNeighbors = true
+						case "semanticPath":
+							additionalProps.SemanticPath = &sempath.Params{}
+						case "featureProjection":
+							additionalProps.FeatureProjection = parseFeatureProjectionArguments(field.Arguments)
+						case "certainty":
+							additionalProps.Certainty = true
+						case "id":
+							additionalProps.ID = true
+						}
+						continue
 					} else {
-						return nil, underscoreProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
+						return nil, additionalProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
 					}
 
 				case *ast.FragmentSpread:
 					ref, err := extractFragmentSpread(s, fragments)
 					if err != nil {
-						return nil, underscoreProps, err
+						return nil, additionalProps, err
 					}
 
 					property.Refs = append(property.Refs, ref)
@@ -385,38 +411,21 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				case *ast.InlineFragment:
 					ref, err := extractInlineFragment(s, fragments)
 					if err != nil {
-						return nil, underscoreProps, err
+						return nil, additionalProps, err
 					}
 
 					property.Refs = append(property.Refs, ref)
 
 				default:
-					return nil, underscoreProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
+					return nil, additionalProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
 		}
 
-		if isUnderscore(name) {
-			switch name {
-			case "_classification":
-				underscoreProps.Classification = true
-			case "_interpretation":
-				underscoreProps.Interpretation = true
-			case "_nearestNeighbors":
-				underscoreProps.NearestNeighbors = true
-			case "_semanticPath":
-				underscoreProps.SemanticPath = &sempath.Params{}
-			case "_featureProjection":
-				underscoreProps.FeatureProjection = parseFeatureProjectionArguments(field.Arguments)
-			case "_certainty":
-				underscoreProps.Certainty = true
-			}
-		} else {
-			properties = append(properties, property)
-		}
+		properties = append(properties, property)
 	}
 
-	return properties, underscoreProps, nil
+	return properties, additionalProps, nil
 }
 
 func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (traverser.SelectClass, error) {

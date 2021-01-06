@@ -27,7 +27,7 @@ import (
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier, underscore traverser.UnderscoreProperties) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier, additional traverser.AdditionalProperties) ([]search.Result, error)
 }
 
 func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
@@ -50,7 +50,7 @@ type Cacher struct {
 	logger     logrus.FieldLogger
 	repo       repo
 	store      map[multi.Identifier]search.Result
-	underscore traverser.UnderscoreProperties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	additional traverser.AdditionalProperties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -73,8 +73,8 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) error {
-	c.underscore = underscore
+	properties traverser.SelectProperties, additional traverser.AdditionalProperties) error {
+	c.additional = additional
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %v", err)
@@ -292,7 +292,7 @@ func (c *Cacher) fetchJobs(ctx context.Context) error {
 	}
 
 	query := jobListToMultiGetQuery(jobs)
-	res, err := c.repo.MultiGet(ctx, query, c.underscore)
+	res, err := c.repo.MultiGet(ctx, query, c.additional)
 	if err != nil {
 		return errors.Wrap(err, "fetch job list")
 	}
@@ -325,7 +325,7 @@ func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
 	// iteration which will eventually come to this place again
 	c.markAllJobsAsDone()
 
-	err := c.Build(ctx, removeEmptyResults(res), nil, c.underscore)
+	err := c.Build(ctx, removeEmptyResults(res), nil, c.additional)
 	if err != nil {
 		return errors.Wrap(err, "build nested cache")
 	}

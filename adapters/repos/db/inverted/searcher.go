@@ -58,7 +58,7 @@ func NewSearcher(db *bolt.DB, schema schema.Schema,
 
 // Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int,
-	filter *filters.LocalFilter, underscore traverser.UnderscoreProperties,
+	filter *filters.LocalFilter, additional traverser.AdditionalProperties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
@@ -106,7 +106,7 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	underscore traverser.UnderscoreProperties, className schema.ClassName) (helpers.AllowList, error) {
+	additional traverser.AdditionalProperties, className schema.ClassName) (helpers.AllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err

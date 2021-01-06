@@ -398,7 +398,9 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					Schema: map[string]interface{}{
 						"location": randGeoCoordinates(),
 					},
-					Vector: []float32{0.123, 0.234, 0.345}, // does not matter for this test
+					Additional: &models.AdditionalProperties{
+						Vector: []float32{0.123, 0.234, 0.345}, // does not matter for this test
+					},
 				}
 			}
 		})
@@ -410,7 +412,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
 						Object:        objs[i+j],
-						Vector:        objs[i+j].Vector,
+						Vector:        objs[i+j].Additional.Vector,
 					}
 				}
 
@@ -494,7 +496,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
 						Object:        objs[i+j],
-						Vector:        objs[i+j].Vector,
+						Vector:        objs[i+j].Additional.Vector,
 					}
 				}
 

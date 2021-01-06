@@ -72,7 +72,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil,
 		g.classSearcher, g.deletedDocIDs).
-		DocIDs(ctx, g.params.Filters, traverser.UnderscoreProperties{},
+		DocIDs(ctx, g.params.Filters, traverser.AdditionalProperties{},
 			g.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
