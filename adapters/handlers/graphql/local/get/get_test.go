@@ -307,9 +307,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Certainty: true,
 				},
@@ -331,9 +330,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with classification",
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Classification: true,
 				},
@@ -367,9 +365,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Interpretation: true,
 				},
@@ -417,9 +414,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional nearestNeighbors",
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					NearestNeighbors: true,
 				},
@@ -463,9 +459,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					FeatureProjection: &projector.Params{
 						Enabled: true,
@@ -493,9 +488,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					FeatureProjection: &projector.Params{
 						Enabled:      true,
@@ -528,9 +522,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _sempath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
-				ClassName:  "SomeAction",
-				Properties: traverser.SelectProperties{traverser.SelectProperty{Name: "_additional"}},
+				Kind:      kind.Object,
+				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					SemanticPath: &sempath.Params{},
 				},

@@ -25,9 +25,8 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
-		ClassName:  "SomeThing",
-		Properties: []traverser.SelectProperty{{Name: "_additional"}},
+		Kind:      kind.Object,
+		ClassName: "SomeThing",
 		AdditionalProperties: traverser.AdditionalProperties{
 			ID: true,
 		},
