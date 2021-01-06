@@ -22,9 +22,10 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-func Test_Add_Object(t *testing.T) {
+func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo *fakeVectorRepo
 		manager    *Manager
@@ -34,7 +35,8 @@ func Test_Add_Object(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class: "Foo",
+					Class:      "Foo",
+					Vectorizer: config.VectorizerModuleNone,
 				},
 			},
 		},
@@ -53,7 +55,6 @@ func Test_Add_Object(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		vectorizer.On("Object", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 	}
 
@@ -62,13 +63,14 @@ func Test_Add_Object(t *testing.T) {
 
 		ctx := context.Background()
 		class := &models.Object{
-			Class: "Foo",
+			Vector: []float32{0.1, 0.2, 0.3},
+			Class:  "Foo",
 		}
 
 		res, err := manager.AddObject(ctx, nil, class)
+		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Object).ID
 
-		assert.Nil(t, err)
 		assert.Len(t, uuidDuringCreation, 36, "check that a uuid was assigned")
 		assert.Equal(t, uuidDuringCreation, res.ID, "check that connector add ID and user response match")
 	})
@@ -79,15 +81,16 @@ func Test_Add_Object(t *testing.T) {
 		ctx := context.Background()
 		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 		class := &models.Object{
-			ID:    id,
-			Class: "Foo",
+			Vector: []float32{0.1, 0.2, 0.3},
+			ID:     id,
+			Class:  "Foo",
 		}
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		res, err := manager.AddObject(ctx, nil, class)
+		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
-		assert.Nil(t, err)
 		assert.Equal(t, id, uuidDuringCreation, "check that a uuid is the user specified one")
 		assert.Equal(t, res.ID, uuidDuringCreation, "check that connector add ID and user response match")
 	})
@@ -123,9 +126,25 @@ func Test_Add_Object(t *testing.T) {
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: uuid: incorrect UUID length: %s", id), err)
 	})
+
+	t.Run("without a vector", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		class := &models.Object{
+			Class: "Foo",
+		}
+
+		_, err := manager.AddObject(ctx, nil, class)
+		_, ok := err.(ErrInvalidUserInput)
+		assert.True(t, ok)
+		assert.Contains(t, err.Error(), "vector must be present")
+	})
 }
 
-func Test_Add_Thing(t *testing.T) {
+// TODO: This currently always assumes the text2vec-vectorizer, but this could
+// be any module. Needs to be actually made modular
+func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo *fakeVectorRepo
 		manager    *Manager
@@ -135,7 +154,8 @@ func Test_Add_Thing(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class: "Foo",
+					Class:      "Foo",
+					Vectorizer: config.VectorizerModuleText2VecContextionary,
 				},
 			},
 		},

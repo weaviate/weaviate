@@ -1458,9 +1458,7 @@ func init() {
       "type": "array",
       "items": {
         "type": "number",
-        "format": "float",
-        "maximum": 300,
-        "minimum": 300
+        "format": "float"
       }
     },
     "C11yVectorBasedQuestion": {
@@ -2043,7 +2041,7 @@ func init() {
           "$ref": "#/definitions/PropertySchema"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
@@ -4086,9 +4084,7 @@ func init() {
       "type": "array",
       "items": {
         "type": "number",
-        "format": "float",
-        "maximum": 300,
-        "minimum": 300
+        "format": "float"
       }
     },
     "C11yVectorBasedQuestion": {
@@ -4738,7 +4734,7 @@ func init() {
           "$ref": "#/definitions/PropertySchema"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
