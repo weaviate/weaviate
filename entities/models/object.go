@@ -28,20 +28,8 @@ import (
 // swagger:model Object
 type Object struct {
 
-	// If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
-	Classification *UnderscorePropertiesClassification `json:"_classification,omitempty"`
-
-	// A feature projection of the object's vector into lower dimensions for visualization
-	FeatureProjection *FeatureProjection `json:"_featureProjection,omitempty"`
-
-	// Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
-	Interpretation *Interpretation `json:"_interpretation,omitempty"`
-
-	// Additional information about the neighboring concepts of this element
-	NearestNeighbors *NearestNeighbors `json:"_nearestNeighbors,omitempty"`
-
-	// This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
-	Vector C11yVector `json:"_vector,omitempty"`
+	// additional
+	Additional *AdditionalProperties `json:"additional,omitempty"`
 
 	// Class of the Object, defined in the schema.
 	Class string `json:"class,omitempty"`
@@ -59,6 +47,9 @@ type Object struct {
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
 
+	// This object's position in the Contextionary vector space
+	Vector C11yVector `json:"vector,omitempty"`
+
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
 }
@@ -67,27 +58,15 @@ type Object struct {
 func (m *Object) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateClassification(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateFeatureProjection(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateInterpretation(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateNearestNeighbors(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateVector(formats); err != nil {
+	if err := m.validateAdditional(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -97,16 +76,16 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Object) validateClassification(formats strfmt.Registry) error {
+func (m *Object) validateAdditional(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Classification) { // not required
+	if swag.IsZero(m.Additional) { // not required
 		return nil
 	}
 
-	if m.Classification != nil {
-		if err := m.Classification.Validate(formats); err != nil {
+	if m.Additional != nil {
+		if err := m.Additional.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("_classification")
+				return ve.ValidateName("additional")
 			}
 			return err
 		}
@@ -115,55 +94,14 @@ func (m *Object) validateClassification(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Object) validateFeatureProjection(formats strfmt.Registry) error {
+func (m *Object) validateID(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.FeatureProjection) { // not required
+	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
 
-	if m.FeatureProjection != nil {
-		if err := m.FeatureProjection.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("_featureProjection")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Object) validateInterpretation(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Interpretation) { // not required
-		return nil
-	}
-
-	if m.Interpretation != nil {
-		if err := m.Interpretation.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("_interpretation")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Object) validateNearestNeighbors(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.NearestNeighbors) { // not required
-		return nil
-	}
-
-	if m.NearestNeighbors != nil {
-		if err := m.NearestNeighbors.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("_nearestNeighbors")
-			}
-			return err
-		}
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
 	}
 
 	return nil
@@ -177,21 +115,8 @@ func (m *Object) validateVector(formats strfmt.Registry) error {
 
 	if err := m.Vector.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("_vector")
+			return ve.ValidateName("vector")
 		}
-		return err
-	}
-
-	return nil
-}
-
-func (m *Object) validateID(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ID) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
 	}
 

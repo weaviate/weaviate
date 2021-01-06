@@ -1,0 +1,257 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2020 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+package test
+
+import (
+	"testing"
+
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/stretchr/testify/assert"
+)
+
+func gettingObjectsWithAdditionalProps(t *testing.T) {
+	t.Run("with interpretation set", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company {
+					_additional {
+						interpretation{
+							source {
+								concept
+							}
+						}
+					}
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"name": "Microsoft Inc.",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "microsoft",
+							},
+							map[string]interface{}{
+								"concept": "inc",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Microsoft Incorporated",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "microsoft",
+							},
+							map[string]interface{}{
+								"concept": "incorporated",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Microsoft",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "microsoft",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Apple Inc.",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "apple",
+							},
+							map[string]interface{}{
+								"concept": "inc",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Apple Incorporated",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "apple",
+							},
+							map[string]interface{}{
+								"concept": "incorporated",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Apple",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "apple",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Google Inc.",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "google",
+							},
+							map[string]interface{}{
+								"concept": "inc",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Google Incorporated",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "google",
+							},
+							map[string]interface{}{
+								"concept": "incorporated",
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name": "Google",
+				"_additional": map[string]interface{}{
+					"interpretation": map[string]interface{}{
+						"source": []interface{}{
+							map[string]interface{}{
+								"concept": "google",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		assert.ElementsMatch(t, expected, companies)
+	})
+
+	t.Run("with _additional nearestNeighbors set", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company {
+					_additional {
+						nearestNeighbors{
+							neighbors {
+								concept
+								distance
+							}
+						}
+					}
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		extractNeighbors := func(in interface{}) []interface{} {
+			return in.(map[string]interface{})["_additional"].(map[string]interface{})["nearestNeighbors"].(map[string]interface{})["neighbors"].([]interface{})
+		}
+
+		neighbors0 := extractNeighbors(companies[0])
+		neighbors1 := extractNeighbors(companies[1])
+		neighbors2 := extractNeighbors(companies[2])
+
+		validateNeighbors(t, neighbors0, neighbors1, neighbors2)
+	})
+
+	t.Run("with _additional featureProjection set", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company {
+					_additional {
+						featureProjection(dimensions:3){
+							vector
+						}
+					}
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		extractProjections := func(in interface{}) []interface{} {
+			return in.(map[string]interface{})["_additional"].(map[string]interface{})["featureProjection"].(map[string]interface{})["vector"].([]interface{})
+		}
+
+		projections0 := extractProjections(companies[0])
+		projections1 := extractProjections(companies[1])
+		projections2 := extractProjections(companies[2])
+
+		validateProjections(t, 3, projections0, projections1, projections2)
+	})
+}
+
+func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
+	for i, group := range neighborsGroups {
+		if len(group) == 0 {
+			t.Fatalf("group %d: length of neighbors is 0", i)
+		}
+
+		for j, neighbor := range group {
+			asMap := neighbor.(map[string]interface{})
+			if len(asMap["concept"].(string)) == 0 {
+				t.Fatalf("group %d: element %d: concept has length 0", i, j)
+			}
+		}
+	}
+}
+
+func validateProjections(t *testing.T, dims int, vectors ...[]interface{}) {
+	for i := range vectors {
+		if len(vectors[i]) != dims {
+			t.Fatalf("expected feature projection vector to have length 3, got: %d", len(vectors[i]))
+		}
+	}
+}

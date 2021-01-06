@@ -142,8 +142,8 @@ func TestSemanticPathBuilder(t *testing.T) {
 	}
 
 	require.Len(t, res, 1)
-	require.NotNil(t, res[0].UnderscoreProperties)
-	assert.Equal(t, expectedPath, res[0].UnderscoreProperties.SemanticPath)
+	require.NotNil(t, res[0].AdditionalProperties)
+	assert.Equal(t, expectedPath, res[0].AdditionalProperties.SemanticPath)
 }
 
 type fakeC11y struct {

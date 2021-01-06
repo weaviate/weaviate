@@ -43,8 +43,8 @@ func TestProjector(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				UnderscoreProperties: &models.UnderscoreProperties{
-					Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -54,11 +54,11 @@ func TestProjector(t *testing.T) {
 		res, err := p.Reduce(testData, &Params{})
 		require.Nil(t, err)
 		assert.Len(t, res, len(testData))
-		assert.Equal(t, res[2].UnderscoreProperties.Classification.ID, strfmt.UUID("123"),
-			"existing underscores should not be removed")
+		assert.Equal(t, res[2].AdditionalProperties.Classification.ID, strfmt.UUID("123"),
+			"existing additionals should not be removed")
 
-		assert.Len(t, res[0].UnderscoreProperties.FeatureProjection.Vector, 2)
-		assert.Len(t, res[1].UnderscoreProperties.FeatureProjection.Vector, 2)
-		assert.Len(t, res[2].UnderscoreProperties.FeatureProjection.Vector, 2)
+		assert.Len(t, res[0].AdditionalProperties.FeatureProjection.Vector, 2)
+		assert.Len(t, res[1].AdditionalProperties.FeatureProjection.Vector, 2)
+		assert.Len(t, res[2].AdditionalProperties.FeatureProjection.Vector, 2)
 	})
 }

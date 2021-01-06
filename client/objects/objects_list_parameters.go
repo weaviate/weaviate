@@ -73,7 +73,7 @@ for the objects list operation typically these are written to a http.Request
 type ObjectsListParams struct {
 
 	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
+	  Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 
 	*/
 	Include *string
