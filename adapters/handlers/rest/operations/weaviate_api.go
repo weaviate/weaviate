@@ -31,7 +31,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
@@ -66,11 +66,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
-		BatchingBatchingObjectsCreateHandler: batching.BatchingObjectsCreateHandlerFunc(func(params batching.BatchingObjectsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation batching.BatchingObjectsCreate has not yet been implemented")
+		BatchBatchObjectsCreateHandler: batch.BatchObjectsCreateHandlerFunc(func(params batch.BatchObjectsCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation batch.BatchObjectsCreate has not yet been implemented")
 		}),
-		BatchingBatchingReferencesCreateHandler: batching.BatchingReferencesCreateHandlerFunc(func(params batching.BatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation batching.BatchingReferencesCreate has not yet been implemented")
+		BatchBatchReferencesCreateHandler: batch.BatchReferencesCreateHandlerFunc(func(params batch.BatchReferencesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation batch.BatchReferencesCreate has not yet been implemented")
 		}),
 		ClassificationsClassificationsGetHandler: classifications.ClassificationsGetHandlerFunc(func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation classifications.ClassificationsGet has not yet been implemented")
@@ -189,10 +189,10 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
-	// BatchingBatchingObjectsCreateHandler sets the operation handler for the batching objects create operation
-	BatchingBatchingObjectsCreateHandler batching.BatchingObjectsCreateHandler
-	// BatchingBatchingReferencesCreateHandler sets the operation handler for the batching references create operation
-	BatchingBatchingReferencesCreateHandler batching.BatchingReferencesCreateHandler
+	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
+	BatchBatchObjectsCreateHandler batch.BatchObjectsCreateHandler
+	// BatchBatchReferencesCreateHandler sets the operation handler for the batch references create operation
+	BatchBatchReferencesCreateHandler batch.BatchReferencesCreateHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
 	ClassificationsClassificationsGetHandler classifications.ClassificationsGetHandler
 	// ClassificationsClassificationsPostHandler sets the operation handler for the classifications post operation
@@ -313,11 +313,11 @@ func (o *WeaviateAPI) Validate() error {
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
 	}
-	if o.BatchingBatchingObjectsCreateHandler == nil {
-		unregistered = append(unregistered, "batching.BatchingObjectsCreateHandler")
+	if o.BatchBatchObjectsCreateHandler == nil {
+		unregistered = append(unregistered, "batch.BatchObjectsCreateHandler")
 	}
-	if o.BatchingBatchingReferencesCreateHandler == nil {
-		unregistered = append(unregistered, "batching.BatchingReferencesCreateHandler")
+	if o.BatchBatchReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "batch.BatchReferencesCreateHandler")
 	}
 	if o.ClassificationsClassificationsGetHandler == nil {
 		unregistered = append(unregistered, "classifications.ClassificationsGetHandler")
@@ -492,11 +492,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batching/objects"] = batching.NewBatchingObjectsCreate(o.context, o.BatchingBatchingObjectsCreateHandler)
+	o.handlers["POST"]["/batch/objects"] = batch.NewBatchObjectsCreate(o.context, o.BatchBatchObjectsCreateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batching/references"] = batching.NewBatchingReferencesCreate(o.context, o.BatchingBatchingReferencesCreateHandler)
+	o.handlers["POST"]["/batch/references"] = batch.NewBatchReferencesCreate(o.context, o.BatchBatchReferencesCreateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
