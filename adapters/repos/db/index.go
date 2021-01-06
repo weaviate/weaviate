@@ -131,14 +131,14 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*storobj.Object, error) {
+	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*storobj.Object, error) {
 	// TODO: don't ignore meta
 
 	// TODO: search across all shards, rather than hard-coded "single" shard
 	// TODO: can we improve this by hashing so we know the target shard?
 
 	shard := i.Shards["single"]
-	obj, err := shard.objectByID(ctx, id, props, underscore)
+	obj, err := shard.objectByID(ctx, id, props, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -175,12 +175,12 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
-	underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
+	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
 	shard := i.Shards["single"]
-	res, err := shard.objectSearch(ctx, limit, filters, underscore)
+	res, err := shard.objectSearch(ctx, limit, filters, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -189,12 +189,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
 	shard := i.Shards["single"]
-	res, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, underscore)
+	res, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

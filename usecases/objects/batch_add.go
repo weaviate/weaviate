@@ -133,7 +133,11 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	vector, source, err := b.vectorizer.Object(ctx, object)
 	ec.add(err)
 
-	object.Interpretation = &models.Interpretation{
+	if object.Additional == nil {
+		object.Additional = &models.AdditionalProperties{}
+	}
+
+	object.Additional.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -147,7 +151,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 }
 
 func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 	return res != nil, err
 }
 

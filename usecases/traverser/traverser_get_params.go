@@ -31,7 +31,7 @@ type GetParams struct {
 	Explore              *ExploreParams
 	SearchVector         []float32
 	Group                *GroupParams
-	UnderscoreProperties UnderscoreProperties
+	AdditionalProperties AdditionalProperties
 }
 
 type SelectProperty struct {
@@ -138,7 +138,7 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 	return nil
 }
 
-type UnderscoreProperties struct {
+type AdditionalProperties struct {
 	Classification    bool
 	RefMeta           bool
 	Vector            bool
@@ -147,4 +147,5 @@ type UnderscoreProperties struct {
 	SemanticPath      *sempath.Params
 	FeatureProjection *libprojector.Params
 	Certainty         bool
+	ID                bool
 }
