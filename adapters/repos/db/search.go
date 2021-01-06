@@ -49,13 +49,13 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	res, err := idx.objectSearch(ctx, params.Pagination.Limit, params.Filters, params.UnderscoreProperties)
+	res, err := idx.objectSearch(ctx, params.Pagination.Limit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.UnderscoreProperties),
-		params.Properties, params.UnderscoreProperties)
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.AdditionalProperties),
+		params.Properties, params.AdditionalProperties)
 }
 
 func (db *DB) VectorClassSearch(ctx context.Context,
@@ -71,30 +71,30 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	}
 
 	res, err := idx.objectVectorSearch(ctx, params.SearchVector,
-		params.Pagination.Limit, params.Filters, params.UnderscoreProperties)
+		params.Pagination.Limit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.UnderscoreProperties),
-		params.Properties, params.UnderscoreProperties)
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.AdditionalProperties),
+		params.Properties, params.AdditionalProperties)
 }
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	var found search.Results
 
-	emptyUnderscore := traverser.UnderscoreProperties{}
+	emptyAdditional := traverser.AdditionalProperties{}
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range db.indices {
-		// TODO support all underscore props
-		res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyUnderscore)
+		// TODO support all additional props
+		res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
-		found = append(found, storobj.SearchResults(res, emptyUnderscore)...)
+		found = append(found, storobj.SearchResults(res, emptyAdditional)...)
 		if len(found) >= limit {
 			// we are done
 			break
@@ -116,13 +116,13 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 }
 
 func (d *DB) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	underscore traverser.UnderscoreProperties) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Object, limit, filters, underscore)
+	additional traverser.AdditionalProperties) (search.Results, error) {
+	return d.objectSearch(ctx, kind.Object, limit, filters, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 	filters *filters.LocalFilter,
-	underscore traverser.UnderscoreProperties) (search.Results, error) {
+	additional traverser.AdditionalProperties) (search.Results, error) {
 	var found search.Results
 
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -132,13 +132,13 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 			continue
 		}
 
-		// TODO support all underscore props
-		res, err := index.objectSearch(ctx, limit, filters, underscore)
+		// TODO support all additional props
+		res, err := index.objectSearch(ctx, limit, filters, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
-		found = append(found, storobj.SearchResults(res, underscore)...)
+		found = append(found, storobj.SearchResults(res, additional)...)
 		if len(found) >= limit {
 			// we are done
 			break
@@ -153,9 +153,9 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
-	props traverser.SelectProperties, underscore traverser.UnderscoreProperties) (search.Results, error) {
+	props traverser.SelectProperties, additional traverser.AdditionalProperties) (search.Results, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
-		Do(ctx, objs, props, underscore)
+		Do(ctx, objs, props, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
 	}

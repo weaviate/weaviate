@@ -75,7 +75,7 @@ func knnClassification(t *testing.T) {
 		res, err := helper.Client(t).Objects.
 			ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSavory).
-				WithInclude(ptString("_classification")), nil)
+				WithInclude(ptString("classification")), nil)
 
 		require.Nil(t, err)
 		schema, ok := res.Payload.Schema.(map[string]interface{})
@@ -93,7 +93,7 @@ func knnClassification(t *testing.T) {
 		res, err := helper.Client(t).Objects.
 			ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSweet).
-				WithInclude(ptString("_classification")), nil)
+				WithInclude(ptString("classification")), nil)
 
 		require.Nil(t, err)
 		schema, ok := res.Payload.Schema.(map[string]interface{})
@@ -109,7 +109,7 @@ func knnClassification(t *testing.T) {
 }
 
 func verifyMetaDistances(t *testing.T, ref map[string]interface{}) {
-	classification, ok := ref["_classification"].(map[string]interface{})
+	classification, ok := ref["classification"].(map[string]interface{})
 	require.True(t, ok)
 
 	assert.Equal(t, json.Number("3"), classification["winningCount"])

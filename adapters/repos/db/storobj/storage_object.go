@@ -124,15 +124,12 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 	}
 }
 
-// UnderUnderscoreProperties groups all properties which are stored with the
+// AdditionalProperties groups all properties which are stored with the
 // object and not generated at runtime
-func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
+func (ko *Object) AdditionalProperties() *models.AdditionalProperties {
 	switch ko.Kind {
 	case kind.Object:
-		return &models.UnderscoreProperties{
-			Classification: ko.Object.Classification,
-			Interpretation: ko.Object.Interpretation,
-		}
+		return ko.Object.Additional
 	default:
 		panic("impossible kind")
 	}
@@ -147,11 +144,11 @@ func (ko *Object) Schema() models.PropertySchema {
 	}
 }
 
-func (ko *Object) SchemaWithUnderscores(
-	underscores traverser.UnderscoreProperties) models.PropertySchema {
+func (ko *Object) SchemaWithAdditional(
+	additional traverser.AdditionalProperties) models.PropertySchema {
 	schema := ko.Schema()
 
-	if underscores.RefMeta {
+	if additional.RefMeta {
 		// nothing to remove
 		return schema
 	}
@@ -196,25 +193,22 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	}
 }
 
-func (ko *Object) SearchResult(underscore traverser.UnderscoreProperties) *search.Result {
-	schemaMap, ok := ko.SchemaWithUnderscores(underscore).(map[string]interface{})
+func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *search.Result {
+	schemaMap, ok := ko.SchemaWithAdditional(additional).(map[string]interface{})
 	if !ok || schemaMap == nil {
 		schemaMap = map[string]interface{}{}
 	}
 	schemaMap["uuid"] = ko.ID()
 	ko.SetSchema(schemaMap)
 
-	underscoreProperties := &models.UnderscoreProperties{}
-	if ko.UnderscoreProperties() != nil {
-		if underscore.Interpretation {
-			underscoreProperties.Interpretation = ko.UnderscoreProperties().Interpretation
+	additionalProperties := &models.AdditionalProperties{}
+	if ko.AdditionalProperties() != nil {
+		if additional.Interpretation {
+			additionalProperties.Interpretation = ko.AdditionalProperties().Interpretation
 		}
-		if underscore.Classification {
-			underscoreProperties.Classification = ko.UnderscoreProperties().Classification
+		if additional.Classification {
+			additionalProperties.Classification = ko.AdditionalProperties().Classification
 		}
-	}
-	if underscore.Vector {
-		underscoreProperties.Vector = ko.Vector
 	}
 
 	return &search.Result{
@@ -226,7 +220,7 @@ func (ko *Object) SearchResult(underscore traverser.UnderscoreProperties) *searc
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
-		UnderscoreProperties: underscoreProperties,
+		AdditionalProperties: additionalProperties,
 		Score:                1, // TODO: actuallly score
 		// TODO: Beacon?
 	}
@@ -238,11 +232,11 @@ func (ko *Object) Valid() bool {
 		ko.Class().String() != ""
 }
 
-func SearchResults(in []*Object, underscore traverser.UnderscoreProperties) search.Results {
+func SearchResults(in []*Object, additional traverser.AdditionalProperties) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(underscore))
+		out[i] = *(elem.SearchResult(additional))
 	}
 
 	return out
@@ -314,7 +308,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 	schemaLength := uint32(len(schema))
-	meta, err := json.Marshal(ko.UnderscoreProperties())
+	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +429,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 }
 
 func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, underscoreB []byte, vectorWeightsB []byte) error {
+	schemaB []byte, additionalB []byte, vectorWeightsB []byte) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err
@@ -445,8 +439,8 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
-	var underscore *models.UnderscoreProperties
-	if err := json.Unmarshal(underscoreB, &underscore); err != nil {
+	var additional *models.AdditionalProperties
+	if err := json.Unmarshal(additionalB, &additional); err != nil {
 		return err
 	}
 
@@ -463,8 +457,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			ID:                 uuid,
 			Schema:             schema,
 			VectorWeights:      vectorWeights,
-			Classification:     underscore.Classification,
-			Interpretation:     underscore.Interpretation,
+			Additional:         additional,
 		}
 	}
 

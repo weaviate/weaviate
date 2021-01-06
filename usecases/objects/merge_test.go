@@ -82,7 +82,7 @@ func Test_MergeObject(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -132,7 +132,7 @@ func Test_MergeObject(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -183,7 +183,7 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -215,14 +215,14 @@ func Test_MergeObject(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
+				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Schema,
 						ClassName: test.previous.Class,
 						Kind:      kind.Object,
 					}, nil)
 			} else {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
+				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return((*search.Result)(nil), nil)
 			}
 
@@ -297,7 +297,7 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -347,7 +347,7 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -398,7 +398,7 @@ func Test_MergeThing(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
-				UnderscoreProperties: models.UnderscoreProperties{
+				AdditionalProperties: models.AdditionalProperties{
 					Interpretation: &models.Interpretation{
 						Source: []*models.InterpretationSource{},
 					},
@@ -430,14 +430,14 @@ func Test_MergeThing(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
+				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Schema,
 						ClassName: test.previous.Class,
 						Kind:      kind.Object,
 					}, nil)
 			} else {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
+				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return((*search.Result)(nil), nil)
 			}
 

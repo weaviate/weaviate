@@ -69,7 +69,7 @@ func Test_GetAction(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -91,7 +91,7 @@ func Test_GetAction(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -118,12 +118,12 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("underscore props", func(t *testing.T) {
+	t.Run("additional props", func(t *testing.T) {
 		t.Run("on get single requests", func(t *testing.T) {
 			t.Run("feature projection", func(t *testing.T) {
 				reset()
@@ -136,7 +136,7 @@ func Test_GetAction(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						FeatureProjection: &projector.Params{},
 					})
 				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
@@ -156,7 +156,7 @@ func Test_GetAction(t *testing.T) {
 					ID:        id,
 					ClassName: "ActionClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
 							Neighbors: []*models.NearestNeighbor{
 								&models.NearestNeighbor{
@@ -173,18 +173,20 @@ func Test_GetAction(t *testing.T) {
 					Class:         "ActionClass",
 					Schema:        map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
-								Concept:  "foo",
-								Distance: 0.3,
+					Additional: &models.AdditionalProperties{
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.3,
+								},
 							},
 						},
 					},
 				}
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						NearestNeighbors: true,
 					})
 				require.Nil(t, err)
@@ -210,7 +212,7 @@ func Test_GetAction(t *testing.T) {
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						UnderscoreProperties: &models.UnderscoreProperties{
+						AdditionalProperties: &models.AdditionalProperties{
 							NearestNeighbors: &models.NearestNeighbors{
 								Neighbors: []*models.NearestNeighbor{
 									&models.NearestNeighbor{
@@ -229,11 +231,13 @@ func Test_GetAction(t *testing.T) {
 						Class:         "ActionClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "foo",
-									Distance: 0.3,
+						Additional: &models.AdditionalProperties{
+							NearestNeighbors: &models.NearestNeighbors{
+								Neighbors: []*models.NearestNeighbor{
+									&models.NearestNeighbor{
+										Concept:  "foo",
+										Distance: 0.3,
+									},
 								},
 							},
 						},
@@ -241,7 +245,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						NearestNeighbors: true,
 					})
 				require.Nil(t, err)
@@ -265,7 +269,7 @@ func Test_GetAction(t *testing.T) {
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						UnderscoreProperties: &models.UnderscoreProperties{
+						AdditionalProperties: &models.AdditionalProperties{
 							FeatureProjection: &models.FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
@@ -279,14 +283,16 @@ func Test_GetAction(t *testing.T) {
 						Class:         "ActionClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						FeatureProjection: &models.FeatureProjection{
-							Vector: []float32{1, 2, 3},
+						Additional: &models.AdditionalProperties{
+							FeatureProjection: &models.FeatureProjection{
+								Vector: []float32{1, 2, 3},
+							},
 						},
 					},
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						FeatureProjection: &projector.Params{},
 					})
 				require.Nil(t, err)
@@ -336,7 +342,7 @@ func Test_GetThing(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -358,7 +364,7 @@ func Test_GetThing(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.UnderscoreProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -385,12 +391,12 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.UnderscoreProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("underscore props", func(t *testing.T) {
+	t.Run("additional props", func(t *testing.T) {
 		t.Run("on get single requests", func(t *testing.T) {
 			t.Run("feature projection", func(t *testing.T) {
 				reset()
@@ -403,7 +409,7 @@ func Test_GetThing(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						FeatureProjection: &projector.Params{},
 					})
 				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
@@ -423,7 +429,7 @@ func Test_GetThing(t *testing.T) {
 					ID:        id,
 					ClassName: "ThingClass",
 					Schema:    map[string]interface{}{"foo": "bar"},
-					UnderscoreProperties: &models.UnderscoreProperties{
+					AdditionalProperties: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
 							Neighbors: []*models.NearestNeighbor{
 								&models.NearestNeighbor{
@@ -440,18 +446,20 @@ func Test_GetThing(t *testing.T) {
 					Class:         "ThingClass",
 					Schema:        map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
-								Concept:  "foo",
-								Distance: 0.3,
+					Additional: &models.AdditionalProperties{
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.3,
+								},
 							},
 						},
 					},
 				}
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						NearestNeighbors: true,
 					})
 				require.Nil(t, err)
@@ -477,7 +485,7 @@ func Test_GetThing(t *testing.T) {
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						UnderscoreProperties: &models.UnderscoreProperties{
+						AdditionalProperties: &models.AdditionalProperties{
 							NearestNeighbors: &models.NearestNeighbors{
 								Neighbors: []*models.NearestNeighbor{
 									&models.NearestNeighbor{
@@ -496,11 +504,13 @@ func Test_GetThing(t *testing.T) {
 						Class:         "ThingClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "foo",
-									Distance: 0.3,
+						Additional: &models.AdditionalProperties{
+							NearestNeighbors: &models.NearestNeighbors{
+								Neighbors: []*models.NearestNeighbor{
+									&models.NearestNeighbor{
+										Concept:  "foo",
+										Distance: 0.3,
+									},
 								},
 							},
 						},
@@ -508,7 +518,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						NearestNeighbors: true,
 					})
 				require.Nil(t, err)
@@ -532,7 +542,7 @@ func Test_GetThing(t *testing.T) {
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						UnderscoreProperties: &models.UnderscoreProperties{
+						AdditionalProperties: &models.AdditionalProperties{
 							FeatureProjection: &models.FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
@@ -546,14 +556,16 @@ func Test_GetThing(t *testing.T) {
 						Class:         "ThingClass",
 						Schema:        map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						FeatureProjection: &models.FeatureProjection{
-							Vector: []float32{1, 2, 3},
+						Additional: &models.AdditionalProperties{
+							FeatureProjection: &models.FeatureProjection{
+								Vector: []float32{1, 2, 3},
+							},
 						},
 					},
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.UnderscoreProperties{
+					traverser.AdditionalProperties{
 						FeatureProjection: &projector.Params{},
 					})
 				require.Nil(t, err)

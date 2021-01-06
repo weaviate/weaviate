@@ -67,16 +67,16 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 		for j := range vector {
 			vector[j] = float32(t.Y.At(i, j))
 		}
-		up := in[i].UnderscoreProperties
+		up := in[i].AdditionalProperties
 		if up == nil {
-			up = &models.UnderscoreProperties{}
+			up = &models.AdditionalProperties{}
 		}
 
 		up.FeatureProjection = &models.FeatureProjection{
 			Vector: vector,
 		}
 
-		in[i].UnderscoreProperties = up
+		in[i].AdditionalProperties = up
 	}
 
 	return in, nil
@@ -121,11 +121,11 @@ func (f *FeatureProjector) extractNeighborsAndRemoveDuplicates(in []search.Resul
 	var out []*models.NearestNeighbor
 
 	for _, obj := range in {
-		if obj.UnderscoreProperties == nil || obj.UnderscoreProperties.NearestNeighbors == nil {
+		if obj.AdditionalProperties == nil || obj.AdditionalProperties.NearestNeighbors == nil {
 			continue
 		}
 
-		out = append(out, obj.UnderscoreProperties.NearestNeighbors.Neighbors...)
+		out = append(out, obj.AdditionalProperties.NearestNeighbors.Neighbors...)
 	}
 
 	return f.removeDuplicateNeighbors(out)

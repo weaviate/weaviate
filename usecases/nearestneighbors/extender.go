@@ -69,13 +69,13 @@ func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([
 	}
 
 	for i, res := range in {
-		up := res.UnderscoreProperties
+		up := res.AdditionalProperties
 		if up == nil {
-			up = &models.UnderscoreProperties{}
+			up = &models.AdditionalProperties{}
 		}
 
 		up.NearestNeighbors = removeDollarElements(neighbors[i])
-		in[i].UnderscoreProperties = up
+		in[i].AdditionalProperties = up
 	}
 
 	return in, nil
