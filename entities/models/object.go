@@ -47,6 +47,9 @@ type Object struct {
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
 
+	// This object's position in the Contextionary vector space
+	Vector C11yVector `json:"vector,omitempty"`
+
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
 }
@@ -60,6 +63,10 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -94,6 +101,22 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Object) validateVector(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Vector) { // not required
+		return nil
+	}
+
+	if err := m.Vector.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("vector")
+		}
 		return err
 	}
 

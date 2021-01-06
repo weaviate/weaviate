@@ -210,9 +210,6 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 			additionalProperties.Classification = ko.AdditionalProperties().Classification
 		}
 	}
-	if additional.Vector {
-		additionalProperties.Vector = ko.Vector
-	}
 
 	return &search.Result{
 		Kind:      ko.Kind,

@@ -1333,10 +1333,6 @@ func init() {
         "semanticPath": {
           "description": "The semantic path between the search query and the result. Only on 'explore' searches",
           "$ref": "#/definitions/SemanticPath"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
         }
       }
     },
@@ -2045,6 +2041,10 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
@@ -3940,10 +3940,6 @@ func init() {
         "semanticPath": {
           "description": "The semantic path between the search query and the result. Only on 'explore' searches",
           "$ref": "#/definitions/SemanticPath"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
         }
       }
     },
@@ -4740,6 +4736,10 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"

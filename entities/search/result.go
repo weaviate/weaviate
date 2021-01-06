@@ -40,6 +40,10 @@ type Result struct {
 type Results []Result
 
 func (r Result) Object() *models.Object {
+	return r.ObjectWithVector(true)
+}
+
+func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 	schema, ok := r.Schema.(map[string]interface{})
 	if ok {
 		delete(schema, "uuid")
@@ -58,13 +62,21 @@ func (r Result) Object() *models.Object {
 		t.Additional = r.AdditionalProperties
 	}
 
+	if includeVector {
+		t.Vector = r.Vector
+	}
+
 	return t
 }
 
 func (rs Results) Objects() []*models.Object {
+	return rs.ObjectsWithVector(true)
+}
+
+func (rs Results) ObjectsWithVector(includeVector bool) []*models.Object {
 	objects := make([]*models.Object, len(rs))
 	for i, res := range rs {
-		objects[i] = res.Object()
+		objects[i] = res.ObjectWithVector(includeVector)
 	}
 
 	return objects

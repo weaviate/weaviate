@@ -41,9 +41,6 @@ type AdditionalProperties struct {
 
 	// The semantic path between the search query and the result. Only on 'explore' searches
 	SemanticPath *SemanticPath `json:"semanticPath,omitempty"`
-
-	// This object's position in the Contextionary vector space
-	Vector C11yVector `json:"vector,omitempty"`
 }
 
 // Validate validates this additional properties
@@ -67,10 +64,6 @@ func (m *AdditionalProperties) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateSemanticPath(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -165,22 +158,6 @@ func (m *AdditionalProperties) validateSemanticPath(formats strfmt.Registry) err
 			}
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (m *AdditionalProperties) validateVector(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Vector) { // not required
-		return nil
-	}
-
-	if err := m.Vector.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("vector")
-		}
-		return err
 	}
 
 	return nil

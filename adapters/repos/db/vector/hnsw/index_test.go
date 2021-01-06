@@ -26,8 +26,8 @@ func TestHnswIndex(t *testing.T) {
 	// cleaning up the correct place on disk to write test files
 	makeCL := MakeNoopCommitLogger
 	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "unittest",
+		RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:       "unittest",
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
