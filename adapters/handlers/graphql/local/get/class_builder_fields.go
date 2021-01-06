@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -260,6 +261,8 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, err
 		}
 
+		spew.Dump(properties)
+
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -418,6 +421,10 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 					return nil, additionalProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
+		}
+
+		if name == "_additional" {
+			continue
 		}
 
 		properties = append(properties, property)
