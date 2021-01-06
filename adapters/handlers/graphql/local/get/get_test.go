@@ -304,7 +304,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 
 	tests := []test{
 		test{
-			name:  "with certainty",
+			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
@@ -327,7 +327,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
-			name:  "with classification",
+			name:  "with _additional classification",
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
@@ -362,7 +362,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
-			name:  "with interpretation",
+			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
@@ -456,7 +456,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
-			name:  "with _featureProjection without any optional parameters",
+			name:  "with _additional featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
@@ -485,7 +485,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
-			name:  "with _featureProjection with optional parameters",
+			name:  "with _additional featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
@@ -519,7 +519,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
-			name:  "with _sempath set",
+			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
 				Kind:      kind.Object,
