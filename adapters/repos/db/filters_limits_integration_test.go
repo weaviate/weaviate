@@ -119,7 +119,7 @@ func chainedFilterCompanies(size int) []*models.Object {
 		out[i] = &models.Object{
 			ID:    mustNewUUID(),
 			Class: companyClass.Class,
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"price": int64(i),
 			},
 		}

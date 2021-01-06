@@ -2037,7 +2037,7 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "schema": {
+        "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
         "vector": {
@@ -4730,7 +4730,7 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "schema": {
+        "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
         "vector": {

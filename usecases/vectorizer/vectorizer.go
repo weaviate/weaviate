@@ -70,7 +70,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object) ([]float
 		overrides = object.VectorWeights.(map[string]string)
 	}
 
-	return v.object(ctx, object.Class, object.Schema, overrides)
+	return v.object(ctx, object.Class, object.Properties, overrides)
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,

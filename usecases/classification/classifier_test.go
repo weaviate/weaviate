@@ -383,7 +383,7 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 	object, ok := repo.get(strfmt.UUID(source))
 	require.True(t, ok, "object must be present")
 
-	schema, ok := object.Schema.(map[string]interface{})
+	schema, ok := object.Properties.(map[string]interface{})
 	require.True(t, ok, "schema must be map")
 
 	prop, ok := schema[propName]

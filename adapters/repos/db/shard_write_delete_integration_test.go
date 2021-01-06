@@ -98,9 +98,9 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
@@ -260,9 +260,9 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
@@ -459,9 +459,9 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, float32(i)}))
@@ -493,9 +493,9 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	// perform update operation
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := shard.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, float32(i), 0.01}))

@@ -907,7 +907,7 @@
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
         },
-        "schema": {
+        "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
         "id": {
