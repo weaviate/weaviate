@@ -46,7 +46,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	return res.Object(), nil
+	return res.ObjectWithVector(additional.Vector), nil
 }
 
 // GetObjects Class from the connected DB
@@ -110,7 +110,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
 		}
 	}
 
-	return res.Objects(), nil
+	return res.ObjectsWithVector(additional.Vector), nil
 }
 
 func (m *Manager) localLimitOrGlobalLimit(paramMaxResults *int64) int {

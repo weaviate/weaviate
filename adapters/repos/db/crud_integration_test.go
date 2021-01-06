@@ -235,7 +235,7 @@ func TestCRUD(t *testing.T) {
 			traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
-		assert.Equal(t, expected, res.Object())
+		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
 
 	t.Run("finding the updated object by querying for an updated value",
@@ -543,9 +543,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
-		assert.Equal(t, &models.AdditionalProperties{
-			Vector: []float32{1, 3, 5, 0.4},
-		}, item.AdditionalProperties, "has Vector additional property")
+		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
 	})
 
 	t.Run("searching all things with Vector and Interpretation additional props", func(t *testing.T) {
@@ -563,8 +561,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
 		assert.Equal(t, &models.AdditionalProperties{
-			Vector: []float32{1, 3, 5, 0.4},
 			Interpretation: &models.Interpretation{
 				Source: []*models.InterpretationSource{
 					{Concept: "some", Occurrence: 1, Weight: 1},
@@ -655,8 +653,8 @@ func TestCRUD(t *testing.T) {
 				ClassifiedFields: []string{"field1", "field2"},
 				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
 			},
-			Vector: []float32{3, 1, 0.3, 12},
 		}, item.AdditionalProperties, "it should include the object meta as it was explicitly specified")
+		assert.Equal(t, []float32{3, 1, 0.3, 12}, item.Vector, "has Vector property")
 
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
@@ -689,9 +687,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.AdditionalProperties{
-			Vector: []float32{3, 1, 0.3, 12},
-		}, item.AdditionalProperties, "it should include the object meta as it was explicitly specified")
+		assert.Equal(t, []float32{3, 1, 0.3, 12}, item.Vector, "it should include the object meta as it was explicitly specified")
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {

@@ -581,10 +581,6 @@
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/AdditionalPropertiesClassification"
         },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
-        },
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
@@ -930,6 +926,10 @@
           "description": "Timestamp of the last Object update in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         },
         "additional": {
           "$ref": "#/definitions/AdditionalProperties"

@@ -90,12 +90,10 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 					"boolProp":      i < 5,
 					"unrelatedProp": "initialValue",
 				},
-				Additional: &models.AdditionalProperties{
-					Vector: []float32{0.1},
-				},
+				Vector: []float32{0.1},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Additional.Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
 			require.Nil(t, err)
 		}
 	})
@@ -108,7 +106,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Schema.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Additional.Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
 			require.Nil(t, err)
 		}
 	})
