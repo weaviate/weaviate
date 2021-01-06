@@ -50,7 +50,7 @@ type additionalStorageUpdate struct {
 
 func newReferencesBatcher(s *Shard) *referencesBatcher {
 	return &referencesBatcher{
-		shard: s,
+		shard:                    s,
 		additionalStorageUpdates: map[uint64]additionalStorageUpdate{},
 	}
 }
