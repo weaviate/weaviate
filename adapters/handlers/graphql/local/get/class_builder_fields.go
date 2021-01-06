@@ -366,7 +366,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 		name := field.Name.Value
 		property := traverser.SelectProperty{Name: name}
 
-		property.IsPrimitive = isPrimitive(field.SelectionSet) || isAdditional(name)
+		property.IsPrimitive = isPrimitive(field.SelectionSet)
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
@@ -375,8 +375,6 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 					// Is it a field with the name __typename?
 					if s.Name.Value == "__typename" {
 						property.IncludeTypeName = true
-						continue
-					} else if s.Name.Value == "_additional" {
 						continue
 					} else if isAdditional(s.Name.Value) {
 						switch s.Name.Value {
@@ -389,7 +387,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 						case "semanticPath":
 							additionalProps.SemanticPath = &sempath.Params{}
 						case "featureProjection":
-							additionalProps.FeatureProjection = parseFeatureProjectionArguments(field.Arguments)
+							additionalProps.FeatureProjection = parseFeatureProjectionArguments(s.Arguments)
 						case "certainty":
 							additionalProps.Certainty = true
 						case "id":

@@ -147,6 +147,7 @@ func (b *classBuilder) additionalIDField() *graphql.Field {
 		Type:        graphql.String,
 	}
 }
+
 func (b *classBuilder) additionalClassificationField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
