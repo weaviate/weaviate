@@ -130,9 +130,7 @@
       "type": "array",
       "items": {
         "type": "number",
-        "format": "float",
-        "minimum": 300,
-        "maximum": 300
+        "format": "float"
       }
     },
     "C11yVectorBasedQuestion": {

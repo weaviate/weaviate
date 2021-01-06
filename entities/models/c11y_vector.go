@@ -17,11 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"strconv"
-
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/validate"
 )
 
 // C11yVector A Vector in the Contextionary
@@ -31,22 +27,5 @@ type C11yVector []float32
 
 // Validate validates this c11y vector
 func (m C11yVector) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	for i := 0; i < len(m); i++ {
-
-		if err := validate.Minimum(strconv.Itoa(i), "body", float64(m[i]), 300, false); err != nil {
-			return err
-		}
-
-		if err := validate.Maximum(strconv.Itoa(i), "body", float64(m[i]), 300, false); err != nil {
-			return err
-		}
-
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }

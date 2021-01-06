@@ -1397,9 +1397,7 @@ func init() {
       "type": "array",
       "items": {
         "type": "number",
-        "format": "float",
-        "maximum": 300,
-        "minimum": 300
+        "format": "float"
       }
     },
     "C11yVectorBasedQuestion": {
@@ -4042,9 +4040,7 @@ func init() {
       "type": "array",
       "items": {
         "type": "number",
-        "format": "float",
-        "maximum": 300,
-        "minimum": 300
+        "format": "float"
       }
     },
     "C11yVectorBasedQuestion": {
