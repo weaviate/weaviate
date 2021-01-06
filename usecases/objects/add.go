@@ -98,7 +98,11 @@ func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Objec
 		return fmt.Errorf("vectorize: %v", err)
 	}
 
-	class.Interpretation = &models.Interpretation{
+	if class.Additional == nil {
+		class.Additional = &models.AdditionalProperties{}
+	}
+
+	class.Additional.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 

@@ -103,7 +103,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = grouped
 	}
 
-	if params.UnderscoreProperties.NearestNeighbors {
+	if params.AdditionalProperties.NearestNeighbors {
 		withNN, err := e.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
@@ -112,8 +112,8 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withNN
 	}
 
-	if params.UnderscoreProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
+	if params.AdditionalProperties.FeatureProjection != nil {
+		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
 		if err != nil {
 			return nil, fmt.Errorf("extend with feature projections: %v", err)
 		}
@@ -121,8 +121,8 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withFP
 	}
 
-	if params.UnderscoreProperties.SemanticPath != nil {
-		p := params.UnderscoreProperties.SemanticPath
+	if params.AdditionalProperties.SemanticPath != nil {
+		p := params.AdditionalProperties.SemanticPath
 		p.SearchVector = searchVector
 		withPath, err := e.pathBuilder.CalculatePath(res, p)
 		if err != nil {
@@ -151,7 +151,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	if params.UnderscoreProperties.NearestNeighbors {
+	if params.AdditionalProperties.NearestNeighbors {
 		withNN, err := e.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
@@ -160,8 +160,8 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = withNN
 	}
 
-	if params.UnderscoreProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
+	if params.AdditionalProperties.FeatureProjection != nil {
+		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
 		if err != nil {
 			return nil, fmt.Errorf("extend with feature projections: %v", err)
 		}
@@ -169,7 +169,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = withFP
 	}
 
-	if params.UnderscoreProperties.SemanticPath != nil {
+	if params.AdditionalProperties.SemanticPath != nil {
 		return nil, fmt.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
 	}
 
@@ -182,25 +182,30 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
-		if res.UnderscoreProperties != nil {
-			if res.UnderscoreProperties.Classification != nil {
-				res.Schema.(map[string]interface{})["_classification"] = res.UnderscoreProperties.Classification
+		if res.AdditionalProperties != nil {
+			if res.AdditionalProperties.Classification != nil {
+				classification := map[string]interface{}{"classification": res.AdditionalProperties.Classification}
+				res.Schema.(map[string]interface{})["_additional"] = classification
 			}
 
-			if res.UnderscoreProperties.Interpretation != nil {
-				res.Schema.(map[string]interface{})["_interpretation"] = res.UnderscoreProperties.Interpretation
+			if res.AdditionalProperties.Interpretation != nil {
+				interpretation := map[string]interface{}{"interpretation": res.AdditionalProperties.Interpretation}
+				res.Schema.(map[string]interface{})["_additional"] = interpretation
 			}
 
-			if res.UnderscoreProperties.NearestNeighbors != nil {
-				res.Schema.(map[string]interface{})["_nearestNeighbors"] = res.UnderscoreProperties.NearestNeighbors
+			if res.AdditionalProperties.NearestNeighbors != nil {
+				nearestNeighbors := map[string]interface{}{"nearestNeighbors": res.AdditionalProperties.NearestNeighbors}
+				res.Schema.(map[string]interface{})["_additional"] = nearestNeighbors
 			}
 
-			if res.UnderscoreProperties.FeatureProjection != nil {
-				res.Schema.(map[string]interface{})["_featureProjection"] = res.UnderscoreProperties.FeatureProjection
+			if res.AdditionalProperties.FeatureProjection != nil {
+				featureProjection := map[string]interface{}{"featureProjection": res.AdditionalProperties.FeatureProjection}
+				res.Schema.(map[string]interface{})["_additional"] = featureProjection
 			}
 
-			if res.UnderscoreProperties.SemanticPath != nil {
-				res.Schema.(map[string]interface{})["_semanticPath"] = res.UnderscoreProperties.SemanticPath
+			if res.AdditionalProperties.SemanticPath != nil {
+				semanticPath := map[string]interface{}{"semanticPath": res.AdditionalProperties.SemanticPath}
+				res.Schema.(map[string]interface{})["_additional"] = semanticPath
 			}
 		}
 
@@ -214,9 +219,15 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				continue
 			}
 
-			if params.UnderscoreProperties.Certainty {
-				res.Schema.(map[string]interface{})["_certainty"] = 1 - dist
+			if params.AdditionalProperties.Certainty {
+				certainty := map[string]interface{}{"certainty": 1 - dist}
+				res.Schema.(map[string]interface{})["_additional"] = certainty
 			}
+		}
+
+		if params.AdditionalProperties.ID {
+			certainty := map[string]interface{}{"id": res.ID}
+			res.Schema.(map[string]interface{})["_additional"] = certainty
 		}
 
 		output = append(output, res.Schema)

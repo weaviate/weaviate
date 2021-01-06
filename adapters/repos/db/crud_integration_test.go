@@ -129,10 +129,12 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Interpretation: &models.Interpretation{
-				Source: []*models.InterpretationSource{
-					{Concept: "some", Occurrence: 1, Weight: 1},
-					{Concept: "value", Occurrence: 1, Weight: 1},
+			Additional: &models.AdditionalProperties{
+				Interpretation: &models.Interpretation{
+					Source: []*models.InterpretationSource{
+						{Concept: "some", Occurrence: 1, Weight: 1},
+						{Concept: "value", Occurrence: 1, Weight: 1},
+					},
 				},
 			},
 		}
@@ -226,13 +228,14 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
+			Additional: &models.AdditionalProperties{},
 		}
 
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
-			traverser.UnderscoreProperties{})
+			traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
-		assert.Equal(t, expected, res.Object())
+		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
 
 	t.Run("finding the updated object by querying for an updated value",
@@ -375,11 +378,13 @@ func TestCRUD(t *testing.T) {
 					},
 				},
 			},
-			Classification: &models.UnderscorePropertiesClassification{
-				ID:               "foo",
-				Scope:            []string{"scope1", "scope2"},
-				ClassifiedFields: []string{"field1", "field2"},
-				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
+			Additional: &models.AdditionalProperties{
+				Classification: &models.AdditionalPropertiesClassification{
+					ID:               "foo",
+					Scope:            []string{"scope1", "scope2"},
+					ClassifiedFields: []string{"field1", "field2"},
+					Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
+				},
 			},
 		}
 		vector := []float32{3, 1, 0.3, 12}
@@ -442,7 +447,7 @@ func TestCRUD(t *testing.T) {
 			National:               1234567,
 			NationalFormatted:      "0171 1234567",
 		}, schema["phone"], "has correct phone prop")
-		assert.Equal(t, &models.UnderscoreProperties{}, res[0].UnderscoreProperties, "no meta information should be included unless explicitly asked for")
+		assert.Equal(t, &models.AdditionalProperties{}, res[0].AdditionalProperties, "no meta information should be included unless explicitly asked for")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
@@ -467,7 +472,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
-	t.Run("adding a thing with interpretation underscore property", func(t *testing.T) {
+	t.Run("adding a thing with interpretation additional property", func(t *testing.T) {
 		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
@@ -489,10 +494,12 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Interpretation: &models.Interpretation{
-				Source: []*models.InterpretationSource{
-					{Concept: "some", Occurrence: 1, Weight: 1},
-					{Concept: "value", Occurrence: 1, Weight: 1},
+			Additional: &models.AdditionalProperties{
+				Interpretation: &models.Interpretation{
+					Source: []*models.InterpretationSource{
+						{Concept: "some", Occurrence: 1, Weight: 1},
+						{Concept: "value", Occurrence: 1, Weight: 1},
+					},
 				},
 			},
 		}
@@ -505,7 +512,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -518,12 +525,12 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
-		assert.Equal(t, &models.UnderscoreProperties{}, item.UnderscoreProperties, "has no underscore properties unless explicitly asked for")
+		assert.Equal(t, &models.AdditionalProperties{}, item.AdditionalProperties, "has no additional properties unless explicitly asked for")
 	})
 
-	t.Run("searching all things with Vector underscore props", func(t *testing.T) {
+	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{Vector: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -536,14 +543,12 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
-		assert.Equal(t, &models.UnderscoreProperties{
-			Vector: []float32{1, 3, 5, 0.4},
-		}, item.UnderscoreProperties, "has Vector underscore property")
+		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
 	})
 
-	t.Run("searching all things with Vector and Interpretation underscore props", func(t *testing.T) {
+	t.Run("searching all things with Vector and Interpretation additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true, Interpretation: true})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{Vector: true, Interpretation: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -556,19 +561,19 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
-		assert.Equal(t, &models.UnderscoreProperties{
-			Vector: []float32{1, 3, 5, 0.4},
+		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
+		assert.Equal(t, &models.AdditionalProperties{
 			Interpretation: &models.Interpretation{
 				Source: []*models.InterpretationSource{
 					{Concept: "some", Occurrence: 1, Weight: 1},
 					{Concept: "value", Occurrence: 1, Weight: 1},
 				},
 			},
-		}, item.UnderscoreProperties, "has Vector and Interpretation underscore property")
+		}, item.AdditionalProperties, "has Vector and Interpretation additional property")
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -594,7 +599,7 @@ func TestCRUD(t *testing.T) {
 				Kind:      kind.Object,
 			},
 		}
-		res, err := repo.MultiGet(context.Background(), query, traverser.UnderscoreProperties{})
+		res, err := repo.MultiGet(context.Background(), query, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.Len(t, res, 2, "length must match even with nil-items")
 
@@ -611,7 +616,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -620,7 +625,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.UnderscoreProperties{}, item.UnderscoreProperties, "not meta information should be included unless explicitly asked for")
+		assert.Equal(t, &models.AdditionalProperties{}, item.AdditionalProperties, "not meta information should be included unless explicitly asked for")
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Beacon: strfmt.URI(
@@ -630,9 +635,9 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
-	t.Run("searching an action by ID with Classification and Vector underscore properties", func(t *testing.T) {
+	t.Run("searching an action by ID with Classification and Vector additional properties", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{},
-			traverser.UnderscoreProperties{Classification: true, Vector: true, RefMeta: true})
+			traverser.AdditionalProperties{Classification: true, Vector: true, RefMeta: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -641,15 +646,15 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.UnderscoreProperties{
-			Classification: &models.UnderscorePropertiesClassification{
+		assert.Equal(t, &models.AdditionalProperties{
+			Classification: &models.AdditionalPropertiesClassification{
 				ID:               "foo",
 				Scope:            []string{"scope1", "scope2"},
 				ClassifiedFields: []string{"field1", "field2"},
 				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
 			},
-			Vector: []float32{3, 1, 0.3, 12},
-		}, item.UnderscoreProperties, "it should include the object meta as it was explicitly specified")
+		}, item.AdditionalProperties, "it should include the object meta as it was explicitly specified")
+		assert.Equal(t, []float32{3, 1, 0.3, 12}, item.Vector, "has Vector property")
 
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
@@ -672,8 +677,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
-	t.Run("searching an action by ID with only Vector underscore property", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Vector: true})
+	t.Run("searching an action by ID with only Vector additional property", func(t *testing.T) {
+		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.AdditionalProperties{Vector: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -682,13 +687,11 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.UnderscoreProperties{
-			Vector: []float32{3, 1, 0.3, 12},
-		}, item.UnderscoreProperties, "it should include the object meta as it was explicitly specified")
+		assert.Equal(t, []float32{3, 1, 0.3, 12}, item.Vector, "it should include the object meta as it was explicitly specified")
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 10, nil, traverser.UnderscoreProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 10, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -823,14 +826,14 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+			traverser.SelectProperties{}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), actionID,
-			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+			traverser.SelectProperties{}, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
