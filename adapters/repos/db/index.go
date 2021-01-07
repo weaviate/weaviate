@@ -80,7 +80,7 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 	// TODO: pick the right shard instead of using the "single" shard
 	shard := i.Shards["single"]
 
-	return shard.addUUIDProperty(ctx)
+	return shard.addIDProperty(ctx)
 }
 
 type IndexConfig struct {

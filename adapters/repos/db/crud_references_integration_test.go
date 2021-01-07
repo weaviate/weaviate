@@ -221,27 +221,27 @@ func TestNestedReferences(t *testing.T) {
 														Class: "Planet",
 														Fields: map[string]interface{}{
 															"name": "Earth",
-															"uuid": strfmt.UUID("32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf"),
+															"id":   strfmt.UUID("32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf"),
 														},
 													},
 												},
 												"name": "North America",
-												"uuid": strfmt.UUID("4aad8154-e7f3-45b8-81a6-725171419e55"),
+												"id":   strfmt.UUID("4aad8154-e7f3-45b8-81a6-725171419e55"),
 											},
 										},
 									},
 									"name": "USA",
-									"uuid": strfmt.UUID("18c80a16-346a-477d-849d-9d92e5040ac9"),
+									"id":   strfmt.UUID("18c80a16-346a-477d-849d-9d92e5040ac9"),
 								},
 							},
 						},
 						"name": "San Francisco",
-						"uuid": strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
+						"id":   strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
 					},
 				},
 			},
 			"name": "Tim Apple's Fruit Bar",
-			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
+			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -257,7 +257,7 @@ func TestNestedReferences(t *testing.T) {
 					Class: "City",
 					Fields: map[string]interface{}{
 						"name": "San Francisco",
-						"uuid": strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
+						"id":   strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
 						// why is inCountry present here? We didn't specify it our select
 						// properties. Note it is "inCountry" with a lowercase letter
 						// (meaning unresolved) whereas "inCountry" would mean it was
@@ -275,7 +275,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 			},
 			"name": "Tim Apple's Fruit Bar",
-			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
+			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -289,7 +289,7 @@ func TestNestedReferences(t *testing.T) {
 			traverser.SelectProperties{}, traverser.AdditionalProperties{})
 
 		expectedSchema := map[string]interface{}{
-			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
+			"id": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 			"inCity": models.MultipleRef{
 				&models.SingleRef{
 					Beacon: "weaviate://localhost/2297e094-6218-43d4-85b1-3d20af752f23",
