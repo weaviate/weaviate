@@ -27,38 +27,14 @@ func Build() *graphql.Field {
 		Type:        graphql.NewList(exploreObject()),
 		Resolve:     resolve,
 		Args: graphql.FieldConfigArgument{
-			"network": &graphql.ArgumentConfig{
-				Description: descriptions.Network,
-				Type:        graphql.Boolean,
-			},
-			"concepts": &graphql.ArgumentConfig{
-				Description: descriptions.Keywords,
-				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
-			},
 			"limit": &graphql.ArgumentConfig{
 				Type:        graphql.Int,
 				Description: descriptions.Limit,
 			},
-			"certainty": &graphql.ArgumentConfig{
-				Type:        graphql.Float,
-				Description: descriptions.Certainty,
-			},
-			"moveTo": &graphql.ArgumentConfig{
-				Description: descriptions.VectorMovement,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:   "ExploreMoveTo",
-						Fields: movementInp(),
-					}),
-			},
-			"moveAwayFrom": &graphql.ArgumentConfig{
-				Description: descriptions.VectorMovement,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:   "ExploreMoveAwayFrom",
-						Fields: movementInp(),
-					}),
-			},
+
+			// TODO: this is module-specific and should be added dynamically
+			"nearText":   nearTextArgument(),
+			"nearVector": nearVectorArgument(),
 		},
 	}
 }
@@ -117,6 +93,53 @@ func exploreObject() *graphql.Object {
 	return graphql.NewObject(getLocalExploreFieldsObject)
 }
 
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
+func nearTextArgument() *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:        "ExploreNearTextInpObj",
+				Fields:      nearTextFields(),
+				Description: descriptions.GetWhereInpObj,
+			},
+		),
+	}
+}
+
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
+func nearTextFields() graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"concepts": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Concepts,
+			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+		},
+		"moveTo": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   "ExploreNearTextMoveTo",
+					Fields: movementInp(),
+				}),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
+		"moveAwayFrom": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   "ExploreNearTextMoveAwayFrom",
+					Fields: movementInp(),
+				}),
+		},
+	}
+}
+
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
 func movementInp() graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
@@ -126,6 +149,31 @@ func movementInp() graphql.InputObjectConfigFieldMap {
 		"force": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Force,
 			Type:        graphql.NewNonNull(graphql.Float),
+		},
+	}
+}
+
+func nearVectorArgument() *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		// Description: descriptions.GetExplore,
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:   "ExploreNearVectorInpObj",
+				Fields: nearVectorFields(),
+			},
+		),
+	}
+}
+
+func nearVectorFields() graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"vector": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
 		},
 	}
 }

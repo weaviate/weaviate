@@ -20,7 +20,7 @@ import (
 
 // Explore through unstructured search terms
 func (t *Traverser) Explore(ctx context.Context,
-	principal *models.Principal, params NearTextParams) ([]search.Result, error) {
+	principal *models.Principal, params ExploreParams) ([]search.Result, error) {
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
@@ -53,4 +53,12 @@ type ExploreMove struct {
 type NearVectorParams struct {
 	Vector    []float32
 	Certainty float64
+}
+
+// ExploreParams are the parameters used by the GraphQL `Explore { }` API
+// TODO: this contains a module specific param
+type ExploreParams struct {
+	NearText   *NearTextParams
+	NearVector *NearVectorParams
+	Limit      int
 }
