@@ -35,7 +35,7 @@ func Test_ParsePath(t *testing.T) {
 
 	t.Run("with nested refs", func(t *testing.T) {
 		rootClass := "City"
-		segments := []interface{}{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
+		segments := []interface{}{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
 		expectedPath := &Path{
 			Class:    "City",
 			Property: "inCountry",
@@ -98,13 +98,13 @@ func Test_SlicePath(t *testing.T) {
 		}
 
 		t.Run("as []interface{}", func(t *testing.T) {
-			expectedSegments := []interface{}{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
+			expectedSegments := []interface{}{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
 			segments := path.SliceInterface()
 			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
 		})
 
 		t.Run("as []string titleized", func(t *testing.T) {
-			expectedSegments := []string{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
+			expectedSegments := []string{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
 			segments := path.Slice()
 			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
 		})

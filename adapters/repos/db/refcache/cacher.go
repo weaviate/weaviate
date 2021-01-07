@@ -14,7 +14,6 @@ package refcache
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -123,8 +122,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 		}
 
 		for key, value := range schemaMap {
-			refKey := uppercaseFirstLetter(key)
-			selectProp := properties.FindProperty(refKey)
+			selectProp := properties.FindProperty(key)
 			skip, unresolved := c.skipProperty(key, value, selectProp)
 			if skip {
 				continue
@@ -376,11 +374,4 @@ func jobListToMultiGetQuery(jobs []cacherJob) []multi.Identifier {
 	}
 
 	return query
-}
-
-func uppercaseFirstLetter(in string) string {
-	first := string(in[0])
-	rest := string(in[1:])
-
-	return strings.ToUpper(first) + rest
 }

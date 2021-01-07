@@ -41,11 +41,11 @@ func (p *Path) GetInnerMost() *Path {
 
 // Slice flattens the nested path into a slice of segments
 func (p *Path) Slice() []string {
-	return appendNestedPath(p, true, true)
+	return appendNestedPath(p, true)
 }
 
 func (p *Path) SliceInterface() []interface{} {
-	path := appendNestedPath(p, true, true)
+	path := appendNestedPath(p, true)
 	out := make([]interface{}, len(path))
 	for i, element := range path {
 		out[i] = element
@@ -53,11 +53,13 @@ func (p *Path) SliceInterface() []interface{} {
 	return out
 }
 
+// TODO: This is now identical with Slice(), so it can be removed once all
+// callers have been adopted
 func (p *Path) SliceNonTitleized() []string {
-	return appendNestedPath(p, true, false)
+	return appendNestedPath(p, true)
 }
 
-func appendNestedPath(p *Path, omitClass, titleizeProperty bool) []string {
+func appendNestedPath(p *Path, omitClass bool) []string {
 	result := []string{}
 	if !omitClass {
 		result = append(result, string(p.Class))
@@ -65,11 +67,8 @@ func appendNestedPath(p *Path, omitClass, titleizeProperty bool) []string {
 
 	if p.Child != nil {
 		property := string(p.Property)
-		if titleizeProperty {
-			property = strings.Title(property)
-		}
 		result = append(result, property)
-		result = append(result, appendNestedPath(p.Child, false, titleizeProperty)...)
+		result = append(result, appendNestedPath(p.Child, false)...)
 	} else {
 		result = append(result, string(p.Property))
 	}
