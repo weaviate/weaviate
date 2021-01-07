@@ -88,9 +88,7 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 			continue
 		}
 
-		// ref keys are uppercased in the desired response
-		refKey := uppercaseFirstLetter(propName)
-		selectProp := properties.FindProperty(refKey)
+		selectProp := properties.FindProperty(propName)
 		if selectProp == nil {
 			// user is not interested in this prop
 			continue
@@ -102,9 +100,8 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 		}
 
 		if parsed != nil {
-			schema[uppercaseFirstLetter(propName)] = parsed
+			schema[propName] = parsed
 		}
-		delete(schema, propName) // we have the uppercased/resolved now. No more need for the unresolved
 	}
 
 	return schema, nil

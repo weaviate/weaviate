@@ -36,15 +36,15 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with relations", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, InCountry { ... on Country { name } } } } }")
+		result := AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, inCountry { ... on Country { name } } } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := parseJSONSlice(`[
-    { "name": "Amsterdam",  "InCountry": [{ "name": "Netherlands" }] },
-    { "name": "Rotterdam",  "InCountry": [{ "name": "Netherlands" }] },
-    { "name": "Berlin",     "InCountry": [{ "name": "Germany" }] },
-    { "name": "Dusseldorf", "InCountry": [{ "name": "Germany" }] },
-    { "name": "Null Island", "InCountry": null }
+    { "name": "Amsterdam",  "inCountry": [{ "name": "Netherlands" }] },
+    { "name": "Rotterdam",  "inCountry": [{ "name": "Netherlands" }] },
+    { "name": "Berlin",     "inCountry": [{ "name": "Germany" }] },
+    { "name": "Dusseldorf", "inCountry": [{ "name": "Germany" }] },
+    { "name": "Null Island", "inCountry": null }
   ]`)
 
 		assert.ElementsMatch(t, expected, cities)
