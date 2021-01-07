@@ -46,7 +46,7 @@ func (r Result) Object() *models.Object {
 func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 	schema, ok := r.Schema.(map[string]interface{})
 	if ok {
-		delete(schema, "uuid")
+		delete(schema, "id")
 	}
 
 	t := &models.Object{

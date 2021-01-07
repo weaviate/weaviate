@@ -34,7 +34,7 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		return nil, errors.Wrap(err, "analyze props")
 	}
 
-	property, err := a.analyzeUUIDProp(uuid)
+	property, err := a.analyzeIDProp(uuid)
 	if err != nil {
 		return nil, errors.Wrap(err, "analyze uuid prop")
 	}
@@ -70,13 +70,13 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 	return out, nil
 }
 
-func (a *Analyzer) analyzeUUIDProp(uuid strfmt.UUID) (*Property, error) {
-	value, err := uuid.MarshalText()
+func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
+	value, err := id.MarshalText()
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal uuid prop")
+		return nil, errors.Wrap(err, "marshal id prop")
 	}
 	return &Property{
-		Name:         helpers.PropertyNameUUID,
+		Name:         helpers.PropertyNameID,
 		HasFrequency: false,
 		Items: []Countable{
 			{

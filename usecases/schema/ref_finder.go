@@ -114,7 +114,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 				Property: libschema.PropertyName(propName),
 				Child: &filters.Path{
 					Class:    needle,
-					Property: "uuid",
+					Property: "id",
 				},
 			},
 		}

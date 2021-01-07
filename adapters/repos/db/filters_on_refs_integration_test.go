@@ -217,7 +217,7 @@ func TestRefFilters(t *testing.T) {
 
 			t.Run("ref id matches", func(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeString,
-					"uuid", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
+					"id", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
 				res, err := repo.ClassSearch(context.Background(), params)

@@ -123,7 +123,7 @@ func TestRefFinder(t *testing.T) {
 				Property: "vehicle",
 				Child: &filters.Path{
 					Class:    "Car",
-					Property: "uuid",
+					Property: "id",
 				},
 			},
 		}, res)
@@ -198,7 +198,7 @@ func TestRefFinder(t *testing.T) {
 				Property: "vehicle",
 				Child: &filters.Path{
 					Class:    "Car",
-					Property: "uuid",
+					Property: "id",
 				},
 			},
 			{
@@ -209,7 +209,7 @@ func TestRefFinder(t *testing.T) {
 					Property: "vehicle",
 					Child: &filters.Path{
 						Class:    "Car",
-						Property: "uuid",
+						Property: "id",
 					},
 				},
 			},
@@ -224,7 +224,7 @@ func TestRefFinder(t *testing.T) {
 						Property: "vehicle",
 						Child: &filters.Path{
 							Class:    "Car",
-							Property: "uuid",
+							Property: "id",
 						},
 					},
 				},

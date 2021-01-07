@@ -98,15 +98,15 @@ func TestGrouper_ModeMerge(t *testing.T) {
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "1",
-							"foo":  "bar1",
+							"id":  "1",
+							"foo": "bar1",
 						},
 					},
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "2",
-							"foo":  "bar2",
+							"id":  "2",
+							"foo": "bar2",
 						},
 					},
 				},
@@ -130,8 +130,8 @@ func TestGrouper_ModeMerge(t *testing.T) {
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "3",
-							"foo":  "bar3",
+							"id":  "3",
+							"foo": "bar3",
 						},
 					},
 				},
@@ -151,8 +151,8 @@ func TestGrouper_ModeMerge(t *testing.T) {
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "2",
-							"foo":  "bar2",
+							"id":  "2",
+							"foo": "bar2",
 						},
 					},
 				},
@@ -193,22 +193,22 @@ func TestGrouper_ModeMerge(t *testing.T) {
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "1",
-							"foo":  "bar1",
+							"id":  "1",
+							"foo": "bar1",
 						},
 					},
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "2",
-							"foo":  "bar2",
+							"id":  "2",
+							"foo": "bar2",
 						},
 					},
 					search.LocalRef{
 						Class: "Foo",
 						Fields: map[string]interface{}{
-							"uuid": "3",
-							"foo":  "bar3",
+							"id":  "3",
+							"foo": "bar3",
 						},
 					},
 				},

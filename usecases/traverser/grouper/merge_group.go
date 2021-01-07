@@ -268,9 +268,9 @@ func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
 				continue
 			}
 
-			id, ok := asRef.Fields["uuid"]
+			id, ok := asRef.Fields["id"]
 			if !ok {
-				return nil, fmt.Errorf("found a search.LocalRef, but 'uuid' field is missing: %#v", asRef)
+				return nil, fmt.Errorf("found a search.LocalRef, but 'id' field is missing: %#v", asRef)
 			}
 
 			if _, ok := seenID[id.(string)]; ok {

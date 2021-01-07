@@ -245,8 +245,8 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
-	if fs.onUUIDProp(props[0]) {
-		return fs.extractUUIDProp(filter.Value.Value, filter.Operator)
+	if fs.onIDProp(props[0]) {
+		return fs.extractIDProp(filter.Value.Value, filter.Operator)
 	}
 
 	if fs.onMultiWordPropValue(filter.Operator, filter.Value.Value, filter.Value.Type) {
@@ -346,7 +346,7 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 	}, nil
 }
 
-func (fs *Searcher) extractUUIDProp(value interface{},
+func (fs *Searcher) extractIDProp(value interface{},
 	operator filters.Operator) (*propValuePair, error) {
 	v, ok := value.(string)
 	if !ok {
@@ -356,7 +356,7 @@ func (fs *Searcher) extractUUIDProp(value interface{},
 	return &propValuePair{
 		value:        []byte(v),
 		hasFrequency: false,
-		prop:         helpers.PropertyNameUUID,
+		prop:         helpers.PropertyNameID,
 		operator:     operator,
 	}, nil
 }
@@ -432,8 +432,8 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 	return false
 }
 
-func (fs *Searcher) onUUIDProp(propName string) bool {
-	return propName == helpers.PropertyNameUUID
+func (fs *Searcher) onIDProp(propName string) bool {
+	return propName == helpers.PropertyNameID
 }
 
 func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
