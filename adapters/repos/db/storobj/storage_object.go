@@ -198,7 +198,7 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 	if !ok || schemaMap == nil {
 		schemaMap = map[string]interface{}{}
 	}
-	schemaMap["uuid"] = ko.ID()
+	schemaMap["id"] = ko.ID()
 	ko.SetSchema(schemaMap)
 
 	additionalProperties := &models.AdditionalProperties{}

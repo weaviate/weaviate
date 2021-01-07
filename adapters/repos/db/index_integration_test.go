@@ -159,7 +159,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 
 	index.addProperty(context.TODO(), &models.Property{
-		Name:     "uuid",
+		Name:     "id",
 		DataType: []string{"string"},
 	})
 
@@ -204,7 +204,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	index.addProperty(context.TODO(), &models.Property{
-		Name:     "uuid",
+		Name:     "id",
 		DataType: []string{"string"},
 	})
 

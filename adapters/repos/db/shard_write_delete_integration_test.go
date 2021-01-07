@@ -85,7 +85,7 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	}
 
 	err = shard.addProperty(context.TODO(), &models.Property{
-		Name:     "uuid",
+		Name:     "id",
 		DataType: []string{"string"},
 	})
 	require.Nil(t, err)
@@ -245,7 +245,7 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 		{"name": "one two three four five", "number": int64(100)},
 	}
 
-	err = shard.addUUIDProperty(context.TODO())
+	err = shard.addIDProperty(context.TODO())
 	require.Nil(t, err)
 
 	err = shard.addProperty(context.TODO(), &models.Property{
@@ -444,7 +444,7 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 		{"name": "one two three four five", "number": int64(100)},
 	}
 
-	err = shard.addUUIDProperty(context.TODO())
+	err = shard.addIDProperty(context.TODO())
 	require.Nil(t, err)
 
 	err = shard.addProperty(context.TODO(), &models.Property{
