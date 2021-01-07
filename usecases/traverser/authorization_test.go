@@ -53,7 +53,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "Explore",
-			additionalArgs:   []interface{}{NearTextParams{}},
+			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

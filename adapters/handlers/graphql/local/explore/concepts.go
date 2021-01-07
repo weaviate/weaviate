@@ -158,7 +158,7 @@ func nearVectorArgument() *graphql.ArgumentConfig {
 		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("ExploreNearVectorInpObj"),
+				Name:   "ExploreNearVectorInpObj",
 				Fields: nearVectorFields(),
 			},
 		),
