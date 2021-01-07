@@ -15,7 +15,7 @@ import "strings"
 
 // determine which field values not to return
 func determineResponseFields(fields []*string) map[string]int {
-	fieldsToKeep := map[string]int{"class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "id": 0}
+	fieldsToKeep := map[string]int{"class": 0, "properties": 0, "creationtimeunix": 0, "key": 0, "id": 0}
 
 	if len(fields) > 0 {
 		// check if "ALL" option is provided
