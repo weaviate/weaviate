@@ -299,7 +299,13 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 		return vector, nil
 	}
 
-	return params.NearVector.Vector, nil
+	if params.NearVector != nil {
+		return params.NearVector.Vector, nil
+	}
+
+	// either nearText or nearVector has to be set, so if we land here, something
+	// has gone very wrong
+	panic("vectorFromParams was called without any known params present")
 }
 
 func (e *Explorer) vectorFromNearTextParams(ctx context.Context,
