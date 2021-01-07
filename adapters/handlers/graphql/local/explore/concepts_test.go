@@ -22,7 +22,7 @@ import (
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser traverser.NearTextParams
+	expectedParamsToTraverser traverser.ExploreParams
 	resolverReturn            []search.Result
 	expectedResults           []result
 }
@@ -39,15 +39,48 @@ func Test_ResolveExplore(t *testing.T) {
 
 	tests := testCases{
 		testCase{
-			name: "Resolve Explore ",
+			name: "Resolve Explore with nearText",
 			query: `
-			{ 
-					Explore(concepts: ["car", "best brand"]) {
+			{
+					Explore(nearText: {concepts: ["car", "best brand"]}) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: traverser.NearTextParams{
-				Values: []string{"car", "best brand"},
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearText: &traverser.NearTextParams{
+					Values: []string{"car", "best brand"},
+				},
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+					Certainty: 0.7,
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+						"certainty": float32(0.7),
+					},
+				},
+			}},
+		},
+		testCase{
+			name: "Resolve Explore with nearVector",
+			query: `
+			{
+					Explore(nearVector: {vector: [0, 1, 0.8]}) {
+							beacon className certainty
+					}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &traverser.NearVectorParams{
+					Vector: []float32{0, 1, 0.8},
+				},
 			},
 			resolverReturn: []search.Result{
 				search.Result{
@@ -69,19 +102,21 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 
 		testCase{
-			name: "with optional limit and certainty set",
+			name: "with nearText with optional limit and certainty set",
 			query: `
 			{
 					Explore(
-					concepts: ["car", "best brand"], limit: 17, certainty: 0.6, network: true) {
+						nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+						){
 							beacon className
 				}
 			}`,
-			expectedParamsToTraverser: traverser.NearTextParams{
-				Values:    []string{"car", "best brand"},
-				Limit:     17,
-				Certainty: 0.6,
-				Network:   true,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearText: &traverser.NearTextParams{
+					Values:    []string{"car", "best brand"},
+					Certainty: 0.6,
+				},
+				Limit: 17,
 			},
 			resolverReturn: []search.Result{
 				search.Result{
@@ -101,26 +136,63 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 
 		testCase{
+			name: "with nearVector with optional limit",
+			query: `
+			{
+					Explore(limit: 17, nearVector: {vector: [0, 1, 0.8]}) {
+							beacon className certainty
+					}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &traverser.NearVectorParams{
+					Vector: []float32{0, 1, 0.8},
+				},
+				Limit: 17,
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+					Certainty: 0.7,
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+						"certainty": float32(0.7),
+					},
+				},
+			}},
+		},
+
+		testCase{
 			name: "with moveTo set",
 			query: `
 			{
 					Explore(
-							concepts: ["car", "best brand"]
 							limit: 17
-							moveTo: {
-								concepts: ["mercedes"]
-								force: 0.7
+							nearText: {
+								concepts: ["car", "best brand"]
+								moveTo: {
+									concepts: ["mercedes"]
+									force: 0.7
+								}
 							}
 							) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: traverser.NearTextParams{
-				Values: []string{"car", "best brand"},
-				Limit:  17,
-				MoveTo: traverser.ExploreMove{
-					Values: []string{"mercedes"},
-					Force:  0.7,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				Limit: 17,
+				NearText: &traverser.NearTextParams{
+					Values: []string{"car", "best brand"},
+					MoveTo: traverser.ExploreMove{
+						Values: []string{"mercedes"},
+						Force:  0.7,
+					},
 				},
 			},
 			resolverReturn: []search.Result{
@@ -145,30 +217,34 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(
-							concepts: ["car", "best brand"]
 							limit: 17
-							moveTo: {
-								concepts: ["mercedes"]
-								force: 0.7
-							}
-							moveAwayFrom: {
-								concepts: ["van"]
-								force: 0.7
+							nearText: {
+								concepts: ["car", "best brand"]
+								moveTo: {
+									concepts: ["mercedes"]
+									force: 0.7
+								}
+								moveAwayFrom: {
+									concepts: ["van"]
+									force: 0.7
+								}
 							}
 							) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: traverser.NearTextParams{
-				Values: []string{"car", "best brand"},
-				Limit:  17,
-				MoveTo: traverser.ExploreMove{
-					Values: []string{"mercedes"},
-					Force:  0.7,
-				},
-				MoveAwayFrom: traverser.ExploreMove{
-					Values: []string{"van"},
-					Force:  0.7,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				Limit: 17,
+				NearText: &traverser.NearTextParams{
+					Values: []string{"car", "best brand"},
+					MoveTo: traverser.ExploreMove{
+						Values: []string{"mercedes"},
+						Force:  0.7,
+					},
+					MoveAwayFrom: traverser.ExploreMove{
+						Values: []string{"van"},
+						Force:  0.7,
+					},
 				},
 			},
 			resolverReturn: []search.Result{
@@ -210,37 +286,3 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 		})
 	}
 }
-
-// func Test__Resolve_MissingOperator(t *testing.T) {
-// 	query := `
-// 			{
-// 				Fetch {
-// 					Things(where: {
-// 						class: {
-// 							name: "bestclass"
-// 							certainty: 0.8
-// 							concepts: [{value: "foo", weight: 0.9}]
-// 						},
-// 						properties: {
-// 							name: "bestproperty"
-// 							certainty: 0.8
-// 							concepts: [{value: "bar", weight: 0.9}]
-// 							valueString: "some-value"
-// 						},
-// 					}) {
-// 						beacon certainty
-// 					}
-// 				}
-// 			}`
-// 	c11y := newEmptyContextionary()
-// 	c11y.On("SchemaSearch", mock.Anything).Twice()
-// 	resolver := newMockResolver(c11y)
-// 	res := resolver.Resolve(query)
-// 	require.Len(t, res.Errors, 1)
-// 	assert.Equal(t,
-// 		`Argument "where" has invalid value {class: {name: "bestclass", certainty: 0.8, concepts: `+
-// 			`[{value: "foo", weight: 0.9}]}, properties: {name: "bestproperty", certainty: 0.8, concepts: `+
-// 			`[{value: "bar", weight: 0.9}], valueString: "some-value"}}.`+"\n"+
-// 			`In field "properties": In field "operator": Expected "FetchThingWhereOperatorEnum!", found null.`,
-// 		res.Errors[0].Message)
-// }

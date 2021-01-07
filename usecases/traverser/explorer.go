@@ -85,20 +85,20 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	params.SearchVector = searchVector
 
 	res, err := e.search.VectorClassSearch(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("explorer: get class: vector search: %v", err)
+		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, fmt.Errorf("grouper: %v", err)
+			return nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -107,7 +107,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	if params.AdditionalProperties.NearestNeighbors {
 		withNN, err := e.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
-			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
+			return nil, errors.Errorf("extend with nearest neighbors: %v", err)
 		}
 
 		res = withNN
@@ -116,7 +116,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	if params.AdditionalProperties.FeatureProjection != nil {
 		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
 		if err != nil {
-			return nil, fmt.Errorf("extend with feature projections: %v", err)
+			return nil, errors.Errorf("extend with feature projections: %v", err)
 		}
 
 		res = withFP
@@ -127,7 +127,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		p.SearchVector = searchVector
 		withPath, err := e.pathBuilder.CalculatePath(res, p)
 		if err != nil {
-			return nil, fmt.Errorf("extend with semantic path: %v", err)
+			return nil, errors.Errorf("extend with semantic path: %v", err)
 		}
 
 		res = withPath
@@ -140,13 +140,13 @@ func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("explorer: get class: search: %v", err)
+		return nil, errors.Errorf("explorer: get class: search: %v", err)
 	}
 
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, fmt.Errorf("grouper: %v", err)
+			return nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -155,7 +155,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.AdditionalProperties.NearestNeighbors {
 		withNN, err := e.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
-			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
+			return nil, errors.Errorf("extend with nearest neighbors: %v", err)
 		}
 
 		res = withNN
@@ -164,14 +164,14 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.AdditionalProperties.FeatureProjection != nil {
 		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
 		if err != nil {
-			return nil, fmt.Errorf("extend with feature projections: %v", err)
+			return nil, errors.Errorf("extend with feature projections: %v", err)
 		}
 
 		res = withFP
 	}
 
 	if params.AdditionalProperties.SemanticPath != nil {
-		return nil, fmt.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
+		return nil, errors.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, nil, params)
@@ -213,7 +213,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		if searchVector != nil {
 			dist, err := e.distancer(res.Vector, searchVector)
 			if err != nil {
-				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
+				return nil, errors.Errorf("explorer: calculate distance: %v", err)
 			}
 
 			certainty := e.extractCertaintyFromParams(params)
@@ -251,20 +251,33 @@ func (e *Explorer) extractCertaintyFromParams(params GetParams) float64 {
 	panic("extractCertainty was called without any known params present")
 }
 
-func (e *Explorer) Concepts(ctx context.Context,
-	params NearTextParams) ([]search.Result, error) {
-	if params.Network {
-		return nil, fmt.Errorf("explorer: network exploration currently not supported")
+// TODO: contains module-specific logic
+func (e *Explorer) extractCertaintyFromExploreParams(params ExploreParams) float64 {
+	if params.NearText != nil {
+		return params.NearText.Certainty
 	}
 
-	vector, err := e.vectorFromNearTextParams(ctx, &params)
+	if params.NearVector != nil {
+		return params.NearVector.Certainty
+	}
+
+	panic("extractCertainty was called without any known params present")
+}
+
+func (e *Explorer) Concepts(ctx context.Context,
+	params ExploreParams) ([]search.Result, error) {
+	if err := e.validateExploreParams(params); err != nil {
+		return nil, errors.Wrap(err, "invalid params")
+	}
+
+	vector, err := e.vectorFromExploreParams(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("vectorize params: %v", err)
+		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
 	res, err := e.search.VectorSearch(ctx, vector, params.Limit, nil)
 	if err != nil {
-		return nil, fmt.Errorf("vector search: %v", err)
+		return nil, errors.Errorf("vector search: %v", err)
 	}
 
 	results := []search.Result{}
@@ -272,15 +285,27 @@ func (e *Explorer) Concepts(ctx context.Context,
 		item.Beacon = beacon(item)
 		dist, err := e.distancer(vector, item.Vector)
 		if err != nil {
-			return nil, fmt.Errorf("res %s: %v", item.Beacon, err)
+			return nil, errors.Errorf("res %s: %v", item.Beacon, err)
 		}
 		item.Certainty = 1 - dist
-		if item.Certainty >= float32(params.Certainty) {
+		certainty := e.extractCertaintyFromExploreParams(params)
+		if item.Certainty >= float32(certainty) {
 			results = append(results, item)
 		}
 	}
 
 	return results, nil
+}
+
+// TODO: This is temporary as the logic needs to be dynamic due to modules
+// providing some of the near<> Features
+func (e *Explorer) validateExploreParams(params ExploreParams) error {
+	if params.NearText == nil && params.NearVector == nil {
+		return errors.Errorf("received no search params, one of [nearText, nearVector] " +
+			"is required for an exploration")
+	}
+
+	return nil
 }
 
 func (e *Explorer) vectorFromParams(ctx context.Context,
@@ -293,7 +318,32 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 	if params.NearText != nil {
 		vector, err := e.vectorFromNearTextParams(ctx, params.NearText)
 		if err != nil {
-			return nil, fmt.Errorf("vectorize params: %v", err)
+			return nil, errors.Errorf("vectorize params: %v", err)
+		}
+
+		return vector, nil
+	}
+
+	if params.NearVector != nil {
+		return params.NearVector.Vector, nil
+	}
+
+	// either nearText or nearVector has to be set, so if we land here, something
+	// has gone very wrong
+	panic("vectorFromParams was called without any known params present")
+}
+
+func (e *Explorer) vectorFromExploreParams(ctx context.Context,
+	params ExploreParams) ([]float32, error) {
+	if params.NearText != nil && params.NearVector != nil {
+		return nil, errors.Errorf("found both 'nearText' and 'nearVector' parameters " +
+			"which are conflicting, choose one instead")
+	}
+
+	if params.NearText != nil {
+		vector, err := e.vectorFromNearTextParams(ctx, params.NearText)
+		if err != nil {
+			return nil, errors.Errorf("vectorize params: %v", err)
 		}
 
 		return vector, nil
@@ -312,13 +362,13 @@ func (e *Explorer) vectorFromNearTextParams(ctx context.Context,
 	params *NearTextParams) ([]float32, error) {
 	vector, err := e.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
-		return nil, fmt.Errorf("vectorize keywords: %v", err)
+		return nil, errors.Errorf("vectorize keywords: %v", err)
 	}
 
 	if params.MoveTo.Force > 0 && len(params.MoveTo.Values) > 0 {
 		moveToVector, err := e.vectorizer.Corpi(ctx, params.MoveTo.Values)
 		if err != nil {
-			return nil, fmt.Errorf("vectorize move to: %v", err)
+			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
 
 		afterMoveTo, err := e.vectorizer.MoveTo(vector, moveToVector, params.MoveTo.Force)
@@ -331,7 +381,7 @@ func (e *Explorer) vectorFromNearTextParams(ctx context.Context,
 	if params.MoveAwayFrom.Force > 0 && len(params.MoveAwayFrom.Values) > 0 {
 		moveAwayVector, err := e.vectorizer.Corpi(ctx, params.MoveAwayFrom.Values)
 		if err != nil {
-			return nil, fmt.Errorf("vectorize move away from: %v", err)
+			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
 
 		afterMoveFrom, err := e.vectorizer.MoveAwayFrom(vector, moveAwayVector,
