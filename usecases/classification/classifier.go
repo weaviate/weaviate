@@ -208,19 +208,19 @@ func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id st
 }
 
 func (c *Classifier) parseAndSetDefaults(params *models.Classification) error {
-	if params.Type == nil {
+	if params.Type == "" {
 		defaultType := "knn"
-		params.Type = &defaultType
+		params.Type = defaultType
 	}
 
-	if *params.Type == "knn" {
+	if params.Type == "knn" {
 		if err := c.parseKNNSettings(params); err != nil {
 			return errors.Wrapf(err, "parse knn specific settings")
 		}
 	}
 
 	// TODO: This must be done as part of the module for full modularization
-	if *params.Type == "contextual" {
+	if params.Type == "text2vec-contextionary-contextual" {
 		if err := c.parseContextualSettings(params); err != nil {
 			return errors.Wrapf(err, "parse knn specific settings")
 		}

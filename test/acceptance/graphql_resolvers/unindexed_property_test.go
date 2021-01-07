@@ -64,7 +64,7 @@ func Test_UnindexedProperty(t *testing.T) {
 			&models.Object{
 				Class: className,
 				ID:    "f5ffb60f-4c13-4d07-a395-829b2396c7b9",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "elephant",
 					"hiddenName": "zebra",
 				},

@@ -138,7 +138,7 @@ func (ko *Object) AdditionalProperties() *models.AdditionalProperties {
 func (ko *Object) Schema() models.PropertySchema {
 	switch ko.Kind {
 	case kind.Object:
-		return ko.Object.Schema
+		return ko.Object.Properties
 	default:
 		panic("impossible kind")
 	}
@@ -178,7 +178,7 @@ func (ko *Object) SchemaWithAdditional(
 func (ko *Object) SetSchema(schema models.PropertySchema) {
 	switch ko.Kind {
 	case kind.Object:
-		ko.Object.Schema = schema
+		ko.Object.Properties = schema
 	default:
 		panic("impossible kind")
 	}
@@ -455,7 +455,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			CreationTimeUnix:   create,
 			LastUpdateTimeUnix: update,
 			ID:                 uuid,
-			Schema:             schema,
+			Properties:         schema,
 			VectorWeights:      vectorWeights,
 			Additional:         additional,
 		}

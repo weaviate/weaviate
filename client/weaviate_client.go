@@ -21,7 +21,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/client/batching"
+	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/client/classifications"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/client/meta"
@@ -73,7 +73,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 
 	cli := new(Weaviate)
 	cli.Transport = transport
-	cli.Batching = batching.New(transport, formats)
+	cli.Batch = batch.New(transport, formats)
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
@@ -125,7 +125,7 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 
 // Weaviate is a client for weaviate
 type Weaviate struct {
-	Batching batching.ClientService
+	Batch batch.ClientService
 
 	Classifications classifications.ClientService
 
@@ -147,7 +147,7 @@ type Weaviate struct {
 // SetTransport changes the transport on the client and all its subresources
 func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
-	c.Batching.SetTransport(transport)
+	c.Batch.SetTransport(transport)
 	c.Classifications.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)

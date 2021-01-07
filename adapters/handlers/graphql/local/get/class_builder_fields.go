@@ -173,9 +173,9 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
-			"explore": exploreArgument(kindName, class.Class),
-			"where":   whereArgument(kindName, class.Class),
-			"group":   groupArgument(kindName, class.Class),
+			"nearText": nearTextArgument(kindName, class.Class),
+			"where":    whereArgument(kindName, class.Class),
+			"group":    groupArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
 	}
@@ -268,10 +268,10 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		var exploreParams *traverser.ExploreParams
-		if explore, ok := p.Args["explore"]; ok {
-			p := common_filters.ExtractExplore(explore.(map[string]interface{}))
-			exploreParams = &p
+		var nearTextParams *traverser.NearTextParams
+		if nearText, ok := p.Args["nearText"]; ok {
+			p := common_filters.ExtractNearText(nearText.(map[string]interface{}))
+			nearTextParams = &p
 		}
 
 		group := extractGroup(p.Args)
@@ -282,7 +282,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,
-			Explore:              exploreParams,
+			NearText:             nearTextParams,
 			Group:                group,
 			AdditionalProperties: additional,
 		}

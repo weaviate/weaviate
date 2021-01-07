@@ -20,7 +20,7 @@ import (
 
 // Explore through unstructured search terms
 func (t *Traverser) Explore(ctx context.Context,
-	principal *models.Principal, params ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params NearTextParams) ([]search.Result, error) {
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
@@ -33,8 +33,8 @@ func (t *Traverser) Explore(ctx context.Context,
 	return t.explorer.Concepts(ctx, params)
 }
 
-// ExploreParams to do a vector based explore search
-type ExploreParams struct {
+// NearTextParams to do a vector based explore search
+type NearTextParams struct {
 	Values       []string
 	Limit        int
 	MoveTo       ExploreMove
