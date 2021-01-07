@@ -97,7 +97,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",
-			"uuid":             thingID,
+			"id":               thingID,
 		}
 
 		require.Nil(t, err)

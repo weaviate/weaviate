@@ -14,7 +14,7 @@ package helpers
 import "fmt"
 
 const (
-	PropertyNameUUID = "uuid"
+	PropertyNameID = "id"
 )
 
 var (
