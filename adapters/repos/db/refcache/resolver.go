@@ -88,8 +88,6 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 			continue
 		}
 
-		// ref keys are uppercased in the desired response
-		// refKey := uppercaseFirstLetter(propName)
 		selectProp := properties.FindProperty(propName)
 		if selectProp == nil {
 			// user is not interested in this prop
