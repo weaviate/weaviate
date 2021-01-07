@@ -66,7 +66,7 @@ func TestRefFilters(t *testing.T) {
 		objects := []models.Object{
 			models.Object{
 				Class: "MultiRefParkingGarage",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Luxury Parking Garage",
 					"location": &models.GeoCoordinates{
 						Latitude:  ptFloat32(48.864716),
@@ -78,7 +78,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingGarage",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Crappy Parking Garage",
 					"location": &models.GeoCoordinates{
 						Latitude:  ptFloat32(42.331429),
@@ -90,7 +90,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingLot",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Fancy Parking Lot",
 				},
 				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
@@ -98,7 +98,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingLot",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "The worst parking lot youve ever seen",
 				},
 				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
@@ -106,7 +106,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked no where",
 				},
 				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
@@ -114,7 +114,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in a garage",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -127,7 +127,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in a lot",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -140,7 +140,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -156,7 +156,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefDriver",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Johny Drivemuch",
 					"drives": models.MultipleRef{
 						&models.SingleRef{
@@ -169,7 +169,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefPerson",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Jane Doughnut",
 					"friendsWith": models.MultipleRef{
 						&models.SingleRef{
@@ -182,7 +182,7 @@ func TestRefFilters(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefSociety",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Cool People",
 					"hasMembers": models.MultipleRef{
 						&models.SingleRef{
@@ -501,14 +501,14 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "Country",
 				ID:    netherlands,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Netherlands",
 				},
 			},
 			{
 				Class: "Country",
 				ID:    germany,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Germany",
 				},
 			},
@@ -517,7 +517,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "City",
 				ID:    amsterdam,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "Amsterdam",
 					"population": int64(1800000),
 					"location": &models.GeoCoordinates{
@@ -536,7 +536,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "City",
 				ID:    rotterdam,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "Rotterdam",
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
@@ -549,7 +549,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "City",
 				ID:    berlin,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "Berlin",
 					"population": int64(3470000),
 					"inCountry": models.MultipleRef{
@@ -562,7 +562,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "City",
 				ID:    dusseldorf,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "Dusseldorf",
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
@@ -580,7 +580,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "City",
 				ID:    nullisland,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":       "Null Island",
 					"population": 0,
 					"location": &models.GeoCoordinates{
@@ -594,7 +594,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "Airport",
 				ID:    airport1,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"code": "10000",
 					"phone": map[string]interface{}{
 						"input": "+311234567",
@@ -609,7 +609,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "Airport",
 				ID:    airport2,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"code": "20000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
@@ -621,7 +621,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "Airport",
 				ID:    airport3,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"code": "30000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
@@ -633,7 +633,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 			{
 				Class: "Airport",
 				ID:    airport4,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"code": "40000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{

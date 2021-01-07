@@ -18,21 +18,21 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func exploreArgument(kindName, className string) *graphql.ArgumentConfig {
+func nearTextArgument(kindName, className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("%sExploreInpObj", prefix),
-				Fields:      exploreFields(prefix),
+				Name:        fmt.Sprintf("%sNearTextInpObj", prefix),
+				Fields:      nearTextFields(prefix),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func exploreFields(prefix string) graphql.InputObjectConfigFieldMap {
+func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			// Description: descriptions.Concepts,

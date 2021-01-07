@@ -68,7 +68,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 
 		err := run.do()
 		if err != nil {
-			return fmt.Errorf("contextual: %v", err)
+			return fmt.Errorf("text2vec-contextionary-contextual: %v", err)
 		}
 
 		return nil

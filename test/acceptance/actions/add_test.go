@@ -36,7 +36,7 @@ func addingObjects(t *testing.T) {
 		params := objects.NewObjectsCreateParams().WithBody(
 			&models.Object{
 				Class: "TestObject",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"testString":      objectTestString,
 					"testWholeNumber": objectTestInt,
 					"testTrueFalse":   objectTestBoolean,
@@ -52,7 +52,7 @@ func addingObjects(t *testing.T) {
 			object := resp.Payload
 			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
 
-			schema, ok := object.Schema.(map[string]interface{})
+			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -91,7 +91,7 @@ func addingObjects(t *testing.T) {
 		helper.AssertRequestOk(t, getResp, err, func() {
 			object := getResp.Payload
 
-			schema, ok := object.Schema.(map[string]interface{})
+			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -124,7 +124,7 @@ func addingObjects(t *testing.T) {
 
 		secondObject := assertGetObjectEventually(t, secondID)
 
-		singleRef := secondObject.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
+		singleRef := secondObject.Properties.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/%s", firstID))
 	})
 }

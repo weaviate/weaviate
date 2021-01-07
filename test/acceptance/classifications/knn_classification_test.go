@@ -36,7 +36,7 @@ func knnClassification(t *testing.T) {
 				Class:              "Recipe",
 				ClassifyProperties: []string{"ofType"},
 				BasedOnProperties:  []string{"content"},
-				Type:               ptString("knn"),
+				Type:               "knn",
 				Settings: map[string]interface{}{
 					"k": 5,
 				},
@@ -61,13 +61,13 @@ func knnClassification(t *testing.T) {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSavory), nil)
 			require.Nil(t, err)
-			return res.Payload.Schema.(map[string]interface{})["ofType"] != nil
+			return res.Payload.Properties.(map[string]interface{})["ofType"] != nil
 		})
 		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
 			res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 				WithID(unclassifiedSweet), nil)
 			require.Nil(t, err)
-			return res.Payload.Schema.(map[string]interface{})["ofType"] != nil
+			return res.Payload.Properties.(map[string]interface{})["ofType"] != nil
 		})
 	})
 
@@ -78,7 +78,7 @@ func knnClassification(t *testing.T) {
 				WithInclude(ptString("classification")), nil)
 
 		require.Nil(t, err)
-		schema, ok := res.Payload.Schema.(map[string]interface{})
+		schema, ok := res.Payload.Properties.(map[string]interface{})
 		require.True(t, ok)
 
 		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",
@@ -96,7 +96,7 @@ func knnClassification(t *testing.T) {
 				WithInclude(ptString("classification")), nil)
 
 		require.Nil(t, err)
-		schema, ok := res.Payload.Schema.(map[string]interface{})
+		schema, ok := res.Payload.Properties.(map[string]interface{})
 		require.True(t, ok)
 
 		expectedRefTarget := fmt.Sprintf("weaviate://localhost/%s",

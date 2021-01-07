@@ -28,7 +28,7 @@ type GetParams struct {
 	ClassName            string
 	Pagination           *filters.Pagination
 	Properties           SelectProperties
-	Explore              *ExploreParams
+	NearText             *NearTextParams
 	SearchVector         []float32
 	Group                *GroupParams
 	AdditionalProperties AdditionalProperties

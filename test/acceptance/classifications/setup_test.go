@@ -90,19 +90,19 @@ func setupArticleCategory(t *testing.T) {
 	t.Run("object setup - categories", func(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "Category",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "Food and Drink",
 			},
 		})
 		createObject(t, &models.Object{
 			Class: "Category",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "Computers and Technology",
 			},
 		})
 		createObject(t, &models.Object{
 			Class: "Category",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "Politics",
 			},
 		})
@@ -112,21 +112,21 @@ func setupArticleCategory(t *testing.T) {
 		createObject(t, &models.Object{
 			ID:    article1,
 			Class: "Article",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "The new Apple Macbook 16 inch provides great performance",
 			},
 		})
 		createObject(t, &models.Object{
 			ID:    article2,
 			Class: "Article",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "I love eating ice cream with my t-bone steak",
 			},
 		})
 		createObject(t, &models.Object{
 			ID:    article3,
 			Class: "Article",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Barack Obama was the 44th president of the united states",
 			},
 		})
@@ -175,7 +175,7 @@ func setupRecipe(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "RecipeType",
 			ID:    recipeTypeSavory,
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "Savory",
 			},
 		})
@@ -183,7 +183,7 @@ func setupRecipe(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "RecipeType",
 			ID:    recipeTypeSweet,
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "Sweet",
 			},
 		})
@@ -192,7 +192,7 @@ func setupRecipe(t *testing.T) {
 	t.Run("object setup - articles", func(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Mix two eggs with milk and 7 grams of sugar, bake in the oven at 200 degrees",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -204,7 +204,7 @@ func setupRecipe(t *testing.T) {
 
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Sautee the apples with sugar and add a dash of milk.",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -216,7 +216,7 @@ func setupRecipe(t *testing.T) {
 
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Mix butter, cream and sugar. Make eggwhites fluffy and mix with the batter",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -228,7 +228,7 @@ func setupRecipe(t *testing.T) {
 
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Fry the steak in the pan, then sautee the onions in the same pan",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -240,7 +240,7 @@ func setupRecipe(t *testing.T) {
 
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Cut the potatoes in half and add salt and pepper. Serve with the meat.",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -252,7 +252,7 @@ func setupRecipe(t *testing.T) {
 
 		createObject(t, &models.Object{
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Put the pasta and sauce mix in the oven, top with plenty of cheese",
 				"ofType": []interface{}{
 					map[string]interface{}{
@@ -265,7 +265,7 @@ func setupRecipe(t *testing.T) {
 		createObject(t, &models.Object{
 			ID:    unclassifiedSavory,
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Serve the steak with fries and ketchup.",
 			},
 		})
@@ -273,7 +273,7 @@ func setupRecipe(t *testing.T) {
 		createObject(t, &models.Object{
 			ID:    unclassifiedSweet,
 			Class: "Recipe",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"content": "Whisk the cream, add sugar and serve with strawberries",
 			},
 		})

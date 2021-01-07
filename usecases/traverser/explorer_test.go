@@ -31,7 +31,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		params := GetParams{
 			Kind:      kind.Object,
 			ClassName: "BestClass",
-			Explore: &ExploreParams{
+			NearText: &NearTextParams{
 				Values: []string{"foo"},
 			},
 			Pagination: &filters.Pagination{Limit: 100},
@@ -92,7 +92,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		params := GetParams{
 			Kind:      kind.Object,
 			ClassName: "BestClass",
-			Explore: &ExploreParams{
+			NearText: &NearTextParams{
 				Values:    []string{"foo"},
 				Certainty: 0.8,
 			},
@@ -276,7 +276,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
 			SearchVector: []float32{1.0, 2.0, 3.0},
-			Explore: &ExploreParams{
+			NearText: &NearTextParams{
 				Values:    []string{"foobar"},
 				Limit:     100,
 				Certainty: 0,
@@ -643,7 +643,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			AdditionalProperties: AdditionalProperties{
 				SemanticPath: &sempath.Params{},
 			},
-			Explore: &ExploreParams{
+			NearText: &NearTextParams{
 				Values: []string{"foobar"},
 			},
 		}

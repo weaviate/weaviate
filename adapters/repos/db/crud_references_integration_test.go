@@ -133,7 +133,7 @@ func TestNestedReferences(t *testing.T) {
 		objects := []models.Object{
 			models.Object{
 				Class: "Planet",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Earth",
 				},
 				ID:               "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
@@ -141,7 +141,7 @@ func TestNestedReferences(t *testing.T) {
 			},
 			models.Object{
 				Class: "Continent",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "North America",
 					"onPlanet": models.MultipleRef{
 						&models.SingleRef{
@@ -154,7 +154,7 @@ func TestNestedReferences(t *testing.T) {
 			},
 			models.Object{
 				Class: "Country",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "USA",
 					"onContinent": models.MultipleRef{
 						&models.SingleRef{
@@ -167,7 +167,7 @@ func TestNestedReferences(t *testing.T) {
 			},
 			models.Object{
 				Class: "City",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "San Francisco",
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
@@ -180,7 +180,7 @@ func TestNestedReferences(t *testing.T) {
 			},
 			models.Object{
 				Class: "Place",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Tim Apple's Fruit Bar",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
@@ -306,7 +306,7 @@ func TestNestedReferences(t *testing.T) {
 	t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
 		newPlace := models.Object{
 			Class: "Place",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "John Oliver's Avocados",
 				"inCity": models.MultipleRef{
 					&models.SingleRef{
@@ -468,7 +468,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "AddingReferencesTestSource",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "source item",
 			},
 		}, []float32{0.5})
@@ -477,7 +477,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    targetID,
 			Class: "AddingReferencesTestTarget",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "target item",
 			},
 		}, []float32{0.5})
@@ -485,7 +485,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    target2ID,
 			Class: "AddingReferencesTestTarget",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "another target item",
 			},
 		}, []float32{0.5})
@@ -506,9 +506,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
-		require.NotNil(t, source.Object().Schema)
+		require.NotNil(t, source.Object().Properties)
 
-		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok,
 			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
@@ -538,9 +538,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
-		require.NotNil(t, source.Object().Schema)
+		require.NotNil(t, source.Object().Properties)
 
-		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok,
 			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))

@@ -48,7 +48,7 @@ func creatingObjects(t *testing.T) {
 			&models.Object{
 				ID:    id,
 				Class: "TestObject",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"testString": objectTestString,
 				},
 			})
@@ -60,7 +60,7 @@ func creatingObjects(t *testing.T) {
 			object := resp.Payload
 			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
 
-			schema, ok := object.Schema.(map[string]interface{})
+			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -84,7 +84,7 @@ func creatingObjects(t *testing.T) {
 			&models.Object{
 				ID:    id,
 				Class: "TestObject",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"testString": objectTestString,
 				},
 			})
@@ -117,7 +117,7 @@ func creatingObjects(t *testing.T) {
 		params := objects.NewObjectsCreateParams().WithBody(
 			&models.Object{
 				Class: "TestObject",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"testString":      objectTestString,
 					"testWholeNumber": objectTestInt,
 					"testTrueFalse":   objectTestBoolean,
@@ -134,7 +134,7 @@ func creatingObjects(t *testing.T) {
 			object := resp.Payload
 			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
 
-			schema, ok := object.Schema.(map[string]interface{})
+			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -180,7 +180,7 @@ func creatingObjects(t *testing.T) {
 			mistake: "missing the class",
 			object: func() *models.Object {
 				return &models.Object{
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"testString": "test",
 					},
 				}
@@ -194,7 +194,7 @@ func creatingObjects(t *testing.T) {
 			object: func() *models.Object {
 				return &models.Object{
 					Class: "NonExistingClass",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"testString": "test",
 					},
 				}
@@ -208,7 +208,7 @@ func creatingObjects(t *testing.T) {
 			object: func() *models.Object {
 				return &models.Object{
 					Class: "TestObject",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"nonExistingProperty": "test",
 					},
 				}
@@ -243,7 +243,7 @@ func creatingObjects(t *testing.T) {
 			object: func() *models.Object {
 				return &models.Object{
 					Class: "TestObject",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"testReference": map[string]interface{}{
 							"beacon": fakeObjectId,
 							"x":      nil,
@@ -261,7 +261,7 @@ func creatingObjects(t *testing.T) {
 			object: func() *models.Object {
 				return &models.Object{
 					Class: "TestObject",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"testString": 2,
 					},
 				}

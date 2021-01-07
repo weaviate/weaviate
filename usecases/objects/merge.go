@@ -46,7 +46,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
-	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
+	primitive, refs := m.splitPrimitiveAndRefs(updated.Properties.(map[string]interface{}),
 		updated.Class, id, kind.Object)
 
 	vector, source, err := m.mergeObjectSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
@@ -122,7 +122,7 @@ func (m *Manager) mergeObjectSchemasAndVectorize(ctx context.Context, className 
 		merged = oldMap
 	}
 
-	v, source, err := m.vectorizer.Object(ctx, &models.Object{Class: className, Schema: merged})
+	v, source, err := m.vectorizer.Object(ctx, &models.Object{Class: className, Properties: merged})
 	if err != nil {
 		return nil, nil, err
 	}

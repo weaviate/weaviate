@@ -89,9 +89,9 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 			for i, schema := range products {
 				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 					fixture := models.Object{
-						Class:  productClass.Class,
-						ID:     productsIds[i],
-						Schema: schema,
+						Class:      productClass.Class,
+						ID:         productsIds[i],
+						Properties: schema,
 					}
 					require.Nil(t,
 						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}))
@@ -103,9 +103,9 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 			for i, schema := range companies {
 				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
 					fixture := models.Object{
-						Class:  companyClass.Class,
-						ID:     strfmt.UUID(uuid.Must(uuid.NewV4()).String()),
-						Schema: schema,
+						Class:      companyClass.Class,
+						ID:         strfmt.UUID(uuid.Must(uuid.NewV4()).String()),
+						Properties: schema,
 					}
 					require.Nil(t,
 						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))

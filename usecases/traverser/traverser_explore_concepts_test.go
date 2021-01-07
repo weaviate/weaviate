@@ -39,7 +39,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+		params := NearTextParams{
 			Values:  []string{"a search term", "another"},
 			Network: true,
 		}
@@ -62,7 +62,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+		params := NearTextParams{
 			Values: []string{"a search term", "another"},
 		}
 		vectorSearcher.results = []search.Result{
@@ -116,7 +116,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+		params := NearTextParams{
 			Values:    []string{"a search term", "another"},
 			Certainty: 0.6,
 		}
@@ -155,7 +155,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+		params := NearTextParams{
 			Limit:  100,
 			Values: []string{"a search term", "another"},
 			MoveTo: ExploreMove{

@@ -86,7 +86,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 			things[i] = &models.Object{
 				Class: className,
 				ID:    mustNewUUID(),
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"boolProp":      i < 5,
 					"unrelatedProp": "initialValue",
 				},
@@ -104,7 +104,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		// update
 
 		for i := 0; i < 5; i++ {
-			things[i].Schema.(map[string]interface{})["unrelatedProp"] = "updatedValue"
+			things[i].Properties.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
 			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
 			require.Nil(t, err)

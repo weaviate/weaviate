@@ -593,7 +593,7 @@ func TestExploreRanker(t *testing.T) {
 	resolver := newMockResolver()
 
 	t.Run("for actions", func(t *testing.T) {
-		query := `{ Get { SomeAction(explore: {
+		query := `{ Get { SomeAction(nearText: {
                 concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
@@ -609,7 +609,7 @@ func TestExploreRanker(t *testing.T) {
 			Kind:       kind.Object,
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			Explore: &traverser.ExploreParams{
+			NearText: &traverser.NearTextParams{
 				Values: []string{"c1", "c2", "c3"},
 				MoveTo: traverser.ExploreMove{
 					Values: []string{"positive"},
@@ -629,7 +629,7 @@ func TestExploreRanker(t *testing.T) {
 	})
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
-		query := `{ Get { SomeThing(explore: {
+		query := `{ Get { SomeThing(nearText: {
                 concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
@@ -646,7 +646,7 @@ func TestExploreRanker(t *testing.T) {
 			Kind:       kind.Object,
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			Explore: &traverser.ExploreParams{
+			NearText: &traverser.NearTextParams{
 				Values:    []string{"c1", "c2", "c3"},
 				Certainty: 0.4,
 				MoveTo: traverser.ExploreMove{
