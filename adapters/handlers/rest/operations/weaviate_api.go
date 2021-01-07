@@ -564,15 +564,15 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema/objects"] = schema.NewSchemaObjectsCreate(o.context, o.SchemaSchemaObjectsCreateHandler)
+	o.handlers["POST"]["/schema"] = schema.NewSchemaObjectsCreate(o.context, o.SchemaSchemaObjectsCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/schema/objects/{className}"] = schema.NewSchemaObjectsDelete(o.context, o.SchemaSchemaObjectsDeleteHandler)
+	o.handlers["DELETE"]["/schema/{className}"] = schema.NewSchemaObjectsDelete(o.context, o.SchemaSchemaObjectsDeleteHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema/objects/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

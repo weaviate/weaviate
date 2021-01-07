@@ -470,11 +470,6 @@
         "name": {
           "description": "Name of the schema.",
           "type": "string"
-        },
-        "type": {
-          "description": "Type of schema, should be \"object\".",
-          "enum": ["object"],
-          "type": "string"
         }
       },
       "type": "object"
@@ -2103,15 +2098,7 @@
           "200": {
             "description": "Successfully dumped the database schema.",
             "schema": {
-              "type": "object",
-              "properties": {
-                "objects": {
-                  "$ref": "#/definitions/Schema"
-                },
-                "objects": {
-                  "$ref": "#/definitions/Schema"
-                }
-              }
+              "$ref": "#/definitions/Schema"
             }
           },
           "401": {
@@ -2130,9 +2117,7 @@
             }
           }
         }
-      }
-    },
-    "/schema/objects": {
+      },
       "post": {
         "summary": "Create a new Object class in the schema.",
         "operationId": "schema.objects.create",
@@ -2179,7 +2164,7 @@
         }
       }
     },
-    "/schema/objects/{className}": {
+    "/schema/{className}": {
       "delete": {
         "summary": "Remove an Object class (and all data in the instances) from the schema.",
         "operationId": "schema.objects.delete",
@@ -2221,7 +2206,7 @@
         }
       }
     },
-    "/schema/objects/{className}/properties": {
+    "/schema/{className}/properties": {
       "post": {
         "summary": "Add a property to an Object class.",
         "operationId": "schema.objects.properties.add",
