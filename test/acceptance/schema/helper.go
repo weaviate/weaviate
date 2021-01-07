@@ -24,7 +24,7 @@ func GetObjectClassNames(t *testing.T) []string {
 
 	// Extract all names
 	helper.AssertRequestOk(t, resp, err, func() {
-		for _, class := range resp.Payload.Objects.Classes {
+		for _, class := range resp.Payload.Classes {
 			names = append(names, class.Class)
 		}
 	})

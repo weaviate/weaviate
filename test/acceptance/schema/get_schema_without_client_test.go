@@ -32,18 +32,15 @@ func testGetSchemaWithoutClient(t *testing.T) {
 	require.Nil(t, err)
 
 	expected := map[string]interface{}{
-		"objects": map[string]interface{}{
-			"type": "object",
-			"classes": []interface{}{
-				map[string]interface{}{
-					"class":           "YellowCars",
-					"properties":      (interface{})(nil),
-					"vectorIndexType": "hnsw",                   // from default
-					"vectorizer":      "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
-					"moduleConfig": map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": true,
-						},
+		"classes": []interface{}{
+			map[string]interface{}{
+				"class":           "YellowCars",
+				"properties":      (interface{})(nil),
+				"vectorIndexType": "hnsw",                   // from default
+				"vectorizer":      "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
+				"moduleConfig": map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizeClassName": true,
 					},
 				},
 			},

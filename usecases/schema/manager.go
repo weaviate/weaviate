@@ -161,7 +161,6 @@ func newSchema() *State {
 	return &State{
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{},
-			Type:    "object",
 		},
 	}
 }

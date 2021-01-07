@@ -83,7 +83,7 @@ type SchemaObjectsDeleteOK struct {
 }
 
 func (o *SchemaObjectsDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/objects/{className}][%d] schemaObjectsDeleteOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -105,7 +105,7 @@ type SchemaObjectsDeleteBadRequest struct {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /schema/objects/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
@@ -137,7 +137,7 @@ type SchemaObjectsDeleteUnauthorized struct {
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/objects/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -159,7 +159,7 @@ type SchemaObjectsDeleteForbidden struct {
 }
 
 func (o *SchemaObjectsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/objects/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
@@ -192,7 +192,7 @@ type SchemaObjectsDeleteInternalServerError struct {
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/objects/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
