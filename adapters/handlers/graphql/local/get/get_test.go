@@ -587,7 +587,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 }
 
-func TestExploreRanker(t *testing.T) {
+func TestNearTextRanker(t *testing.T) {
 	t.Parallel()
 
 	resolver := newMockResolver()
@@ -657,6 +657,53 @@ func TestExploreRanker(t *testing.T) {
 					Values: []string{"epic"},
 					Force:  0.25,
 				},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+}
+
+func TestNearVectorRanker(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	t.Run("for actions", func(t *testing.T) {
+		query := `{ Get { SomeAction(nearVector: {
+							  vector: [0.123, 0.984] 
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			Kind:       kind.Object,
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &traverser.NearVectorParams{
+				Vector: []float32{0.123, 0.984},
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearVector: {
+							  vector: [0.123, 0.984] 
+								certainty: 0.4
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			Kind:       kind.Object,
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).

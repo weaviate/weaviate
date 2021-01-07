@@ -33,6 +33,7 @@ func (t *Traverser) Explore(ctx context.Context,
 	return t.explorer.Concepts(ctx, params)
 }
 
+// TODO: This belongs to the text2vec-contextionary module
 // NearTextParams to do a vector based explore search
 type NearTextParams struct {
 	Values       []string
@@ -47,4 +48,9 @@ type NearTextParams struct {
 type ExploreMove struct {
 	Values []string
 	Force  float32
+}
+
+type NearVectorParams struct {
+	Vector    []float32
+	Certainty float64
 }
