@@ -122,7 +122,7 @@ func TestCacher(t *testing.T) {
 		}
 		selectProps := traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "RefProp",
+				Name: "refProp",
 				Refs: []traverser.SelectClass{
 					traverser.SelectClass{
 						ClassName: "SomeClass",
@@ -199,7 +199,7 @@ func TestCacher(t *testing.T) {
 		}
 		selectProps := traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "RefProp",
+				Name: "refProp",
 				Refs: []traverser.SelectClass{
 					traverser.SelectClass{
 						ClassName: "SomeClass",
@@ -209,7 +209,7 @@ func TestCacher(t *testing.T) {
 								IsPrimitive: true,
 							},
 							traverser.SelectProperty{
-								Name: "NestedRef",
+								Name: "nestedRef",
 								Refs: []traverser.SelectClass{
 									traverser.SelectClass{
 										ClassName: "SomeNestedClass",
@@ -335,7 +335,7 @@ func TestCacher(t *testing.T) {
 		}
 		selectProps := traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "RefProp",
+				Name: "refProp",
 				Refs: []traverser.SelectClass{
 					traverser.SelectClass{
 						ClassName: "SomeClass",
@@ -345,7 +345,7 @@ func TestCacher(t *testing.T) {
 								IsPrimitive: true,
 							},
 							traverser.SelectProperty{
-								Name: "NestedRef",
+								Name: "nestedRef",
 								Refs: []traverser.SelectClass{
 									traverser.SelectClass{
 										ClassName: "SomeNestedClass",
