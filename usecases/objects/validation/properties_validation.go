@@ -45,7 +45,7 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 	var className string
 	if k == kind.Object {
 		className = object.(*models.Object).Class
-		isp = object.(*models.Object).Schema
+		isp = object.(*models.Object).Properties
 		vectorWeights = object.(*models.Object).VectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)
@@ -88,7 +88,7 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 	}
 
 	if k == kind.Object {
-		object.(*models.Object).Schema = returnSchema
+		object.(*models.Object).Properties = returnSchema
 		object.(*models.Object).VectorWeights = vectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)

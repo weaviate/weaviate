@@ -133,7 +133,7 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 
 		var foundIDs []strfmt.UUID
 		// extract IDs
-		for _, ref := range source.Schema.(map[string]interface{})["toTarget"].([]interface{}) {
+		for _, ref := range source.Properties.(map[string]interface{})["toTarget"].([]interface{}) {
 			beacon := ref.(map[string]interface{})["beacon"].(string)
 			chunks := strings.Split(beacon, "/")
 			foundIDs = append(foundIDs, strfmt.UUID(chunks[len(chunks)-1]))

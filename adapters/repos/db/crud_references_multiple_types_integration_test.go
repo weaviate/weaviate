@@ -64,7 +64,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		objects := []models.Object{
 			models.Object{
 				Class: "MultiRefParkingGarage",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Luxury Parking Garage",
 					"location": &models.GeoCoordinates{
 						Latitude:  ptFloat32(48.864716),
@@ -76,7 +76,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingGarage",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Crappy Parking Garage",
 					"location": &models.GeoCoordinates{
 						Latitude:  ptFloat32(42.331429),
@@ -88,7 +88,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingLot",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Fancy Parking Lot",
 				},
 				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
@@ -96,7 +96,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefParkingLot",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "The worst parking lot youve ever seen",
 				},
 				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
@@ -104,7 +104,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked no where",
 				},
 				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
@@ -112,7 +112,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in a garage",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -125,7 +125,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in a lot",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -138,7 +138,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
@@ -154,7 +154,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefDriver",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Johny Drivemuch",
 					"drives": models.MultipleRef{
 						&models.SingleRef{
@@ -167,7 +167,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefPerson",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Jane Doughnut",
 					"friendsWith": models.MultipleRef{
 						&models.SingleRef{
@@ -180,7 +180,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 			models.Object{
 				Class: "MultiRefSociety",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "Cool People",
 					"hasMembers": models.MultipleRef{
 						&models.SingleRef{

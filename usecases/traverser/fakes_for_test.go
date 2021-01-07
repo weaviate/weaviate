@@ -136,7 +136,7 @@ func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}
 	return nil, nil
 }
 
-func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
+func (f *fakeExplorer) Concepts(ctx context.Context, p NearTextParams) ([]search.Result, error) {
 	return nil, nil
 }
 

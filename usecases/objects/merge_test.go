@@ -49,7 +49,7 @@ func Test_MergeObject(t *testing.T) {
 			previous: nil,
 			updated: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"foo": "bar",
 				},
 			},
@@ -60,19 +60,19 @@ func Test_MergeObject(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a new property",
 			previous: &models.Object{
-				Class:  "ZooAction",
-				Schema: map[string]interface{}{},
+				Class:      "ZooAction",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
@@ -96,12 +96,12 @@ func Test_MergeObject(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding many primitive properties of different types",
 			previous: &models.Object{
-				Class:  "ZooAction",
-				Schema: map[string]interface{}{},
+				Class:      "ZooAction",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
 					"employees": json.Number("70"),
@@ -115,7 +115,7 @@ func Test_MergeObject(t *testing.T) {
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
 					"employees": int64(70),
@@ -153,12 +153,12 @@ func Test_MergeObject(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a primitive and a ref property",
 			previous: &models.Object{
-				Class:  "ZooAction",
-				Schema: map[string]interface{}{},
+				Class:      "ZooAction",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 					"hasAnimals": []interface{}{
 						map[string]interface{}{
@@ -170,7 +170,7 @@ func Test_MergeObject(t *testing.T) {
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "ZooAction",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
@@ -217,7 +217,7 @@ func Test_MergeObject(t *testing.T) {
 			if test.previous != nil {
 				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return(&search.Result{
-						Schema:    test.previous.Schema,
+						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
 						Kind:      kind.Object,
 					}, nil)
@@ -264,7 +264,7 @@ func Test_MergeThing(t *testing.T) {
 			previous: nil,
 			updated: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"foo": "bar",
 				},
 			},
@@ -275,19 +275,19 @@ func Test_MergeThing(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a new property",
 			previous: &models.Object{
-				Class:  "Zoo",
-				Schema: map[string]interface{}{},
+				Class:      "Zoo",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
@@ -311,12 +311,12 @@ func Test_MergeThing(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding many primitive properties of different types",
 			previous: &models.Object{
-				Class:  "Zoo",
-				Schema: map[string]interface{}{},
+				Class:      "Zoo",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
 					"employees": json.Number("70"),
@@ -330,7 +330,7 @@ func Test_MergeThing(t *testing.T) {
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
 					"employees": int64(70),
@@ -368,12 +368,12 @@ func Test_MergeThing(t *testing.T) {
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a primitive and a ref property",
 			previous: &models.Object{
-				Class:  "Zoo",
-				Schema: map[string]interface{}{},
+				Class:      "Zoo",
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 					"hasAnimals": []interface{}{
 						map[string]interface{}{
@@ -385,7 +385,7 @@ func Test_MergeThing(t *testing.T) {
 			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
 				Class: "Zoo",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
@@ -432,7 +432,7 @@ func Test_MergeThing(t *testing.T) {
 			if test.previous != nil {
 				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
 					Return(&search.Result{
-						Schema:    test.previous.Schema,
+						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
 						Kind:      kind.Object,
 					}, nil)

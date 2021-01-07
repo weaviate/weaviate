@@ -164,7 +164,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 
 			obj := &models.Object{
 				Class: "Person",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"phone": test.phone,
 				},
 			}
@@ -173,7 +173,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			if err != nil {
 				return
 			}
-			phone, ok := obj.Schema.(map[string]interface{})["phone"]
+			phone, ok := obj.Properties.(map[string]interface{})["phone"]
 			require.True(t, ok)
 			assert.Equal(t, test.expectedResult, phone)
 		})

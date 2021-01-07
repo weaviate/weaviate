@@ -59,7 +59,7 @@ type VectorSearcher interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
+	Concepts(ctx context.Context, params NearTextParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph

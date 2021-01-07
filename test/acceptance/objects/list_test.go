@@ -30,8 +30,8 @@ import (
 func listingObjects(t *testing.T) {
 	params1 := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
-			Class:  "TestObject",
-			Schema: map[string]interface{}{},
+			Class:      "TestObject",
+			Properties: map[string]interface{}{},
 		})
 	resp1, err := helper.Client(t).Objects.ObjectsCreate(params1, nil)
 	require.Nil(t, err, "creation should succeed")
@@ -39,8 +39,8 @@ func listingObjects(t *testing.T) {
 
 	params2 := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
-			Class:  "TestObject",
-			Schema: map[string]interface{}{},
+			Class:      "TestObject",
+			Properties: map[string]interface{}{},
 		})
 	resp2, err := helper.Client(t).Objects.ObjectsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")

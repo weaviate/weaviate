@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/batching"
+	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -63,11 +63,11 @@ func createObject(t *testing.T, object *models.Object) {
 }
 
 func createObjectsBatch(t *testing.T, objects []*models.Object) {
-	params := batching.NewBatchingObjectsCreateParams().
-		WithBody(batching.BatchingObjectsCreateBody{
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
-	resp, err := helper.Client(t).Batching.BatchingObjectsCreate(params, nil)
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	for _, elem := range resp.Payload {
 		assert.Nil(t, elem.Result.Errors)
@@ -233,14 +233,14 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Country",
 		ID:    netherlands,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name": "Netherlands",
 		},
 	})
 	createObject(t, &models.Object{
 		Class: "Country",
 		ID:    germany,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name": "Germany",
 		},
 	})
@@ -249,7 +249,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "City",
 		ID:    amsterdam,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name":       "Amsterdam",
 			"population": 1800000,
 			"location": map[string]interface{}{
@@ -266,7 +266,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "City",
 		ID:    rotterdam,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name":       "Rotterdam",
 			"population": 600000,
 			"inCountry": []interface{}{
@@ -279,7 +279,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "City",
 		ID:    berlin,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name":       "Berlin",
 			"population": 3470000,
 			"inCountry": []interface{}{
@@ -292,7 +292,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "City",
 		ID:    dusseldorf,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name":       "Dusseldorf",
 			"population": 600000,
 			"inCountry": []interface{}{
@@ -310,7 +310,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "City",
 		ID:    nullisland,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"name":       "Null Island",
 			"population": 0,
 			"location": map[string]interface{}{
@@ -324,7 +324,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport1,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"code": "10000",
 			"phone": map[string]interface{}{
 				"input": "+311234567",
@@ -339,7 +339,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport2,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"code": "20000",
 			"inCity": []interface{}{
 				map[string]interface{}{
@@ -351,7 +351,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport3,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"code": "30000",
 			"inCity": []interface{}{
 				map[string]interface{}{
@@ -363,7 +363,7 @@ func addTestDataCityAirport(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport4,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"code": "40000",
 			"inCity": []interface{}{
 				map[string]interface{}{
@@ -427,7 +427,7 @@ func addTestDataCompanies(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "Company",
 			ID:    company.id,
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"inCity": inCity,
 				"name":   company.name,
 			},
@@ -471,7 +471,7 @@ func addTestDataPersons(t *testing.T) {
 		createObject(t, &models.Object{
 			Class: "Person",
 			ID:    person.id,
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"livesIn": livesIn,
 				"name":    person.name,
 			},

@@ -24,8 +24,8 @@ import (
 func assertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
-			Class:  className,
-			Schema: schema,
+			Class:      className,
+			Properties: schema,
 		})
 
 	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
