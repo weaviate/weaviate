@@ -157,9 +157,9 @@ func (s *Shard) drop() error {
 	return nil
 }
 
-func (s *Shard) addUUIDProperty(ctx context.Context) error {
+func (s *Shard) addIDProperty(ctx context.Context) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.PropertyNameUUID))
+		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.PropertyNameID))
 		if err != nil {
 			return err
 		}

@@ -274,32 +274,32 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "by id",
-				filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
+				filter:      buildFilter("id", carPoloID.String(), eq, dtString),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by id not equal",
-				filter:      buildFilter("uuid", carE63sID.String(), neq, dtString),
+				filter:      buildFilter("id", carE63sID.String(), neq, dtString),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
 			},
 			{
 				name:        "by id less then equal",
-				filter:      buildFilter("uuid", carPoloID.String(), lte, dtString),
+				filter:      buildFilter("id", carPoloID.String(), lte, dtString),
 				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
 			},
 			{
 				name:        "by id less then",
-				filter:      buildFilter("uuid", carPoloID.String(), lt, dtString),
+				filter:      buildFilter("id", carPoloID.String(), lt, dtString),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by id greater then equal",
-				filter:      buildFilter("uuid", carPoloID.String(), gte, dtString),
+				filter:      buildFilter("id", carPoloID.String(), gte, dtString),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
 			},
 			{
 				name:        "by id greater then",
-				filter:      buildFilter("uuid", carPoloID.String(), gt, dtString),
+				filter:      buildFilter("id", carPoloID.String(), gt, dtString),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
@@ -315,7 +315,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			// {
 			// 	name:        "by id like",
-			// 	filter:      buildFilter("uuid", carPoloID.String(), like, dtString),
+			// 	filter:      buildFilter("id", carPoloID.String(), like, dtString),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
 		}

@@ -205,7 +205,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
 		expectedSchema := map[string]interface{}{
 			"name": "Car which is parked no where",
-			"uuid": id,
+			"id":   id,
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
@@ -241,7 +241,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
 		expectedSchemaUnresolved := map[string]interface{}{
 			"name": "Car which is parked in a garage",
-			"uuid": id,
+			"id":   id,
 			// ref is present, but unresolved, therefore the lowercase letter
 			"parkedAt": models.MultipleRef{
 				&models.SingleRef{
@@ -252,7 +252,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		expectedSchemaWithRefs := map[string]interface{}{
 			"name": "Car which is parked in a garage",
-			"uuid": id,
+			"id":   id,
 			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingGarage",
@@ -262,7 +262,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"uuid": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 					},
 				},
 			},
@@ -301,7 +301,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
 		expectedSchemaUnresolved := map[string]interface{}{
 			"name": "Car which is parked in a lot",
-			"uuid": id,
+			"id":   id,
 			// ref is present, but unresolved, therefore the lowercase letter
 			"parkedAt": models.MultipleRef{
 				&models.SingleRef{
@@ -312,13 +312,13 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		expectedSchemaWithRefs := map[string]interface{}{
 			"name": "Car which is parked in a lot",
-			"uuid": id,
+			"id":   id,
 			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
 						"name": "Fancy Parking Lot",
-						"uuid": strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
 					},
 				},
 			},
@@ -357,7 +357,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
 		expectedSchemaUnresolved := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
-			"uuid": id,
+			"id":   id,
 			// ref is present, but unresolved, therefore the lowercase letter
 			"parkedAt": models.MultipleRef{
 				&models.SingleRef{
@@ -371,20 +371,20 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		expectedSchemaWithLotRef := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
-			"uuid": id,
+			"id":   id,
 			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
 						"name": "Fancy Parking Lot",
-						"uuid": strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
 					},
 				},
 			},
 		}
 		expectedSchemaWithGarageRef := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
-			"uuid": id,
+			"id":   id,
 			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingGarage",
@@ -394,20 +394,20 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"uuid": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 					},
 				},
 			},
 		}
 		expectedSchemaWithAllRefs := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
-			"uuid": id,
+			"id":   id,
 			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
 						"name": "Fancy Parking Lot",
-						"uuid": strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
 					},
 				},
 				search.LocalRef{
@@ -418,7 +418,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"uuid": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 					},
 				},
 			},
@@ -664,14 +664,14 @@ func refToBothGarages() []interface{} {
 			Class: "MultiRefParkingLot",
 			Fields: map[string]interface{}{
 				"name": "Fancy Parking Lot",
-				"uuid": strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+				"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
 			},
 		},
 		search.LocalRef{
 			Class: "MultiRefParkingGarage",
 			Fields: map[string]interface{}{
 				"name": "Luxury Parking Garage",
-				"uuid": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+				"id":   strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
 				"location": &models.GeoCoordinates{
 					Latitude:  ptFloat32(48.864716),
 					Longitude: ptFloat32(2.349014),
