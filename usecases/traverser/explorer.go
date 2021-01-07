@@ -73,7 +73,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 		}
 	}
 
-	if params.Explore != nil {
+	if params.NearText != nil {
 		return e.getClassExploration(ctx, params)
 	}
 
@@ -82,7 +82,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 func (e *Explorer) getClassExploration(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
-	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
+	searchVector, err := e.vectorFromExploreParams(ctx, params.NearText)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
 	}
@@ -215,7 +215,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
 			}
 
-			if 1-(dist) < float32(params.Explore.Certainty) {
+			if 1-(dist) < float32(params.NearText.Certainty) {
 				continue
 			}
 
@@ -237,7 +237,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 }
 
 func (e *Explorer) Concepts(ctx context.Context,
-	params ExploreParams) ([]search.Result, error) {
+	params NearTextParams) ([]search.Result, error) {
 	if params.Network {
 		return nil, fmt.Errorf("explorer: network exploration currently not supported")
 	}
@@ -269,7 +269,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
-	params *ExploreParams) ([]float32, error) {
+	params *NearTextParams) ([]float32, error) {
 	vector, err := e.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
 		return nil, fmt.Errorf("vectorize keywords: %v", err)
