@@ -19,10 +19,7 @@ package schema
 import (
 	"net/http"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 )
@@ -84,63 +81,4 @@ func (o *SchemaDump) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
-}
-
-// SchemaDumpOKBody schema dump o k body
-//
-// swagger:model SchemaDumpOKBody
-type SchemaDumpOKBody struct {
-
-	// objects
-	Objects *models.Schema `yaml:"objects,omitempty" json:"objects,omitempty"`
-}
-
-// Validate validates this schema dump o k body
-func (o *SchemaDumpOKBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateObjects(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *SchemaDumpOKBody) validateObjects(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Objects) { // not required
-		return nil
-	}
-
-	if o.Objects != nil {
-		if err := o.Objects.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("schemaDumpOK" + "." + "objects")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *SchemaDumpOKBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *SchemaDumpOKBody) UnmarshalBinary(b []byte) error {
-	var res SchemaDumpOKBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
-	return nil
 }

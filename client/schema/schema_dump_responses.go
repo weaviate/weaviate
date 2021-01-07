@@ -20,10 +20,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 )
@@ -76,20 +74,20 @@ func NewSchemaDumpOK() *SchemaDumpOK {
 Successfully dumped the database schema.
 */
 type SchemaDumpOK struct {
-	Payload *SchemaDumpOKBody
+	Payload *models.Schema
 }
 
 func (o *SchemaDumpOK) Error() string {
 	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
 }
 
-func (o *SchemaDumpOK) GetPayload() *SchemaDumpOKBody {
+func (o *SchemaDumpOK) GetPayload() *models.Schema {
 	return o.Payload
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(SchemaDumpOKBody)
+	o.Payload = new(models.Schema)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -183,64 +181,5 @@ func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResp
 		return err
 	}
 
-	return nil
-}
-
-/*SchemaDumpOKBody schema dump o k body
-swagger:model SchemaDumpOKBody
-*/
-type SchemaDumpOKBody struct {
-
-	// objects
-	Objects *models.Schema `json:"objects,omitempty"`
-}
-
-// Validate validates this schema dump o k body
-func (o *SchemaDumpOKBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateObjects(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *SchemaDumpOKBody) validateObjects(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Objects) { // not required
-		return nil
-	}
-
-	if o.Objects != nil {
-		if err := o.Objects.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("schemaDumpOK" + "." + "objects")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *SchemaDumpOKBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *SchemaDumpOKBody) UnmarshalBinary(b []byte) error {
-	var res SchemaDumpOKBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

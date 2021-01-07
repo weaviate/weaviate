@@ -84,7 +84,7 @@ type SchemaObjectsPropertiesAddOK struct {
 }
 
 func (o *SchemaObjectsPropertiesAddOK) Error() string {
-	return fmt.Sprintf("[POST /schema/objects/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddOK  %+v", 200, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddOK) GetPayload() *models.Property {
@@ -116,7 +116,7 @@ type SchemaObjectsPropertiesAddUnauthorized struct {
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/objects/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -138,7 +138,7 @@ type SchemaObjectsPropertiesAddForbidden struct {
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/objects/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddForbidden  %+v", 403, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) GetPayload() *models.ErrorResponse {
@@ -171,7 +171,7 @@ type SchemaObjectsPropertiesAddUnprocessableEntity struct {
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/objects/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -204,7 +204,7 @@ type SchemaObjectsPropertiesAddInternalServerError struct {
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/objects/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) GetPayload() *models.ErrorResponse {
