@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -161,10 +162,17 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 	})
 }
 
+// TODO: this is module logic and rather than making this decision ourselves in
+// the API, we should ask the modules UC for what to provide when we want to
+// have real modularization
+func shouldIncludeNearText(class *models.Class) bool {
+	return class.Vectorizer == config.VectorizerModuleText2VecContextionary
+}
+
 func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 	class *models.Class) graphql.Field {
 	kindName := strings.Title(k.Name())
-	return graphql.Field{
+	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
@@ -173,15 +181,19 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Type:        graphql.Int,
 			},
 
-			// TODO: this is module-specific and should be added dynamically
-			"nearText": nearTextArgument(kindName, class.Class),
-
 			"nearVector": nearVectorArgument(kindName, class.Class),
 			"where":      whereArgument(kindName, class.Class),
 			"group":      groupArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
 	}
+
+	// TODO: this is module-specific and should be added dynamically
+	if shouldIncludeNearText(class) {
+		field.Args["nearText"] = nearTextArgument(kindName, class.Class)
+	}
+
+	return field
 }
 
 func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
