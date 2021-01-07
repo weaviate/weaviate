@@ -33,7 +33,7 @@ func contextualClassification(t *testing.T) {
 			Class:              "Article",
 			ClassifyProperties: []string{"ofCategory"},
 			BasedOnProperties:  []string{"content"},
-			Type:               ptString("contextual"),
+			Type:               "text2vec-contextionary-contextual",
 		}), nil)
 	require.Nil(t, err)
 	id = res.Payload.ID
