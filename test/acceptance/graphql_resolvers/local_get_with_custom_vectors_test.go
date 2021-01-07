@@ -12,6 +12,7 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -19,7 +20,8 @@ import (
 )
 
 func gettingObjectsWithCustomVectors(t *testing.T) {
-	query := `
+	t.Run("through Get {}", func(t *testing.T) {
+		query := `
 		{
 			Get {
 				CustomVectorClass(nearVector:{vector:[1,1,1]}) {
@@ -30,14 +32,35 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 			}
 		}
 		`
-	result := AssertGraphQL(t, helper.RootAuth, query)
-	airports := result.Get("Get", "CustomVectorClass").AsSlice()
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Get", "CustomVectorClass").AsSlice()
 
-	expected := []interface{}{
-		map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc1)}},
-		map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc2)}},
-		map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc3)}},
-	}
+		expected := []interface{}{
+			map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc1)}},
+			map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc2)}},
+			map[string]interface{}{"_additional": map[string]interface{}{"id": string(cvc3)}},
+		}
 
-	assert.Equal(t, expected, airports)
+		assert.Equal(t, expected, results)
+	})
+
+	t.Run("through Explore {}", func(t *testing.T) {
+		query := `
+		{
+			Explore(nearVector: {vector:[1,1,1]}) {
+				beacon
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		results := result.Get("Explore").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc1)},
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc2)},
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc3)},
+		}
+
+		assert.Equal(t, expected, results)
+	})
 }
