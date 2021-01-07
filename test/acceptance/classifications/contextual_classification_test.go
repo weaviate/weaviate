@@ -33,7 +33,7 @@ func contextualClassification(t *testing.T) {
 			Class:              "Article",
 			ClassifyProperties: []string{"ofCategory"},
 			BasedOnProperties:  []string{"content"},
-			Type:               ptString("contextual"),
+			Type:               "text2vec-contextionary-contextual",
 		}), nil)
 	require.Nil(t, err)
 	id = res.Payload.ID
@@ -52,19 +52,19 @@ func contextualClassification(t *testing.T) {
 		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article1), nil)
 		require.Nil(t, err)
-		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
+		return res.Payload.Properties.(map[string]interface{})["ofCategory"] != nil
 	})
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
 		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article2), nil)
 		require.Nil(t, err)
-		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
+		return res.Payload.Properties.(map[string]interface{})["ofCategory"] != nil
 	})
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
 		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article3), nil)
 		require.Nil(t, err)
-		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
+		return res.Payload.Properties.(map[string]interface{})["ofCategory"] != nil
 	})
 
 	gres := AssertGraphQL(t, nil, `

@@ -87,7 +87,7 @@ func Test_GetAction(t *testing.T) {
 		expected := &models.Object{
 			ID:            id,
 			Class:         "ActionClass",
-			Schema:        map[string]interface{}{"foo": "bar"},
+			Properties:    map[string]interface{}{"foo": "bar"},
 			VectorWeights: (map[string]string)(nil),
 		}
 
@@ -113,7 +113,7 @@ func Test_GetAction(t *testing.T) {
 			&models.Object{
 				ID:            id,
 				Class:         "ActionClass",
-				Schema:        map[string]interface{}{"foo": "bar"},
+				Properties:    map[string]interface{}{"foo": "bar"},
 				VectorWeights: (map[string]string)(nil),
 			},
 		}
@@ -171,7 +171,7 @@ func Test_GetAction(t *testing.T) {
 				expected := &models.Object{
 					ID:            id,
 					Class:         "ActionClass",
-					Schema:        map[string]interface{}{"foo": "bar"},
+					Properties:    map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
 					Additional: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
@@ -229,7 +229,7 @@ func Test_GetAction(t *testing.T) {
 					&models.Object{
 						ID:            id,
 						Class:         "ActionClass",
-						Schema:        map[string]interface{}{"foo": "bar"},
+						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
 						Additional: &models.AdditionalProperties{
 							NearestNeighbors: &models.NearestNeighbors{
@@ -281,7 +281,7 @@ func Test_GetAction(t *testing.T) {
 					&models.Object{
 						ID:            id,
 						Class:         "ActionClass",
-						Schema:        map[string]interface{}{"foo": "bar"},
+						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
 						Additional: &models.AdditionalProperties{
 							FeatureProjection: &models.FeatureProjection{
@@ -360,7 +360,7 @@ func Test_GetThing(t *testing.T) {
 		expected := &models.Object{
 			ID:            id,
 			Class:         "ThingClass",
-			Schema:        map[string]interface{}{"foo": "bar"},
+			Properties:    map[string]interface{}{"foo": "bar"},
 			VectorWeights: (map[string]string)(nil),
 		}
 
@@ -386,7 +386,7 @@ func Test_GetThing(t *testing.T) {
 			&models.Object{
 				ID:            id,
 				Class:         "ThingClass",
-				Schema:        map[string]interface{}{"foo": "bar"},
+				Properties:    map[string]interface{}{"foo": "bar"},
 				VectorWeights: (map[string]string)(nil),
 			},
 		}
@@ -444,7 +444,7 @@ func Test_GetThing(t *testing.T) {
 				expected := &models.Object{
 					ID:            id,
 					Class:         "ThingClass",
-					Schema:        map[string]interface{}{"foo": "bar"},
+					Properties:    map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
 					Additional: &models.AdditionalProperties{
 						NearestNeighbors: &models.NearestNeighbors{
@@ -502,7 +502,7 @@ func Test_GetThing(t *testing.T) {
 					&models.Object{
 						ID:            id,
 						Class:         "ThingClass",
-						Schema:        map[string]interface{}{"foo": "bar"},
+						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
 						Additional: &models.AdditionalProperties{
 							NearestNeighbors: &models.NearestNeighbors{
@@ -554,7 +554,7 @@ func Test_GetThing(t *testing.T) {
 					&models.Object{
 						ID:            id,
 						Class:         "ThingClass",
-						Schema:        map[string]interface{}{"foo": "bar"},
+						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
 						Additional: &models.AdditionalProperties{
 							FeatureProjection: &models.FeatureProjection{

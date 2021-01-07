@@ -221,12 +221,12 @@ func Test_Classifier_Contextual(t *testing.T) {
 		vectorizer := &fakeVectorizer{words: testDataVectors()}
 		classifier := New(sg, repo, vectorRepo, authorizer, vectorizer, logger)
 
-		contextual := "contextual"
+		contextual := "text2vec-contextionary-contextual"
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			Type:               &contextual,
+			Type:               contextual,
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
@@ -383,7 +383,7 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 	object, ok := repo.get(strfmt.UUID(source))
 	require.True(t, ok, "object must be present")
 
-	schema, ok := object.Schema.(map[string]interface{})
+	schema, ok := object.Properties.(map[string]interface{})
 	require.True(t, ok, "schema must be map")
 
 	prop, ok := schema[propName]

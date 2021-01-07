@@ -100,7 +100,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "AddingBatchReferencesTestSource",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "source item",
 			},
 		}, []float32{0.5})
@@ -112,7 +112,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			err = repo.PutObject(context.Background(), &models.Object{
 				ID:    target,
 				Class: "AddingBatchReferencesTestTarget",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
 			}, []float32{0.7})
@@ -167,7 +167,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
 
-		refs := source.Object().Schema.(map[string]interface{})["toTarget"]
+		refs := source.Object().Properties.(map[string]interface{})["toTarget"]
 		refsSlice, ok := refs.(models.MultipleRef)
 		require.True(t, ok, fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
 

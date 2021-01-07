@@ -554,7 +554,7 @@ var cars = []models.Object{
 	models.Object{
 		Class: carClass.Class,
 		ID:    carSprinterID,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"modelName":  "sprinter",
 			"horsepower": int64(130),
 			"weight":     3499.90,
@@ -570,7 +570,7 @@ var cars = []models.Object{
 	models.Object{
 		Class: carClass.Class,
 		ID:    carE63sID,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"modelName":  "e63s",
 			"horsepower": int64(612),
 			"weight":     2069.5,
@@ -586,7 +586,7 @@ var cars = []models.Object{
 	models.Object{
 		Class: carClass.Class,
 		ID:    carPoloID,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"released":    mustParseTime("1975-01-01T10:12:00+02:00"),
 			"modelName":   "polo",
 			"horsepower":  int64(100),
@@ -663,7 +663,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			repo.PutObject(context.Background(), &models.Object{
 				Class: "GeoUpdateTestClass",
 				ID:    id,
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"location": &models.GeoCoordinates{
 						Latitude:  &coordinates[i][0],
 						Longitude: &coordinates[i][1],

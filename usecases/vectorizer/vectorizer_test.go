@@ -43,7 +43,7 @@ func TestVectorizingObjects(t *testing.T) {
 			name: "object with one string prop",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand": "Mercedes",
 				},
 			},
@@ -54,7 +54,7 @@ func TestVectorizingObjects(t *testing.T) {
 			name: "object with one non-string prop",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"power": 300,
 				},
 			},
@@ -65,7 +65,7 @@ func TestVectorizingObjects(t *testing.T) {
 			name: "object with a mix of props",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand":  "best brand",
 					"power":  300,
 					"review": "a very great car",
@@ -78,7 +78,7 @@ func TestVectorizingObjects(t *testing.T) {
 			noindex: "review",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand":  "best brand",
 					"power":  300,
 					"review": "a very great car",
@@ -92,7 +92,7 @@ func TestVectorizingObjects(t *testing.T) {
 			excludedClass: "Car",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand":  "best brand",
 					"power":  300,
 					"review": "a very great car",
@@ -106,7 +106,7 @@ func TestVectorizingObjects(t *testing.T) {
 			excludedProperty: "review",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand":  "best brand",
 					"power":  300,
 					"review": "a very great car",
@@ -121,7 +121,7 @@ func TestVectorizingObjects(t *testing.T) {
 			excludedClass:    "Car",
 			input: &models.Object{
 				Class: "Car",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"review": "a very great car",
 				},
 			},
@@ -132,7 +132,7 @@ func TestVectorizingObjects(t *testing.T) {
 			name: "with compound class and prop names",
 			input: &models.Object{
 				Class: "SuperCar",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brandOfTheCar": "best brand",
 					"power":         300,
 					"review":        "a very great car",
@@ -204,7 +204,7 @@ func TestVectorizingActions(t *testing.T) {
 			name: "object with one string prop",
 			input: &models.Object{
 				Class: "Flight",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand": "Mercedes",
 				},
 			},
@@ -215,7 +215,7 @@ func TestVectorizingActions(t *testing.T) {
 			name: "object with one non-string prop",
 			input: &models.Object{
 				Class: "Flight",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"length": 300,
 				},
 			},
@@ -226,7 +226,7 @@ func TestVectorizingActions(t *testing.T) {
 			name: "object with a mix of props",
 			input: &models.Object{
 				Class: "Flight",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"brand":  "best brand",
 					"length": 300,
 					"review": "a very great flight",

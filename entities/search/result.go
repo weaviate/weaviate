@@ -52,7 +52,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 	t := &models.Object{
 		Class:              r.ClassName,
 		ID:                 r.ID,
-		Schema:             schema,
+		Properties:         schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
 		VectorWeights:      r.VectorWeights,
