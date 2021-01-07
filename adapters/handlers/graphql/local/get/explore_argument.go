@@ -18,6 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
 func nearTextArgument(kindName, className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
@@ -32,6 +34,8 @@ func nearTextArgument(kindName, className string) *graphql.ArgumentConfig {
 	}
 }
 
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
 func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
@@ -61,6 +65,8 @@ func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	}
 }
 
+// TODO: This is module specific and must be provided by the
+// text2vec-contextionary module
 func movementInp() graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
@@ -70,6 +76,32 @@ func movementInp() graphql.InputObjectConfigFieldMap {
 		"force": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Force,
 			Type:        graphql.NewNonNull(graphql.Float),
+		},
+	}
+}
+
+func nearVectorArgument(kindName, className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
+	return &graphql.ArgumentConfig{
+		// Description: descriptions.GetExplore,
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
+				Fields: nearVectorFields(prefix),
+			},
+		),
+	}
+}
+
+func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"vector": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
 		},
 	}
 }

@@ -486,7 +486,7 @@ func addTestDataCVC(t *testing.T) {
 	createObject(t, &models.Object{
 		Class:  "CustomVectorClass",
 		ID:     cvc1,
-		Vector: []float32{1.1, 0.1, 0.1},
+		Vector: []float32{1.1, 1.1, 1.1},
 	})
 
 	assertGetObjectEventually(t, cvc1)
@@ -495,12 +495,12 @@ func addTestDataCVC(t *testing.T) {
 		{
 			Class:  "CustomVectorClass",
 			ID:     cvc2,
-			Vector: []float32{0.1, 1.1, 0.1},
+			Vector: []float32{1.1, 1.1, 0.1},
 		},
 		{
 			Class:  "CustomVectorClass",
 			ID:     cvc3,
-			Vector: []float32{0.1, 0.1, 1.1},
+			Vector: []float32{1.1, 0, 0},
 		},
 	})
 	assertGetObjectEventually(t, cvc3)

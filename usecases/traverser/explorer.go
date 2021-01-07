@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
@@ -73,7 +74,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 		}
 	}
 
-	if params.NearText != nil {
+	if params.NearText != nil || params.NearVector != nil {
 		return e.getClassExploration(ctx, params)
 	}
 
@@ -82,7 +83,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 func (e *Explorer) getClassExploration(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
-	searchVector, err := e.vectorFromExploreParams(ctx, params.NearText)
+	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
 	}
@@ -215,7 +216,8 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
 			}
 
-			if 1-(dist) < float32(params.NearText.Certainty) {
+			certainty := e.extractCertaintyFromParams(params)
+			if 1-(dist) < float32(certainty) {
 				continue
 			}
 
@@ -236,13 +238,26 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	return output, nil
 }
 
+// TODO: contains module-specific logic
+func (e *Explorer) extractCertaintyFromParams(params GetParams) float64 {
+	if params.NearText != nil {
+		return params.NearText.Certainty
+	}
+
+	if params.NearVector != nil {
+		return params.NearVector.Certainty
+	}
+
+	panic("extractCertainty was called without any known params present")
+}
+
 func (e *Explorer) Concepts(ctx context.Context,
 	params NearTextParams) ([]search.Result, error) {
 	if params.Network {
 		return nil, fmt.Errorf("explorer: network exploration currently not supported")
 	}
 
-	vector, err := e.vectorFromExploreParams(ctx, &params)
+	vector, err := e.vectorFromNearTextParams(ctx, &params)
 	if err != nil {
 		return nil, fmt.Errorf("vectorize params: %v", err)
 	}
@@ -268,7 +283,26 @@ func (e *Explorer) Concepts(ctx context.Context,
 	return results, nil
 }
 
-func (e *Explorer) vectorFromExploreParams(ctx context.Context,
+func (e *Explorer) vectorFromParams(ctx context.Context,
+	params GetParams) ([]float32, error) {
+	if params.NearText != nil && params.NearVector != nil {
+		return nil, errors.Errorf("found both 'nearText' and 'nearVector' parameters " +
+			"which are conflicting, choose one instead")
+	}
+
+	if params.NearText != nil {
+		vector, err := e.vectorFromNearTextParams(ctx, params.NearText)
+		if err != nil {
+			return nil, fmt.Errorf("vectorize params: %v", err)
+		}
+
+		return vector, nil
+	}
+
+	return params.NearVector.Vector, nil
+}
+
+func (e *Explorer) vectorFromNearTextParams(ctx context.Context,
 	params *NearTextParams) ([]float32, error) {
 	vector, err := e.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
