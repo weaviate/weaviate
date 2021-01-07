@@ -27,7 +27,9 @@ import (
 )
 
 func Test_Explorer_GetClass(t *testing.T) {
-	t.Run("when an explore param is set", func(t *testing.T) {
+	t.Run("when an explore param is set for nearText", func(t *testing.T) {
+		// TODO: this is a module specific test case, which relies on the
+		// text2vec-contextionary module
 		params := GetParams{
 			Kind:      kind.Object,
 			ClassName: "BestClass",
@@ -88,13 +90,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-	t.Run("when an explore param is set and the required certainty not met", func(t *testing.T) {
+	t.Run("when an explore param is set for nearVector", func(t *testing.T) {
+		// TODO: this is a module specific test case, which relies on the
+		// text2vec-contextionary module
 		params := GetParams{
 			Kind:      kind.Object,
 			ClassName: "BestClass",
-			NearText: &NearTextParams{
-				Values:    []string{"foo"},
-				Certainty: 0.8,
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
 			},
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -104,23 +107,30 @@ func Test_Explorer_GetClass(t *testing.T) {
 			{
 				Kind: kind.Object,
 				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
 			},
 			{
 				Kind: kind.Object,
 				ID:   "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
 			},
 		}
 
 		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
+		// explicitly set the vectorizer to nil to make sure it is not used in this
+		// case
+		vectorizer := CorpiVectorizer(nil)
 		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
-
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
 		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -132,9 +142,143 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("no concept met the required certainty", func(t *testing.T) {
-			assert.Len(t, res, 0)
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+				}, res[1])
 		})
+	})
+
+	t.Run("when an explore param is set for nearText and the required certainty not met",
+		func(t *testing.T) {
+			params := GetParams{
+				Kind:      kind.Object,
+				ClassName: "BestClass",
+				NearText: &NearTextParams{
+					Values:    []string{"foo"},
+					Certainty: 0.8,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchResults := []search.Result{
+				{
+					Kind: kind.Object,
+					ID:   "id1",
+				},
+				{
+					Kind: kind.Object,
+					ID:   "id2",
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			vectorizer := &fakeVectorizer{}
+			extender := &fakeExtender{}
+			log, _ := test.NewNullLogger()
+
+			projector := &fakeProjector{}
+			pathBuilder := &fakePathBuilder{}
+			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+			expectedParamsToSearch := params
+			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("no concept met the required certainty", func(t *testing.T) {
+				assert.Len(t, res, 0)
+			})
+		})
+
+	t.Run("when an explore param is set for nearVector and the required certainty not met",
+		func(t *testing.T) {
+			params := GetParams{
+				Kind:      kind.Object,
+				ClassName: "BestClass",
+				NearVector: &NearVectorParams{
+					Vector:    []float32{0.8, 0.2, 0.7},
+					Certainty: 0.8,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchResults := []search.Result{
+				{
+					Kind: kind.Object,
+					ID:   "id1",
+				},
+				{
+					Kind: kind.Object,
+					ID:   "id2",
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			vectorizer := CorpiVectorizer(nil)
+			extender := &fakeExtender{}
+			log, _ := test.NewNullLogger()
+
+			projector := &fakeProjector{}
+			pathBuilder := &fakePathBuilder{}
+			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+			expectedParamsToSearch := params
+			expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("no concept met the required certainty", func(t *testing.T) {
+				assert.Len(t, res, 0)
+			})
+		})
+
+	t.Run("when two conflicting near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Object,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			NearText: &NearTextParams{
+				Values: []string{"foo"},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 
 	t.Run("when no explore param is set", func(t *testing.T) {
