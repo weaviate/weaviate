@@ -1126,12 +1126,7 @@ func init() {
           "200": {
             "description": "Successfully dumped the database schema.",
             "schema": {
-              "type": "object",
-              "properties": {
-                "objects": {
-                  "$ref": "#/definitions/Schema"
-                }
-              }
+              "$ref": "#/definitions/Schema"
             }
           },
           "401": {
@@ -1153,9 +1148,7 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
-      }
-    },
-    "/schema/objects": {
+      },
       "post": {
         "tags": [
           "schema"
@@ -1206,7 +1199,7 @@ func init() {
         ]
       }
     },
-    "/schema/objects/{className}": {
+    "/schema/{className}": {
       "delete": {
         "tags": [
           "schema"
@@ -1252,7 +1245,7 @@ func init() {
         ]
       }
     },
-    "/schema/objects/{className}/properties": {
+    "/schema/{className}/properties": {
       "post": {
         "tags": [
           "schema"
@@ -2368,13 +2361,6 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
-        },
-        "type": {
-          "description": "Type of schema, should be \"object\".",
-          "type": "string",
-          "enum": [
-            "object"
-          ]
         }
       }
     },
@@ -3725,12 +3711,7 @@ func init() {
           "200": {
             "description": "Successfully dumped the database schema.",
             "schema": {
-              "type": "object",
-              "properties": {
-                "objects": {
-                  "$ref": "#/definitions/Schema"
-                }
-              }
+              "$ref": "#/definitions/Schema"
             }
           },
           "401": {
@@ -3752,9 +3733,7 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
-      }
-    },
-    "/schema/objects": {
+      },
       "post": {
         "tags": [
           "schema"
@@ -3805,7 +3784,7 @@ func init() {
         ]
       }
     },
-    "/schema/objects/{className}": {
+    "/schema/{className}": {
       "delete": {
         "tags": [
           "schema"
@@ -3851,7 +3830,7 @@ func init() {
         ]
       }
     },
-    "/schema/objects/{className}/properties": {
+    "/schema/{className}/properties": {
       "post": {
         "tags": [
           "schema"
@@ -5073,13 +5052,6 @@ func init() {
         "name": {
           "description": "Name of the schema.",
           "type": "string"
-        },
-        "type": {
-          "description": "Type of schema, should be \"object\".",
-          "type": "string",
-          "enum": [
-            "object"
-          ]
         }
       }
     },
