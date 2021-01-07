@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -173,9 +172,13 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
+
+			// TODO: this is module-specific and should be added dynamically
 			"nearText": nearTextArgument(kindName, class.Class),
-			"where":    whereArgument(kindName, class.Class),
-			"group":    groupArgument(kindName, class.Class),
+
+			"nearVector": nearVectorArgument(kindName, class.Class),
+			"where":      whereArgument(kindName, class.Class),
+			"group":      groupArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
 	}
@@ -261,17 +264,23 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, err
 		}
 
-		spew.Dump(properties)
-
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		// TODO: This is specific to the text2vec-contextionary module and should
+		// be provided from that particular module dynamically
 		var nearTextParams *traverser.NearTextParams
 		if nearText, ok := p.Args["nearText"]; ok {
 			p := common_filters.ExtractNearText(nearText.(map[string]interface{}))
 			nearTextParams = &p
+		}
+
+		var nearVectorParams *traverser.NearVectorParams
+		if nearVector, ok := p.Args["nearVector"]; ok {
+			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			nearVectorParams = &p
 		}
 
 		group := extractGroup(p.Args)
@@ -283,6 +292,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Pagination:           pagination,
 			Properties:           properties,
 			NearText:             nearTextParams,
+			NearVector:           nearVectorParams,
 			Group:                group,
 			AdditionalProperties: additional,
 		}

@@ -13,6 +13,9 @@ package common_filters
 
 import "github.com/semi-technologies/weaviate/usecases/traverser"
 
+// TODO: This is specific to the text2vec-contextionary module and should be
+// provided from there
+//
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
 func ExtractNearText(source map[string]interface{}) traverser.NearTextParams {
