@@ -140,7 +140,7 @@ func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind)
 		Kind:      kind,
 		Properties: traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "uuid",
+				Name: "id",
 			},
 		},
 	})
