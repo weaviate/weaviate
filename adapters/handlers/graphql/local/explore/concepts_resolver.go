@@ -27,7 +27,7 @@ import (
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
 	Explore(ctx context.Context, principal *models.Principal,
-		params traverser.NearTextParams) ([]search.Result, error)
+		params traverser.ExploreParams) ([]search.Result, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -62,7 +62,21 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, err
 	}
 
-	params := common_filters.ExtractNearText(p.Args)
+	params := traverser.ExploreParams{}
+
+	if param, ok := p.Args["nearText"]; ok {
+		extracted := common_filters.ExtractNearText(param.(map[string]interface{}))
+		params.NearText = &extracted
+	}
+
+	if param, ok := p.Args["nearVector"]; ok {
+		extracted := common_filters.ExtractNearVector(param.(map[string]interface{}))
+		params.NearVector = &extracted
+	}
+
+	if param, ok := p.Args["limit"]; ok {
+		params.Limit = param.(int)
+	}
 
 	return resources.resolver.Explore(p.Context,
 		principalFromContext(p.Context), params)

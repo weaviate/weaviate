@@ -54,3 +54,11 @@ type NearVectorParams struct {
 	Vector    []float32
 	Certainty float64
 }
+
+// ExploreParams are the parameters used by the GraphQL `Explore { }` API
+// TODO: this contains a module specific param
+type ExploreParams struct {
+	NearText   *NearTextParams
+	NearVector *NearVectorParams
+	Limit      int
+}
