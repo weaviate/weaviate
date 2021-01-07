@@ -22,7 +22,7 @@ import (
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser traverser.ExploreParams
+	expectedParamsToTraverser traverser.NearTextParams
 	resolverReturn            []search.Result
 	expectedResults           []result
 }
@@ -46,7 +46,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
+			expectedParamsToTraverser: traverser.NearTextParams{
 				Values: []string{"car", "best brand"},
 			},
 			resolverReturn: []search.Result{
@@ -77,7 +77,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 				}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
+			expectedParamsToTraverser: traverser.NearTextParams{
 				Values:    []string{"car", "best brand"},
 				Limit:     17,
 				Certainty: 0.6,
@@ -115,7 +115,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
+			expectedParamsToTraverser: traverser.NearTextParams{
 				Values: []string{"car", "best brand"},
 				Limit:  17,
 				MoveTo: traverser.ExploreMove{
@@ -159,7 +159,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
+			expectedParamsToTraverser: traverser.NearTextParams{
 				Values: []string{"car", "best brand"},
 				Limit:  17,
 				MoveTo: traverser.ExploreMove{
