@@ -204,19 +204,19 @@ func TestNestedReferences(t *testing.T) {
 
 	t.Run("fully resolving the place", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
-			"InCity": []interface{}{
+			"inCity": []interface{}{
 				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
-						"InCountry": []interface{}{
+						"inCountry": []interface{}{
 							search.LocalRef{
 								Class: "Country",
 								Fields: map[string]interface{}{
-									"OnContinent": []interface{}{
+									"onContinent": []interface{}{
 										search.LocalRef{
 											Class: "Continent",
 											Fields: map[string]interface{}{
-												"OnPlanet": []interface{}{
+												"onPlanet": []interface{}{
 													search.LocalRef{
 														Class: "Planet",
 														Fields: map[string]interface{}{
@@ -252,7 +252,7 @@ func TestNestedReferences(t *testing.T) {
 
 	t.Run("partially resolving the place", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
-			"InCity": []interface{}{
+			"inCity": []interface{}{
 				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
@@ -260,7 +260,7 @@ func TestNestedReferences(t *testing.T) {
 						"uuid": strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
 						// why is inCountry present here? We didn't specify it our select
 						// properties. Note it is "inCountry" with a lowercase letter
-						// (meaning unresolved) whereas "InCountry" would mean it was
+						// (meaning unresolved) whereas "inCountry" would mean it was
 						// resolved. In GraphQL this property would simply be hidden (as
 						// the GQL is unaware of unresolved properties)
 						// However, for caching and other queries it is helpful that this
@@ -326,28 +326,28 @@ func TestNestedReferences(t *testing.T) {
 func fullyNestedSelectProperties() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "InCity",
+			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName: "City",
 					RefProperties: traverser.SelectProperties{
 						traverser.SelectProperty{
-							Name:        "InCountry",
+							Name:        "inCountry",
 							IsPrimitive: false,
 							Refs: []traverser.SelectClass{
 								traverser.SelectClass{
 									ClassName: "Country",
 									RefProperties: traverser.SelectProperties{
 										traverser.SelectProperty{
-											Name:        "OnContinent",
+											Name:        "onContinent",
 											IsPrimitive: false,
 											Refs: []traverser.SelectClass{
 												traverser.SelectClass{
 													ClassName: "Continent",
 													RefProperties: traverser.SelectProperties{
 														traverser.SelectProperty{
-															Name:        "OnPlanet",
+															Name:        "onPlanet",
 															IsPrimitive: false,
 															Refs: []traverser.SelectClass{
 																traverser.SelectClass{
@@ -374,7 +374,7 @@ func fullyNestedSelectProperties() traverser.SelectProperties {
 func partiallyNestedSelectProperties() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "InCity",
+			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{

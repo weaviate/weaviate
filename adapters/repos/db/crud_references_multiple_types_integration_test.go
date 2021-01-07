@@ -250,16 +250,10 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 		}
 
-		expectedSchemaNoRefs := map[string]interface{}{
-			"name": "Car which is parked in a garage",
-			"uuid": id,
-			// ref is not present at all
-		}
-
 		expectedSchemaWithRefs := map[string]interface{}{
 			"name": "Car which is parked in a garage",
 			"uuid": id,
-			"ParkedAt": []interface{}{
+			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingGarage",
 					Fields: map[string]interface{}{
@@ -292,7 +286,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
-			assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
@@ -316,16 +310,10 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 		}
 
-		expectedSchemaNoRefs := map[string]interface{}{
-			"name": "Car which is parked in a lot",
-			"uuid": id,
-			// ref is not present at all
-		}
-
 		expectedSchemaWithRefs := map[string]interface{}{
 			"name": "Car which is parked in a lot",
 			"uuid": id,
-			"ParkedAt": []interface{}{
+			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
@@ -347,7 +335,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
 			require.Nil(t, err)
 
-			assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
@@ -384,7 +372,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		expectedSchemaWithLotRef := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
 			"uuid": id,
-			"ParkedAt": []interface{}{
+			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
@@ -397,7 +385,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		expectedSchemaWithGarageRef := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
 			"uuid": id,
-			"ParkedAt": []interface{}{
+			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingGarage",
 					Fields: map[string]interface{}{
@@ -414,7 +402,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		expectedSchemaWithAllRefs := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
 			"uuid": id,
-			"ParkedAt": []interface{}{
+			"parkedAt": []interface{}{
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
@@ -469,7 +457,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 func parkedAtGarage() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "ParkedAt",
+			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -489,7 +477,7 @@ func parkedAtGarage() traverser.SelectProperties {
 func parkedAtLot() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "ParkedAt",
+			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -509,7 +497,7 @@ func parkedAtLot() traverser.SelectProperties {
 func parkedAtEither() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "ParkedAt",
+			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -535,10 +523,10 @@ func parkedAtEither() traverser.SelectProperties {
 	}
 }
 
-func drivesCarParkedAtLot() traverser.SelectProperties {
+func drivesCarparkedAtLot() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "Drives",
+			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -550,10 +538,10 @@ func drivesCarParkedAtLot() traverser.SelectProperties {
 	}
 }
 
-func drivesCarParkedAtGarage() traverser.SelectProperties {
+func drivesCarparkedAtGarage() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "Drives",
+			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -565,10 +553,10 @@ func drivesCarParkedAtGarage() traverser.SelectProperties {
 	}
 }
 
-func drivesCarParkedAtEither() traverser.SelectProperties {
+func drivesCarparkedAtEither() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "Drives",
+			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
@@ -580,90 +568,90 @@ func drivesCarParkedAtEither() traverser.SelectProperties {
 	}
 }
 
-func friendsWithDrivesCarParkedAtLot() traverser.SelectProperties {
+func friendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "FriendsWith",
+			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarParkedAtLot(),
+					RefProperties: drivesCarparkedAtLot(),
 				},
 			},
 		},
 	}
 }
 
-func friendsWithDrivesCarParkedAtGarage() traverser.SelectProperties {
+func friendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "FriendsWith",
+			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarParkedAtGarage(),
+					RefProperties: drivesCarparkedAtGarage(),
 				},
 			},
 		},
 	}
 }
 
-func friendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
+func friendsWithdrivesCarparkedAtEither() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "FriendsWith",
+			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefDriver",
-					RefProperties: drivesCarParkedAtEither(),
+					RefProperties: drivesCarparkedAtEither(),
 				},
 			},
 		},
 	}
 }
 
-func hasMembersFriendsWithDrivesCarParkedAtLot() traverser.SelectProperties {
+func hasMembersfriendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "HasMembers",
+			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithDrivesCarParkedAtLot(),
+					RefProperties: friendsWithdrivesCarparkedAtLot(),
 				},
 			},
 		},
 	}
 }
 
-func hasMembersFriendsWithDrivesCarParkedAtGarage() traverser.SelectProperties {
+func hasMembersfriendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "HasMembers",
+			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithDrivesCarParkedAtGarage(),
+					RefProperties: friendsWithdrivesCarparkedAtGarage(),
 				},
 			},
 		},
 	}
 }
 
-func hasMembersFriendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
+func hasMembersfriendsWithdrivesCarparkedAtEither() traverser.SelectProperties {
 	return traverser.SelectProperties{
 		traverser.SelectProperty{
-			Name:        "HasMembers",
+			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []traverser.SelectClass{
 				traverser.SelectClass{
 					ClassName:     "MultiRefPerson",
-					RefProperties: friendsWithDrivesCarParkedAtEither(),
+					RefProperties: friendsWithdrivesCarparkedAtEither(),
 				},
 			},
 		},

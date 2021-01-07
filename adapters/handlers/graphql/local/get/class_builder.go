@@ -105,17 +105,13 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 						kindName, class.Class, property.Name, err.Error()))
 				}
 
-				var field *graphql.Field
-				var fieldName string
 				if propertyType.IsPrimitive() {
-					fieldName = property.Name
-					field = b.primitiveField(propertyType, property, kindName, class.Class)
+					classProperties[property.Name] = b.primitiveField(propertyType, property,
+						kindName, class.Class)
 				} else {
-					// uppercase key because it's a reference
-					fieldName = strings.Title(property.Name)
-					field = b.referenceField(propertyType, property, kindName, class.Class)
+					classProperties[property.Name] = b.referenceField(propertyType, property,
+						kindName, class.Class)
 				}
-				classProperties[fieldName] = field
 			}
 
 			return classProperties
