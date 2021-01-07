@@ -17,7 +17,6 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"encoding/json"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -40,10 +39,6 @@ type Schema struct {
 
 	// Name of the schema.
 	Name string `json:"name,omitempty"`
-
-	// Type of schema, should be "object".
-	// Enum: [object]
-	Type string `json:"type,omitempty"`
 }
 
 // Validate validates this schema
@@ -55,10 +50,6 @@ func (m *Schema) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateMaintainer(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -100,46 +91,6 @@ func (m *Schema) validateMaintainer(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("maintainer", "body", "email", m.Maintainer.String(), formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var schemaTypeTypePropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["object"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		schemaTypeTypePropEnum = append(schemaTypeTypePropEnum, v)
-	}
-}
-
-const (
-
-	// SchemaTypeObject captures enum value "object"
-	SchemaTypeObject string = "object"
-)
-
-// prop value enum
-func (m *Schema) validateTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, schemaTypeTypePropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Schema) validateType(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Type) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateTypeEnum("type", "body", m.Type); err != nil {
 		return err
 	}
 

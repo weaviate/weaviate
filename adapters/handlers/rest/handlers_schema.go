@@ -86,9 +86,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 		}
 	}
 
-	payload := &schema.SchemaDumpOKBody{
-		Objects: dbSchema.Objects,
-	}
+	payload := dbSchema.Objects
 
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }

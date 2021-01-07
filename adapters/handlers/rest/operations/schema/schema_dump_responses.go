@@ -36,7 +36,7 @@ type SchemaDumpOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *SchemaDumpOKBody `json:"body,omitempty"`
+	Payload *models.Schema `json:"body,omitempty"`
 }
 
 // NewSchemaDumpOK creates SchemaDumpOK with default headers values
@@ -46,13 +46,13 @@ func NewSchemaDumpOK() *SchemaDumpOK {
 }
 
 // WithPayload adds the payload to the schema dump o k response
-func (o *SchemaDumpOK) WithPayload(payload *SchemaDumpOKBody) *SchemaDumpOK {
+func (o *SchemaDumpOK) WithPayload(payload *models.Schema) *SchemaDumpOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema dump o k response
-func (o *SchemaDumpOK) SetPayload(payload *SchemaDumpOKBody) {
+func (o *SchemaDumpOK) SetPayload(payload *models.Schema) {
 	o.Payload = payload
 }
 

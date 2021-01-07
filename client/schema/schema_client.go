@@ -96,7 +96,7 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "schema.objects.create",
 		Method:             "POST",
-		PathPattern:        "/schema/objects",
+		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -131,7 +131,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "schema.objects.delete",
 		Method:             "DELETE",
-		PathPattern:        "/schema/objects/{className}",
+		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -166,7 +166,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "schema.objects.properties.add",
 		Method:             "POST",
-		PathPattern:        "/schema/objects/{className}/properties",
+		PathPattern:        "/schema/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
