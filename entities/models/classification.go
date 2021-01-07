@@ -60,8 +60,7 @@ type Classification struct {
 	Status string `json:"status,omitempty"`
 
 	// which algorythim to use for classifications
-	// Enum: [knn contextual]
-	Type *string `json:"type,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 // Validate validates this classification
@@ -81,10 +80,6 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStatus(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -183,49 +178,6 @@ func (m *Classification) validateStatus(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var classificationTypeTypePropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["knn","contextual"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		classificationTypeTypePropEnum = append(classificationTypeTypePropEnum, v)
-	}
-}
-
-const (
-
-	// ClassificationTypeKnn captures enum value "knn"
-	ClassificationTypeKnn string = "knn"
-
-	// ClassificationTypeContextual captures enum value "contextual"
-	ClassificationTypeContextual string = "contextual"
-)
-
-// prop value enum
-func (m *Classification) validateTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, classificationTypeTypePropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Classification) validateType(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Type) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateTypeEnum("type", "body", *m.Type); err != nil {
 		return err
 	}
 

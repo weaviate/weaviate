@@ -221,12 +221,12 @@ func Test_Classifier_Contextual(t *testing.T) {
 		vectorizer := &fakeVectorizer{words: testDataVectors()}
 		classifier := New(sg, repo, vectorRepo, authorizer, vectorizer, logger)
 
-		contextual := "contextual"
+		contextual := "text2vec-contextionary-contextual"
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
 			ClassifyProperties: []string{"exactCategory", "mainCategory"},
-			Type:               &contextual,
+			Type:               contextual,
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {

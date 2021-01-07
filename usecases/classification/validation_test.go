@@ -143,21 +143,21 @@ func Test_ValidateUserInput(t *testing.T) {
 				Filters: &models.ClassificationFilters{
 					TargetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
 				},
-				Type: ptString("knn"),
+				Type: "knn",
 			},
 			expectedError: fmt.Errorf("invalid classification: type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'"),
 		},
 
-		// specific for contextual
+		// specific for text2vec-contextionary-contextual
 		testcase{
 			name: "classifyProperty has more than one target class",
 			input: models.Classification{
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"anyCategory"},
-				Type:               ptString("contextual"),
+				Type:               "text2vec-contextionary-contextual",
 			},
-			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'anyCategory' has more than one target class, classification of type 'contextual' requires exactly one target class"),
+			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'anyCategory' has more than one target class, classification of type 'text2vec-contextionary-contextual' requires exactly one target class"),
 		},
 
 		testcase{
@@ -169,9 +169,9 @@ func Test_ValidateUserInput(t *testing.T) {
 				Filters: &models.ClassificationFilters{
 					TrainingSetWhere: &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
 				},
-				Type: ptString("contextual"),
+				Type: "text2vec-contextionary-contextual",
 			},
-			expectedError: fmt.Errorf("invalid classification: type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'"),
+			expectedError: fmt.Errorf("invalid classification: type is 'text2vec-contextionary-contextual', but 'trainingSetWhere' filter is set, for 'text2vec-contextionary-contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'"),
 		},
 	}
 

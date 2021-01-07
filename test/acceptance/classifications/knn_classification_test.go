@@ -36,7 +36,7 @@ func knnClassification(t *testing.T) {
 				Class:              "Recipe",
 				ClassifyProperties: []string{"ofType"},
 				BasedOnProperties:  []string{"content"},
-				Type:               ptString("knn"),
+				Type:               "knn",
 				Settings: map[string]interface{}{
 					"k": 5,
 				},

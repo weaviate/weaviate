@@ -67,12 +67,12 @@ func (v *Validator) validate() {
 }
 
 func (v *Validator) contextualTypeFeasibility() {
-	if !v.typeContextual() {
+	if !v.typeText2vecContextionaryContextual() {
 		return
 	}
 
 	if v.subject.Filters != nil && v.subject.Filters.TrainingSetWhere != nil {
-		v.errors.addf("type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
+		v.errors.addf("type is 'text2vec-contextionary-contextual', but 'trainingSetWhere' filter is set, for 'text2vec-contextionary-contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
 	}
 }
 
@@ -156,10 +156,10 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 		return
 	}
 
-	if v.typeContextual() {
+	if v.typeText2vecContextionaryContextual() {
 		if len(dt.Classes()) > 1 {
 			v.errors.addf("classifyProperties: property '%s'"+
-				" has more than one target class, classification of type 'contextual' requires exactly one target class", propName)
+				" has more than one target class, classification of type 'text2vec-contextionary-contextual' requires exactly one target class", propName)
 			return
 		}
 	}
@@ -175,20 +175,20 @@ func (v *Validator) propertyByName(class *models.Class, propName string) (*model
 	return nil, false
 }
 
-func (v *Validator) typeContextual() bool {
-	if v.subject.Type == nil {
+func (v *Validator) typeText2vecContextionaryContextual() bool {
+	if v.subject.Type == "" {
 		return false
 	}
 
-	return *v.subject.Type == "contextual"
+	return v.subject.Type == "text2vec-contextionary-contextual"
 }
 
 func (v *Validator) typeKNN() bool {
-	if v.subject.Type == nil {
+	if v.subject.Type == "" {
 		return true
 	}
 
-	return *v.subject.Type == "knn"
+	return v.subject.Type == "knn"
 }
 
 type errorCompounder struct {

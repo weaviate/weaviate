@@ -1038,10 +1038,7 @@
         },
         "type": {
           "description": "which algorythim to use for classifications",
-          "type": "string",
-          "enum": ["knn", "contextual"],
-          "default": "knn",
-          "example": "knn"
+          "type": "string"
         },
         "settings": {
           "description": "classification-type specific settings",

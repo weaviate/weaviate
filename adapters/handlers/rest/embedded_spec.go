@@ -1672,13 +1672,7 @@ func init() {
         },
         "type": {
           "description": "which algorythim to use for classifications",
-          "type": "string",
-          "default": "knn",
-          "enum": [
-            "knn",
-            "contextual"
-          ],
-          "example": "knn"
+          "type": "string"
         }
       }
     },
@@ -4339,13 +4333,7 @@ func init() {
         },
         "type": {
           "description": "which algorythim to use for classifications",
-          "type": "string",
-          "default": "knn",
-          "enum": [
-            "knn",
-            "contextual"
-          ],
-          "example": "knn"
+          "type": "string"
         }
       }
     },
