@@ -100,7 +100,7 @@ func TestResolver(t *testing.T) {
 		}
 		selectProps := traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "RefProp",
+				Name: "refProp",
 				Refs: []traverser.SelectClass{
 					traverser.SelectClass{
 						ClassName: "SomeClass",
@@ -120,7 +120,7 @@ func TestResolver(t *testing.T) {
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
-					"RefProp": []interface{}{
+					"refProp": []interface{}{
 						search.LocalRef{
 							Class: "SomeClass",
 							Fields: map[string]interface{}{
@@ -180,7 +180,7 @@ func TestResolver(t *testing.T) {
 		}
 		selectProps := traverser.SelectProperties{
 			traverser.SelectProperty{
-				Name: "RefProp",
+				Name: "refProp",
 				Refs: []traverser.SelectClass{
 					traverser.SelectClass{
 						ClassName: "SomeClass",
@@ -190,7 +190,7 @@ func TestResolver(t *testing.T) {
 								IsPrimitive: true,
 							},
 							traverser.SelectProperty{
-								Name: "NestedRef",
+								Name: "nestedRef",
 								Refs: []traverser.SelectClass{
 									traverser.SelectClass{
 										ClassName: "SomeNestedClass",
@@ -214,7 +214,7 @@ func TestResolver(t *testing.T) {
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
-					"RefProp": []interface{}{
+					"refProp": []interface{}{
 						search.LocalRef{
 							Class: "SomeClass",
 							Fields: map[string]interface{}{
@@ -224,7 +224,7 @@ func TestResolver(t *testing.T) {
 										Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
 									},
 								},
-								"NestedRef": []interface{}{
+								"nestedRef": []interface{}{
 									search.LocalRef{
 										Class: "SomeNestedClass",
 										Fields: map[string]interface{}{
