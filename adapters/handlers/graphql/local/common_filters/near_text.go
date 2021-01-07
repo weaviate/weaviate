@@ -13,10 +13,10 @@ package common_filters
 
 import "github.com/semi-technologies/weaviate/usecases/traverser"
 
-// ExtractExplore arguments, such as "concepts", "moveTo", "moveAwayFrom",
+// ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func ExtractExplore(source map[string]interface{}) traverser.ExploreParams {
-	var args traverser.ExploreParams
+func ExtractNearText(source map[string]interface{}) traverser.NearTextParams {
+	var args traverser.NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})

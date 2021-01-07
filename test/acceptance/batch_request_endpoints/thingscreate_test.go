@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/batching"
+	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
@@ -36,13 +36,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	// generate actioncreate content
 	object1 := &models.Object{
 		Class: classOneName,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
 	object2 := &models.Object{
 		Class: classTwoName,
-		Schema: map[string]interface{}{
+		Properties: map[string]interface{}{
 			"testWholeNumber": 1,
 		},
 	}
@@ -50,13 +50,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	testFields := "ALL"
 
 	// generate request body
-	params := batching.NewBatchingObjectsCreateParams().WithBody(batching.BatchingObjectsCreateBody{
+	params := batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 		Objects: []*models.Object{object1, object2},
 		Fields:  []*string{&testFields},
 	})
 
 	// perform the request
-	resp, err := helper.BatchingClient(t).BatchingObjectsCreate(params, nil)
+	resp, err := helper.BatchClient(t).BatchObjectsCreate(params, nil)
 
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {

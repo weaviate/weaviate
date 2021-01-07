@@ -66,9 +66,9 @@ func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
 		}
 	}
 
-	schemaMap, ok := object.Schema.(map[string]interface{})
+	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	return objects.NewObjectsCreateOK().WithPayload(object)
@@ -116,9 +116,9 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 		}
 	}
 
-	schemaMap, ok := object.Schema.(map[string]interface{})
+	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	return objects.NewObjectsGetOK().WithPayload(object)
@@ -147,9 +147,9 @@ func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 	}
 
 	for i, object := range list {
-		schemaMap, ok := object.Schema.(map[string]interface{})
+		propertiesMap, ok := object.Properties.(map[string]interface{})
 		if ok {
-			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
+			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
 	}
 
@@ -178,9 +178,9 @@ func (h *kindHandlers) updateObject(params objects.ObjectsUpdateParams,
 		}
 	}
 
-	schemaMap, ok := object.Schema.(map[string]interface{})
+	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Schema = h.extendSchemaWithAPILinks(schemaMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	return objects.NewObjectsUpdateOK().WithPayload(object)
@@ -310,7 +310,7 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferences)
 }
 
-func (h *kindHandlers) extendSchemaWithAPILinks(schema map[string]interface{}) map[string]interface{} {
+func (h *kindHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
 	if schema == nil {
 		return schema
 	}

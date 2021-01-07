@@ -15,7 +15,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -25,25 +25,25 @@ type batchKindHandlers struct {
 	manager *objects.BatchManager
 }
 
-func (h *batchKindHandlers) addObjects(params batching.BatchingObjectsCreateParams,
+func (h *batchKindHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Objects, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return batching.NewBatchingObjectsCreateForbidden().
+			return batch.NewBatchObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
-			return batching.NewBatchingObjectsCreateUnprocessableEntity().
+			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return batching.NewBatchingObjectsCreateInternalServerError().
+			return batch.NewBatchObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return batching.NewBatchingObjectsCreateOK().
+	return batch.NewBatchObjectsCreateOK().
 		WithPayload(h.objectsResponse(objs))
 }
 
@@ -67,24 +67,24 @@ func (h *batchKindHandlers) objectsResponse(input objects.BatchObjects) []*model
 	return response
 }
 
-func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCreateParams,
+func (h *batchKindHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return batching.NewBatchingReferencesCreateForbidden().
+			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case objects.ErrInvalidUserInput:
-			return batching.NewBatchingReferencesCreateUnprocessableEntity().
+			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return batching.NewBatchingReferencesCreateInternalServerError().
+			return batch.NewBatchReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return batching.NewBatchingReferencesCreateOK().
+	return batch.NewBatchReferencesCreateOK().
 		WithPayload(h.referencesResponse(references))
 }
 
@@ -118,8 +118,8 @@ func (h *batchKindHandlers) referencesResponse(input objects.BatchReferences) []
 func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
 	h := &batchKindHandlers{manager}
 
-	api.BatchingBatchingObjectsCreateHandler = batching.
-		BatchingObjectsCreateHandlerFunc(h.addObjects)
-	api.BatchingBatchingReferencesCreateHandler = batching.
-		BatchingReferencesCreateHandlerFunc(h.addReferences)
+	api.BatchBatchObjectsCreateHandler = batch.
+		BatchObjectsCreateHandlerFunc(h.addObjects)
+	api.BatchBatchReferencesCreateHandler = batch.
+		BatchReferencesCreateHandlerFunc(h.addReferences)
 }

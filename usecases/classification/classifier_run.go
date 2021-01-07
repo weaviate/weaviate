@@ -73,20 +73,20 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 	c.logBeginPreparation(params)
 	// safe to deref as we have passed validation at this point and or setting of
 	// default values
-	switch *params.Type {
+	switch params.Type {
 	case "knn":
 		classifyItem = c.classifyItemUsingKNN
-	case "contextual":
+	case "text2vec-contextionary-contextual":
 		// 1. do preparation here once
 		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
 		if err != nil {
-			return nil, errors.Wrap(err, "prepare context for contexual classification")
+			return nil, errors.Wrap(err, "prepare context for text2vec-contextionary-contextual classification")
 		}
 
 		// 2. use higher order function to inject preparation data so it is then present for each single run
 		classifyItem = c.makeClassifyItemContextual(preparedContext)
 	default:
-		return nil, fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type)
+		return nil, fmt.Errorf("unsupported type '%s', have no classify item fn for this", params.Type)
 	}
 
 	c.logFinishPreparation(params)

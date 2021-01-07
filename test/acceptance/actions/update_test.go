@@ -36,7 +36,7 @@ func updateObjects(t *testing.T) {
 		})
 
 		update := models.Object{}
-		update.Schema = schema
+		update.Properties = schema
 		update.Class = "TestObject"
 		update.ID = uuid
 
@@ -46,7 +46,7 @@ func updateObjects(t *testing.T) {
 
 		actualThunk := func() interface{} {
 			updatedObject := assertGetObject(t, uuid)
-			updatedSchema := updatedObject.Schema.(map[string]interface{})
+			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			if updatedSchema["testNumber"] == nil {
 				return nil
 			}
@@ -65,7 +65,7 @@ func updateObjects(t *testing.T) {
 		})
 
 		update := models.Object{}
-		update.Schema = schema
+		update.Properties = schema
 		update.Class = "TestObject"
 		update.ID = uuid
 
@@ -75,7 +75,7 @@ func updateObjects(t *testing.T) {
 
 		actualThunk := func() interface{} {
 			updatedObject := assertGetObject(t, uuid)
-			updatedSchema := updatedObject.Schema.(map[string]interface{})
+			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testString"]
 		}
 		testhelper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
@@ -91,7 +91,7 @@ func updateObjects(t *testing.T) {
 		})
 
 		update := models.Object{}
-		update.Schema = schema
+		update.Properties = schema
 		update.Class = "TestObject"
 		update.ID = uuid
 
@@ -102,7 +102,7 @@ func updateObjects(t *testing.T) {
 
 		actualThunk := func() interface{} {
 			updatedObject := assertGetObject(t, uuid)
-			updatedSchema := updatedObject.Schema.(map[string]interface{})
+			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testTrueFalse"]
 		}
 		testhelper.AssertEventuallyEqual(t, true, actualThunk)
@@ -116,7 +116,7 @@ func updateObjects(t *testing.T) {
 
 		merge := &models.Object{
 			Class: "TestObject",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"testReference": []interface{}{
 					map[string]interface{}{
 						"beacon": fmt.Sprintf("weaviate://localhost/%s", thingToRefID),
@@ -136,7 +136,7 @@ func updateObjects(t *testing.T) {
 		actualThunk := func() interface{} {
 			patchedObject := assertGetObject(t, objectID)
 
-			rawRef, ok := patchedObject.Schema.(map[string]interface{})["testReference"]
+			rawRef, ok := patchedObject.Properties.(map[string]interface{})["testReference"]
 			if !ok {
 				return nil
 			}
