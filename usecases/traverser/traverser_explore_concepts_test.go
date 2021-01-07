@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -25,7 +24,7 @@ import (
 )
 
 func Test_ExploreConcepts(t *testing.T) {
-	t.Run("with network exploration", func(t *testing.T) {
+	t.Run("without any near searchers", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -39,16 +38,35 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := NearTextParams{
-			Values:  []string{"a search term", "another"},
-			Network: true,
+		params := ExploreParams{}
+
+		_, err := traverser.Explore(context.Background(), nil, params)
+		assert.Contains(t, err.Error(), "received no search params")
+	})
+
+	t.Run("with two searchers set at the same time", func(t *testing.T) {
+		authorizer := &fakeAuthorizer{}
+		locks := &fakeLocks{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
+		params := ExploreParams{
+			NearText:   &NearTextParams{},
+			NearVector: &NearVectorParams{},
 		}
 
 		_, err := traverser.Explore(context.Background(), nil, params)
-		assert.Equal(t, fmt.Errorf(
-			"explorer: network exploration currently not supported"), err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
-	t.Run("with no movements set", func(t *testing.T) {
+	t.Run("nearText with no movements set", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -62,8 +80,10 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := NearTextParams{
-			Values: []string{"a search term", "another"},
+		params := ExploreParams{
+			NearText: &NearTextParams{
+				Values: []string{"a search term", "another"},
+			},
 		}
 		vectorSearcher.results = []search.Result{
 			search.Result{
@@ -102,7 +122,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
-	t.Run("with minimum certainty set to 0.6", func(t *testing.T) {
+	t.Run("nearText without optional params", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -116,9 +136,110 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := NearTextParams{
-			Values:    []string{"a search term", "another"},
-			Certainty: 0.6,
+		params := ExploreParams{
+			NearVector: &NearVectorParams{
+				Vector: []float32{7.8, 9},
+			},
+		}
+		vectorSearcher.results = []search.Result{
+			search.Result{
+				ClassName: "BestClass",
+				Kind:      kind.Object,
+				ID:        "123-456-789",
+			},
+			search.Result{
+				ClassName: "AnAction",
+				Kind:      kind.Object,
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.Explore(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []search.Result{
+			search.Result{
+				ClassName: "BestClass",
+				Kind:      kind.Object,
+				ID:        "123-456-789",
+				Beacon:    "weaviate://localhost/123-456-789",
+				Certainty: 0.5,
+			},
+			search.Result{
+				ClassName: "AnAction",
+				Kind:      kind.Object,
+				ID:        "987-654-321",
+				Beacon:    "weaviate://localhost/987-654-321",
+				Certainty: 0.5,
+			},
+		}, res)
+
+		assert.Equal(t, []float32{7.8, 9}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
+	})
+
+	t.Run("nearText with limit and certainty set", func(t *testing.T) {
+		authorizer := &fakeAuthorizer{}
+		locks := &fakeLocks{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
+		params := ExploreParams{
+			Limit: 100,
+			NearVector: &NearVectorParams{
+				Vector:    []float32{7.8, 9},
+				Certainty: 0.8,
+			},
+		}
+		vectorSearcher.results = []search.Result{
+			search.Result{
+				ClassName: "BestClass",
+				Kind:      kind.Object,
+				ID:        "123-456-789",
+			},
+			search.Result{
+				ClassName: "AnAction",
+				Kind:      kind.Object,
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.Explore(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []search.Result{}, res) // certainty not matched
+
+		assert.Equal(t, []float32{7.8, 9}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 100, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
+	})
+
+	t.Run("nearText with minimum certainty set to 0.6", func(t *testing.T) {
+		authorizer := &fakeAuthorizer{}
+		locks := &fakeLocks{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
+		params := ExploreParams{
+			NearText: &NearTextParams{
+				Values:    []string{"a search term", "another"},
+				Certainty: 0.6,
+			},
 		}
 		vectorSearcher.results = []search.Result{
 			search.Result{
@@ -141,7 +262,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
-	t.Run("with movements set", func(t *testing.T) {
+	t.Run("near text with movements set", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -155,16 +276,18 @@ func Test_ExploreConcepts(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
-		params := NearTextParams{
-			Limit:  100,
-			Values: []string{"a search term", "another"},
-			MoveTo: ExploreMove{
-				Values: []string{"foo"},
-				Force:  0.7,
-			},
-			MoveAwayFrom: ExploreMove{
-				Values: []string{"bar"},
-				Force:  0.7,
+		params := ExploreParams{
+			Limit: 100,
+			NearText: &NearTextParams{
+				Values: []string{"a search term", "another"},
+				MoveTo: ExploreMove{
+					Values: []string{"foo"},
+					Force:  0.7,
+				},
+				MoveAwayFrom: ExploreMove{
+					Values: []string{"bar"},
+					Force:  0.7,
+				},
 			},
 		}
 		vectorSearcher.results = []search.Result{
