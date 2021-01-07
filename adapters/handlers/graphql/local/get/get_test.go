@@ -767,7 +767,7 @@ func TestGetRelation(t *testing.T) {
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{
-					Name:        "HasAction",
+					Name:        "hasAction",
 					IsPrimitive: false,
 					Refs: []traverser.SelectClass{
 						{
@@ -778,7 +778,7 @@ func TestGetRelation(t *testing.T) {
 									IsPrimitive: true,
 								},
 								{
-									Name:        "HasAction",
+									Name:        "hasAction",
 									IsPrimitive: false,
 									Refs: []traverser.SelectClass{
 										{
@@ -802,7 +802,7 @@ func TestGetRelation(t *testing.T) {
 		resolver.On("GetClass", expectedParams).
 			Return(test_helper.EmptyList(), nil).Once()
 
-		query := "{ Get { SomeAction { HasAction { ... on SomeAction { intField, HasAction { ... on SomeAction { intField } } } } } } }"
+		query := "{ Get { SomeAction { hasAction { ... on SomeAction { intField, hasAction { ... on SomeAction { intField } } } } } } }"
 		resolver.AssertResolve(t, query)
 	})
 
@@ -814,7 +814,7 @@ func TestGetRelation(t *testing.T) {
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{
-					Name:        "HasAction",
+					Name:        "hasAction",
 					IsPrimitive: false,
 					Refs: []traverser.SelectClass{
 						{
@@ -834,7 +834,7 @@ func TestGetRelation(t *testing.T) {
 		resolver.On("GetClass", expectedParams).
 			Return(test_helper.EmptyList(), nil).Once()
 
-		query := "fragment actionFragment on SomeAction { intField } { Get { SomeAction { HasAction { ...actionFragment } } } }"
+		query := "fragment actionFragment on SomeAction { intField } { Get { SomeAction { hasAction { ...actionFragment } } } }"
 		resolver.AssertResolve(t, query)
 	})
 
@@ -846,7 +846,7 @@ func TestGetRelation(t *testing.T) {
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{
-					Name:        "HasAction",
+					Name:        "hasAction",
 					IsPrimitive: false,
 					Refs: []traverser.SelectClass{
 						{
@@ -857,7 +857,7 @@ func TestGetRelation(t *testing.T) {
 									IsPrimitive: true,
 								},
 								{
-									Name:        "HasAction",
+									Name:        "hasAction",
 									IsPrimitive: false,
 									Refs: []traverser.SelectClass{
 										{
@@ -883,9 +883,9 @@ func TestGetRelation(t *testing.T) {
 
 		query := `
 			fragment innerFragment on SomeAction { intField }
-			fragment actionFragment on SomeAction { intField HasAction { ...innerFragment } } 
+			fragment actionFragment on SomeAction { intField hasAction { ...innerFragment } } 
 			
-			{ Get { SomeAction { HasAction { ...actionFragment } } } }`
+			{ Get { SomeAction { hasAction { ...actionFragment } } } }`
 		resolver.AssertResolve(t, query)
 	})
 }
