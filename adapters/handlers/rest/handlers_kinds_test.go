@@ -36,23 +36,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -61,7 +61,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -103,23 +103,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -128,7 +128,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -169,23 +169,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -194,7 +194,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -231,27 +231,27 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				object:         []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
-				expectedResult: []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
+				object:         []*models.Object{&models.Object{Class: "Foo", Properties: nil}},
+				expectedResult: []*models.Object{&models.Object{Class: "Foo", Properties: nil}},
 			},
 			test{
 				name: "without ref props - nothing changes",
 				object: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
 				},
 				expectedResult: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
@@ -260,11 +260,11 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			test{
 				name: "with a ref prop - no origin configured",
 				object: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
@@ -275,11 +275,11 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					}},
 				},
 				expectedResult: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
@@ -317,23 +317,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - nothing changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - nothing changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -342,7 +342,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -382,23 +382,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -407,7 +407,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -447,23 +447,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -472,7 +472,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -509,27 +509,27 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				object:         []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
-				expectedResult: []*models.Object{&models.Object{Class: "Foo", Schema: nil}},
+				object:         []*models.Object{&models.Object{Class: "Foo", Properties: nil}},
+				expectedResult: []*models.Object{&models.Object{Class: "Foo", Properties: nil}},
 			},
 			test{
 				name: "without ref props - noaction changes",
 				object: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
 				},
 				expectedResult: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 					}},
@@ -538,11 +538,11 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			test{
 				name: "with a ref prop - no origin configured",
 				object: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
@@ -553,11 +553,11 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					}},
 				},
 				expectedResult: []*models.Object{
-					&models.Object{Class: "Foo", Schema: map[string]interface{}{
+					&models.Object{Class: "Foo", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 134,
 					}},
-					&models.Object{Class: "Bar", Schema: map[string]interface{}{
+					&models.Object{Class: "Bar", Properties: map[string]interface{}{
 						"name":           "hello world",
 						"numericalField": 234,
 						"someRef": models.MultipleRef{
@@ -595,23 +595,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			test{
 				name:           "without props - noaction changes",
-				object:         &models.Object{Class: "Foo", Schema: nil},
-				expectedResult: &models.Object{Class: "Foo", Schema: nil},
+				object:         &models.Object{Class: "Foo", Properties: nil},
+				expectedResult: &models.Object{Class: "Foo", Properties: nil},
 			},
 			test{
 				name: "without ref props - noaction changes",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			test{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -620,7 +620,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Schema: map[string]interface{}{
+				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{

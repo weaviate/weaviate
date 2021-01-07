@@ -43,7 +43,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 					},
 				},
 			},
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"name": "MyName",
 				"foo":  float64(17),
 			},
@@ -115,7 +115,7 @@ func TestNewStorageObject(t *testing.T) {
 				alt := FromObject(&models.Object{
 					Class: "MyClass",
 					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
 				}, nil)
@@ -169,7 +169,7 @@ func TestNewStorageObject(t *testing.T) {
 				alt := FromObject(&models.Object{
 					Class: "MyClass",
 					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
-					Schema: map[string]interface{}{
+					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
 				}, nil)

@@ -30,7 +30,7 @@ func (n *NoOpExplorer) GetClass(ctx context.Context,
 
 // Concepts errors
 func (n *NoOpExplorer) Concepts(ctx context.Context,
-	params ExploreParams) ([]search.Result, error) {
+	params NearTextParams) ([]search.Result, error) {
 	return nil, n.err
 }
 

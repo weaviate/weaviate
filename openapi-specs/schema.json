@@ -907,7 +907,7 @@
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
         },
-        "schema": {
+        "properties": {
           "$ref": "#/definitions/PropertySchema"
         },
         "id": {
@@ -1038,10 +1038,7 @@
         },
         "type": {
           "description": "which algorythim to use for classifications",
-          "type": "string",
-          "enum": ["knn", "contextual"],
-          "default": "knn",
-          "example": "knn"
+          "type": "string"
         },
         "settings": {
           "description": "classification-type specific settings",
@@ -1823,10 +1820,10 @@
         "x-available-in-websocket": false
       }
     },
-    "/batching/objects": {
+    "/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
-        "operationId": "batching.objects.create",
+        "operationId": "batch.objects.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1888,15 +1885,15 @@
           }
         },
         "summary": "Creates new Objects based on a Object template as a batch.",
-        "tags": ["batching", "objects"],
+        "tags": ["batch", "objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/batching/references": {
+    "/batch/references": {
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
-        "operationId": "batching.references.create",
+        "operationId": "batch.references.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1945,7 +1942,7 @@
           }
         },
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "tags": ["batching", "references"],
+        "tags": ["batch", "references"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -2423,7 +2420,7 @@
       "name": "objects"
     },
     {
-      "name": "batching",
+      "name": "batch",
       "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
     },
     {

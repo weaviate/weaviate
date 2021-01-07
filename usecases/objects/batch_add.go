@@ -123,8 +123,8 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if _, ok := fieldsToKeep["class"]; ok {
 		object.Class = concept.Class
 	}
-	if _, ok := fieldsToKeep["schema"]; ok {
-		object.Schema = concept.Schema
+	if _, ok := fieldsToKeep["properties"]; ok {
+		object.Properties = concept.Properties
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		object.CreationTimeUnix = unixNow()

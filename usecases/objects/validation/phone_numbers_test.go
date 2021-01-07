@@ -69,8 +69,8 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &models.PhoneNumber{
-				Valid:                  true,
-				Input:                  "+491711234567",
+				Valid: true,
+				Input: "+491711234567",
 				InternationalFormatted: "+49 171 1234567",
 				CountryCode:            49,
 				National:               1711234567,
@@ -85,9 +85,9 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &models.PhoneNumber{
-				Valid:                  true,
-				DefaultCountry:         "DE",
-				Input:                  "01711234567",
+				Valid:          true,
+				DefaultCountry: "DE",
+				Input:          "01711234567",
 				InternationalFormatted: "+49 171 1234567",
 				CountryCode:            49,
 				National:               1711234567,
@@ -112,9 +112,9 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &models.PhoneNumber{
-				Valid:                  true,
-				DefaultCountry:         "DE",
-				Input:                  "01711234567",
+				Valid:          true,
+				DefaultCountry: "DE",
+				Input:          "01711234567",
 				InternationalFormatted: "+49 171 1234567",
 				CountryCode:            49,
 				National:               1711234567,
@@ -129,9 +129,9 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &models.PhoneNumber{
-				Valid:                  true,
-				DefaultCountry:         "DE",
-				Input:                  "(0)171-123 456 7",
+				Valid:          true,
+				DefaultCountry: "DE",
+				Input:          "(0)171-123 456 7",
 				InternationalFormatted: "+49 171 1234567",
 				CountryCode:            49,
 				National:               1711234567,
@@ -146,9 +146,9 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			},
 			expectedErr: nil,
 			expectedResult: &models.PhoneNumber{
-				Valid:                  true,
-				DefaultCountry:         "DE",
-				Input:                  "+49 (0) 171 123 456 7",
+				Valid:          true,
+				DefaultCountry: "DE",
+				Input:          "+49 (0) 171 123 456 7",
 				InternationalFormatted: "+49 171 1234567",
 				CountryCode:            49,
 				National:               1711234567,
@@ -164,7 +164,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 
 			obj := &models.Object{
 				Class: "Person",
-				Schema: map[string]interface{}{
+				Properties: map[string]interface{}{
 					"phone": test.phone,
 				},
 			}
@@ -173,7 +173,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			if err != nil {
 				return
 			}
-			phone, ok := obj.Schema.(map[string]interface{})["phone"]
+			phone, ok := obj.Properties.(map[string]interface{})["phone"]
 			require.True(t, ok)
 			assert.Equal(t, test.expectedResult, phone)
 		})

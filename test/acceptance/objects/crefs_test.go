@@ -91,7 +91,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		WithID(cityID).
 		WithBody(&models.Object{
 			Class: "ReferenceTestCity",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"hasPlaces": []interface{}{
 					map[string]interface{}{
 						"beacon": fmt.Sprintf("weaviate://localhost/%s", place1ID.String()),
@@ -106,7 +106,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 	actualThunk := func() interface{} {
 		cityAfterFirstPatch := assertGetObject(t, cityID)
-		return cityAfterFirstPatch.Schema
+		return cityAfterFirstPatch.Properties
 	}
 
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
@@ -124,7 +124,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		WithID(cityID).
 		WithBody(&models.Object{
 			Class: "ReferenceTestCity",
-			Schema: map[string]interface{}{
+			Properties: map[string]interface{}{
 				"hasPlaces": []interface{}{
 					map[string]interface{}{
 						"beacon": fmt.Sprintf("weaviate://localhost/%s", place2ID.String()),
@@ -137,7 +137,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 	actualThunk = func() interface{} {
 		city := assertGetObject(t, cityID)
-		return city.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
+		return city.Properties.(map[string]interface{})["hasPlaces"].([]interface{})
 	}
 
 	t.Log("9. verify both cross refs are present")
@@ -232,7 +232,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 
 	actualThunk := func() interface{} {
 		city := assertGetObject(t, cityID)
-		return city.Schema
+		return city.Properties
 	}
 	t.Log("7. verify first cross ref was added")
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
@@ -258,7 +258,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	t.Log("9. verify both cross refs are present")
 	actualThunk = func() interface{} {
 		city := assertGetObject(t, cityID)
-		return city.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
+		return city.Properties.(map[string]interface{})["hasPlaces"].([]interface{})
 	}
 
 	expectedRefs := []interface{}{

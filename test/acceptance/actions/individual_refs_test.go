@@ -37,7 +37,7 @@ func objectReferences(t *testing.T) {
 
 		// Verify that testReferences is empty
 		updatedObject := assertGetObjectEventually(t, uuid)
-		updatedSchema := updatedObject.Schema.(map[string]interface{})
+		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.Nil(t, updatedSchema["testReferences"])
 
 		// Append a property reference
@@ -56,7 +56,7 @@ func objectReferences(t *testing.T) {
 				return false
 			}
 
-			updatedSchema = resp.Payload.Schema.(map[string]interface{})
+			updatedSchema = resp.Payload.Properties.(map[string]interface{})
 			return updatedSchema["testReferences"] != nil
 		}
 
@@ -79,7 +79,7 @@ func objectReferences(t *testing.T) {
 
 		// Verify that testReferences is empty
 		updatedObject := assertGetObjectEventually(t, uuid)
-		updatedSchema := updatedObject.Schema.(map[string]interface{})
+		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
 		// Replace
@@ -100,7 +100,7 @@ func objectReferences(t *testing.T) {
 				return false
 			}
 
-			updatedSchema = resp.Payload.Schema.(map[string]interface{})
+			updatedSchema = resp.Payload.Properties.(map[string]interface{})
 			return updatedSchema["testReferences"] != nil
 		}
 
@@ -121,7 +121,7 @@ func objectReferences(t *testing.T) {
 
 		// Verify that testReferences is not empty
 		updatedObject := assertGetObjectEventually(t, uuid)
-		updatedSchema := updatedObject.Schema.(map[string]interface{})
+		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
 		// Delete a property reference
@@ -142,7 +142,7 @@ func objectReferences(t *testing.T) {
 				return false
 			}
 
-			refs := resp.Payload.Schema.(map[string]interface{})["testReferences"]
+			refs := resp.Payload.Properties.(map[string]interface{})["testReferences"]
 
 			if refs == nil {
 				return true

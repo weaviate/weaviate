@@ -170,9 +170,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
@@ -225,9 +225,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// insert some data in the recreated index
 	for i, p := range products {
 		thing := models.Object{
-			Class:  testClass.Class,
-			ID:     productsIds[i],
-			Schema: p,
+			Class:      testClass.Class,
+			ID:         productsIds[i],
+			Properties: p,
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
