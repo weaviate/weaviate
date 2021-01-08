@@ -16,12 +16,28 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
+// TODO: This is module specific logic, for now we are simply deciding to show
+// the nearText option if there is at least one class which has the
+// text2vec-contextionary vectorizer module active. This logic does not belong
+// here and should be removed with actual modularization
+func shouldShowNearText(schema *models.Schema) bool {
+	for _, c := range schema.Classes {
+		if c.Vectorizer == config.VectorizerModuleText2VecContextionary {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Build builds the object containing the Local->Explore Fields, such as Objects
-func Build() *graphql.Field {
-	return &graphql.Field{
+func Build(schema *models.Schema) *graphql.Field {
+	field := &graphql.Field{
 		Name:        "Explore",
 		Description: descriptions.LocalExplore,
 		Type:        graphql.NewList(exploreObject()),
@@ -32,11 +48,16 @@ func Build() *graphql.Field {
 				Description: descriptions.Limit,
 			},
 
-			// TODO: this is module-specific and should be added dynamically
-			"nearText":   nearTextArgument(),
 			"nearVector": nearVectorArgument(),
 		},
 	}
+
+	// TODO: this is module-specific and should be added dynamically
+	if shouldShowNearText(schema) {
+		field.Args["nearText"] = nearTextArgument()
+	}
+
+	return field
 }
 
 func exploreObject() *graphql.Object {

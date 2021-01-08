@@ -30,7 +30,20 @@ type mockResolver struct {
 }
 
 func newMockResolver() *mockResolver {
-	field := Build()
+	field := Build(testhelper.SimpleSchema.Objects)
+	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
+	mocker.RootFieldName = "Explore"
+	mocker.RootField = field
+	mocker.RootObject = map[string]interface{}{
+		"Resolver":    Resolver(mocker),
+		"RequestsLog": mockLog,
+	}
+	return mocker
+}
+
+func newMockResolverEmptySchema() *mockResolver {
+	field := Build(&models.Schema{})
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
