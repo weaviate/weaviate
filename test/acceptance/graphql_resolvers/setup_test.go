@@ -39,7 +39,6 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
-	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -47,6 +46,11 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "City")
 	deleteObjectClass(t, "Airport")
 	deleteObjectClass(t, "Company")
+
+	// only run after everything else is deleted, this way, we can also run an
+	// all-class Explore since all vectors which are now left have the same
+	// dimensions.
+	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
 	deleteObjectClass(t, "CustomVectorClass")
 }
 

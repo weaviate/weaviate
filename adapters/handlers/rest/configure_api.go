@@ -72,7 +72,7 @@ type vectorizer interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params traverser.NearTextParams) ([]search.Result, error)
+	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
