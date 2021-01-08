@@ -59,13 +59,13 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	byIndex := map[string]objects.BatchReferences{}
 	for _, item := range references {
 		for _, index := range db.indices {
-			if index.Config.Kind != item.From.Kind ||
-				index.Config.ClassName != item.From.Class {
+			if item.Err != nil {
+				// item has a validation error or another reason to ignore
 				continue
 			}
 
-			if item.Err != nil {
-				// item has a validation error or another reason to ignore
+			if index.Config.Kind != item.From.Kind ||
+				index.Config.ClassName != item.From.Class {
 				continue
 			}
 
