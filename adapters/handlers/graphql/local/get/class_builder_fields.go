@@ -475,13 +475,14 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, _, err := extractProperties(fragment.SelectionSet, fragments)
+	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments)
 	if err != nil {
 		return result, err
 	}
 
 	result.ClassName = string(className)
 	result.RefProperties = subProperties
+	result.AdditionalProperties = additionalProperties
 	return result, nil
 }
 
@@ -499,13 +500,14 @@ func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.
 		return result, err
 	}
 
-	subProperties, _, err := extractProperties(def.GetSelectionSet(), fragments)
+	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments)
 	if err != nil {
 		return result, err
 	}
 
 	result.ClassName = string(className)
 	result.RefProperties = subProperties
+	result.AdditionalProperties = additionalProperties
 	return result, nil
 }
 
