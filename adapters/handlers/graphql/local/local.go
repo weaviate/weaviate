@@ -33,7 +33,7 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
-	exploreField := explore.Build()
+	exploreField := explore.Build(dbSchema.Objects)
 
 	localFields := graphql.Fields{
 		"Get":       getField,

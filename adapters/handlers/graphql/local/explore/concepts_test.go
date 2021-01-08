@@ -17,6 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testCase struct {
@@ -266,6 +267,21 @@ func Test_ResolveExplore(t *testing.T) {
 	}
 
 	tests.AssertExtraction(t)
+}
+
+func Test_ExploreWithNoText2VecClasses(t *testing.T) {
+	resolver := newMockResolverEmptySchema()
+	query := `
+	{
+			Explore(
+				nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+				){
+					beacon className
+		}
+	}`
+	res := resolver.Resolve(query)
+	require.Len(t, res.Errors, 1)
+	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"Explore\"")
 }
 
 func (tests testCases) AssertExtraction(t *testing.T) {
