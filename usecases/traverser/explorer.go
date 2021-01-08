@@ -237,7 +237,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				ref := res.Schema.(map[string]interface{})[selectProp.Name]
 				if ref != nil {
 					for _, innerRefProp := range ref.([]interface{}) {
-						innerRef := innerRefProp.(search.LocalRef)
+						innerRef, ok := innerRefProp.(search.LocalRef)
+						if !ok {
+							continue
+						}
 						if innerRef.Class == refClass.ClassName {
 							if refClass.AdditionalProperties.ID {
 								innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
