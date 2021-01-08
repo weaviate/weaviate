@@ -52,8 +52,9 @@ type SelectProperty struct {
 }
 
 type SelectClass struct {
-	ClassName     string
-	RefProperties SelectProperties
+	ClassName            string
+	RefProperties        SelectProperties
+	AdditionalProperties AdditionalProperties
 }
 
 type GroupParams struct {

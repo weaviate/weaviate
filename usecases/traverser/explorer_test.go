@@ -938,6 +938,128 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}, res[1])
 		})
 	})
+
+	t.Run("when the _additional on ref prop is set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Object,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			Properties: []SelectProperty{
+				{
+					Name: "ofBestRefClass",
+					Refs: []SelectClass{
+						{
+							ClassName: "BestRefClass",
+							AdditionalProperties: AdditionalProperties{
+								ID: true,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Object,
+				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+					"ofBestRefClass": []interface{}{
+						search.LocalRef{
+							Class: "BestRefClass",
+							Fields: map[string]interface{}{
+								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+							},
+						},
+					},
+				},
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: nil,
+				},
+			},
+			{
+				Kind: kind.Object,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+					"ofBestRefClass": []interface{}{
+						search.LocalRef{
+							Class: "BestRefClass",
+							Fields: map[string]interface{}{
+								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+							},
+						},
+					},
+				},
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{
+						ID: "1234",
+					},
+				},
+			},
+		}
+
+		fakeSearch := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		fakeSearch.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			fakeSearch.AssertExpectations(t)
+		})
+
+		t.Run("response must contain _additional id param for ref prop", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"ofBestRefClass": []interface{}{
+						search.LocalRef{
+							Class: "BestRefClass",
+							Fields: map[string]interface{}{
+								"_additional": map[string]interface{}{
+									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								},
+								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+							},
+						},
+					},
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+					"ofBestRefClass": []interface{}{
+						search.LocalRef{
+							Class: "BestRefClass",
+							Fields: map[string]interface{}{
+								"_additional": map[string]interface{}{
+									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+								},
+								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+							},
+						},
+					},
+					"_additional": map[string]interface{}{
+						"classification": &models.AdditionalPropertiesClassification{
+							ID: "1234",
+						},
+					},
+				}, res[1])
+		})
+	})
 }
 
 func newFakeDistancer() func(a, b []float32) (float32, error) {

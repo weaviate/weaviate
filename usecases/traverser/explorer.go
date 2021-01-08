@@ -232,6 +232,23 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			res.Schema.(map[string]interface{})["_additional"] = certainty
 		}
 
+		for _, selectProp := range params.Properties {
+			for _, refClass := range selectProp.Refs {
+				ref := res.Schema.(map[string]interface{})[selectProp.Name]
+				if ref != nil {
+					for _, innerRefProp := range ref.([]interface{}) {
+						innerRef := innerRefProp.(search.LocalRef)
+						if innerRef.Class == refClass.ClassName {
+							if refClass.AdditionalProperties.ID {
+								innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
+								innerRef.Fields["_additional"] = innerRefID
+							}
+						}
+					}
+				}
+			}
+		}
+
 		output = append(output, res.Schema)
 	}
 
