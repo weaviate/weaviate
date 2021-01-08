@@ -14,13 +14,15 @@ package helper
 import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 var SimpleSchema = schema.Schema{
 	Objects: &models.Schema{
 		Classes: []*models.Class{
 			&models.Class{
-				Class: "SomeThing",
+				Class:      "SomeThing",
+				Vectorizer: config.VectorizerModuleText2VecContextionary,
 				Properties: []*models.Property{
 					&models.Property{
 						Name:     "intField",
@@ -29,7 +31,18 @@ var SimpleSchema = schema.Schema{
 				},
 			},
 			&models.Class{
-				Class: "SomeAction",
+				Class:      "CustomVectorClass",
+				Vectorizer: config.VectorizerModuleNone,
+				Properties: []*models.Property{
+					&models.Property{
+						Name:     "intField",
+						DataType: []string{"int"},
+					},
+				},
+			},
+			&models.Class{
+				Vectorizer: config.VectorizerModuleText2VecContextionary,
+				Class:      "SomeAction",
 				Properties: []*models.Property{
 					&models.Property{
 						Name:     "intField",
