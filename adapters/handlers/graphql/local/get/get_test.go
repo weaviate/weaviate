@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
@@ -626,6 +627,24 @@ func TestNearTextRanker(t *testing.T) {
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
+		query := `{ Get { CustomVectorClass(nearText: {
+                concepts: ["c1", "c2", "c3"],
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								},
+								moveAwayFrom: {
+									concepts:["epic"],
+									force: 0.25
+								}
+        			}) { intField } } }`
+
+		res := resolver.Resolve(query)
+		require.Len(t, res.Errors, 1)
+		assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"CustomVectorClass\"")
 	})
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
