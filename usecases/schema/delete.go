@@ -30,11 +30,8 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	semanticSchema := m.state.SchemaFor(k)
 	classIdx := -1
@@ -53,7 +50,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind
 	semanticSchema.Classes[len(semanticSchema.Classes)-1] = nil // to prevent leaking this pointer.
 	semanticSchema.Classes = semanticSchema.Classes[:len(semanticSchema.Classes)-1]
 
-	err = m.saveSchema(ctx)
+	err := m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}

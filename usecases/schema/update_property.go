@@ -34,11 +34,8 @@ func (m *Manager) UpdateObjectProperty(ctx context.Context, principal *models.Pr
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClassProperty(ctx context.Context, className string, name string,
 	property *models.Property, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	var newName *string
 
