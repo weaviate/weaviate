@@ -34,20 +34,6 @@ func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
 	return nil
 }
 
-type fakeLocks struct{}
-
-func newFakeLocks() *fakeLocks {
-	return &fakeLocks{}
-}
-
-func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
-func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
 type fakeC11y struct {
 }
 

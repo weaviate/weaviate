@@ -33,11 +33,8 @@ func (m *Manager) AddObjectProperty(ctx context.Context, principal *models.Princ
 
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
 	prop *models.Property, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	semanticSchema := m.state.SchemaFor(k)
 	class, err := schema.GetClassByName(semanticSchema, className)

@@ -44,11 +44,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClass(ctx context.Context, className string,
 	class *models.Class, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	var newName *string
 
@@ -60,6 +57,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 
 	semanticSchema := m.state.SchemaFor(k)
 
+	var err error
 	class, err = schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err

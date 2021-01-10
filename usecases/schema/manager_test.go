@@ -640,7 +640,7 @@ func TestSchema(t *testing.T) {
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(),
 		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone})
 	if err != nil {

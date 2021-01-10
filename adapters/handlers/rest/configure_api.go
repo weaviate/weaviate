@@ -130,7 +130,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Locks, appState.Logger, appState.Contextionary,
+		appState.Logger, appState.Contextionary,
 		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.

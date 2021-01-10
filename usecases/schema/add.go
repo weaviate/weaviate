@@ -33,17 +33,14 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class *models.Class, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+	m.Lock()
+	defer m.Unlock()
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err = m.validateCanAddClass(ctx, principal, k, class)
+	err := m.validateCanAddClass(ctx, principal, k, class)
 	if err != nil {
 		return err
 	}

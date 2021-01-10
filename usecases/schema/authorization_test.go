@@ -96,8 +96,9 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		for _, method := range allExportedMethods(&Manager{}) {
 			switch method {
-			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback", "UpdateMeta", "GetSchemaSkipAuth",
-				"IndexedInverted", "IndexedContextionary", "VectorizeClassName", "VectorizePropertyName":
+			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
+				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "IndexedContextionary",
+				"VectorizeClassName", "VectorizePropertyName", "Lock", "Unlock":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
@@ -113,7 +114,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				manager, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
+				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
 					logger, &fakeC11y{}, authorizer, nil, config.Config{})
 				require.Nil(t, err)
 

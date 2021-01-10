@@ -14,12 +14,12 @@ package schema
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
 )
@@ -31,12 +31,12 @@ type Manager struct {
 	repo             Repo
 	stopwordDetector stopwordDetector
 	c11yClient       c11yClient
-	locks            locks.ConnectorSchemaLock
 	state            State
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
 	config           config.Config
+	sync.Mutex
 }
 
 type SchemaGetter interface {
@@ -62,14 +62,13 @@ type c11yClient interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
+func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector, config config.Config) (*Manager, error) {
 	m := &Manager{
 		config:           config,
 		migrator:         migrator,
 		repo:             repo,
-		locks:            locks,
 		state:            State{},
 		logger:           logger,
 		stopwordDetector: swd,
