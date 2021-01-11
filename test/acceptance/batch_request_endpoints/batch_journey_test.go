@@ -111,7 +111,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 
 	// since this bug occurs only in around 1 in 25 cases, we run the test
 	// multiple times to increase the chance we're running into it
-	amount := 100
+	amount := 50
 	for i := 0; i < amount; i++ {
 		t.Run("create schema", func(t *testing.T) {
 			createObjectClass(t, &models.Class{
@@ -176,7 +176,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 
 		t.Run("verify using GraphQL", func(t *testing.T) {
 			result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
-		{  Get { %s(nearText: {concepts: ["news"]}, limit:7) {  
+		{  Get { %s(nearText: {concepts: ["news"]}) {  
 				wordCount title url 
 		} } }
 		`, className))
