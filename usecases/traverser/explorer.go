@@ -228,34 +228,57 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if params.AdditionalProperties.ID {
-			certainty := map[string]interface{}{"id": res.ID}
-			res.Schema.(map[string]interface{})["_additional"] = certainty
+			id := map[string]interface{}{"id": res.ID}
+			res.Schema.(map[string]interface{})["_additional"] = id
 		}
 
-		for _, selectProp := range params.Properties {
-			for _, refClass := range selectProp.Refs {
-				ref := res.Schema.(map[string]interface{})[selectProp.Name]
-				if ref != nil {
-					for _, innerRefProp := range ref.([]interface{}) {
-						innerRef, ok := innerRefProp.(search.LocalRef)
-						if !ok {
-							continue
-						}
-						if innerRef.Class == refClass.ClassName {
-							if refClass.AdditionalProperties.ID {
-								innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
-								innerRef.Fields["_additional"] = innerRefID
-							}
-						}
-					}
-				}
-			}
-		}
+		e.extractAdditionalPropertiesFromRefs(res.Schema, params.Properties)
 
 		output = append(output, res.Schema)
 	}
 
 	return output, nil
+}
+
+func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params SelectProperties) {
+	for _, selectProp := range params {
+		for _, refClass := range selectProp.Refs {
+			propertySchemaMap, ok := propertySchema.(map[string]interface{})
+			if ok {
+				refProperty := propertySchemaMap[selectProp.Name]
+				if refProperty != nil {
+					e.exctractAdditionalPropertiesFromRef(refProperty, refClass)
+				}
+			}
+			if refClass.RefProperties != nil {
+				innerPropertySchema := propertySchema.(map[string]interface{})[selectProp.Name]
+				innerRef, ok := innerPropertySchema.([]interface{})
+				if ok {
+					for _, props := range innerRef {
+						innerRefSchema, ok := props.(search.LocalRef)
+						if ok {
+							e.extractAdditionalPropertiesFromRefs(innerRefSchema.Fields, refClass.RefProperties)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{}, refClass SelectClass) {
+	for _, innerRefProp := range ref.([]interface{}) {
+		innerRef, ok := innerRefProp.(search.LocalRef)
+		if !ok {
+			continue
+		}
+		if innerRef.Class == refClass.ClassName {
+			if refClass.AdditionalProperties.ID {
+				innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
+				innerRef.Fields["_additional"] = innerRefID
+			}
+		}
+	}
 }
 
 // TODO: contains module-specific logic
