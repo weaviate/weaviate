@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -67,6 +68,7 @@ func (h *hnsw) reset() error {
 	defer h.Unlock()
 	h.entryPointID = 0
 	h.currentMaximumLayer = 0
+	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, initialSize)
 
 	return h.commitLog.Reset()
@@ -157,12 +159,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	if h.isEmpty() {
-		h.Lock()
-		h.entryPointID = 0
-		h.currentMaximumLayer = 0
-		h.Unlock()
-
-		if err := h.commitLog.Reset(); err != nil {
+		if err := h.reset(); err != nil {
 			return err
 		}
 	}
