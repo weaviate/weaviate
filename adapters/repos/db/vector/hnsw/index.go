@@ -35,6 +35,11 @@ type hnsw struct {
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
 
+	// make sure the very first insert happens just once, otherwise we
+	// accidentally overwrite previous entrypoints on parallel imports on an
+	// empty graph
+	initialInsertOnce *sync.Once
+
 	// Each node should not have more edges than this number
 	maximumConnections int
 
@@ -147,6 +152,7 @@ func New(cfg Config) (*hnsw, error) {
 		distancerProvider: cfg.DistanceProvider,
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
+		initialInsertOnce: &sync.Once{},
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -270,6 +276,7 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
+
 	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
 		return err
 	}
@@ -289,9 +296,18 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
-	if h.isEmpty() {
-		return h.insertInitialElement(node, nodeVec)
+	wasFirst := false
+	var firstInsertError error
+	h.initialInsertOnce.Do(func() {
+		if h.isEmpty() {
+			wasFirst = true
+			firstInsertError = h.insertInitialElement(node, nodeVec)
+		}
+	})
+	if wasFirst {
+		return firstInsertError
 	}
+
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
 	entryPointID := h.entryPointID

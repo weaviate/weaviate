@@ -105,3 +105,87 @@ func batchJourney(t *testing.T) {
 func mustNewUUID() strfmt.UUID {
 	return strfmt.UUID(uuid.New().String())
 }
+
+func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
+	className := "FlakyBugTestClass"
+
+	// since this bug occurs only in around 1 in 25 cases, we run the test
+	// multiple times to increase the chance we're running into it
+	amount := 50
+	for i := 0; i < amount; i++ {
+		t.Run("create schema", func(t *testing.T) {
+			createObjectClass(t, &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					&models.Property{
+						Name:     "title",
+						DataType: []string{"string"},
+					},
+					&models.Property{
+						Name:     "url",
+						DataType: []string{"string"},
+					},
+					&models.Property{
+						Name:     "wordCount",
+						DataType: []string{"int"},
+					},
+				},
+			})
+		})
+
+		t.Run("create and import some data", func(t *testing.T) {
+			objects := []*models.Object{
+				&models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"title":     "article 1",
+						"url":       "http://articles.local/my-article-1",
+						"wordCount": 60,
+					},
+				},
+				&models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"title":     "article 2",
+						"url":       "http://articles.local/my-article-2",
+						"wordCount": 40,
+					},
+				},
+				&models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"title":     "article 3",
+						"url":       "http://articles.local/my-article-3",
+						"wordCount": 600,
+					},
+				},
+			}
+
+			params := batch.NewBatchObjectsCreateParams().WithBody(
+				batch.BatchObjectsCreateBody{
+					Objects: objects,
+				},
+			)
+			res, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+			require.Nil(t, err)
+
+			for _, elem := range res.Payload {
+				assert.Nil(t, elem.Result.Errors)
+			}
+		})
+
+		t.Run("verify using GraphQL", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		{  Get { %s(nearText: {concepts: ["news"]}) {  
+				wordCount title url 
+		} } }
+		`, className))
+			items := result.Get("Get", className).AsSlice()
+			assert.Len(t, items, 3)
+		})
+
+		t.Run("cleanup", func(t *testing.T) {
+			deleteObjectClass(t, className)
+		})
+	}
+}
