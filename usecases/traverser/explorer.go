@@ -251,13 +251,18 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 				}
 			}
 			if refClass.RefProperties != nil {
-				innerPropertySchema := propertySchema.(map[string]interface{})[selectProp.Name]
-				innerRef, ok := innerPropertySchema.([]interface{})
+				propertySchemaMap, ok := propertySchema.(map[string]interface{})
 				if ok {
-					for _, props := range innerRef {
-						innerRefSchema, ok := props.(search.LocalRef)
+					innerPropertySchema := propertySchemaMap[selectProp.Name]
+					if innerPropertySchema != nil {
+						innerRef, ok := innerPropertySchema.([]interface{})
 						if ok {
-							e.extractAdditionalPropertiesFromRefs(innerRefSchema.Fields, refClass.RefProperties)
+							for _, props := range innerRef {
+								innerRefSchema, ok := props.(search.LocalRef)
+								if ok {
+									e.extractAdditionalPropertiesFromRefs(innerRefSchema.Fields, refClass.RefProperties)
+								}
+							}
 						}
 					}
 				}
@@ -267,15 +272,18 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 }
 
 func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{}, refClass SelectClass) {
-	for _, innerRefProp := range ref.([]interface{}) {
-		innerRef, ok := innerRefProp.(search.LocalRef)
-		if !ok {
-			continue
-		}
-		if innerRef.Class == refClass.ClassName {
-			if refClass.AdditionalProperties.ID {
-				innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
-				innerRef.Fields["_additional"] = innerRefID
+	innerRefClass, ok := ref.([]interface{})
+	if ok {
+		for _, innerRefProp := range innerRefClass {
+			innerRef, ok := innerRefProp.(search.LocalRef)
+			if !ok {
+				continue
+			}
+			if innerRef.Class == refClass.ClassName {
+				if refClass.AdditionalProperties.ID {
+					innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
+					innerRef.Fields["_additional"] = innerRefID
+				}
 			}
 		}
 	}
