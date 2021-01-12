@@ -1525,9 +1525,6 @@ func init() {
           "items": {
             "type": "object",
             "properties": {
-              "inC11y": {
-                "type": "boolean"
-              },
               "info": {
                 "type": "object",
                 "properties": {
@@ -1538,6 +1535,9 @@ func init() {
                     "$ref": "#/definitions/C11yVector"
                   }
                 }
+              },
+              "present": {
+                "type": "boolean"
               },
               "word": {
                 "type": "string"
@@ -4164,9 +4164,6 @@ func init() {
     "C11yWordsResponseIndividualWordsItems0": {
       "type": "object",
       "properties": {
-        "inC11y": {
-          "type": "boolean"
-        },
         "info": {
           "type": "object",
           "properties": {
@@ -4177,6 +4174,9 @@ func init() {
               "$ref": "#/definitions/C11yVector"
             }
           }
+        },
+        "present": {
+          "type": "boolean"
         },
         "word": {
           "type": "string"

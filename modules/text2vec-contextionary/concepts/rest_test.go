@@ -49,8 +49,8 @@ func TestHandlers(t *testing.T) {
 		defer res.Body.Close()
 		json, err := ioutil.ReadAll(res.Body)
 		require.Nil(t, err)
-		expected := `{"individualWords":[{"inC11y":true,` +
-			`"info":{"vector":[0.1,0.2]},"word":"my-concept"}]}`
+		expected := `{"individualWords":[{` +
+			`"info":{"vector":[0.1,0.2]},"present":true,"word":"my-concept"}]}`
 
 		assert.Equal(t, http.StatusOK, res.StatusCode)
 		assert.Equal(t, expected, string(json))
@@ -87,8 +87,8 @@ func (f *fakeInspector) GetWords(ctx context.Context,
 	return &models.C11yWordsResponse{
 		IndividualWords: []*models.C11yWordsResponseIndividualWordsItems0{
 			{
-				InC11y: true,
-				Word:   concept,
+				Present: true,
+				Word:    concept,
 				Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 					Vector: []float32{0.1, 0.2},
 				},

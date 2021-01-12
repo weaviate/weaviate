@@ -206,11 +206,11 @@ func (m *C11yWordsResponseConcatenatedWord) UnmarshalBinary(b []byte) error {
 // swagger:model C11yWordsResponseIndividualWordsItems0
 type C11yWordsResponseIndividualWordsItems0 struct {
 
-	// in c11y
-	InC11y bool `json:"inC11y,omitempty"`
-
 	// info
 	Info *C11yWordsResponseIndividualWordsItems0Info `json:"info,omitempty"`
+
+	// present
+	Present bool `json:"present,omitempty"`
 
 	// word
 	Word string `json:"word,omitempty"`
