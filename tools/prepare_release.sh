@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-VERSION=$(jq -r '.info.version' openapi-specs/schema.json)
+VERSION="$(jq -r '.info.version' openapi-specs/schema.json)"
 LANGUAGES="en nl de cs it"
 IMAGE_BASE="semitechnologies/weaviate:"
 MSG=${1:""}
@@ -15,16 +15,16 @@ for tool in $REQUIRED_TOOLS; do
   fi
 done
 
-if git rev-parse "$VERSION" >/dev/null 2>&1; then
-  echo "Cannot prepare relese, a release for $VERSION already exists"
+if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+  echo "Cannot prepare relese, a release for v$VERSION already exists"
   exit 1
 fi
 
 tools/gen-code-from-swagger.sh
 
-git commit -a -m "prepare release $VERSION"
+git commit -a -m "prepare release v$VERSION"
 
-git tag -a "$VERSION" -m "release $VERSION - $MSG"
+git tag -a "v$VERSION" -m "release v$VERSION - $MSG"
 
 echo "You can use the following template for the release notes, copy/paste below the line"
 echo "----------------------------"
