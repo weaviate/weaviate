@@ -14,7 +14,7 @@
           "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc."
         },
         "name": {
-          "type":"string",
+          "type": "string",
           "description": "human readable name of the resource group"
         },
         "documentationHref": {
@@ -71,7 +71,7 @@
               "word": {
                 "type": "string"
               },
-              "inC11y": {
+              "present": {
                 "type": "boolean"
               },
               "info": {
@@ -377,10 +377,10 @@
         "value": {
           "description": "The value to be used within the operations.",
           "type": "object"
-        }, 
+        },
         "merge": {
           "$ref": "#/definitions/Object"
-        } 
+        }
       },
       "required": ["op", "path"]
     },
@@ -403,10 +403,10 @@
         "value": {
           "description": "The value to be used within the operations.",
           "type": "object"
-        }, 
+        },
         "merge": {
           "$ref": "#/definitions/Object"
-        } 
+        }
       },
       "required": ["op", "path"]
     },
@@ -590,7 +590,6 @@
           "description": "The semantic path between the search query and the result. Only on 'explore' searches",
           "$ref": "#/definitions/SemanticPath"
         }
-
       }
     },
     "ReferenceMetaClassification": {
@@ -743,11 +742,11 @@
         },
         "weight": {
           "type": "number",
-          "format":"float32"
+          "format": "float32"
         },
         "occurrence": {
           "type": "number",
-          "format":"uint64"
+          "format": "uint64"
         }
       }
     },
@@ -1114,7 +1113,19 @@
         "operator": {
           "description": "operator to use",
           "type": "string",
-          "enum": ["And", "Or", "Equal","Like", "Not", "NotEqual", "GreaterThan", "GreaterThanEqual", "LessThan", "LessThanEqual", "WithinGeoRange" ],
+          "enum": [
+            "And",
+            "Or",
+            "Equal",
+            "Like",
+            "Not",
+            "NotEqual",
+            "GreaterThan",
+            "GreaterThanEqual",
+            "LessThan",
+            "LessThanEqual",
+            "WithinGeoRange"
+          ],
           "example": "GreaterThanEqual"
         },
         "path": {
@@ -1176,7 +1187,7 @@
       "type": "object",
       "description": "filter within a distance of a georange",
       "properties": {
-        "geoCoordinates": { 
+        "geoCoordinates": {
           "$ref": "#/definitions/GeoCoordinates",
           "x-nullable": false
         },
@@ -1223,29 +1234,29 @@
     }
   },
   "paths": {
-     "/": {
-       "get": {
-         "description": "Home. Discover the REST API",
-         "operationId": "weaviate.root",
-         "responses": {
-           "200": {
-             "description": "Weaviate is alive and ready to serve content",
-             "schema": {
-               "type": "object",
-               "properties": {
-                 "links": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/definitions/Link"
-                    }
-                 }
-               }
-             }
-           }
-         }
-       }
-     },
-     "/.well-known/live": {
+    "/": {
+      "get": {
+        "description": "Home. Discover the REST API",
+        "operationId": "weaviate.root",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "links": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",

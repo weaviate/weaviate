@@ -41,8 +41,8 @@ func TestInspector(t *testing.T) {
 			expectedOutput: &models.C11yWordsResponse{
 				IndividualWords: []*models.C11yWordsResponseIndividualWordsItems0{
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "pizza",
+						Present: true,
+						Word:    "pizza",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{
@@ -66,8 +66,8 @@ func TestInspector(t *testing.T) {
 			expectedOutput: &models.C11yWordsResponse{
 				IndividualWords: []*models.C11yWordsResponseIndividualWordsItems0{
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "pi55a",
+						Present: true,
+						Word:    "pi55a",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{
@@ -106,8 +106,8 @@ func TestInspector(t *testing.T) {
 				},
 				IndividualWords: []*models.C11yWordsResponseIndividualWordsItems0{
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "pizza",
+						Present: true,
+						Word:    "pizza",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{
@@ -123,8 +123,8 @@ func TestInspector(t *testing.T) {
 						},
 					},
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "baker",
+						Present: true,
+						Word:    "baker",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{
@@ -140,8 +140,8 @@ func TestInspector(t *testing.T) {
 						},
 					},
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "maker",
+						Present: true,
+						Word:    "maker",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{
@@ -157,8 +157,8 @@ func TestInspector(t *testing.T) {
 						},
 					},
 					&models.C11yWordsResponseIndividualWordsItems0{
-						InC11y: true,
-						Word:   "shaker",
+						Present: true,
+						Word:    "shaker",
 						Info: &models.C11yWordsResponseIndividualWordsItems0Info{
 							Vector: []float32{3, 2, 1, 0},
 							NearestNeighbors: []*models.C11yNearestNeighborsItems0{

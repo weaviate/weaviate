@@ -160,8 +160,8 @@ func (i *Inspector) individualWord(ctx context.Context,
 
 func (i *Inspector) individualWordNotPresent(word string) *models.C11yWordsResponseIndividualWordsItems0 {
 	return &models.C11yWordsResponseIndividualWordsItems0{
-		Word:   word,
-		InC11y: false,
+		Word:    word,
+		Present: false,
 	}
 }
 
@@ -173,9 +173,9 @@ func (i *Inspector) individualWordPresent(ctx context.Context,
 	}
 
 	return &models.C11yWordsResponseIndividualWordsItems0{
-		Word:   word,
-		InC11y: true,
-		Info:   info,
+		Word:    word,
+		Present: true,
+		Info:    info,
 	}, nil
 }
 
