@@ -87,7 +87,17 @@ func makeResolveRefField() graphql.FieldResolveFn {
 			return nil, nil
 		}
 
-		items := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
+		items, ok := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
+		if !ok {
+			// could be a models.MultipleRef which would indicate that we found only
+			// unresolved references, this is the case when accepts refs to types
+			// ClassA and ClassB and the object only contains refs to one type (e.g.
+			// ClassA). Now if the user only asks for resolving all of the other type
+			// (i.e. ClassB), then all results would be returned unresolved (as
+			// models.MultipleRef).
+
+			return nil, nil
+		}
 		results := make([]interface{}, len(items))
 		for i, item := range items {
 			switch v := item.(type) {
