@@ -214,7 +214,7 @@ func Test_Resolve(t *testing.T) {
 			query: `{ Aggregate { Car { 
 				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
 				modelName { type count topOccurrences { value occurs } } 
-				MadeBy { type pointingTo }
+				madeBy { type pointingTo }
 				meta { count }
 				} } } `,
 			expectedIncludeMetaCount: true,
@@ -316,7 +316,7 @@ func Test_Resolve(t *testing.T) {
 								},
 							},
 						},
-						"MadeBy": map[string]interface{}{
+						"madeBy": map[string]interface{}{
 							"type":       "cref",
 							"pointingTo": []interface{}{"Manufacturer"},
 						},
