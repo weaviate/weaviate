@@ -86,7 +86,9 @@ func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
 
 func (mr *MockResolver) AssertErrors(t *testing.T, query string, errors []gqlerrors.FormattedError) {
 	result := mr.Resolve(query)
-	assert.Equal(t, errors, result.Errors, "should have failed in a specific way, but didnt")
+	for i, actual := range result.Errors {
+		assert.Equal(t, errors[i].Error(), actual.Error(), "should have failed in a specific way, but didnt")
+	}
 }
 
 func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedResponseString string) {
