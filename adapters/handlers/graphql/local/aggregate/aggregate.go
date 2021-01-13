@@ -13,7 +13,6 @@ package aggregate
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
@@ -140,11 +139,7 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 			return nil, err
 		}
 
-		if *propertyType == schema.DataTypeCRef {
-			fields[strings.Title(property.Name)] = convertedDataType
-		} else {
-			fields[property.Name] = convertedDataType
-		}
+		fields[property.Name] = convertedDataType
 	}
 
 	// Special case: meta { count } appended to all regular props
