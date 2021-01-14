@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -1452,6 +1453,203 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"classification": &models.AdditionalPropertiesClassification{
 							ID: "1234",
+						},
+					},
+				}, res[1])
+		})
+	})
+
+	t.Run("when the almost all _additional props set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Object,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: AdditionalProperties{
+				ID:               true,
+				NearestNeighbors: true,
+				Classification:   true,
+				Interpretation:   true,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Object,
+				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{
+						ID: "1234",
+					},
+					NearestNeighbors: &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "foo",
+								Distance: 0.1,
+							},
+						},
+					},
+				},
+			},
+			{
+				Kind: kind.Object,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"name": "Bar",
+				},
+				AdditionalProperties: &models.AdditionalProperties{
+					Classification: &models.AdditionalPropertiesClassification{
+						ID: "5678",
+					},
+					NearestNeighbors: &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "bar",
+								Distance: 0.1,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		searcher := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{
+			returnArgs: []search.Result{
+				{
+					Kind: kind.Object,
+					ID:   "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+					AdditionalProperties: &models.AdditionalProperties{
+						Classification: &models.AdditionalPropertiesClassification{
+							ID: "1234",
+						},
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.1,
+								},
+							},
+						},
+						Interpretation: &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
+									Concept:    "foo",
+									Weight:     0.123,
+									Occurrence: 123,
+								},
+							},
+						},
+					},
+				},
+				{
+					Kind: kind.Object,
+					ID:   "id2",
+					Schema: map[string]interface{}{
+						"name": "Bar",
+					},
+					AdditionalProperties: &models.AdditionalProperties{
+						Classification: &models.AdditionalPropertiesClassification{
+							ID: "5678",
+						},
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "bar",
+									Distance: 0.1,
+								},
+							},
+						},
+						Interpretation: &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
+									Concept:    "bar",
+									Weight:     0.456,
+									Occurrence: 456,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		searcher.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			searcher.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"id": strfmt.UUID("id1"),
+						"classification": &models.AdditionalPropertiesClassification{
+							ID: "1234",
+						},
+						"nearestNeighbors": &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.1,
+								},
+							},
+						},
+						"interpretation": &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
+									Concept:    "foo",
+									Weight:     0.123,
+									Occurrence: 123,
+								},
+							},
+						},
+					},
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Bar",
+					"_additional": map[string]interface{}{
+						"id": strfmt.UUID("id2"),
+						"classification": &models.AdditionalPropertiesClassification{
+							ID: "5678",
+						},
+						"nearestNeighbors": &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "bar",
+									Distance: 0.1,
+								},
+							},
+						},
+						"interpretation": &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
+									Concept:    "bar",
+									Weight:     0.456,
+									Occurrence: 456,
+								},
+							},
 						},
 					},
 				}, res[1])
