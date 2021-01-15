@@ -6,9 +6,6 @@
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://codecov.io/gh/semi-technologies/weaviate)
 [![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
 
-
-<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
-
 ## Description
 
 Weaviate is a cloud-native, real-time vector search engine (aka _neural search engine_ or _deep search engine_) that allows you to bring your machine learning models to scale. There are extensions for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice, and a console to visualize your data.
