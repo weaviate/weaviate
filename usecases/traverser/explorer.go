@@ -183,30 +183,27 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
+		additionalProperties := make(map[string]interface{})
+
 		if res.AdditionalProperties != nil {
 			if res.AdditionalProperties.Classification != nil {
-				classification := map[string]interface{}{"classification": res.AdditionalProperties.Classification}
-				res.Schema.(map[string]interface{})["_additional"] = classification
+				additionalProperties["classification"] = res.AdditionalProperties.Classification
 			}
 
 			if res.AdditionalProperties.Interpretation != nil {
-				interpretation := map[string]interface{}{"interpretation": res.AdditionalProperties.Interpretation}
-				res.Schema.(map[string]interface{})["_additional"] = interpretation
+				additionalProperties["interpretation"] = res.AdditionalProperties.Interpretation
 			}
 
 			if res.AdditionalProperties.NearestNeighbors != nil {
-				nearestNeighbors := map[string]interface{}{"nearestNeighbors": res.AdditionalProperties.NearestNeighbors}
-				res.Schema.(map[string]interface{})["_additional"] = nearestNeighbors
+				additionalProperties["nearestNeighbors"] = res.AdditionalProperties.NearestNeighbors
 			}
 
 			if res.AdditionalProperties.FeatureProjection != nil {
-				featureProjection := map[string]interface{}{"featureProjection": res.AdditionalProperties.FeatureProjection}
-				res.Schema.(map[string]interface{})["_additional"] = featureProjection
+				additionalProperties["featureProjection"] = res.AdditionalProperties.FeatureProjection
 			}
 
 			if res.AdditionalProperties.SemanticPath != nil {
-				semanticPath := map[string]interface{}{"semanticPath": res.AdditionalProperties.SemanticPath}
-				res.Schema.(map[string]interface{})["_additional"] = semanticPath
+				additionalProperties["semanticPath"] = res.AdditionalProperties.SemanticPath
 			}
 		}
 
@@ -222,14 +219,16 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if params.AdditionalProperties.Certainty {
-				certainty := map[string]interface{}{"certainty": 1 - dist}
-				res.Schema.(map[string]interface{})["_additional"] = certainty
+				additionalProperties["certainty"] = 1 - dist
 			}
 		}
 
 		if params.AdditionalProperties.ID {
-			id := map[string]interface{}{"id": res.ID}
-			res.Schema.(map[string]interface{})["_additional"] = id
+			additionalProperties["id"] = res.ID
+		}
+
+		if len(additionalProperties) > 0 {
+			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
 
 		e.extractAdditionalPropertiesFromRefs(res.Schema, params.Properties)
@@ -281,8 +280,9 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{}, refClass
 			}
 			if innerRef.Class == refClass.ClassName {
 				if refClass.AdditionalProperties.ID {
-					innerRefID := map[string]interface{}{"id": innerRef.Fields["id"]}
-					innerRef.Fields["_additional"] = innerRefID
+					additionalProperties := make(map[string]interface{})
+					additionalProperties["id"] = innerRef.Fields["id"]
+					innerRef.Fields["_additional"] = additionalProperties
 				}
 			}
 		}
