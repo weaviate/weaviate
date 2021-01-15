@@ -42,6 +42,10 @@ func (db *DB) GetUnclassified(ctx context.Context, kind kind.Kind, class string,
 		Pagination: &libfilters.Pagination{
 			Limit: 10000, // TODO: gh-1219 increase
 		},
+		AdditionalProperties: traverser.AdditionalProperties{
+			Classification: true,
+			Interpretation: true,
+		},
 	})
 
 	return res, err
