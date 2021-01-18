@@ -14,8 +14,8 @@ require (
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.24
 	github.com/go-openapi/spec v0.19.8
-	github.com/go-openapi/strfmt v0.19.11
-	github.com/go-openapi/swag v0.19.12
+	github.com/go-openapi/strfmt v0.20.0
+	github.com/go-openapi/swag v0.19.13
 	github.com/go-openapi/validate v0.19.10
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/uuid v1.1.1
@@ -42,7 +42,7 @@ require (
 	golang.org/x/exp v0.0.0-20191030013958-a1ab85dbe136 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45 // indirect
-	golang.org/x/tools v0.0.0-20210114065538-d78b04bdf963 // indirect
+	golang.org/x/tools v0.0.0-20210115202250-e0d201561e39 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/genproto v0.0.0-20191108220845-16a3f7862a1a // indirect
