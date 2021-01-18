@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -56,7 +55,7 @@ func (m *Manager) updateObjectReferenceToConnectorAndSchema(ctx context.Context,
 		return err
 	}
 
-	err = m.validateCanModifyReference(principal, kind.Object, object.Class, propertyName)
+	err = m.validateCanModifyReference(principal, object.Class, propertyName)
 	if err != nil {
 		return err
 	}

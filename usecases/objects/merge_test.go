@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -78,7 +77,6 @@ func Test_MergeObject(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
@@ -128,7 +126,6 @@ func Test_MergeObject(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
@@ -176,7 +173,6 @@ func Test_MergeObject(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				PrimitiveSchema: map[string]interface{}{
@@ -219,7 +215,6 @@ func Test_MergeObject(t *testing.T) {
 					Return(&search.Result{
 						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
-						Kind:      kind.Object,
 					}, nil)
 			} else {
 				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
@@ -293,7 +288,6 @@ func Test_MergeThing(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
@@ -343,7 +337,6 @@ func Test_MergeThing(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
@@ -391,7 +384,6 @@ func Test_MergeThing(t *testing.T) {
 			},
 			expectedOutput: &MergeDocument{
 				UpdateTime: 12345,
-				Kind:       kind.Object,
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				PrimitiveSchema: map[string]interface{}{
@@ -434,7 +426,6 @@ func Test_MergeThing(t *testing.T) {
 					Return(&search.Result{
 						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
-						Kind:      kind.Object,
 					}, nil)
 			} else {
 				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).

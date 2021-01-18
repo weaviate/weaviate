@@ -27,7 +27,7 @@ import (
 )
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
-	if object.Schema() == nil {
+	if object.Properties() == nil {
 		return nil, nil
 	}
 
@@ -37,9 +37,9 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		return nil, err
 	}
 
-	schemaMap, ok := object.Schema().(map[string]interface{})
+	schemaMap, ok := object.Properties().(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Schema())
+		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
 	}
 
 	return inverted.NewAnalyzer().Object(schemaMap, c.Properties, object.ID())

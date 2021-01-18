@@ -341,7 +341,7 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 		return ref
 	}
 
-	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", h.config.Origin, parsed.Kind.Name(), parsed.TargetID))
+	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID))
 	return ref
 }
 

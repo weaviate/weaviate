@@ -17,7 +17,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
@@ -619,16 +618,15 @@ func Test_Resolve(t *testing.T) {
 		},
 	}
 
-	tests.AssertExtraction(t, kind.Object, "Car")
+	tests.AssertExtraction(t, "Car")
 }
 
-func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className string) {
+func (tests testCases) AssertExtraction(t *testing.T, className string) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
 			expectedParams := &traverser.AggregateParams{
-				Kind:             k,
 				ClassName:        schema.ClassName(className),
 				Properties:       testCase.expectedProps,
 				GroupBy:          testCase.expectedGroupBy,

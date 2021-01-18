@@ -22,7 +22,6 @@ import (
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -87,29 +86,21 @@ type fakeVectorRepoKNN struct {
 }
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
-	k kind.Kind, class string, properties []string,
+	class string, properties []string,
 	filter *libfilters.LocalFilter) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
-	if k != kind.Object {
-		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
-	}
-
 	return f.unclassified, nil
 }
 
 func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []float32,
-	ki kind.Kind, class string, properties []string, k int,
+	class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]NeighborRef, error) {
 	f.Lock()
 	defer f.Unlock()
 
 	// simulate that this takes some time
 	time.Sleep(1 * time.Millisecond)
-
-	if ki != kind.Object {
-		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
-	}
 
 	if k != 1 {
 		return nil, fmt.Errorf("fake vector repo only supports k=1")
@@ -214,17 +205,13 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 }
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
-	k kind.Kind, class string, properties []string,
+	class string, properties []string,
 	filter *libfilters.LocalFilter) ([]search.Result, error) {
-	if k != kind.Object {
-		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
-	}
-
 	return f.unclassified, nil
 }
 
 func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vector []float32,
-	ki kind.Kind, class string, properties []string, k int,
+	class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]NeighborRef, error) {
 	panic("not implemented")
 }
@@ -247,10 +234,6 @@ func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
-
-	if params.Kind != kind.Object {
-		return nil, fmt.Errorf("unsupported kind in test fake: %v", params.Kind)
-	}
 
 	filteredTargets := matchClassName(f.targets, params.ClassName)
 	results := filteredTargets

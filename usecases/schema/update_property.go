@@ -13,11 +13,9 @@ package schema
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // UpdateObjectProperty of an existing Object Property
@@ -28,12 +26,12 @@ func (m *Manager) UpdateObjectProperty(ctx context.Context, principal *models.Pr
 		return err
 	}
 
-	return m.updateClassProperty(ctx, class, name, property, kind.Object)
+	return m.updateClassProperty(ctx, class, name, property)
 }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClassProperty(ctx context.Context, className string, name string,
-	property *models.Property, k kind.Kind) error {
+	property *models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -45,7 +43,7 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 		newName = &n
 	}
 
-	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema := m.state.SchemaFor()
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
@@ -81,18 +79,18 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 		return nil
 	}
 
-	return m.migrator.UpdateProperty(ctx, k, className, name, newName)
+	return m.migrator.UpdateProperty(ctx, className, name, newName)
 }
 
 // UpdatePropertyAddDataType adds another data type to a property. Warning: It does not lock on its own, assumes that it is called from when a schema lock is already held!
 func (m *Manager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
-	kind kind.Kind, className string, propName string, newDataType string) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("schema/%ss", kind.Name()))
+	className string, propName string, newDataType string) error {
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	semanticSchema := m.state.SchemaFor(kind)
+	semanticSchema := m.state.SchemaFor()
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
@@ -113,7 +111,7 @@ func (m *Manager) UpdatePropertyAddDataType(ctx context.Context, principal *mode
 		return nil
 	}
 
-	return m.migrator.UpdatePropertyAddDataType(ctx, kind, className, propName, newDataType)
+	return m.migrator.UpdatePropertyAddDataType(ctx, className, propName, newDataType)
 }
 
 func dataTypeAlreadyContained(haystack []string, needle string) bool {

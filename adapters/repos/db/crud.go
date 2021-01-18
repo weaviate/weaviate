@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -33,10 +32,9 @@ import (
 func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32) error {
 	object := storobj.FromObject(obj, vector)
-	idx := d.GetIndex(object.Kind, object.Class())
+	idx := d.GetIndex(object.Class())
 	if idx == nil {
-		return fmt.Errorf("import into non-existing index for %s/%s",
-			object.Kind, object.Class())
+		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
 	err := idx.putObject(ctx, object)
@@ -49,11 +47,9 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 
 func (d *DB) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID) error {
-	kind := kind.Object
-	idx := d.GetIndex(kind, schema.ClassName(className))
+	idx := d.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return fmt.Errorf("delete from non-existing index for %s/%s",
-			kind, className)
+		return fmt.Errorf("delete from non-existing index for %s", className)
 	}
 
 	err := idx.deleteObject(ctx, id)
@@ -74,8 +70,7 @@ func (d *DB) MultiGet(ctx context.Context,
 		q.OriginalPosition = i
 
 		for _, index := range d.indices {
-			if index.Config.Kind != q.Kind ||
-				index.Config.ClassName != schema.ClassName(q.ClassName) {
+			if index.Config.ClassName != schema.ClassName(q.ClassName) {
 				continue
 			}
 
@@ -108,15 +103,10 @@ func (d *DB) MultiGet(ctx context.Context,
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties,
 	additional traverser.AdditionalProperties) (*search.Result, error) {
-	kind := kind.Object
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
-		if index.Config.Kind != kind {
-			continue
-		}
-
 		res, err := index.objectByID(ctx, id, props, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -162,7 +152,7 @@ func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return false, nil
 }
 
-func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
+func (d *DB) AddReference(ctx context.Context,
 	className string, source strfmt.UUID, propName string,
 	ref *models.SingleRef) error {
 	target, err := crossref.ParseSingleRef(ref)
@@ -171,13 +161,12 @@ func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
 	}
 
 	return d.Merge(ctx, objects.MergeDocument{
-		Kind:       kind,
 		Class:      className,
 		ID:         source,
 		UpdateTime: time.Now().UnixNano(),
 		References: objects.BatchReferences{
 			objects.BatchReference{
-				From: crossref.NewSource(kind, schema.ClassName(className),
+				From: crossref.NewSource(schema.ClassName(className),
 					schema.PropertyName(propName), source),
 				To: target,
 			},
@@ -186,10 +175,9 @@ func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
 }
 
 func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument) error {
-	idx := d.GetIndex(merge.Kind, schema.ClassName(merge.Class))
+	idx := d.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
-		return fmt.Errorf("merge from non-existing index for %s/%s",
-			merge.Kind, merge.Class)
+		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
 	err := idx.mergeObject(ctx, merge)

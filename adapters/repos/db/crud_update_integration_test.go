@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -63,7 +62,7 @@ func TestUpdateJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), kind.Object, updateTestClass())
+		err := migrator.AddClass(context.Background(), updateTestClass())
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
@@ -82,7 +81,6 @@ func TestUpdateJourney(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
-				Kind:         kind.Object,
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
@@ -154,7 +152,6 @@ func TestUpdateJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -210,7 +207,6 @@ func TestUpdateJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},

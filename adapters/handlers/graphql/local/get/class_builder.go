@@ -13,13 +13,11 @@ package get
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus"
 )
 
@@ -58,15 +56,14 @@ func (b *classBuilder) initBeaconClass() {
 }
 
 func (b *classBuilder) objects() (*graphql.Object, error) {
-	return b.kinds(kind.Object, b.schema.Objects)
+	return b.kinds(b.schema.Objects)
 }
 
-func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.Object, error) {
+func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
-	kindName := strings.Title(k.Name())
 
 	for _, class := range kindSchema.Classes {
-		classField, err := b.classField(k, class)
+		classField, err := b.classField(class)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -74,43 +71,43 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 	}
 
 	classes := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Get%ssObj", kindName),
+		Name:        "GetObjectsObj",
 		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.GetObjectsActionsObj, kindName),
+		Description: descriptions.GetObjectsActionsObj,
 	})
 
 	return classes, nil
 }
 
-func (b *classBuilder) classField(k kind.Kind, class *models.Class) (*graphql.Field, error) {
-	classObject := b.classObject(k.Name(), class)
+func (b *classBuilder) classField(class *models.Class) (*graphql.Field, error) {
+	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, k, class)
+	classField := buildGetClassField(classObject, class)
 	return &classField, nil
 }
 
-func (b *classBuilder) classObject(kindName string, class *models.Class) *graphql.Object {
+func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 
-			b.additionalFields(classProperties, kindName, class)
+			b.additionalFields(classProperties, class)
 
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
 					// We can't return an error in this FieldsThunk function, so we need to panic
-					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s.%s; %s",
-						kindName, class.Class, property.Name, err.Error()))
+					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s",
+						class.Class, property.Name, err.Error()))
 				}
 
 				if propertyType.IsPrimitive() {
 					classProperties[property.Name] = b.primitiveField(propertyType, property,
-						kindName, class.Class)
+						class.Class)
 				} else {
 					classProperties[property.Name] = b.referenceField(propertyType, property,
-						kindName, class.Class)
+						class.Class)
 				}
 			}
 
@@ -120,14 +117,14 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 	})
 }
 
-func (b *classBuilder) additionalFields(classProperties graphql.Fields, kindName string, class *models.Class) {
+func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *models.Class) {
 	additionalProperties := graphql.Fields{}
-	additionalProperties["classification"] = b.additionalClassificationField(kindName, class)
-	additionalProperties["interpretation"] = b.additionalInterpretationField(kindName, class)
-	additionalProperties["nearestNeighbors"] = b.additionalNNField(kindName, class)
-	additionalProperties["featureProjection"] = b.additionalFeatureProjectionField(kindName, class)
-	additionalProperties["semanticPath"] = b.additionalSemanticPathField(kindName, class)
-	additionalProperties["certainty"] = b.additionalCertaintyField(kindName, class)
+	additionalProperties["classification"] = b.additionalClassificationField(class)
+	additionalProperties["interpretation"] = b.additionalInterpretationField(class)
+	additionalProperties["nearestNeighbors"] = b.additionalNNField(class)
+	additionalProperties["featureProjection"] = b.additionalFeatureProjectionField(class)
+	additionalProperties["semanticPath"] = b.additionalSemanticPathField(class)
+	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	classProperties["_additional"] = &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
@@ -144,7 +141,7 @@ func (b *classBuilder) additionalIDField() *graphql.Field {
 	}
 }
 
-func (b *classBuilder) additionalClassificationField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalClassificationField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalClassification", class.Class),
@@ -159,7 +156,7 @@ func (b *classBuilder) additionalClassificationField(kindName string, class *mod
 	}
 }
 
-func (b *classBuilder) additionalInterpretationField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalInterpretationField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalInterpretation", class.Class),
@@ -177,7 +174,7 @@ func (b *classBuilder) additionalInterpretationField(kindName string, class *mod
 	}
 }
 
-func (b *classBuilder) additionalNNField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalNNField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalNearestNeighbors", class.Class),
@@ -194,7 +191,7 @@ func (b *classBuilder) additionalNNField(kindName string, class *models.Class) *
 	}
 }
 
-func (b *classBuilder) additionalFeatureProjectionField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalFeatureProjectionField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Args: graphql.FieldConfigArgument{
 			"algorithm": &graphql.ArgumentConfig{
@@ -227,7 +224,7 @@ func (b *classBuilder) additionalFeatureProjectionField(kindName string, class *
 	}
 }
 
-func (b *classBuilder) additionalSemanticPathField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalSemanticPathField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalSemanticPath", class.Class),
@@ -247,7 +244,7 @@ func (b *classBuilder) additionalSemanticPathField(kindName string, class *model
 	}
 }
 
-func (b *classBuilder) additionalCertaintyField(kindName string, class *models.Class) *graphql.Field {
+func (b *classBuilder) additionalCertaintyField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Float,
 	}

@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
 )
@@ -34,7 +33,6 @@ func generateSearchResultsToSave(size int) search.Results {
 	items := make(search.Results, 0)
 	for i := 0; i < size; i++ {
 		res := search.Result{
-			Kind:      kind.Object,
 			ID:        strfmt.UUID(fmt.Sprintf("75ba35af-6a08-40ae-b442-3bec69b35%03d", i)),
 			ClassName: "Article",
 			Vector:    []float32{0.78, 0, 0},

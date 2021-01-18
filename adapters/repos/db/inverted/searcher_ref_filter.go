@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -65,11 +64,6 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 }
 
 func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, error) {
-	kind, err := r.targetKind(r.filter.On.Child.Class)
-	if err != nil {
-		return traverser.GetParams{}, err
-	}
-
 	return traverser.GetParams{
 		Filters:   r.innerFilter(),
 		ClassName: r.filter.On.Child.Class.String(),
@@ -80,7 +74,6 @@ func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, erro
 			// unexpected performance issues
 			Limit: 1e5,
 		},
-		Kind: kind,
 	}, nil
 }
 
@@ -149,22 +142,7 @@ func (r *refFilterExtractor) idToPropValuePair(id strfmt.UUID) (*propValuePair, 
 }
 
 func (r *refFilterExtractor) beacon(id strfmt.UUID) (strfmt.URI, error) {
-	class := r.filter.On.Child.Class
-	kind, err := r.targetKind(class)
-	if err != nil {
-		return "", err
-	}
-
-	return strfmt.URI(crossref.New("localhost", id, kind).String()), nil
-}
-
-func (r *refFilterExtractor) targetKind(class schema.ClassName) (kind.Kind, error) {
-	kind, ok := r.schema.GetKindOfClass(class)
-	if !ok {
-		return kind, fmt.Errorf("target class %q not found in schema", class)
-	}
-
-	return kind, nil
+	return strfmt.URI(crossref.New("localhost", id).String()), nil
 }
 
 // chain multiple alternatives using an OR operator

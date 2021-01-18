@@ -15,8 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -62,13 +60,7 @@ func newBatchWriter(vectorRepo vectorRepo) writer {
 func (r *batchWriter) Store(item search.Result) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-
-	switch item.Kind {
-	case kind.Object:
-		return r.storeObject(item)
-	default:
-		return errors.Errorf("impossible kind")
-	}
+	return r.storeObject(item)
 }
 
 // Start starts the batch save goroutine

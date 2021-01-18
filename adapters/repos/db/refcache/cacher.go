@@ -138,7 +138,6 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 					}
 					c.addJob(multi.Identifier{
 						ID:        ref.TargetID.String(),
-						Kind:      ref.Kind,
 						ClassName: selectPropRef.ClassName,
 					}, innerProperties)
 				}
@@ -184,7 +183,6 @@ func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	// ID
 	job, ok := c.findJob(multi.Identifier{
 		ID:        obj.ID.String(),
-		Kind:      obj.Kind,
 		ClassName: obj.ClassName,
 	})
 	if ok {
@@ -353,7 +351,6 @@ func (c *Cacher) storeResults(res search.Results) error {
 	for _, item := range res {
 		c.store[multi.Identifier{
 			ID:        item.ID.String(),
-			Kind:      item.Kind,
 			ClassName: item.ClassName,
 		}] = item
 	}

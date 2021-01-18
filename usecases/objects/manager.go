@@ -24,7 +24,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
@@ -85,7 +84,7 @@ type VectorRepo interface {
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 
-	AddReference(ctx context.Context, kind kind.Kind, className string,
+	AddReference(ctx context.Context, className string,
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error
 }

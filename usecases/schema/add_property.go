@@ -17,7 +17,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // AddObjectProperty to an existing Object
@@ -28,15 +27,15 @@ func (m *Manager) AddObjectProperty(ctx context.Context, principal *models.Princ
 		return err
 	}
 
-	return m.addClassProperty(ctx, principal, class, property, kind.Object)
+	return m.addClassProperty(ctx, principal, class, property)
 }
 
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
-	prop *models.Property, k kind.Kind) error {
+	prop *models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
-	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema := m.state.SchemaFor()
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
@@ -56,7 +55,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 		return nil
 	}
 
-	return m.migrator.AddProperty(ctx, k, className, prop)
+	return m.migrator.AddProperty(ctx, className, prop)
 }
 
 func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.Principal,

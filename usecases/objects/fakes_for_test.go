@@ -18,7 +18,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -28,7 +27,6 @@ import (
 
 type fakeSchemaManager struct {
 	CalledWith struct {
-		kind      kind.Kind
 		fromClass string
 		property  string
 		toClass   string
@@ -37,14 +35,12 @@ type fakeSchemaManager struct {
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
-	k kind.Kind, fromClass, property, toClass string) error {
+	fromClass, property, toClass string) error {
 	f.CalledWith = struct {
-		kind      kind.Kind
 		fromClass string
 		property  string
 		toClass   string
 	}{
-		kind:      k,
 		fromClass: fromClass,
 		property:  property,
 		toClass:   toClass,
@@ -134,10 +130,10 @@ func (f *fakeVectorRepo) DeleteObject(ctx context.Context,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind,
+func (f *fakeVectorRepo) AddReference(ctx context.Context,
 	class string, source strfmt.UUID, prop string,
 	ref *models.SingleRef) error {
-	args := f.Called(kind, source, prop, ref)
+	args := f.Called(source, prop, ref)
 	return args.Error(0)
 }
 

@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -78,7 +77,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, class))
+			migrator.AddClass(context.Background(), class))
 
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
@@ -140,7 +139,6 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -213,7 +211,6 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -310,7 +307,6 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			})
 
 			params := traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -452,7 +448,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}, maxDist*km)
 
 					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-						Kind:       kind.Object,
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -518,7 +513,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}, maxDist*km)
 
 					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-						Kind:       kind.Object,
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{

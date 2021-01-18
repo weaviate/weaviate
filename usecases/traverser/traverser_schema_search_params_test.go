@@ -15,7 +15,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,7 +33,6 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
-				Kind:       kind.Object,
 				Certainty:  1.0,
 			},
 			expectedError: nil,
@@ -44,7 +42,6 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "",
-				Kind:       kind.Object,
 				Certainty:  0.0,
 			},
 			expectedError: errors.New("Name cannot be empty"),
@@ -54,7 +51,6 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "bestName",
-				Kind:       kind.Object,
 				Certainty:  -4,
 			},
 			expectedError: errors.New("invalid Certainty: must be between 0 and 1, but got '-4.000000'"),
@@ -64,7 +60,6 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "bestName",
-				Kind:       kind.Object,
 				Certainty:  4,
 			},
 			expectedError: errors.New("invalid Certainty: must be between 0 and 1, but got '4.000000'"),
@@ -74,7 +69,6 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchType("invalid"),
 				Name:       "bestName",
-				Kind:       kind.Object,
 				Certainty:  0.5,
 			},
 			expectedError: errors.New("SearchType must be SearchTypeClass or SearchTypeProperty, but got 'invalid'"),
@@ -86,14 +80,13 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "bestName",
 				Certainty:  0.5,
 			},
-			expectedError: errors.New("Kind cannot be empty"),
+			expectedError: nil,
 		},
 		{
 			name: "valid keywords",
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
-				Kind:       kind.Object,
 				Certainty:  1.0,
 			},
 			expectedError: nil,

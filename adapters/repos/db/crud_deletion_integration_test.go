@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +55,7 @@ func TestDeleteJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), kind.Object, updateTestClass())
+		err := migrator.AddClass(context.Background(), updateTestClass())
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
@@ -75,7 +74,6 @@ func TestDeleteJourney(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
-				Kind:         kind.Object,
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
@@ -136,7 +134,7 @@ func TestDeleteJourney(t *testing.T) {
 			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
 
-			index := repo.GetIndex(kind.Object, "UpdateTestClass")
+			index := repo.GetIndex("UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
@@ -147,7 +145,6 @@ func TestDeleteJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -185,7 +182,7 @@ func TestDeleteJourney(t *testing.T) {
 			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
 
-			index := repo.GetIndex(kind.Object, "UpdateTestClass")
+			index := repo.GetIndex("UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
@@ -196,7 +193,6 @@ func TestDeleteJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -229,7 +225,7 @@ func TestDeleteJourney(t *testing.T) {
 			ticker := time.Tick(70 * time.Second)
 			<-ticker
 
-			index := repo.GetIndex(kind.Object, "UpdateTestClass")
+			index := repo.GetIndex("UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())

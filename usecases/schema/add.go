@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // AddObject Class to the schema
@@ -28,11 +27,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return m.addClass(ctx, principal, class, kind.Object)
+	return m.addClass(ctx, principal, class)
 }
 
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
-	class *models.Class, k kind.Kind) error {
+	class *models.Class) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -40,19 +39,19 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, k, class)
+	err := m.validateCanAddClass(ctx, principal, class)
 	if err != nil {
 		return err
 	}
 
-	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	return m.migrator.AddClass(ctx, k, class)
+	return m.migrator.AddClass(ctx, class)
 	// TODO gh-846: Rollback state upate if migration fails
 }
 
@@ -66,14 +65,14 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	}
 }
 
-func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, knd kind.Kind, class *models.Class) error {
+func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
 	// First check if there is a name clash.
 	err := m.validateClassNameUniqueness(class.Class)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateClassName(ctx, knd, class.Class, VectorizeClassName(class))
+	err = m.validateClassName(ctx, class.Class, VectorizeClassName(class))
 	if err != nil {
 		return err
 	}

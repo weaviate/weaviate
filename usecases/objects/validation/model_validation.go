@@ -19,11 +19,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
-type exists func(context.Context, kind.Kind, strfmt.UUID) (bool, error)
+type exists func(context.Context, strfmt.UUID) (bool, error)
 
 const (
 	// ErrorMissingActionObjects message
@@ -55,7 +54,7 @@ const (
 	// ErrorInvalidCRefType message
 	ErrorInvalidCRefType string = "'cref' type '%s' does not exists"
 	// ErrorNotFoundInDatabase message
-	ErrorNotFoundInDatabase string = "%s: no %s with id %s found"
+	ErrorNotFoundInDatabase string = "%s: no object with id %s found"
 )
 
 type Validator struct {
@@ -78,7 +77,7 @@ func (v *Validator) Object(ctx context.Context, object *models.Object) error {
 		return err
 	}
 
-	return v.properties(ctx, kind.Object, object)
+	return v.properties(ctx, object)
 }
 
 func validateClass(class string) error {
@@ -110,13 +109,13 @@ func (v *Validator) validateLocalRef(ctx context.Context, ref *crossref.Ref, err
 	// Check whether the given Object exists in the DB
 	var err error
 
-	ok, err := v.exists(ctx, ref.Kind, ref.TargetID)
+	ok, err := v.exists(ctx, ref.TargetID)
 	if err != nil {
 		return err
 	}
 
 	if !ok {
-		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.Kind.Name(), ref.TargetID)
+		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.TargetID)
 	}
 
 	return nil

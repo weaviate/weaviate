@@ -18,8 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func groupArgument(kindName, className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
+func groupArgument(className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.GetGroup,
 		Type: graphql.NewInputObject(

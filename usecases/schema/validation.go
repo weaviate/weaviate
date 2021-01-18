@@ -20,12 +20,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
-	for _, otherClass := range m.state.SchemaFor(kind.Object).Classes {
+	for _, otherClass := range m.state.SchemaFor().Classes {
 		if className == otherClass.Class {
 			return fmt.Errorf("Name '%s' already used as a name for an Object class", className)
 		}
@@ -36,7 +35,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassName(ctx context.Context, knd kind.Kind, className string, vectorizeClass bool) error {
+func (m *Manager) validateClassName(ctx context.Context, className string, vectorizeClass bool) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err

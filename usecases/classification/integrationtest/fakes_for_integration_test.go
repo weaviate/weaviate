@@ -22,7 +22,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -159,7 +158,6 @@ func largeTestDataSize(size int) search.Results {
 
 	for i := range out {
 		out[i] = search.Result{
-			Kind:      kind.Object,
 			ID:        mustUUID(),
 			ClassName: "Article",
 			Vector:    []float32{0.02, 0, 0},

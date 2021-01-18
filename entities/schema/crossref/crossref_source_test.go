@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,10 +39,6 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
 		})
 
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
-		})
-
 		t.Run("the class name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Class, schema.ClassName("MyClassName"))
 		})
@@ -53,7 +48,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("assembling a new source and comparing if the match", func(t *testing.T) {
-			alt := NewSource(kind.Object, "MyClassName", "myRefProp",
+			alt := NewSource("MyClassName", "myRefProp",
 				"c2cd3f91-0160-477e-869a-8da8829e0a4d")
 			assert.Equal(t, ref, alt)
 		})
@@ -77,10 +72,6 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
 		})
 
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
-		})
-
 		t.Run("the class name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Class, schema.ClassName("MyActionClass"))
 		})
@@ -90,7 +81,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("assembling a new source and comparing if the match", func(t *testing.T) {
-			alt := NewSource(kind.Object, "MyActionClass", "myRefProp",
+			alt := NewSource("MyActionClass", "myRefProp",
 				"c2cd3f91-0160-477e-869a-8da8829e0a4d")
 			assert.Equal(t, ref, alt)
 		})
@@ -112,10 +103,6 @@ func Test_Source_ParsingFromString(t *testing.T) {
 
 		t.Run("id points correctly", func(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
-		})
-
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
 		})
 
 		t.Run("the class name is correct", func(t *testing.T) {

@@ -17,7 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,9 +25,8 @@ type Migrator struct {
 	logger logrus.FieldLogger
 }
 
-func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	idx, err := NewIndex(IndexConfig{
-		Kind:      kind,
 		ClassName: schema.ClassName(class.Class),
 		RootPath:  m.db.config.RootPath,
 	}, m.db.schemaGetter, m.db, m.logger)
@@ -56,8 +54,8 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
-	err := m.db.DeleteIndex(kind, schema.ClassName(className))
+func (m *Migrator) DropClass(ctx context.Context, className string) error {
+	err := m.db.DeleteIndex(schema.ClassName(className))
 	if err != nil {
 		return errors.Wrapf(err, "delete idx for class '%s'", className)
 	}
@@ -65,7 +63,7 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 	return nil
 }
 
-func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
+func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
 	if newClassName != nil {
 		return errors.New("weaviate does not support renaming of classes")
 	}
@@ -73,23 +71,22 @@ func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className st
 	return nil
 }
 
-func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
-	idx := m.db.GetIndex(kind, schema.ClassName(className))
+func (m *Migrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot add property to a non-existing index for %s/%s",
-			kind.Name(), className)
+		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
 	return idx.addProperty(ctx, prop)
 }
 
 // DropProperty is ignored, API compliant change
-func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
+func (m *Migrator) DropProperty(ctx context.Context, className string, propertyName string) error {
 	// ignore but don't error
 	return nil
 }
 
-func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
+func (m *Migrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
 	if newName != nil {
 		return errors.New("weaviate does not support renaming of properties")
 	}
@@ -98,7 +95,7 @@ func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className
 }
 
 // UpdatePropertyAddDataType is ignored, API compliant change
-func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
+func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error {
 	// ignore but don't error
 	return nil
 }

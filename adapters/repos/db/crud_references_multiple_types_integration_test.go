@@ -23,7 +23,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -51,7 +50,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}

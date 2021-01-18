@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/sirupsen/logrus"
@@ -52,7 +51,7 @@ func TestClassifications(t *testing.T) {
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
-			err := migrator.AddClass(context.Background(), kind.Object, class)
+			err := migrator.AddClass(context.Background(), class)
 			require.Nil(t, err)
 		}
 	})
@@ -77,7 +76,7 @@ func TestClassifications(t *testing.T) {
 	})
 
 	t.Run("finding all unclassified (no filters)", func(t *testing.T) {
-		res, err := repo.GetUnclassified(context.Background(), kind.Object,
+		res, err := repo.GetUnclassified(context.Background(),
 			"Article", []string{"exactCategory", "mainCategory"}, nil)
 		require.Nil(t, err)
 		require.Len(t, res, 6)
@@ -97,7 +96,7 @@ func TestClassifications(t *testing.T) {
 			},
 		}
 
-		res, err := repo.GetUnclassified(context.Background(), kind.Object,
+		res, err := repo.GetUnclassified(context.Background(),
 			"Article", []string{"exactCategory", "mainCategory"}, filter)
 		require.Nil(t, err)
 		require.Len(t, res, 1)
@@ -107,7 +106,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("aggregating over item neighbors", func(t *testing.T) {
 		t.Run("close to politics (no filters)", func(t *testing.T) {
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.7, 0.01, 0.01}, kind.Object, "Article",
+				[]float32{0.7, 0.01, 0.01}, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
@@ -143,7 +142,7 @@ func TestClassifications(t *testing.T) {
 
 		t.Run("close to food and drink (no filters)", func(t *testing.T) {
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.01, 0.01, 0.66}, kind.Object, "Article",
+				[]float32{0.01, 0.01, 0.66}, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
@@ -191,7 +190,7 @@ func TestClassifications(t *testing.T) {
 				},
 			}
 			res, err := repo.AggregateNeighbors(context.Background(),
-				[]float32{0.01, 0.01, 0.66}, kind.Object, "Article",
+				[]float32{0.01, 0.01, 0.66}, "Article",
 				[]string{"exactCategory", "mainCategory"}, 1, filter)
 
 			expectedRes := []classification.NeighborRef{
@@ -375,7 +374,6 @@ func classificationTestArticles() search.Results {
 
 		// unclassified
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "75ba35af-6a08-40ae-b442-3bec69b355f9",
 			ClassName: "Article",
 			Vector:    []float32{0.78, 0, 0},
@@ -384,7 +382,6 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "f850439a-d3cd-4f17-8fbf-5a64405645cd",
 			ClassName: "Article",
 			Vector:    []float32{0.90, 0, 0},
@@ -393,7 +390,6 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.78, 0},
@@ -402,7 +398,6 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "069410c3-4b9e-4f68-8034-32a066cb7997",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.90, 0},
@@ -411,7 +406,6 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "06a1e824-889c-4649-97f9-1ed3fa401d8e",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.78},
@@ -420,7 +414,6 @@ func classificationTestArticles() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Object,
 			ID:        "6402e649-b1e0-40ea-b192-a64eab0d5e56",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.90},
