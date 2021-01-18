@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -392,30 +391,4 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 	}
 
 	return h.selectNeighborsSimple(*bst, max, denyList), nil
-}
-
-// Dump to stdout for debugging purposes
-func (index *hnsw) Dump(labels ...string) {
-	if len(labels) > 0 {
-		fmt.Printf("--------------------------------------------------\n")
-		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
-	}
-	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("Entrypoint: %d\n", index.entryPointID)
-	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
-	fmt.Printf("Tombstones %v\n", index.tombstones)
-	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range index.nodes {
-		if node == nil {
-			continue
-		}
-
-		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
-		for level, conns := range node.connections {
-			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
-		}
-	}
-
-	fmt.Printf("--------------------------------------------------\n")
 }
