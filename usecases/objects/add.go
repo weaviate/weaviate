@@ -19,14 +19,13 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 type schemaManager interface {
-	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
+	UpdatePropertyAddDataType(context.Context, *models.Principal, string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 }
 
@@ -49,7 +48,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	return m.addObjectToConnectorAndSchema(ctx, principal, class)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
+func (m *Manager) checkIDOrAssignNew(ctx context.Context,
 	id strfmt.UUID) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -60,7 +59,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.exists(ctx, kind, id); ok {
+	if ok, err := m.exists(ctx, id); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -70,7 +69,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Object) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, kind.Object, class.ID)
+	id, err := m.checkIDOrAssignNew(ctx, class.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +195,6 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 	return validation.New(s, m.exists, m.config).Object(ctx, class)
 }
 
-func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
+func (m *Manager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return m.vectorRepo.Exists(ctx, id)
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
@@ -77,10 +76,9 @@ func TestResolver(t *testing.T) {
 	t.Run("with single ref and matching select prop", func(t *testing.T) {
 		cacher := newFakeCacher()
 		r := NewResolver(cacher)
-		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"bar": "some string",
 			},
@@ -139,10 +137,9 @@ func TestResolver(t *testing.T) {
 	t.Run("with a nested lookup", func(t *testing.T) {
 		cacher := newFakeCacher()
 		r := NewResolver(cacher)
-		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
@@ -157,10 +154,9 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		cacher.lookup[multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},

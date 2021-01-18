@@ -30,7 +30,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +66,6 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -222,7 +220,6 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -421,7 +418,6 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)

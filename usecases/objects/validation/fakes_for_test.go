@@ -17,7 +17,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 func testSchema() schema.Schema {
@@ -42,6 +41,6 @@ func testSchema() schema.Schema {
 	}
 }
 
-func fakeExists(context.Context, kind.Kind, strfmt.UUID) (bool, error) {
+func fakeExists(context.Context, strfmt.UUID) (bool, error) {
 	return true, nil
 }

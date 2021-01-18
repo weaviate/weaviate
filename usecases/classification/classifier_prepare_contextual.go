@@ -18,7 +18,6 @@ import (
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -32,7 +31,7 @@ type contextualPreparationContext struct {
 	targets map[string]search.Results // map[classifyProp]targets
 }
 
-func (c *Classifier) prepareContextualClassification(kind kind.Kind, params models.Classification,
+func (c *Classifier) prepareContextualClassification(params models.Classification,
 	filters filters, items search.Results) (contextualPreparationContext, error) {
 	schema := c.schemaGetter.GetSchemaSkipAuth()
 	p := &contextualPreparer{
@@ -40,7 +39,6 @@ func (c *Classifier) prepareContextualClassification(kind kind.Kind, params mode
 		params:     params,
 		repo:       c.vectorRepo,
 		filters:    filters,
-		kind:       kind,
 		schema:     schema,
 	}
 
@@ -52,7 +50,6 @@ type contextualPreparer struct {
 	params     models.Classification
 	repo       vectorRepo
 	filters    filters
-	kind       kind.Kind
 	schema     schema.Schema
 }
 
@@ -112,12 +109,12 @@ func (p *contextualPreparer) findTargetsForProps() (map[string]search.Results, e
 	targetsMap := map[string]search.Results{}
 
 	for _, targetProp := range p.params.ClassifyProperties {
-		class, kind, err := p.classAndKindOfTarget(targetProp)
+		class, err := p.classAndKindOfTarget(targetProp)
 		if err != nil {
-			return nil, fmt.Errorf("target prop '%s': find target class and kind: %v", targetProp, err)
+			return nil, fmt.Errorf("target prop '%s': find target class: %v", targetProp, err)
 		}
 
-		targets, err := p.findTargets(class, kind)
+		targets, err := p.findTargets(class)
 		if err != nil {
 			return nil, fmt.Errorf("target prop '%s': find targets: %v", targetProp, err)
 		}
@@ -128,7 +125,7 @@ func (p *contextualPreparer) findTargetsForProps() (map[string]search.Results, e
 	return targetsMap, nil
 }
 
-func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind) (search.Results, error) {
+func (p *contextualPreparer) findTargets(class schema.ClassName) (search.Results, error) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 	res, err := p.repo.VectorClassSearch(ctx, traverser.GetParams{
@@ -137,7 +134,6 @@ func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind)
 			Limit: 10000,
 		},
 		ClassName: string(class),
-		Kind:      kind,
 		Properties: traverser.SelectProperties{
 			traverser.SelectProperty{
 				Name: "id",
@@ -149,21 +145,21 @@ func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind)
 	}
 
 	if len(res) == 0 {
-		return nil, fmt.Errorf("no potential targets found of class '%s' (%s)", class, kind)
+		return nil, fmt.Errorf("no potential targets found of class '%s'", class)
 	}
 
 	return res, nil
 }
 
-func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.ClassName, kind.Kind, error) {
-	prop, err := p.schema.GetProperty(p.kind, schema.ClassName(p.params.Class), schema.PropertyName(propName))
+func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.ClassName, error) {
+	prop, err := p.schema.GetProperty(schema.ClassName(p.params.Class), schema.PropertyName(propName))
 	if err != nil {
-		return "", "", fmt.Errorf("get target prop '%s': %v", propName, err)
+		return "", fmt.Errorf("get target prop '%s': %v", propName, err)
 	}
 
 	dataType, err := p.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
-		return "", "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
+		return "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
 	}
 
 	// we have passed validation, so it is safe to assume that this is a ref prop
@@ -171,7 +167,6 @@ func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.Class
 
 	// len=1 is guaranteed from validation
 	targetClass := targetClasses[0]
-	targetKind, _ := p.schema.GetKindOfClass(targetClass)
 
-	return targetClass, targetKind, nil
+	return targetClass, nil
 }

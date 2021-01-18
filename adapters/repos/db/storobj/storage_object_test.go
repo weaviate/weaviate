@@ -17,7 +17,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +71,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 
 func TestNewStorageObject(t *testing.T) {
 	t.Run("objects", func(t *testing.T) {
-		so := New(kind.Object, 12)
+		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
 			assert.Equal(t, uint64(12), so.docID)
@@ -102,8 +101,8 @@ func TestNewStorageObject(t *testing.T) {
 			schema := map[string]interface{}{
 				"foo": "bar",
 			}
-			so.SetSchema(schema)
-			assert.Equal(t, schema, so.Schema())
+			so.SetProperties(schema)
+			assert.Equal(t, schema, so.Properties())
 		})
 
 		t.Run("must now be valid", func(t *testing.T) {
@@ -126,7 +125,7 @@ func TestNewStorageObject(t *testing.T) {
 	})
 
 	t.Run("objects", func(t *testing.T) {
-		so := New(kind.Object, 12)
+		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
 			assert.Equal(t, uint64(12), so.docID)
@@ -156,8 +155,8 @@ func TestNewStorageObject(t *testing.T) {
 			schema := map[string]interface{}{
 				"foo": "bar",
 			}
-			so.SetSchema(schema)
-			assert.Equal(t, schema, so.Schema())
+			so.SetProperties(schema)
+			assert.Equal(t, schema, so.Properties())
 		})
 
 		t.Run("must now be valid", func(t *testing.T) {

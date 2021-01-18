@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -30,31 +29,31 @@ import (
 // The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
-func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
+func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class) error {
 	return nil
 }
 
-func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
+func (n *NilMigrator) DropClass(ctx context.Context, className string) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
+func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
 	return nil
 }
 
-func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
+func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
+func (n *NilMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
+func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error {
 	return nil
 }
 
-func (n *NilMigrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
+func (n *NilMigrator) DropProperty(ctx context.Context, className string, propName string) error {
 	return nil
 }
 
@@ -92,7 +91,7 @@ func testUpdateMeta(t *testing.T, lsm *Manager) {
 	assert.Equal(t, schema.Objects.Maintainer, strfmt.Email(""))
 	assert.Equal(t, schema.Objects.Name, "")
 
-	assert.Nil(t, lsm.UpdateMeta(context.Background(), kind.Object, "http://new/context", "person@example.org", "somename"))
+	assert.Nil(t, lsm.UpdateMeta(context.Background(), "http://new/context", "person@example.org", "somename"))
 
 	schema, err = lsm.GetSchema(nil)
 	require.Nil(t, err)
@@ -104,7 +103,7 @@ func testUpdateMeta(t *testing.T, lsm *Manager) {
 func testAddObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -117,10 +116,10 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	objectClassesNames = testGetClassNames(lsm)
 	assert.Contains(t, objectClassesNames, "Car")
 
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
@@ -129,7 +128,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -144,10 +143,10 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	objectClassesNames = testGetClassNames(lsm)
 	assert.Contains(t, objectClassesNames, "Car")
 
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
@@ -158,7 +157,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 	t.Parallel()
 	lsm.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
 
-	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -171,10 +170,10 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClassesNames = testGetClassNames(lsm, kind.Object)
+	objectClassesNames = testGetClassNames(lsm)
 	assert.Contains(t, objectClassesNames, "Car")
 
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
@@ -184,7 +183,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -204,7 +203,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClassesNames := testGetClassNames(lsm, kind.Object)
+	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -224,7 +223,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	objectClasses := testGetClassNames(lsm, kind.Object)
+	objectClasses := testGetClassNames(lsm)
 	assert.NotContains(t, objectClasses, "Car")
 
 	err := lsm.AddObject(context.Background(), nil, &models.Class{
@@ -239,7 +238,7 @@ func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClasses = testGetClassNames(lsm, kind.Object)
+	objectClasses = testGetClassNames(lsm)
 	assert.Contains(t, objectClasses, "Car")
 	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
@@ -259,14 +258,14 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 
 	assert.Nil(t, err)
 
-	objectClasses := testGetClassNames(lsm, kind.Object)
+	objectClasses := testGetClassNames(lsm)
 	assert.Contains(t, objectClasses, "Car")
 
 	// Now delete the class
 	err = lsm.DeleteObject(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 
-	objectClasses = testGetClassNames(lsm, kind.Object)
+	objectClasses = testGetClassNames(lsm)
 	assert.NotContains(t, objectClasses, "Car")
 }
 
@@ -350,7 +349,7 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 	}
 	assert.Nil(t, lsm.UpdateObject(context.Background(), nil, "InitialName", &updated))
 
-	objectClasses := testGetClassNames(lsm, kind.Object)
+	objectClasses := testGetClassNames(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, objectClasses[0], "NewName")
 }
@@ -374,7 +373,7 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 	assert.NotNil(t, err)
 
 	// Should not change the original name
-	objectClasses := testGetClassNames(lsm, kind.Object)
+	objectClasses := testGetClassNames(lsm)
 	require.Len(t, objectClasses, 2)
 	assert.Equal(t, objectClasses[0], "InitialName")
 	assert.Equal(t, objectClasses[1], "ExistingClass")
@@ -426,7 +425,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	})
 	assert.Nil(t, err)
 
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 4)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
@@ -495,14 +494,14 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 	})
 	assert.Nil(t, err)
 
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Len(t, objectClasses[0].Properties, 1)
 
 	// Now drop the property
 	lsm.DeleteObjectProperty(context.Background(), nil, "Car", "color")
 
-	objectClasses = testGetClasses(lsm, kind.Object)
+	objectClasses = testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Len(t, objectClasses[0].Properties, 0)
 }
@@ -529,7 +528,7 @@ func testUpdatePropertyName(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 1)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "smell")
@@ -559,7 +558,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 	assert.NotNil(t, err)
 
 	// Check that the name is updated
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 2)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
@@ -581,11 +580,11 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Object, "Car", "madeBy", "RemoteInstance/Builder")
+	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, "Car", "madeBy", "RemoteInstance/Builder")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 1)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
@@ -609,11 +608,11 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, kind.Object, "Car", "madeBy", "RemoteInstance/Manufacturer")
+	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, "Car", "madeBy", "RemoteInstance/Manufacturer")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
-	objectClasses := testGetClasses(lsm, kind.Object)
+	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	require.Len(t, objectClasses[0].Properties, 1)
 	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
@@ -650,21 +649,21 @@ func newSchemaManager() *Manager {
 	return sm
 }
 
-func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
+func testGetClasses(l *Manager) []*models.Class {
 	var classes []*models.Class
 	schema, _ := l.GetSchema(nil)
 
-	classes = append(classes, schema.SemanticSchemaFor(k).Classes...)
+	classes = append(classes, schema.SemanticSchemaFor().Classes...)
 
 	return classes
 }
 
-func testGetClassNames(l *Manager, k kind.Kind) []string {
+func testGetClassNames(l *Manager) []string {
 	var names []string
 	schema, _ := l.GetSchema(nil)
 
 	// Extract all names
-	for _, class := range schema.SemanticSchemaFor(k).Classes {
+	for _, class := range schema.SemanticSchemaFor().Classes {
 		names = append(names, class.Class)
 	}
 

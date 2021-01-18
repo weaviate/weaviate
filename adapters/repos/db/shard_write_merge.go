@@ -94,7 +94,7 @@ func (s *Shard) mergeObjectData(previous []byte,
 	if len(previous) == 0 {
 		// DocID must be overwrite after status check, simply set to initial
 		// value
-		previousObj = storobj.New(merge.Kind, 0)
+		previousObj = storobj.New(0)
 		previousObj.SetClass(merge.Class)
 		previousObj.SetID(merge.ID)
 	} else {
@@ -112,25 +112,25 @@ func (s *Shard) mergeObjectData(previous []byte,
 func mergeProps(previous *storobj.Object,
 	merge objects.MergeDocument) *storobj.Object {
 	next := *previous
-	schema, ok := next.Schema().(map[string]interface{})
-	if !ok || schema == nil {
-		schema = map[string]interface{}{}
+	properties, ok := next.Properties().(map[string]interface{})
+	if !ok || properties == nil {
+		properties = map[string]interface{}{}
 	}
 
 	for propName, value := range merge.PrimitiveSchema {
 		// for primtive props, we simply need to overwrite
-		schema[propName] = value
+		properties[propName] = value
 	}
 
 	for _, ref := range merge.References {
 		propName := ref.From.Property.String()
-		prop := schema[propName]
+		prop := properties[propName]
 		propParsed, ok := prop.(models.MultipleRef)
 		if !ok {
 			propParsed = models.MultipleRef{}
 		}
 		propParsed = append(propParsed, ref.To.SingleRef())
-		schema[propName] = propParsed
+		properties[propName] = propParsed
 	}
 
 	if merge.Vector == nil {
@@ -139,7 +139,7 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
-	next.SetSchema(schema)
+	next.SetProperties(properties)
 
 	return &next
 }

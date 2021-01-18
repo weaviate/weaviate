@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -75,7 +74,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		testCase{
 			methodName:       "UpdatePropertyAddDataType",
-			additionalArgs:   []interface{}{kind.Object, "somename", "someprop", "datatype"},
+			additionalArgs:   []interface{}{"somename", "someprop", "datatype"},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},

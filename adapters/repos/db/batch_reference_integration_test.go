@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -83,7 +82,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
@@ -193,7 +192,6 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// immutable, the udpated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
-				Kind:         kind.Object,
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},
 				Pagination: &filters.Pagination{

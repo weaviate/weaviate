@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -48,7 +47,7 @@ type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
 
-func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
+func makeResolveClass() graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		className := schema.ClassName(p.Info.FieldName)
 		source, ok := p.Source.(map[string]interface{})
@@ -88,7 +87,6 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		params := &traverser.AggregateParams{
-			Kind:             kind,
 			Filters:          filters,
 			ClassName:        className,
 			Properties:       properties,

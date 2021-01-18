@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -49,7 +48,7 @@ func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, princi
 	object := objectRes.Object()
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(principal, kind.Object, object.Class, propertyName)
+	err = m.validateCanModifyReference(principal, object.Class, propertyName)
 	if err != nil {
 		return err
 	}

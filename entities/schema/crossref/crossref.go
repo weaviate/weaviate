@@ -18,7 +18,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // Ref is an abstraction of the cross-refs which are specified in a URI format
@@ -31,7 +30,6 @@ type Ref struct {
 	Local    bool
 	PeerName string
 	TargetID strfmt.UUID
-	Kind     kind.Kind
 }
 
 // Parse is a safe way to generate a Ref, as it will error if any of the input
@@ -58,7 +56,6 @@ func Parse(uriString string) (*Ref, error) {
 		Local:    (uri.Host == "localhost"),
 		PeerName: uri.Host,
 		TargetID: strfmt.UUID(pathSegments[1]),
-		Kind:     kind.Object,
 	}, nil
 }
 
@@ -71,12 +68,11 @@ func ParseSingleRef(singleRef *models.SingleRef) (*Ref, error) {
 
 // New is a safe way to generate a Reference, as all required arguments must be
 // set in the constructor fn
-func New(peerName string, target strfmt.UUID, k kind.Kind) *Ref {
+func New(peerName string, target strfmt.UUID) *Ref {
 	return &Ref{
 		Local:    (peerName == "localhost"),
 		PeerName: peerName,
 		TargetID: target,
-		Kind:     k,
 	}
 }
 

@@ -23,7 +23,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -145,7 +144,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	}
 }
 
-func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
+func (b *BatchManager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 	return res != nil, err
 }

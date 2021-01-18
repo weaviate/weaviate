@@ -17,7 +17,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema"
@@ -89,7 +88,6 @@ type TraverserRepo interface {
 // SearchResult is a single search result. See wrapping Search Results for the Type
 type SearchResult struct {
 	Name      string
-	Kind      kind.Kind
 	Certainty float32
 }
 

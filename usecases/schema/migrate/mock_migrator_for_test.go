@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -23,37 +22,37 @@ type mockMigrator struct {
 	mock.Mock
 }
 
-func (m *mockMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
-	args := m.Called(ctx, kind, class)
+func (m *mockMigrator) AddClass(ctx context.Context, class *models.Class) error {
+	args := m.Called(ctx, class)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
-	args := m.Called(ctx, kind, className)
+func (m *mockMigrator) DropClass(ctx context.Context, className string) error {
+	args := m.Called(ctx, className)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
-	args := m.Called(ctx, kind, className, newClassName)
+func (m *mockMigrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
+	args := m.Called(ctx, className, newClassName)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
-	args := m.Called(ctx, kind, className, prop)
+func (m *mockMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+	args := m.Called(ctx, className, prop)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
-	args := m.Called(ctx, kind, className, propertyName)
+func (m *mockMigrator) DropProperty(ctx context.Context, className string, propertyName string) error {
+	args := m.Called(ctx, className, propertyName)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
-	args := m.Called(ctx, kind, className, propName, newName)
+func (m *mockMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
+	args := m.Called(ctx, className, propName, newName)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
-	args := m.Called(ctx, kind, className, propName, newDataType)
+func (m *mockMigrator) UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error {
+	args := m.Called(ctx, className, propName, newDataType)
 	return args.Error(0)
 }

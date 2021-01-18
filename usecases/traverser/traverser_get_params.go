@@ -17,13 +17,11 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 )
 
 type GetParams struct {
-	Kind       kind.Kind
 	Filters    *filters.LocalFilter
 	ClassName  string
 	Pagination *filters.Pagination

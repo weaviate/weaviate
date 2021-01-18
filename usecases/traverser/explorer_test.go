@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
@@ -32,7 +31,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// TODO: this is a module specific test case, which relies on the
 		// text2vec-contextionary module
 		params := GetParams{
-			Kind:      kind.Object,
 			ClassName: "BestClass",
 			NearText: &NearTextParams{
 				Values: []string{"foo"},
@@ -43,15 +41,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -95,7 +91,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// TODO: this is a module specific test case, which relies on the
 		// text2vec-contextionary module
 		params := GetParams{
-			Kind:      kind.Object,
 			ClassName: "BestClass",
 			NearVector: &NearVectorParams{
 				Vector: []float32{0.8, 0.2, 0.7},
@@ -106,15 +101,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -159,7 +152,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set for nearText and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
-				Kind:      kind.Object,
 				ClassName: "BestClass",
 				NearText: &NearTextParams{
 					Values:    []string{"foo"},
@@ -171,12 +163,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 				},
 			}
 
@@ -209,7 +199,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set for nearVector and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
-				Kind:      kind.Object,
 				ClassName: "BestClass",
 				NearVector: &NearVectorParams{
 					Vector:    []float32{0.8, 0.2, 0.7},
@@ -221,12 +210,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 				},
 			}
 
@@ -258,7 +245,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when two conflicting near searchers are set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -284,7 +270,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when no explore param is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -292,15 +277,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -342,7 +325,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the classification prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -353,8 +335,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
@@ -363,8 +344,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -416,7 +396,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the certainty prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:         kind.Object,
 			Filters:      nil,
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
@@ -433,8 +412,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -479,7 +457,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the interpretation prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -490,8 +467,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
@@ -500,8 +476,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
@@ -565,7 +540,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the nearestNeighbors prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -576,15 +550,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
 				},
@@ -597,8 +569,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
@@ -614,8 +585,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
@@ -683,7 +653,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the featureProjection prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -694,15 +663,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
 				},
@@ -716,8 +683,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		projector := &fakeProjector{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
@@ -728,8 +694,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
@@ -781,7 +746,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the semanticPath prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -795,15 +759,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
 				},
@@ -818,8 +780,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		pathBuilder := &fakePathBuilder{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
@@ -845,8 +806,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
@@ -942,7 +902,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _additional on ref prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -963,8 +922,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 					"ofBestRefClass": []interface{}{
@@ -981,8 +939,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 					"ofBestRefClass": []interface{}{
@@ -1064,7 +1021,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _additional on all refs prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1098,8 +1054,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 					"ofBestRefClass": []interface{}{
@@ -1124,8 +1079,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 					"ofBestRefClass": []interface{}{
@@ -1237,7 +1191,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _additional on lots of refs prop is set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1284,8 +1237,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 					"ofBestRefClass": []interface{}{
@@ -1318,8 +1270,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 					"ofBestRefClass": []interface{}{
@@ -1461,7 +1412,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the almost all _additional props set", func(t *testing.T) {
 		params := GetParams{
-			Kind:       kind.Object,
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1475,8 +1425,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		searchResults := []search.Result{
 			{
-				Kind: kind.Object,
-				ID:   "id1",
+				ID: "id1",
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
@@ -1495,8 +1444,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 			{
-				Kind: kind.Object,
-				ID:   "id2",
+				ID: "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
 				},
@@ -1522,8 +1470,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{
 			returnArgs: []search.Result{
 				{
-					Kind: kind.Object,
-					ID:   "id1",
+					ID: "id1",
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
@@ -1551,8 +1498,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				{
-					Kind: kind.Object,
-					ID:   "id2",
+					ID: "id2",
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},

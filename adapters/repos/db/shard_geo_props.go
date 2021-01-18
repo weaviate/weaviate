@@ -69,12 +69,12 @@ func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
 			return nil, errors.Wrap(err, "retrieve object")
 		}
 
-		if obj.Schema() == nil {
+		if obj.Properties() == nil {
 			return nil, storobj.NewErrNotFoundf(id,
 				"object has no properties")
 		}
 
-		prop, ok := obj.Schema().(map[string]interface{})[propName]
+		prop, ok := obj.Properties().(map[string]interface{})[propName]
 		if !ok {
 			return nil, storobj.NewErrNotFoundf(id,
 				"object has no property %q", propName)
@@ -130,11 +130,11 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 
 func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus) error {
-	if obj.Schema() == nil {
+	if obj.Properties() == nil {
 		return nil
 	}
 
-	asMap := obj.Schema().(map[string]interface{})
+	asMap := obj.Properties().(map[string]interface{})
 	propValue, ok := asMap[propName]
 	if !ok {
 		return nil

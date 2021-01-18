@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -53,7 +52,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 
 	m.logger.
 		WithField("object", "kinds_update_requested").
-		WithField("kind", kind.Object).
 		WithField("original", originalObject).
 		WithField("updated", class).
 		WithField("id", id).

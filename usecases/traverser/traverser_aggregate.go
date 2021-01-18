@@ -18,7 +18,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // Aggregate resolves meta queries
@@ -49,7 +48,6 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 // the individual connector methods responsible for resolving the Meta
 // query.
 type AggregateParams struct {
-	Kind             kind.Kind
 	Filters          *filters.LocalFilter
 	ClassName        schema.ClassName
 	Properties       []AggregateProperty

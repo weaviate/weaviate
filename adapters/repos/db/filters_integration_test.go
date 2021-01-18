@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -90,7 +89,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), kind.Object, carClass))
+				migrator.AddClass(context.Background(), carClass))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
@@ -327,7 +326,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				}
 				params := traverser.GetParams{
 					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					Kind:         kind.Object,
 					ClassName:    carClass.Class,
 					Pagination:   &filters.Pagination{Limit: test.limit},
 					Filters:      test.filter,
@@ -353,7 +351,6 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 
 			params := traverser.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				Kind:         kind.Object,
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
@@ -368,7 +365,6 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 
 			params := traverser.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-				Kind:         kind.Object,
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
 				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
@@ -439,7 +435,6 @@ func testChainedPrimitiveProps(repo *DB,
 			t.Run(test.name, func(t *testing.T) {
 				params := traverser.GetParams{
 					// SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-					Kind:       kind.Object,
 					ClassName:  carClass.Class,
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filter,
@@ -634,7 +629,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), kind.Object, class)
+		migrator.AddClass(context.Background(), class)
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}

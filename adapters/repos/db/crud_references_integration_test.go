@@ -25,7 +25,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -120,7 +119,7 @@ func TestNestedReferences(t *testing.T) {
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
@@ -453,7 +452,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
@@ -493,7 +492,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("add reference between them", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Object,
+		err := repo.AddReference(context.Background(),
 			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
 				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
 			})
@@ -525,7 +524,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Object,
+		err := repo.AddReference(context.Background(),
 			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
 				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
 			})

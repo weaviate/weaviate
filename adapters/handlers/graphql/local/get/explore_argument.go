@@ -20,8 +20,8 @@ import (
 
 // TODO: This is module specific and must be provided by the
 // text2vec-contextionary module
-func nearTextArgument(kindName, className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
+func nearTextArgument(className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
@@ -79,8 +79,8 @@ func movementInp() graphql.InputObjectConfigFieldMap {
 	}
 }
 
-func nearVectorArgument(kindName, className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
+func nearVectorArgument(className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(

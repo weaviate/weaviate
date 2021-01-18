@@ -235,7 +235,6 @@ func (b *referencesBatcher) setErrorAtIndex(err error, index int) {
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
 	return objects.MergeDocument{
-		Kind:       ref.From.Kind,
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
 		UpdateTime: time.Now().UnixNano(),

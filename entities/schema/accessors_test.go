@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -47,10 +46,10 @@ func Test_Accessors(t *testing.T) {
 	schema.Objects.Classes = []*models.Class{car, train, action}
 
 	t.Run("GetClass by kind and name", func(t *testing.T) {
-		class := schema.GetClass(kind.Object, "Car")
+		class := schema.GetClass("Car")
 		assert.Equal(t, car, class)
 
-		class = schema.GetClass(kind.Object, "Invalid")
+		class = schema.GetClass("Invalid")
 		assert.Equal(t, (*models.Class)(nil), class)
 	})
 
@@ -63,19 +62,6 @@ func Test_Accessors(t *testing.T) {
 
 		class = schema.FindClassByName("Invalid")
 		assert.Equal(t, (*models.Class)(nil), class)
-	})
-
-	t.Run("GetKindOfClass", func(t *testing.T) {
-		k, ok := schema.GetKindOfClass("Car")
-		assert.True(t, ok)
-		assert.Equal(t, kind.Object, k)
-
-		k, ok = schema.GetKindOfClass("SomeAction")
-		assert.True(t, ok)
-		assert.Equal(t, kind.Object, k)
-
-		_, ok = schema.GetKindOfClass("Invalid")
-		assert.False(t, ok)
 	})
 
 	t.Run("GetPropsOfType", func(t *testing.T) {
@@ -100,7 +86,7 @@ func Test_Accessors(t *testing.T) {
 	})
 
 	t.Run("GetProperty by kind, classname, name", func(t *testing.T) {
-		prop, err := schema.GetProperty(kind.Object, "Car", "modelName")
+		prop, err := schema.GetProperty("Car", "modelName")
 		assert.Nil(t, err)
 
 		expectedProp := &models.Property{
@@ -112,12 +98,12 @@ func Test_Accessors(t *testing.T) {
 	})
 
 	t.Run("GetProperty for invalid class", func(t *testing.T) {
-		_, err := schema.GetProperty(kind.Object, "WrongClass", "modelName")
+		_, err := schema.GetProperty("WrongClass", "modelName")
 		assert.Equal(t, errors.New("no such class with name 'WrongClass' found in the schema. Check your schema files for which classes are available"), err)
 	})
 
 	t.Run("GetProperty for invalid prop", func(t *testing.T) {
-		_, err := schema.GetProperty(kind.Object, "Car", "wrongProperty")
+		_, err := schema.GetProperty("Car", "wrongProperty")
 		assert.Equal(t, errors.New("no such prop with name 'wrongProperty' found in class 'Car' in the schema. Check your schema files for which properties in this class are available"), err)
 	})
 }

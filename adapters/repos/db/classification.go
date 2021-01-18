@@ -22,7 +22,6 @@ import (
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -31,14 +30,13 @@ import (
 
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
-func (db *DB) GetUnclassified(ctx context.Context, kind kind.Kind, class string,
+func (db *DB) GetUnclassified(ctx context.Context, class string,
 	properties []string, filter *libfilters.LocalFilter) ([]search.Result, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorEqual, 0)
 	res, err := db.ClassSearch(ctx, traverser.GetParams{
 		ClassName: class,
 		Filters:   mergedFilter,
-		Kind:      kind,
 		Pagination: &libfilters.Pagination{
 			Limit: 10000, // TODO: gh-1219 increase
 		},
@@ -54,12 +52,11 @@ func (db *DB) GetUnclassified(ctx context.Context, kind kind.Kind, class string,
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
 func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
-	kind kind.Kind, class string, properties []string, k int,
+	class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]classification.NeighborRef, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
-		Kind:         kind,
 		ClassName:    class,
 		SearchVector: vector,
 		Pagination: &filters.Pagination{

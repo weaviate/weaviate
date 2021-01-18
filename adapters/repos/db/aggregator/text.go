@@ -54,7 +54,7 @@ func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
 		return errors.Wrap(err, "unmarshal object")
 	}
 
-	s := obj.Schema()
+	s := obj.Properties()
 	if s == nil {
 		return nil
 	}

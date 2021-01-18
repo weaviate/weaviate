@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -84,12 +83,12 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, thingclass))
+			migrator.AddClass(context.Background(), thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, actionclass))
+			migrator.AddClass(context.Background(), actionclass))
 	})
 
 	// update schema getter so it's in sync with class
@@ -165,7 +164,7 @@ func TestCRUD(t *testing.T) {
 
 		err := repo.PutObject(context.Background(), thing, vector)
 		assert.Equal(t,
-			fmt.Errorf("import into non-existing index for object/WrongClass"), err)
+			fmt.Errorf("import into non-existing index for WrongClass"), err)
 	})
 
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
@@ -242,7 +241,6 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -270,7 +268,6 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			// This is to verify the inverted index was cleaned up correctly
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -297,7 +294,6 @@ func TestCRUD(t *testing.T) {
 			// old ones, we don't actually touch those that were present and still
 			// should be
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -374,7 +370,7 @@ func TestCRUD(t *testing.T) {
 							LosingCount:            1,
 						},
 						Beacon: strfmt.URI(
-							crossref.New("localhost", thingID, kind.Object).String()),
+							crossref.New("localhost", thingID).String()),
 					},
 				},
 			},
@@ -404,13 +400,12 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
 		assert.Equal(t, actionID, res[0].ID)
-		assert.Equal(t, kind.Object, res[0].Kind)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
 		assert.Equal(t, int64(1000002), res[0].Created)
 		assert.Equal(t, int64(1000003), res[0].Updated)
 		assert.Equal(t, thingID, res[1].ID)
-		assert.Equal(t, kind.Object, res[1].Kind)
+
 		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
 		assert.Equal(t, int64(1565612833955), res[1].Created)
 		assert.Equal(t, int64(1000001), res[1].Updated)
@@ -423,7 +418,6 @@ func TestCRUD(t *testing.T) {
 
 		params := traverser.GetParams{
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
@@ -433,7 +427,6 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
 		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
-		assert.Equal(t, kind.Object, res[0].Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -454,7 +447,6 @@ func TestCRUD(t *testing.T) {
 	t.Run("searching by class type", func(t *testing.T) {
 		params := traverser.GetParams{
 			SearchVector: nil,
-			Kind:         kind.Object,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
@@ -464,7 +456,6 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
 		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
-		assert.Equal(t, kind.Object, res[0].Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -519,7 +510,6 @@ func TestCRUD(t *testing.T) {
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -537,7 +527,6 @@ func TestCRUD(t *testing.T) {
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -555,7 +544,6 @@ func TestCRUD(t *testing.T) {
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -578,7 +566,6 @@ func TestCRUD(t *testing.T) {
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -591,12 +578,10 @@ func TestCRUD(t *testing.T) {
 			multi.Identifier{
 				ID:        "be685717-e61e-450d-8d5c-f44f32d0336c", // this id does not exist
 				ClassName: "TheBestThingClass",
-				Kind:      kind.Object,
 			},
 			multi.Identifier{
 				ID:        thingID.String(),
 				ClassName: "TheBestThingClass",
-				Kind:      kind.Object,
 			},
 		}
 		res, err := repo.MultiGet(context.Background(), query, traverser.AdditionalProperties{})
@@ -607,7 +592,6 @@ func TestCRUD(t *testing.T) {
 
 		item := res[1]
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -621,7 +605,6 @@ func TestCRUD(t *testing.T) {
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -629,7 +612,7 @@ func TestCRUD(t *testing.T) {
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID, kind.Object).String()),
+					crossref.New("localhost", thingID).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])
@@ -642,7 +625,6 @@ func TestCRUD(t *testing.T) {
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -671,7 +653,7 @@ func TestCRUD(t *testing.T) {
 					LosingCount:            1,
 				},
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID, kind.Object).String()),
+					crossref.New("localhost", thingID).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])
@@ -683,7 +665,6 @@ func TestCRUD(t *testing.T) {
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -698,7 +679,6 @@ func TestCRUD(t *testing.T) {
 		require.Equal(t, true, ok, "results should contain our desired action id")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -708,7 +688,6 @@ func TestCRUD(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
 		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -733,7 +712,6 @@ func TestCRUD(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
 		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "TheBestActionClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -773,13 +751,12 @@ func TestCRUD(t *testing.T) {
 			"WrongClass", thingID)
 
 		assert.Equal(t, fmt.Errorf(
-			"delete from non-existing index for object/WrongClass"), err)
+			"delete from non-existing index for WrongClass"), err)
 	})
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
 		func(t *testing.T) {
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -803,7 +780,6 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the action is NOT indexed in the inverted index",
 		func(t *testing.T) {
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "TheBestActionClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -843,7 +819,6 @@ func TestCRUD(t *testing.T) {
 			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 			params := traverser.GetParams{
 				SearchVector: searchVector,
-				Kind:         kind.Object,
 				ClassName:    "TheBestThingClass",
 				Pagination:   &filters.Pagination{Limit: 10},
 				Filters:      nil,
@@ -859,7 +834,6 @@ func TestCRUD(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 		params := traverser.GetParams{
 			SearchVector: searchVector,
-			Kind:         kind.Object,
 			ClassName:    "TheBestActionClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,

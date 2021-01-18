@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -30,7 +29,6 @@ import (
 type contextualItemClassifier struct {
 	item        search.Result
 	itemIndex   int
-	kind        kind.Kind
 	params      models.Classification
 	settings    *ParamsContextual
 	classifier  *Classifier
@@ -47,14 +45,13 @@ type contextualItemClassifier struct {
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
 func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result,
-	int, kind.Kind, models.Classification, filters, writer) error {
-	return func(item search.Result, itemIndex int, kind kind.Kind, params models.Classification,
+	int, models.Classification, filters, writer) error {
+	return func(item search.Result, itemIndex int, params models.Classification,
 		filters filters, writer writer) error {
 		schema := c.schemaGetter.GetSchemaSkipAuth()
 		run := &contextualItemClassifier{
 			item:        item,
 			itemIndex:   itemIndex,
-			kind:        kind,
 			params:      params,
 			settings:    params.Settings.(*ParamsContextual), // safe assertion after parsing
 			classifier:  c,
@@ -156,7 +153,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 		return "", fmt.Errorf("find closest target: %v", err)
 	}
 
-	targetBeacon := crossref.New("localhost", target.ID, target.Kind).String()
+	targetBeacon := crossref.New("localhost", target.ID).String()
 	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
 		&models.SingleRef{
 			Beacon: strfmt.URI(targetBeacon),

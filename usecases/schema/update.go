@@ -16,7 +16,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // UpdateObject which exists
@@ -27,23 +26,12 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return m.updateClass(ctx, name, class, kind.Object)
+	return m.updateClass(ctx, name, class)
 }
-
-// UpdateThing which exists
-// func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
-// 	name string, class *models.Class) error {
-// 	err := m.authorizer.Authorize(principal, "update", "schema/things")
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return m.updateClass(ctx, name, class, kind.Thing)
-// }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClass(ctx context.Context, className string,
-	class *models.Class, k kind.Kind) error {
+	class *models.Class) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -55,7 +43,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		newName = &n
 	}
 
-	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema := m.state.SchemaFor()
 
 	var err error
 	class, err = schema.GetClassByName(semanticSchema, className)
@@ -75,7 +63,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	}
 
 	// Validate name / keywords in contextionary
-	if err = m.validateClassName(ctx, k, classNameAfterUpdate,
+	if err = m.validateClassName(ctx, classNameAfterUpdate,
 		VectorizeClassName(class)); err != nil {
 		return err
 	}
@@ -89,5 +77,5 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		return nil
 	}
 
-	return m.migrator.UpdateClass(ctx, k, className, newName)
+	return m.migrator.UpdateClass(ctx, className, newName)
 }
