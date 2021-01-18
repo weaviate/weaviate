@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -69,7 +68,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, thingclass))
+			migrator.AddClass(context.Background(), thingclass))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
@@ -120,7 +119,6 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Limit: 5,
 			},
 			Filters: buildFilter("boolProp", true, eq, dtBool),
-			Kind:    kind.Object,
 		})
 		expectedIDs := []strfmt.UUID{
 			things[0].ID, things[1].ID, things[2].ID, things[3].ID, things[4].ID,

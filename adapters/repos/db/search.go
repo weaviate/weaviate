@@ -21,17 +21,15 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
 	params traverser.AggregateParams) (*aggregation.Result, error) {
-	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
+	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
-			params.Kind, params.ClassName)
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
 	return idx.aggregate(ctx, params)
@@ -39,10 +37,9 @@ func (db *DB) Aggregate(ctx context.Context,
 
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
-	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
+	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
-			params.Kind, params.ClassName)
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
 	if params.Pagination == nil {
@@ -64,10 +61,9 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return db.ClassSearch(ctx, params)
 	}
 
-	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
+	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
-			params.Kind, params.ClassName)
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
 	res, err := idx.objectVectorSearch(ctx, params.SearchVector,
@@ -117,10 +113,10 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 
 func (d *DB) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	additional traverser.AdditionalProperties) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Object, limit, filters, additional)
+	return d.objectSearch(ctx, limit, filters, additional)
 }
 
-func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
+func (d *DB) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
 	additional traverser.AdditionalProperties) (search.Results, error) {
 	var found search.Results
@@ -128,10 +124,6 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
-		if index.Config.Kind != kind {
-			continue
-		}
-
 		// TODO support all additional props
 		res, err := index.objectSearch(ctx, limit, filters, additional)
 		if err != nil {

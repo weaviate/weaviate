@@ -16,11 +16,10 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kind kind.Kind,
+func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
 	params models.Classification, filters filters, writer writer) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
@@ -30,7 +29,7 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
-		kind, item.ClassName,
+		item.ClassName,
 		params.ClassifyProperties, int(*settings.K), filters.trainingSet)
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)

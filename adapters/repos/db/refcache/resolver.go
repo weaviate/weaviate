@@ -153,7 +153,6 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	si := multi.Identifier{
 		ID:        ref.TargetID.String(),
 		ClassName: desiredClass,
-		Kind:      ref.Kind,
 	}
 	res, ok := r.cacher.Get(si)
 	if !ok {

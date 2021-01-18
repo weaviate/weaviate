@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,7 +167,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 					"phone": test.phone,
 				},
 			}
-			err := validator.properties(context.Background(), kind.Object, obj)
+			err := validator.properties(context.Background(), obj)
 			assert.Equal(t, test.expectedErr, err)
 			if err != nil {
 				return

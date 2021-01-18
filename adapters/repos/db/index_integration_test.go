@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +57,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -86,7 +85,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -101,7 +100,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	index, err = NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -143,7 +142,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -198,7 +196,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// recreate the index
 	index, err = NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)

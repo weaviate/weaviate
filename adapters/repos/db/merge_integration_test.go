@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -102,7 +101,7 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
@@ -144,7 +143,6 @@ func Test_MergingObjects(t *testing.T) {
 		md := objects.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
-			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"number": 7.0,
 				"int":    int64(9),
@@ -186,7 +184,6 @@ func Test_MergingObjects(t *testing.T) {
 		md := objects.MergeDocument{
 			Class: "WrongClass",
 			ID:    sourceID,
-			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"number": 7.0,
 			},
@@ -194,7 +191,7 @@ func Test_MergingObjects(t *testing.T) {
 
 		err := repo.Merge(context.Background(), md)
 		assert.Equal(t, fmt.Errorf(
-			"merge from non-existing index for object/WrongClass"), err)
+			"merge from non-existing index for WrongClass"), err)
 	})
 	t.Run("add a reference and replace one prop", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
@@ -214,7 +211,6 @@ func Test_MergingObjects(t *testing.T) {
 		md := objects.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
-			Kind:  kind.Object,
 			PrimitiveSchema: map[string]interface{}{
 				"string": "let's update the string prop",
 			},
@@ -268,7 +264,6 @@ func Test_MergingObjects(t *testing.T) {
 		md := objects.MergeDocument{
 			Class:      "MergeTestSource",
 			ID:         sourceID,
-			Kind:       kind.Object,
 			References: refs,
 		}
 		err = repo.Merge(context.Background(), md)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
@@ -29,7 +28,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 	byIndex := map[string]batchQueue{}
 	for _, item := range objects {
 		for _, index := range db.indices {
-			if index.Config.Kind != kind.Object || index.Config.ClassName != schema.ClassName(item.Object.Class) {
+			if index.Config.ClassName != schema.ClassName(item.Object.Class) {
 				continue
 			}
 
@@ -64,8 +63,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 				continue
 			}
 
-			if index.Config.Kind != item.From.Kind ||
-				index.Config.ClassName != item.From.Class {
+			if index.Config.ClassName != item.From.Class {
 				continue
 			}
 

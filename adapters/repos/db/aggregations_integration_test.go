@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -78,9 +77,9 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), kind.Object, productClass))
+				migrator.AddClass(context.Background(), productClass))
 			require.Nil(t,
-				migrator.AddClass(context.Background(), kind.Object, companyClass))
+				migrator.AddClass(context.Background(), companyClass))
 		})
 
 		schemaGetter.schema = schema
@@ -118,7 +117,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 func cleanupCompanyTestSchemaAndData(repo *DB,
 	migrator *Migrator) func(t *testing.T) {
 	return func(t *testing.T) {
-		migrator.DropClass(context.Background(), kind.Object, companyClass.Class)
+		migrator.DropClass(context.Background(), companyClass.Class)
 	}
 }
 
@@ -126,7 +125,6 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("single field, single aggregator", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -184,7 +182,6 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -256,7 +253,6 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -476,7 +472,6 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("with filters,  grouped by string", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -700,7 +695,6 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("with ref filter, grouped by string", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -851,7 +845,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:             kind.Object,
 				ClassName:        schema.ClassName(companyClass.Class),
 				IncludeMetaCount: true,
 				GroupBy:          nil, // explicitly set to nil
@@ -875,7 +868,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("single field, single aggregator", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil
 				Properties: []traverser.AggregateProperty{
@@ -910,7 +902,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:             kind.Object,
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				IncludeMetaCount: true,
@@ -1072,7 +1063,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("multiple fields, multiple aggregators, single-level filter", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:             kind.Object,
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				Filters:          sectorEqualsFoodFilter(),
@@ -1235,7 +1225,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 		t.Run("multiple fields, multiple aggregators, ref filter", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil,
 				Filters: &filters.LocalFilter{

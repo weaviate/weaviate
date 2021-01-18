@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -65,7 +64,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
 			for _, c := range testSchema().Objects.Classes {
 				require.Nil(t,
-					migrator.AddClass(context.Background(), kind.Object, c))
+					migrator.AddClass(context.Background(), c))
 			}
 
 			sg.schema = testSchema()
@@ -168,7 +167,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100000,
 				},
-				Kind: kind.Object,
 			})
 
 			require.Nil(t, err)

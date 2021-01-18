@@ -91,7 +91,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) addElement(obj *storobj.Object) error {
-	s := obj.Schema()
+	s := obj.Properties()
 	if s == nil {
 		return nil
 	}

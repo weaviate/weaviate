@@ -18,7 +18,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -41,7 +40,6 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		params := AggregateParams{
 			ClassName: "MyClass",
-			Kind:      kind.Object,
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
@@ -126,7 +124,6 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		params := AggregateParams{
 			ClassName: "MyClass",
-			Kind:      kind.Object,
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",

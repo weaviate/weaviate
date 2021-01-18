@@ -15,13 +15,12 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// UpdateMeta for a kind
-func (m *Manager) UpdateMeta(ctx context.Context, kind kind.Kind,
+// UpdateMeta for object
+func (m *Manager) UpdateMeta(ctx context.Context,
 	atContext strfmt.URI, maintainer strfmt.Email, name string) error {
-	semanticSchema := m.state.SchemaFor(kind)
+	semanticSchema := m.state.SchemaFor()
 	semanticSchema.Maintainer = maintainer
 	semanticSchema.Name = name
 

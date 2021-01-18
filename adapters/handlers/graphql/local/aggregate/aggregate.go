@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
@@ -33,7 +32,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, kind.Object, config)
+		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config)
 		if err != nil {
 			return nil, err
 		}
@@ -49,12 +48,12 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	return &field, nil
 }
 
-func classFields(databaseSchema []*models.Class, k kind.Kind,
+func classFields(databaseSchema []*models.Class,
 	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
-		field, err := classField(k, class, class.Description, config)
+		field, err := classField(class, class.Description, config)
 		if err != nil {
 			return nil, err
 		}
@@ -63,13 +62,13 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%ssObj", k.TitleizedName()),
+		Name:        "AggregateObjectsObj",
 		Fields:      fields,
 		Description: descriptions.AggregateObjectsObj,
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.Class, description string,
+func classField(class *models.Class, description string,
 	config config.Config) (*graphql.Field, error) {
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
@@ -107,10 +106,8 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Description: descriptions.GetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name: fmt.Sprintf("Aggregate%ss%sWhereInpObj",
-							k.TitleizedName(), class.Class),
-						Fields: common_filters.BuildNew(fmt.Sprintf("Aggregate%ss%s",
-							k.TitleizedName(), class.Class)),
+						Name:        fmt.Sprintf("AggregateObjects%sWhereInpObj", class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("AggregateObjects%s", class.Class)),
 						Description: descriptions.GetWhereInpObj,
 					},
 				),
@@ -120,7 +117,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Type:        graphql.NewList(graphql.String),
 			},
 		},
-		Resolve: makeResolveClass(k),
+		Resolve: makeResolveClass(),
 	}
 
 	return fieldsField, nil

@@ -23,8 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -78,10 +76,10 @@ type Repo interface {
 }
 
 type VectorRepo interface {
-	GetUnclassified(ctx context.Context, kind kind.Kind, class string,
+	GetUnclassified(ctx context.Context, class string,
 		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
-		kind kind.Kind, class string, properties []string, k int,
+		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
 	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
@@ -143,13 +141,12 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	// asynchronously trigger the classification
-	kind := c.getKind(params)
 	filters, err := extractFilters(params)
 	if err != nil {
 		return nil, err
 	}
 
-	go c.run(params, kind, filters)
+	go c.run(params, filters)
 
 	return &params, nil
 }
@@ -179,13 +176,6 @@ func extractFilters(params models.Classification) (filters, error) {
 		trainingSet: trainingSet,
 		target:      target,
 	}, nil
-}
-
-func (c *Classifier) getKind(params models.Classification) kind.Kind {
-	s := c.schemaGetter.GetSchemaSkipAuth()
-	kind, _ := s.GetKindOfClass(schema.ClassName(params.Class))
-	// skip nil-check as we have made it past validation
-	return kind
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

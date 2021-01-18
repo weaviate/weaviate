@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -199,7 +198,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						return
 					}
 
-					classNames := testGetClassNames(m, kind.Object)
+					classNames := testGetClassNames(m)
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
 			}
@@ -235,7 +234,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						return
 					}
 
-					classNames := testGetClassNames(m, kind.Object)
+					classNames := testGetClassNames(m)
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
 			}
@@ -282,7 +281,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						return
 					}
 
-					classNames := testGetClassNames(m, kind.Object)
+					classNames := testGetClassNames(m)
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
 
@@ -328,7 +327,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						return
 					}
 
-					classNames := testGetClassNames(m, kind.Object)
+					classNames := testGetClassNames(m)
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
 			}

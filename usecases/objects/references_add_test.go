@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -69,7 +68,7 @@ func Test_ReferencesAdd(t *testing.T) {
 			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedRefProperty := "hasAnimals"
-		vectorRepo.On("AddReference", kind.Object, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
+		vectorRepo.On("AddReference", mock.Anything, expectedRefProperty, expectedRef).Return(nil)
 
 		err := manager.AddObjectReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 		require.Nil(t, err)

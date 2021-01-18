@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // On init we get the current schema and create one index object per class.
@@ -31,7 +30,6 @@ func (d *DB) init() error {
 	if objects != nil {
 		for _, class := range objects.Classes {
 			idx, err := NewIndex(IndexConfig{
-				Kind:      kind.Object,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
 			}, d.schemaGetter, d, d.logger)

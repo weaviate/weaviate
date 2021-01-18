@@ -19,13 +19,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type MergeDocument struct {
-	Kind                 kind.Kind
 	Class                string
 	ID                   strfmt.UUID
 	PrimitiveSchema      map[string]interface{}
@@ -47,7 +45,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Properties.(map[string]interface{}),
-		updated.Class, id, kind.Object)
+		updated.Class, id)
 
 	vector, source, err := m.mergeObjectSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
 	if err != nil {
@@ -55,7 +53,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	err = m.vectorRepo.Merge(ctx, MergeDocument{
-		Kind:            kind.Object,
 		Class:           updated.Class,
 		ID:              id,
 		PrimitiveSchema: primitive,
@@ -131,7 +128,7 @@ func (m *Manager) mergeObjectSchemasAndVectorize(ctx context.Context, className 
 }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,
-	sourceID strfmt.UUID, sourceKind kind.Kind) (map[string]interface{}, BatchReferences) {
+	sourceID strfmt.UUID) (map[string]interface{}, BatchReferences) {
 	primitive := map[string]interface{}{}
 	var outRefs BatchReferences
 
@@ -154,7 +151,6 @@ func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass s
 				Property: schema.PropertyName(prop),
 				Class:    schema.ClassName(sourceClass),
 				TargetID: sourceID,
-				Kind:     sourceKind,
 			}
 
 			outRefs = append(outRefs, BatchReference{From: source, To: target})

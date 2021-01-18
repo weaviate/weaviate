@@ -13,10 +13,9 @@ package schema
 
 import (
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
+func (s *Schema) GetClass(className ClassName) *models.Class {
 	class, err := GetClassByName(s.Objects, string(className))
 	if err != nil {
 		return nil
@@ -35,17 +34,17 @@ func (s *Schema) FindClassByName(className ClassName) *models.Class {
 	return nil
 }
 
-func (s *Schema) GetKindOfClass(className ClassName) (kind.Kind, bool) {
-	_, err := GetClassByName(s.Objects, string(className))
-	if err == nil {
-		return kind.Object, true
-	}
+// func (s *Schema) GetKindOfClass(className ClassName) (kind.Kind, bool) {
+// 	_, err := GetClassByName(s.Objects, string(className))
+// 	if err == nil {
+// 		return kind.Object, true
+// 	}
 
-	return "", false
-}
+// 	return "", false
+// }
 
-func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (*models.Property, error) {
-	semSchemaClass, err := GetClassByName(s.SemanticSchemaFor(kind), string(className))
+func (s *Schema) GetProperty(className ClassName, propName PropertyName) (*models.Property, error) {
+	semSchemaClass, err := GetClassByName(s.Objects, string(className))
 	if err != nil {
 		return nil, err
 	}

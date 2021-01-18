@@ -17,7 +17,6 @@ import (
 
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"google.golang.org/grpc"
@@ -84,7 +83,7 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 	pbParams := &pb.SchemaSearchParams{
 		Certainty:  params.Certainty,
 		Name:       params.Name,
-		Kind:       kindToProto(params.Kind),
+		Kind:       kindToProto(),
 		SearchType: searchTypeToProto(params.SearchType),
 	}
 
@@ -96,22 +95,8 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 	return schemaSearchResultsFromProto(res), nil
 }
 
-func kindToProto(k kind.Kind) pb.Kind {
-	switch k {
-	case kind.Object:
-		return pb.Kind_THING
-	default:
-		panic(fmt.Sprintf("unknown kind %v", k))
-	}
-}
-
-func kindFromProto(k pb.Kind) kind.Kind {
-	switch k {
-	case pb.Kind_THING:
-		return kind.Object
-	default:
-		panic(fmt.Sprintf("unknown kind %v", k))
-	}
+func kindToProto() pb.Kind {
+	return pb.Kind_THING
 }
 
 func searchTypeToProto(input traverser.SearchType) pb.SearchType {
@@ -149,7 +134,6 @@ func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchRe
 		output[i] = traverser.SearchResult{
 			Certainty: res.Certainty,
 			Name:      res.Name,
-			Kind:      kindFromProto(res.Kind),
 		}
 	}
 

@@ -19,7 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +43,7 @@ func objectReferences(t *testing.T) {
 		params := objects.NewObjectsReferencesCreateParams().
 			WithID(uuid).
 			WithPropertyName("testReferences").
-			WithBody(crossref.New("localhost", toPointToUuid, kind.Object).SingleRef())
+			WithBody(crossref.New("localhost", toPointToUuid).SingleRef())
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesCreate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
@@ -73,7 +72,7 @@ func objectReferences(t *testing.T) {
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuidFirst, kind.Object).SingleRef(),
+				crossref.New("localhost", toPointToUuidFirst).SingleRef(),
 			},
 		})
 
@@ -87,7 +86,7 @@ func objectReferences(t *testing.T) {
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(models.MultipleRef{
-				crossref.New("localhost", toPointToUuidLater, kind.Object).SingleRef(),
+				crossref.New("localhost", toPointToUuidLater).SingleRef(),
 			})
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesUpdate(params, nil)
@@ -115,7 +114,7 @@ func objectReferences(t *testing.T) {
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuid, kind.Object).SingleRef(),
+				crossref.New("localhost", toPointToUuid).SingleRef(),
 			},
 		})
 
@@ -129,7 +128,7 @@ func objectReferences(t *testing.T) {
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(
-				crossref.New("localhost", toPointToUuid, kind.Object).SingleRef(),
+				crossref.New("localhost", toPointToUuid).SingleRef(),
 			)
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesDelete(params, nil)

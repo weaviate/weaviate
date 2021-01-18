@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // Result contains some info of a concept (kind), but not all. For
@@ -24,7 +23,6 @@ import (
 // connector storage
 type Result struct {
 	ID                   strfmt.UUID
-	Kind                 kind.Kind
 	ClassName            string
 	Score                float32
 	Vector               []float32

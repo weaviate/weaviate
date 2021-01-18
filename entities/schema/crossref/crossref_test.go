@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,10 +38,6 @@ func Test_ParsingFromString(t *testing.T) {
 		t.Run("id points correctly", func(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
 		})
-
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
-		})
 	})
 
 	t.Run("from a local action ref that is well-formed", func(t *testing.T) {
@@ -62,10 +57,6 @@ func Test_ParsingFromString(t *testing.T) {
 		t.Run("id points correctly", func(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
 		})
-
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
-		})
 	})
 
 	t.Run("from a network action ref that is well-formed", func(t *testing.T) {
@@ -84,10 +75,6 @@ func Test_ParsingFromString(t *testing.T) {
 
 		t.Run("id points correctly", func(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
-		})
-
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
 		})
 	})
 
@@ -145,10 +132,6 @@ func Test_ParsingFromSingleRef(t *testing.T) {
 
 		t.Run("id points correctly", func(t *testing.T) {
 			assert.Equal(t, ref.TargetID, strfmt.UUID("c2cd3f91-0160-477e-869a-8da8829e0a4d"))
-		})
-
-		t.Run("the kind is 'object'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.Object)
 		})
 	})
 }

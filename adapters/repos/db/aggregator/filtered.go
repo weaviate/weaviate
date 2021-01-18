@@ -92,12 +92,12 @@ func (fa *filteredAggregator) analyzeObject(ctx context.Context,
 		return err
 	}
 
-	if obj.Schema() == nil {
+	if obj.Properties() == nil {
 		return nil
 	}
 
 	for propName, prop := range propAggs {
-		value, ok := obj.Schema().(map[string]interface{})[propName]
+		value, ok := obj.Properties().(map[string]interface{})[propName]
 		if !ok {
 			continue
 		}

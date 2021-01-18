@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -62,7 +61,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, thingclass))
+			migrator.AddClass(context.Background(), thingclass))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
@@ -106,7 +105,6 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
 		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:      kind.Object,
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,

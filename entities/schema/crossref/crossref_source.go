@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // RefSource is an abstraction of the source of a cross-ref. The opposite would
@@ -35,17 +34,15 @@ type RefSource struct {
 	Property schema.PropertyName
 	Class    schema.ClassName
 	TargetID strfmt.UUID
-	Kind     kind.Kind
 }
 
-func NewSource(kind kind.Kind, className schema.ClassName,
+func NewSource(className schema.ClassName,
 	property schema.PropertyName, id strfmt.UUID) *RefSource {
 	return &RefSource{
 		Local:    true,
 		PeerName: "localhost",
 		Class:    className,
 		TargetID: id,
-		Kind:     kind,
 		Property: property,
 	}
 }
@@ -88,7 +85,6 @@ func ParseSource(uriString string) (*RefSource, error) {
 		Local:    (uri.Host == "localhost"),
 		PeerName: uri.Host,
 		TargetID: strfmt.UUID(pathSegments[2]),
-		Kind:     kind.Object,
 		Class:    schema.ClassName(class),
 		Property: schema.PropertyName(property),
 	}, nil

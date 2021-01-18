@@ -18,7 +18,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
@@ -95,15 +94,8 @@ type State struct {
 }
 
 // SchemaFor a specific kind
-func (s *State) SchemaFor(k kind.Kind) *models.Schema {
-	switch k {
-	case kind.Object:
-		return s.ObjectSchema
-	default:
-		// It is fine to panic here, as this indicates an unrecoverable error in
-		// the program, rather than an invalid input based on user input
-		panic(fmt.Sprintf("Passed wrong object, but %v", k))
-	}
+func (s *State) SchemaFor() *models.Schema {
+	return s.ObjectSchema
 }
 
 func (m *Manager) saveSchema(ctx context.Context) error {

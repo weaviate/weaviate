@@ -22,7 +22,7 @@ import (
 )
 
 func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
-	property *models.Property, kindName, className string) *graphql.Field {
+	property *models.Property, className string) *graphql.Field {
 	refClasses := propertyType.Classes()
 	propertyName := strings.Title(property.Name)
 	dataTypeClasses := []*graphql.Object{}
@@ -31,8 +31,8 @@ func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 		// is a local ref
 		refClass, ok := b.knownClasses[string(refClassName)]
 		if !ok {
-			panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
-				kindName, className, property.Name, refClassName))
+			panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s; %s",
+				className, property.Name, refClassName))
 		}
 
 		dataTypeClasses = append(dataTypeClasses, refClass)

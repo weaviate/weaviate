@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // DeleteObject Class to the schema
@@ -26,14 +25,14 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return m.deleteClass(ctx, class, kind.Object)
+	return m.deleteClass(ctx, class)
 }
 
-func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind) error {
+func (m *Manager) deleteClass(ctx context.Context, className string) error {
 	m.Lock()
 	defer m.Unlock()
 
-	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema := m.state.SchemaFor()
 	classIdx := -1
 	for idx, class := range semanticSchema.Classes {
 		if class.Class == className {
@@ -55,6 +54,6 @@ func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind
 		return err
 	}
 
-	return m.migrator.DropClass(ctx, k, className)
+	return m.migrator.DropClass(ctx, className)
 	// TODO gh-846: rollback state update if migration fails
 }
