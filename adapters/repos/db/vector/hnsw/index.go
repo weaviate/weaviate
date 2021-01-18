@@ -16,11 +16,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
-	"math/rand"
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
@@ -261,144 +259,6 @@ func New(cfg Config) (*hnsw, error) {
 
 // }
 
-func (h *hnsw) Add(id uint64, vector []float32) error {
-	if len(vector) == 0 {
-		return fmt.Errorf("insert called with nil-vector")
-	}
-
-	node := &vertex{
-		id: id,
-	}
-
-	return h.insert(node, vector)
-}
-
-func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
-	h.Lock()
-	defer h.Unlock()
-
-	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
-		return err
-	}
-
-	h.entryPointID = node.id
-	h.currentMaximumLayer = 0
-	node.connections = map[int][]uint64{}
-	node.level = 0
-	if err := h.commitLog.AddNode(node); err != nil {
-		return err
-	}
-
-	h.nodes[node.id] = node
-
-	// go h.insertHook(node.id, 0, node.connections)
-	return nil
-}
-
-func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
-	wasFirst := false
-	var firstInsertError error
-	h.initialInsertOnce.Do(func() {
-		if h.isEmpty() {
-			wasFirst = true
-			firstInsertError = h.insertInitialElement(node, nodeVec)
-		}
-	})
-	if wasFirst {
-		return firstInsertError
-	}
-
-	// initially use the "global" entrypoint which is guaranteed to be on the
-	// currently highest layer
-	entryPointID := h.entryPointID
-
-	// initially use the level of the entrypoint which is the highest level of
-	// the h-graph in the first iteration
-	currentMaximumLayer := h.currentMaximumLayer
-
-	targetLevel := int(math.Floor(-math.Log(rand.Float64()*h.levelNormalizer))) - 1
-
-	// before = time.Now()
-	node.Lock()
-	// m.addBuildingItemLocking(before)
-	node.level = targetLevel
-	node.connections = map[int][]uint64{}
-	node.Unlock()
-
-	// before = time.Now()
-	h.Lock()
-	// m.addBuildingLocking(before)
-	nodeId := node.id
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
-	if err != nil {
-		h.Unlock()
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
-	}
-	h.nodes[nodeId] = node
-	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
-		return err
-	}
-
-	h.Unlock()
-
-	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, nodeVec)
-	if err != nil {
-		return errors.Wrap(err, "find best entrypoint")
-	}
-
-	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
-		targetLevel, currentMaximumLayer, nil); err != nil {
-		return errors.Wrap(err, "find and connect neighbors")
-	}
-
-	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
-
-	if targetLevel > h.currentMaximumLayer {
-		// before = time.Now()
-		h.Lock()
-		// m.addBuildingLocking(before)
-		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-			h.Unlock()
-			return err
-		}
-
-		h.entryPointID = nodeId
-		h.currentMaximumLayer = targetLevel
-		h.Unlock()
-	}
-
-	return nil
-}
-
-func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) error {
-	v.Lock()
-	defer v.Unlock()
-
-	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
-		return err
-	}
-
-	if targetContained(v.connections[level], target) {
-		// already linked, nothing to do
-		return nil
-	}
-
-	v.connections[level] = append(v.connections[level], target)
-	return nil
-}
-
-func targetContained(haystack []uint64, needle uint64) bool {
-	for _, candidate := range haystack {
-		if candidate == needle {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	entryPointID uint64, nodeVec []float32) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
@@ -430,130 +290,25 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
-// TODO: split up. It's not as bad as it looks at first, as it has quite some
-// long comments, however, it should still be made prettier
-func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList) error {
-	results := &binarySearchTreeGeneric{}
-
-	bufLinksLog := h.commitLog.NewBufferedLinksLogger()
-
-	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
-	if err != nil {
-		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-	}
-	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
-
-	results.insert(entryPointID, dist)
-	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
-
-	for level := min(targetLevel, currentMaxLevel); level >= 0; level-- {
-		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction,
-			level, nil)
-		if err != nil {
-			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
-		}
-
-		if results.contains(node.id, 0) {
-			// Make sure we don't get the node we're currently assigning on the
-			// result list. This could lead to a self-link, but far worse it could
-			// lead to using ourself as an entry point on the next lower level. In
-			// the process of (re)-assigning edges it would be fatal to use ourselves
-			// as an entrypoint, as there are only two possible scenarios: 1. This is
-			// a new insert, so we don't have edges yet. 2. This is a re-assign after
-			// a delete, so we did originally have edges, but they were cleared in
-			// preparation for the re-assignment.
-			//
-			// So why is it so bad to have ourselves (without connections) as an
-			// entrypoint? Because the exit condition in searchLayerByVector is if
-			// the candidates distance is worse than the current worst distance.
-			// Naturally, the node itself has the best distance (=0) to itself, so
-			// we'd ignore all other elements. However, since the node - as outlined
-			// before - has no nodes, the search wouldn't find any results. Thus we
-			// also can't add any new connections, leading to an isolated node in the
-			// graph. If that isolated node were to become the graphs entrypoint, the
-			// graph is basically unusable.
-			results.delete(node.id, 0)
-		}
-
-		// TODO: support both neighbor selection algos
-		neighbors := h.selectNeighborsSimple(*results, h.maximumConnections, denyList)
-
-		// // for distributed spike
-		// neighborsAtLevel[level] = neighbors
-
-		for _, neighborID := range neighbors {
-			neighbor := h.nodeByID(neighborID)
-			if neighbor == node {
-				// don't connect to self
-				continue
-			}
-
-			if neighbor == nil || h.hasTombstone(neighbor.id) {
-				// don't connect to tombstoned nodes. This would only increase the
-				// cleanup that needs to be done. Even worse: A tombstoned node can be
-				// cleaned up at any time, also while we are connecting to it. So,
-				// while the node still exists right now, it might already be nil in
-				// the next line, which would lead to a nil-pointer panic.
-				continue
-			}
-
-			if err := neighbor.linkAtLevel(level, node.id, h.commitLog); err != nil {
-				return err
-			}
-
-			if err := node.linkAtLevel(level, neighbor.id, h.commitLog); err != nil {
-				return err
-			}
-
-			// before = time.Now()
-			neighbor.RLock()
-			// m.addBuildingItemLocking(before)
-			currentConnections := neighbor.connections[level]
-			neighbor.RUnlock()
-
-			maximumConnections := h.maximumConnections
-			if level == 0 {
-				maximumConnections = h.maximumConnectionsLayerZero
-			}
-
-			if len(currentConnections) <= maximumConnections {
-				// nothing to do, skip
-				continue
-			}
-
-			// TODO: support both neighbor selection algos
-			updatedConnections, err := h.selectNeighborsSimpleFromId(node.id,
-				currentConnections, maximumConnections, denyList)
-			if err != nil {
-				return errors.Wrap(err, "connect neighbors")
-			}
-
-			// before = time.Now()
-			neighbor.Lock()
-			// m.addBuildingItemLocking(before)
-			if err := bufLinksLog.ReplaceLinksAtLevel(neighbor.id, level,
-				updatedConnections); err != nil {
-				return err
-			}
-
-			neighbor.connections[level] = updatedConnections
-			neighbor.Unlock()
-		}
-	}
-
-	return bufLinksLog.Close()
-}
-
 type vertex struct {
 	id uint64
 	sync.RWMutex
 	level       int
 	connections map[int][]uint64 // map[level][]connectedId
+}
+
+func (v *vertex) connectionsAtLevel(level int) []uint64 {
+	v.RLock()
+	defer v.RUnlock()
+
+	return v.connections[level]
+}
+
+func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
+	v.Lock()
+	defer v.Unlock()
+
+	v.connections[level] = connections
 }
 
 func min(a, b int) int {

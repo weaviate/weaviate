@@ -212,10 +212,10 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
 		require.Nil(t, err)
 		require.True(t, len(res) > 0)
+
 		control = res
 	})
 
-	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
 	t.Run("deleting every even element", func(t *testing.T) {
 		for i := range vectors {
 			if i%10 == 0 {
@@ -635,4 +635,79 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	res, err := index.SearchByVector(searchVec, 100, nil)
 	require.Nil(t, err)
 	assert.Equal(t, []uint64{1}, res, "should contain the only result")
+}
+
+func TestDelete_Flakyness_gh_1369(t *testing.T) {
+	// parse a snapshot form a flaky test
+	snapshotBefore := []byte(`{"labels":["ran a cleanup cycle"],"id":"delete-test","entrypoint":3,"currentMaximumLayer":3,"tombstones":{},"nodes":[{"id":1,"level":0,"connections":{"0":[11,25,33,3,29,32,5,19,30,7,17,27,21,31,36,34,35,23,15,9,13]}},{"id":3,"level":3,"connections":{"0":[1,29,11,5,25,33,19,32,7,17,30,21,35,31,27,36,23,34,9,15,13],"1":[29,36,13],"2":[29,36],"3":[36]}},{"id":5,"level":0,"connections":{"0":[29,19,7,32,35,21,1,31,3,33,23,25,11,17,36,27,30,9,15,34,13]}},{"id":7,"level":0,"connections":{"0":[32,19,21,31,5,35,23,29,33,36,17,1,9,27,25,30,11,3,15,13,34]}},{"id":9,"level":0,"connections":{"0":[36,23,31,21,15,17,27,7,32,35,30,13,19,33,5,25,29,11,1,34,3]}},{"id":11,"level":0,"connections":{"0":[25,33,1,30,17,3,27,32,34,29,19,7,5,36,15,21,31,23,9,13,35]}},{"id":13,"level":1,"connections":{"0":[15,27,34,36,30,17,9,33,25,31,23,21,11,32,7,1,19,35,5,29,3],"1":[36,29,3]}},{"id":15,"level":0,"connections":{"0":[13,27,36,17,30,9,34,33,31,23,25,21,32,11,7,1,19,35,5,29,3]}},{"id":17,"level":0,"connections":{"0":[27,30,36,33,15,32,25,31,9,11,21,7,23,1,34,13,19,5,29,35,3]}},{"id":19,"level":0,"connections":{"0":[5,7,32,29,35,21,31,23,1,33,17,3,25,36,11,27,9,30,15,34,13]}},{"id":21,"level":0,"connections":{"0":[31,23,7,35,32,19,9,36,5,17,27,33,29,30,15,1,25,11,3,13,34]}},{"id":23,"level":0,"connections":{"0":[31,21,9,35,7,36,32,19,17,5,27,33,15,29,30,25,1,13,11,3,34]}},{"id":25,"level":0,"connections":{"0":[11,33,1,30,17,27,32,3,34,29,7,19,36,5,15,21,31,23,9,13,35]}},{"id":27,"level":0,"connections":{"0":[17,30,36,15,33,25,13,9,34,32,11,31,21,7,23,1,19,5,29,35,3]}},{"id":29,"level":2,"connections":{"0":[5,19,32,7,3,1,33,35,21,25,31,11,23,17,30,36,27,9,15,34,13],"1":[3,36,13],"2":[3,36]}},{"id":30,"level":0,"connections":{"0":[27,17,33,25,15,36,11,34,32,1,13,9,31,7,21,23,19,29,5,3,35]}},{"id":31,"level":0,"connections":{"0":[21,23,7,32,35,9,36,19,17,5,27,33,29,30,15,25,1,11,13,3,34]}},{"id":32,"level":0,"connections":{"0":[7,19,21,31,5,33,29,17,23,1,35,36,25,27,30,11,9,3,15,34,13]}},{"id":33,"level":0,"connections":{"0":[25,11,1,17,30,32,27,7,19,36,29,5,21,31,3,34,15,23,9,35,13]}},{"id":34,"level":0,"connections":{"0":[30,27,15,13,25,17,11,33,36,1,32,9,31,7,21,3,23,19,29,5,35]}},{"id":35,"level":0,"connections":{"0":[21,7,31,23,19,5,32,29,9,36,17,33,1,27,25,30,3,11,15,13,34]}},{"id":36,"level":3,"connections":{"0":[17,9,27,15,31,23,21,30,32,7,33,13,25,19,35,11,34,1,5,29,3],"1":[13,29,3],"2":[29,3],"3":[3]}}]}
+`)
+
+	vectors := vectorsForDeleteTest()
+	vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
+		return vectors[int(id)], nil
+	}
+
+	index, err := NewFromJSONDump(snapshotBefore, vecForID)
+	require.Nil(t, err)
+
+	var control []uint64
+	t.Run("control search before delete with the respective allow list", func(t *testing.T) {
+		allowList := helpers.AllowList{}
+		for i := range vectors {
+			if i%2 == 0 {
+				continue
+			}
+
+			allowList.Insert(uint64(i))
+		}
+
+		res, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+
+		control = res
+	})
+
+	t.Run("delete the remaining even entries", func(t *testing.T) {
+		require.Nil(t, index.Delete(30))
+		require.Nil(t, index.Delete(32))
+		require.Nil(t, index.Delete(34))
+		require.Nil(t, index.Delete(36))
+	})
+
+	t.Run("verify against control BEFORE Tombstone Cleanup", func(t *testing.T) {
+		res, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+		assert.Equal(t, control, res)
+	})
+
+	t.Run("clean up tombstoned nodes", func(t *testing.T) {
+		require.Nil(t, index.CleanUpTombstonedNodes())
+	})
+
+	t.Run("verify against control AFTER Tombstone Cleanup", func(t *testing.T) {
+		res, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+		assert.Equal(t, control, res)
+	})
+
+	t.Run("now delete the entrypoint", func(t *testing.T) {
+		require.Nil(t, index.Delete(index.entryPointID))
+	})
+
+	t.Run("clean up tombstoned nodes", func(t *testing.T) {
+		require.Nil(t, index.CleanUpTombstonedNodes())
+	})
+
+	t.Run("now delete the entrypoint", func(t *testing.T) {
+		// this verifies that our findNewLocalEntrypoint also works when the global
+		// entrypoint is affected
+		require.Nil(t, index.Delete(index.entryPointID))
+	})
+
+	t.Run("clean up tombstoned nodes", func(t *testing.T) {
+		require.Nil(t, index.CleanUpTombstonedNodes())
+	})
 }
