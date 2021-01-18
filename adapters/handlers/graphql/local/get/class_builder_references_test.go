@@ -14,7 +14,6 @@ package get
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -25,7 +24,6 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:      kind.Object,
 		ClassName: "SomeThing",
 		AdditionalProperties: traverser.AdditionalProperties{
 			ID: true,

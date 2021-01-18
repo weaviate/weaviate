@@ -62,7 +62,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 func (a *Aggregator) aggTypeOfProperty(
 	name schema.PropertyName) (aggregation.PropertyType, schema.DataType, error) {
 	s := a.getSchema.GetSchemaSkipAuth()
-	schemaProp, err := s.GetProperty(a.params.Kind, a.params.ClassName, name)
+	schemaProp, err := s.GetProperty(a.params.ClassName, name)
 	if err != nil {
 		return "", "", errors.Wrapf(err, "property %s", name)
 	}

@@ -23,30 +23,26 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Object struct {
 	MarshallerVersion uint8
-	Kind              kind.Kind     `json:"kind"`
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	docID             uint64
 }
 
-func New(k kind.Kind, docID uint64) *Object {
+func New(docID uint64) *Object {
 	return &Object{
 		MarshallerVersion: 1,
-		Kind:              k,
 		docID:             docID,
 	}
 }
 
 func FromObject(object *models.Object, vector []float32) *Object {
 	return &Object{
-		Kind:              kind.Object,
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
@@ -63,12 +59,7 @@ func FromBinary(data []byte) (*Object, error) {
 }
 
 func (ko *Object) Class() schema.ClassName {
-	switch ko.Kind {
-	case kind.Object:
-		return schema.ClassName(ko.Object.Class)
-	default:
-		panic(fmt.Sprintf("impossible kind: %s", ko.Kind.Name()))
-	}
+	return schema.ClassName(ko.Object.Class)
 }
 
 func (ko *Object) SetDocID(id uint64) {
@@ -80,82 +71,47 @@ func (ko *Object) DocID() uint64 {
 }
 
 func (ko *Object) CreationTimeUnix() int64 {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.CreationTimeUnix
-	default:
-		panic("impossible kind")
-	}
+	return ko.Object.CreationTimeUnix
 }
 
 func (ko *Object) ID() strfmt.UUID {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.ID
-	default:
-		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
-	}
+	return ko.Object.ID
 }
 
 func (ko *Object) SetID(id strfmt.UUID) {
-	switch ko.Kind {
-	case kind.Object:
-		ko.Object.ID = id
-	default:
-		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
-	}
+	ko.Object.ID = id
 }
 
 func (ko *Object) SetClass(class string) {
-	switch ko.Kind {
-	case kind.Object:
-		ko.Object.Class = class
-	default:
-		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
-	}
+	ko.Object.Class = class
 }
 
 func (ko *Object) LastUpdateTimeUnix() int64 {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.LastUpdateTimeUnix
-	default:
-		panic("impossible kind")
-	}
+	return ko.Object.LastUpdateTimeUnix
 }
 
 // AdditionalProperties groups all properties which are stored with the
 // object and not generated at runtime
 func (ko *Object) AdditionalProperties() *models.AdditionalProperties {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.Additional
-	default:
-		panic("impossible kind")
-	}
+	return ko.Object.Additional
 }
 
-func (ko *Object) Schema() models.PropertySchema {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.Properties
-	default:
-		panic("impossible kind")
-	}
+func (ko *Object) Properties() models.PropertySchema {
+	return ko.Object.Properties
 }
 
-func (ko *Object) SchemaWithAdditional(
+func (ko *Object) PropertiesWithAdditional(
 	additional traverser.AdditionalProperties) models.PropertySchema {
-	schema := ko.Schema()
+	properties := ko.Properties()
 
 	if additional.RefMeta {
 		// nothing to remove
-		return schema
+		return properties
 	}
 
-	asMap, ok := schema.(map[string]interface{})
+	asMap, ok := properties.(map[string]interface{})
 	if !ok || asMap == nil {
-		return schema
+		return properties
 	}
 
 	for propName, value := range asMap {
@@ -175,31 +131,21 @@ func (ko *Object) SchemaWithAdditional(
 	return asMap
 }
 
-func (ko *Object) SetSchema(schema models.PropertySchema) {
-	switch ko.Kind {
-	case kind.Object:
-		ko.Object.Properties = schema
-	default:
-		panic("impossible kind")
-	}
+func (ko *Object) SetProperties(schema models.PropertySchema) {
+	ko.Object.Properties = schema
 }
 
 func (ko *Object) VectorWeights() models.VectorWeights {
-	switch ko.Kind {
-	case kind.Object:
-		return ko.Object.VectorWeights
-	default:
-		panic("impossible kind")
-	}
+	return ko.Object.VectorWeights
 }
 
 func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *search.Result {
-	schemaMap, ok := ko.SchemaWithAdditional(additional).(map[string]interface{})
-	if !ok || schemaMap == nil {
-		schemaMap = map[string]interface{}{}
+	propertiesMap, ok := ko.PropertiesWithAdditional(additional).(map[string]interface{})
+	if !ok || propertiesMap == nil {
+		propertiesMap = map[string]interface{}{}
 	}
-	schemaMap["id"] = ko.ID()
-	ko.SetSchema(schemaMap)
+	propertiesMap["id"] = ko.ID()
+	ko.SetProperties(propertiesMap)
 
 	additionalProperties := &models.AdditionalProperties{}
 	if ko.AdditionalProperties() != nil {
@@ -212,10 +158,9 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 	}
 
 	return &search.Result{
-		Kind:      ko.Kind,
 		ID:        ko.ID(),
 		ClassName: ko.Class().String(),
-		Schema:    ko.Schema(),
+		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
@@ -227,8 +172,7 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 }
 
 func (ko *Object) Valid() bool {
-	return ko.Kind != "" &&
-		ko.ID() != "" &&
+	return ko.ID() != "" &&
 		ko.Class().String() != ""
 }
 
@@ -268,7 +212,7 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // ------------------------------------------------
 // 1          | uint8     | MarshallerVersion = 1
 // 8          | uint64    | index id, keep early so id-only lookups are maximum efficient
-// 1          | uint8     | kind, 0=action, 1=thing
+// 1          | uint8     | kind, 0=action, 1=thing - deprecated
 // 16         | uint128   | uuid
 // 8          | int64     | create time
 // 8          | int64     | update time
@@ -288,9 +232,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 
 	kindByte := uint8(0)
-	if ko.Kind == kind.Object {
-		kindByte = 1
-	}
+	// Deprecated Kind field
+	kindByte = 1
 
 	idParsed, err := uuid.Parse(ko.ID().String())
 	if err != nil {
@@ -303,7 +246,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	vectorLength := uint16(len(ko.Vector))
 	className := []byte(ko.Class())
 	classNameLength := uint16(len(className))
-	schema, err := json.Marshal(ko.Schema())
+	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
@@ -411,13 +354,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	if kindByte == 1 {
-		ko.Kind = kind.Object
-	} else {
-		ko.Kind = kind.Object
-	}
-
-	return ko.parseKind(
+	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
@@ -428,7 +365,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 }
 
-func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className string,
+func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
 	schemaB []byte, additionalB []byte, vectorWeightsB []byte) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
@@ -449,16 +386,14 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return err
 	}
 
-	if ko.Kind == kind.Object {
-		ko.Object = models.Object{
-			Class:              className,
-			CreationTimeUnix:   create,
-			LastUpdateTimeUnix: update,
-			ID:                 uuid,
-			Properties:         schema,
-			VectorWeights:      vectorWeights,
-			Additional:         additional,
-		}
+	ko.Object = models.Object{
+		Class:              className,
+		CreationTimeUnix:   create,
+		LastUpdateTimeUnix: update,
+		ID:                 uuid,
+		Properties:         schema,
+		VectorWeights:      vectorWeights,
+		Additional:         additional,
 	}
 
 	return nil

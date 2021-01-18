@@ -17,7 +17,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -28,7 +27,6 @@ type runWorker struct {
 	ec           *errorCompounder
 	classify     classifyItemFn
 	batchWriter  writer
-	kind         kind.Kind
 	params       models.Classification
 	filters      filters
 	id           int
@@ -44,7 +42,7 @@ func (w *runWorker) work(wg *sync.WaitGroup) {
 
 	for i, item := range w.jobs {
 		originalIndex := (i * w.workerCount) + w.id
-		err := w.classify(item, originalIndex, w.kind, w.params, w.filters, w.batchWriter)
+		err := w.classify(item, originalIndex, w.params, w.filters, w.batchWriter)
 		if err != nil {
 			w.ec.add(err)
 			atomic.AddInt64(w.errorCount, 1)
@@ -59,7 +57,6 @@ func newRunWorker(id int, workerCount int, rw *runWorkers) *runWorker {
 		successCount: rw.successCount,
 		errorCount:   rw.errorCount,
 		ec:           rw.ec,
-		kind:         rw.kind,
 		params:       rw.params,
 		filters:      rw.filters,
 		classify:     rw.classify,
@@ -75,13 +72,12 @@ type runWorkers struct {
 	errorCount   *int64
 	ec           *errorCompounder
 	classify     classifyItemFn
-	kind         kind.Kind
 	params       models.Classification
 	filters      filters
 	batchWriter  writer
 }
 
-func newRunWorkers(amount int, classifyFn classifyItemFn, kind kind.Kind,
+func newRunWorkers(amount int, classifyFn classifyItemFn,
 	params models.Classification, filters filters, vectorRepo vectorRepo) *runWorkers {
 	var successCount int64
 	var errorCount int64
@@ -92,7 +88,6 @@ func newRunWorkers(amount int, classifyFn classifyItemFn, kind kind.Kind,
 		errorCount:   &errorCount,
 		ec:           &errorCompounder{},
 		classify:     classifyFn,
-		kind:         kind,
 		params:       params,
 		filters:      filters,
 		batchWriter:  newBatchWriter(vectorRepo),

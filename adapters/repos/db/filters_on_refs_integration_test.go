@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -55,7 +54,7 @@ func TestRefFilters(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
@@ -475,7 +474,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range cityCountryAirportSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), kind.Object, class)
+				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
@@ -527,7 +526,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
 							Beacon: strfmt.URI(
-								strfmt.URI(crossref.New("localhost", netherlands, kind.Object).String()),
+								strfmt.URI(crossref.New("localhost", netherlands).String()),
 							),
 						},
 					},
@@ -541,7 +540,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", netherlands, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", netherlands).String()),
 						},
 					},
 				},
@@ -554,7 +553,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(3470000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", germany).String()),
 						},
 					},
 				},
@@ -567,7 +566,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", germany).String()),
 						},
 					},
 					"location": &models.GeoCoordinates{
@@ -601,7 +600,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					},
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", amsterdam, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", amsterdam).String()),
 						},
 					},
 				},
@@ -613,7 +612,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "20000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", rotterdam, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", rotterdam).String()),
 						},
 					},
 				},
@@ -625,7 +624,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "30000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf).String()),
 						},
 					},
 				},
@@ -637,7 +636,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "40000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", berlin, kind.Object).String()),
+							Beacon: strfmt.URI(crossref.New("localhost", berlin).String()),
 						},
 					},
 				},
@@ -775,7 +774,6 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) traverse
 			Limit: 10,
 		},
 		ClassName: className,
-		Kind:      kind.Object,
 	}
 }
 

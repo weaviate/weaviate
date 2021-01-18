@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus"
 )
@@ -29,17 +28,17 @@ import (
 // which is generic, whereas the individual classify_item fns can be found in
 // the respective files such as classifier_run_knn.go
 
-type classifyItemFn func(item search.Result, itemIndex int, kind kind.Kind,
+type classifyItemFn func(item search.Result, itemIndex int,
 	params models.Classification, filters filters, writer writer) error
 
-func (c *Classifier) run(params models.Classification, kind kind.Kind,
+func (c *Classifier) run(params models.Classification,
 	filters filters) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
-		kind, params.Class, params.ClassifyProperties, filters.source)
+		params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
 		c.failRunWithError(params, errors.Wrap(err, "retrieve to-be-classifieds"))
 		return
@@ -52,13 +51,13 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	}
 	c.logItemsFetched(params, unclassifiedItems)
 
-	classifyItem, err := c.prepareRun(kind, params, filters, unclassifiedItems)
+	classifyItem, err := c.prepareRun(params, filters, unclassifiedItems)
 	if err != nil {
 		c.failRunWithError(params, errors.Wrap(err, "prepare classification"))
 		return
 	}
 
-	params, err = c.runItems(classifyItem, kind, params, filters, unclassifiedItems)
+	params, err = c.runItems(classifyItem, params, filters, unclassifiedItems)
 	if err != nil {
 		c.failRunWithError(params, err)
 		return
@@ -67,7 +66,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	c.succeedRun(params)
 }
 
-func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, filters filters,
+func (c *Classifier) prepareRun(params models.Classification, filters filters,
 	unclassifiedItems []search.Result) (classifyItemFn, error) {
 	var classifyItem classifyItemFn
 	c.logBeginPreparation(params)
@@ -78,7 +77,7 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 		classifyItem = c.classifyItemUsingKNN
 	case "text2vec-contextionary-contextual":
 		// 1. do preparation here once
-		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
+		preparedContext, err := c.prepareContextualClassification(params, filters, unclassifiedItems)
 		if err != nil {
 			return nil, errors.Wrap(err, "prepare context for text2vec-contextionary-contextual classification")
 		}
@@ -95,14 +94,14 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 
 // runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
-func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
+func (c *Classifier) runItems(classifyItem classifyItemFn, params models.Classification, filters filters,
 	items []search.Result) (models.Classification, error) {
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
 		workerCount = len(items)
 	}
 
-	workers := newRunWorkers(workerCount, classifyItem, kind, params, filters, c.vectorRepo)
+	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo)
 	workers.addJobs(items)
 	res := workers.work()
 

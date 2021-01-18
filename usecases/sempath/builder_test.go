@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,6 @@ func TestSemanticPathBuilder(t *testing.T) {
 	input := []search.Result{
 		search.Result{
 			ID:        "7fe919ed-2ef6-4087-856c-a307046bf895",
-			Kind:      kind.Object,
 			ClassName: "Foo",
 			Vector:    []float32{1, 0.1},
 		},

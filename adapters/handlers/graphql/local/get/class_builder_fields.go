@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
@@ -34,7 +33,7 @@ import (
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
-	property *models.Property, kindName, className string) *graphql.Field {
+	property *models.Property, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{
@@ -94,8 +93,8 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Resolve:     resolvePhoneNumber,
 		}
 	default:
-		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s",
-			kindName, className, property.Name, propertyType.AsPrimitive()))
+		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
+			className, property.Name, propertyType.AsPrimitive()))
 	}
 }
 
@@ -169,9 +168,8 @@ func shouldIncludeNearText(class *models.Class) bool {
 	return class.Vectorizer == config.VectorizerModuleText2VecContextionary
 }
 
-func buildGetClassField(classObject *graphql.Object, k kind.Kind,
+func buildGetClassField(classObject *graphql.Object,
 	class *models.Class) graphql.Field {
-	kindName := strings.Title(k.Name())
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
@@ -181,16 +179,16 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Type:        graphql.Int,
 			},
 
-			"nearVector": nearVectorArgument(kindName, class.Class),
-			"where":      whereArgument(kindName, class.Class),
-			"group":      groupArgument(kindName, class.Class),
+			"nearVector": nearVectorArgument(class.Class),
+			"where":      whereArgument(class.Class),
+			"group":      groupArgument(class.Class),
 		},
-		Resolve: makeResolveGetClass(k, class.Class),
+		Resolve: makeResolveGetClass(class.Class),
 	}
 
 	// TODO: this is module-specific and should be added dynamically
 	if shouldIncludeNearText(class) {
-		field.Args["nearText"] = nearTextArgument(kindName, class.Class)
+		field.Args["nearText"] = nearTextArgument(class.Class)
 	}
 
 	return field
@@ -235,20 +233,20 @@ func resolvePhoneNumber(p graphql.ResolveParams) (interface{}, error) {
 	}, nil
 }
 
-func whereArgument(kindName, className string) *graphql.ArgumentConfig {
+func whereArgument(className string) *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
 		Description: descriptions.GetWhere,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("Get%ss%sWhereInpObj", kindName, className),
-				Fields:      common_filters.BuildNew(fmt.Sprintf("Get%ss%s", kindName, className)),
+				Name:        fmt.Sprintf("GetObjects%sWhereInpObj", className),
+				Fields:      common_filters.BuildNew(fmt.Sprintf("GetObjects%s", className)),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
+func makeResolveGetClass(className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		source, ok := p.Source.(map[string]interface{})
 		if !ok {
@@ -299,7 +297,6 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 
 		params := traverser.GetParams{
 			Filters:              filters,
-			Kind:                 k,
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,

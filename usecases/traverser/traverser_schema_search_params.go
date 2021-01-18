@@ -13,8 +13,6 @@ package traverser
 
 import (
 	"fmt"
-
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // TODO: is this still used?
@@ -38,9 +36,6 @@ type SearchParams struct {
 	// Name is the string-representation of the class or property name
 	Name string
 
-	// Kind as in Thing or Class, not required if SearchType == SearchTypeProperty
-	Kind kind.Kind
-
 	// Certaintiy must be a value between 0 and 1. The higher it is the narrower
 	// is the search, the lower it is, the wider the search is
 	Certainty float32
@@ -59,10 +54,6 @@ func (p SearchParams) Validate() error {
 	if p.SearchType != SearchTypeClass && p.SearchType != SearchTypeProperty {
 		return fmt.Errorf(
 			"SearchType must be SearchTypeClass or SearchTypeProperty, but got '%s'", p.SearchType)
-	}
-
-	if p.Kind == "" {
-		return fmt.Errorf("Kind cannot be empty")
 	}
 
 	return nil

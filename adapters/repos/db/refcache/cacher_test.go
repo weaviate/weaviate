@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -91,16 +90,15 @@ func TestCacher(t *testing.T) {
 		}
 		err := cr.Build(context.Background(), input, nil, traverser.AdditionalProperties{})
 		require.Nil(t, err)
-		_, ok := cr.Get(multi.Identifier{ID: "123", Kind: kind.Object, ClassName: "SomeClass"})
+		_, ok := cr.Get(multi.Identifier{ID: "123", ClassName: "SomeClass"})
 		assert.False(t, ok)
 	})
 
 	t.Run("with a single ref, and a matching select prop", func(t *testing.T) {
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"bar": "some string",
 			},
@@ -139,7 +137,6 @@ func TestCacher(t *testing.T) {
 
 		expected := search.Result{
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			ClassName: "SomeClass",
 			Schema: map[string]interface{}{
 				"bar": "some string",
@@ -148,7 +145,7 @@ func TestCacher(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expected, res)
 		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
@@ -156,10 +153,9 @@ func TestCacher(t *testing.T) {
 
 	t.Run("with a nested lookup, partially resolved", func(t *testing.T) {
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
@@ -174,10 +170,9 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		repo.lookup[multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},
@@ -230,7 +225,6 @@ func TestCacher(t *testing.T) {
 
 		expectedOuter := search.Result{
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			ClassName: "SomeClass",
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
@@ -250,7 +244,6 @@ func TestCacher(t *testing.T) {
 		expectedInner := search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},
@@ -258,10 +251,10 @@ func TestCacher(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
-		res, ok = cr.Get(multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"})
+		res, ok = cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedInner, res)
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookups")
@@ -273,10 +266,9 @@ func TestCacher(t *testing.T) {
 		// used for something like a product category, e.g. it would not be
 		// uncommon at all if all search results are of the same category)
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
 				"nestedRef": models.MultipleRef{
@@ -286,10 +278,9 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		repo.lookup[multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},
@@ -366,7 +357,6 @@ func TestCacher(t *testing.T) {
 
 		expectedOuter := search.Result{
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Object,
 			ClassName: "SomeClass",
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
@@ -381,7 +371,6 @@ func TestCacher(t *testing.T) {
 		expectedInner := search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},
@@ -389,10 +378,10 @@ func TestCacher(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
-		res, ok = cr.Get(multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"})
+		res, ok = cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedInner, res)
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookup queries")

@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -44,7 +43,7 @@ type Index struct {
 }
 
 func (i Index) ID() string {
-	return indexID(i.Config.Kind, i.Config.ClassName)
+	return indexID(i.Config.ClassName)
 }
 
 // NewIndex - for now - always creates a single-shard index
@@ -85,20 +84,14 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 
 type IndexConfig struct {
 	RootPath  string
-	Kind      kind.Kind
 	ClassName schema.ClassName
 }
 
-func indexID(kind kind.Kind, class schema.ClassName) string {
-	return strings.ToLower(fmt.Sprintf("%s_%s", kind, class))
+func indexID(class schema.ClassName) string {
+	return strings.ToLower(string(class))
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
-	if i.Config.Kind != object.Kind {
-		return fmt.Errorf("cannot import object of kind %s into index of kind %s",
-			object.Kind, i.Config.Kind)
-	}
-
 	if i.Config.ClassName != object.Class() {
 		return fmt.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)

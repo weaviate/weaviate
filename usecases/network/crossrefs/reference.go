@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // NetworkClass references one class in a remote peer
@@ -31,7 +30,6 @@ type NetworkClass struct {
 // NetworkKind is one particular kind (i.e. thing or action) of a peer
 // identified by its UUID
 type NetworkKind struct {
-	Kind     kind.Kind
 	PeerName string
 	ID       strfmt.UUID
 }

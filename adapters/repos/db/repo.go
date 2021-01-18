@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
 )
@@ -49,8 +48,8 @@ type Config struct {
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
-func (d *DB) GetIndex(kind kind.Kind, className schema.ClassName) *Index {
-	id := indexID(kind, className)
+func (d *DB) GetIndex(className schema.ClassName) *Index {
+	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {
 		return nil
@@ -60,8 +59,8 @@ func (d *DB) GetIndex(kind kind.Kind, className schema.ClassName) *Index {
 }
 
 // DeleteIndex deletes the index
-func (d *DB) DeleteIndex(kind kind.Kind, className schema.ClassName) error {
-	id := indexID(kind, className)
+func (d *DB) DeleteIndex(className schema.ClassName) error {
+	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {
 		return errors.Errorf("exist index %s", id)

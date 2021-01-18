@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 const (
@@ -38,20 +37,12 @@ const (
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
-func (v *Validator) properties(ctx context.Context, k kind.Kind, object interface{}) error {
-	var isp interface{}
-	var vectorWeights interface{}
+func (v *Validator) properties(ctx context.Context, object interface{}) error {
+	className := object.(*models.Object).Class
+	isp := object.(*models.Object).Properties
+	vectorWeights := object.(*models.Object).VectorWeights
 
-	var className string
-	if k == kind.Object {
-		className = object.(*models.Object).Class
-		isp = object.(*models.Object).Properties
-		vectorWeights = object.(*models.Object).VectorWeights
-	} else {
-		return fmt.Errorf(schema.ErrorInvalidRefType)
-	}
-
-	class := v.schema.GetClass(k, schema.ClassName(className))
+	class := v.schema.GetClass(schema.ClassName(className))
 	if class == nil {
 		return fmt.Errorf("class '%s' not present in schema", className)
 	}
@@ -87,12 +78,8 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 		returnSchema[propertyKey] = data
 	}
 
-	if k == kind.Object {
-		object.(*models.Object).Properties = returnSchema
-		object.(*models.Object).VectorWeights = vectorWeights
-	} else {
-		return fmt.Errorf(schema.ErrorInvalidRefType)
-	}
+	object.(*models.Object).Properties = returnSchema
+	object.(*models.Object).VectorWeights = vectorWeights
 
 	return nil
 }
@@ -384,7 +371,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 	if err != nil {
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
-	errVal := fmt.Sprintf("'cref' %s %s:%s", ref.Kind.Name(), className, propertyName)
+	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
 	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal)
 	if err != nil {
 		return nil, err

@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -64,9 +63,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, productClass))
+			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, companyClass))
+			migrator.AddClass(context.Background(), companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -97,7 +96,6 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -161,9 +159,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, productClass))
+			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, companyClass))
+			migrator.AddClass(context.Background(), companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -189,7 +187,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -205,7 +202,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -226,8 +222,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	})
 
 	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(kind.Object,
-			schema.ClassName(companyClass.Class)).Shards["single"]
+		s := repo.GetIndex(schema.ClassName(companyClass.Class)).Shards["single"]
 		docIDs := s.deletedDocIDs.GetAll()
 		err := s.performCleanup(docIDs)
 		require.Nil(t, err)
@@ -242,7 +237,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -258,7 +252,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
-			Kind: kind.Object,
 		})
 
 		require.Nil(t, err)
@@ -299,9 +292,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, productClass))
+			migrator.AddClass(context.Background(), productClass))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Object, companyClass))
+			migrator.AddClass(context.Background(), companyClass))
 
 		schemaGetter.schema = schema
 	})
@@ -325,7 +318,6 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 
@@ -354,7 +346,6 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 
@@ -364,8 +355,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		})
 
 	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(kind.Object,
-			schema.ClassName(companyClass.Class)).Shards["single"]
+		s := repo.GetIndex(schema.ClassName(companyClass.Class)).Shards["single"]
 		docIDs := s.deletedDocIDs.GetAll()
 		err := s.performCleanup(docIDs)
 		require.Nil(t, err)
@@ -378,7 +368,6 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 				traverser.AggregateParams{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
-					Kind:             kind.Object,
 					IncludeMetaCount: true,
 				})
 

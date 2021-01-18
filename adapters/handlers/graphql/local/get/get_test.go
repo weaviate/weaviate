@@ -20,7 +20,6 @@ import (
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -32,7 +31,6 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver()
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
@@ -49,7 +47,6 @@ func TestExtractIntField(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
@@ -67,7 +64,6 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "location", IsPrimitive: true}},
 	}
@@ -115,7 +111,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only input requested",
 			query: "{ Get { SomeAction { phone { input } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -134,7 +129,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only internationalFormatted requested",
 			query: "{ Get { SomeAction { phone { internationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -153,7 +147,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only nationalFormatted requested",
 			query: "{ Get { SomeAction { phone { nationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -172,7 +165,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only national requested",
 			query: "{ Get { SomeAction { phone { national } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -191,7 +183,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only valid requested",
 			query: "{ Get { SomeAction { phone { valid } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -210,7 +201,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only countryCode requested",
 			query: "{ Get { SomeAction { phone { countryCode } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -229,7 +219,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			name:  "with only defaultCountry requested",
 			query: "{ Get { SomeAction { phone { defaultCountry } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -249,7 +238,6 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { input internationalFormatted " +
 				"nationalFormatted defaultCountry national countryCode valid } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:       kind.Object,
 				ClassName:  "SomeAction",
 				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
@@ -308,7 +296,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Certainty: true,
@@ -331,7 +318,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional classification",
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Classification: true,
@@ -366,7 +352,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					Interpretation: true,
@@ -415,7 +400,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional nearestNeighbors",
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					NearestNeighbors: true,
@@ -460,7 +444,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					FeatureProjection: &projector.Params{
@@ -489,7 +472,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					FeatureProjection: &projector.Params{
@@ -523,7 +505,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
-				Kind:      kind.Object,
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					SemanticPath: &sempath.Params{},
@@ -607,7 +588,6 @@ func TestNearTextRanker(t *testing.T) {
         			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearText: &traverser.NearTextParams{
@@ -662,7 +642,6 @@ func TestNearTextRanker(t *testing.T) {
         			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearText: &traverser.NearTextParams{
@@ -696,7 +675,6 @@ func TestNearVectorRanker(t *testing.T) {
         			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
@@ -717,7 +695,6 @@ func TestNearVectorRanker(t *testing.T) {
         			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
-			Kind:       kind.Object,
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
@@ -738,7 +715,6 @@ func TestExtractPagination(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Pagination: &filters.Pagination{
@@ -759,7 +735,6 @@ func TestExtractGroupParams(t *testing.T) {
 	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
-		Kind:       kind.Object,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Group: &traverser.GroupParams{
@@ -782,7 +757,6 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
-			Kind:      kind.Object,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{
@@ -829,7 +803,6 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
-			Kind:      kind.Object,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{
@@ -861,7 +834,6 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
-			Kind:      kind.Object,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
 				{

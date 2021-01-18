@@ -12,10 +12,7 @@
 package schema
 
 import (
-	"fmt"
-
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // Newtype to denote that this string is used as a Class name
@@ -51,11 +48,6 @@ func Empty() Schema {
 }
 
 // Return one of the semantic schema's
-func (s *Schema) SemanticSchemaFor(k kind.Kind) *models.Schema {
-	switch k {
-	case kind.Object:
-		return s.Objects
-	default:
-		panic(fmt.Sprintf("No such kind '%s'", k))
-	}
+func (s *Schema) SemanticSchemaFor() *models.Schema {
+	return s.Objects
 }
