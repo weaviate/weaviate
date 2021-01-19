@@ -132,8 +132,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			// 1. we need to find a new entrypoint, if this is the last point on this
 			// level, we need to find an entyrpoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
-			// this case we must reverse the special behavior of inserting the first
-			// node
+			// this case we must reset the graph
 			h.RLock()
 			node := h.nodes[id]
 			h.RUnlock()
@@ -229,8 +228,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 
 			tmpDenyList := deleteList.DeepCopy()
 			tmpDenyList.Insert(entryPointID)
-			alternative, _, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer,
+
+			alternative, level := h.findNewLocalEntrypoint(tmpDenyList, h.currentMaximumLayer,
 				entryPointID)
+			neighborLevel = level // reduce in case no neighbor is at our level
 			entryPointID = alternative
 		}
 
@@ -278,7 +279,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	id := node.id
 	node.Unlock()
 
-	newEntrypoint, level, ok := h.findNewEntrypoint(denyList, level, id)
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, level, id)
 	if !ok {
 		return nil
 	}
@@ -294,8 +295,8 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
-// returns entryPointID, level
-func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
+// returns entryPointID, level and whether a change occurred
+func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
 	oldEntrypoint uint64) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// entrypoint has already been changed (this could be due to a new import
@@ -349,6 +350,55 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
 	panic("findNewEntrypoint called on an empty hnsw graph")
+}
+
+// returns entryPointID, level and whether a change occurred
+func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel int,
+	oldEntrypoint uint64) (uint64, int) {
+	if h.getEntrypoint() != oldEntrypoint {
+		// the current global entrypoint is different from our local entrypoint, so
+		// we can just use the global one, as the global one is guaranteed to be
+		// present on every level, i.e. it is always chosen from the highest
+		// currently available level
+		return h.getEntrypoint(), h.currentMaximumLayer
+	}
+
+	h.RLock()
+	maxNodes := len(h.nodes)
+	h.RUnlock()
+
+	for l := targetLevel; l >= 0; l-- {
+		// ideally we can find a new entrypoint at the same level of the
+		// to-be-deleted node. However, there is a chance it was the only node on
+		// that level, in that case we need to look at the next lower level for a
+		// better candidate
+		for i := 0; i < maxNodes; i++ {
+			if denyList.Contains(uint64(i)) {
+				continue
+			}
+			h.RLock()
+			candidate := h.nodes[i]
+			h.RUnlock()
+
+			if candidate == nil {
+				continue
+			}
+
+			candidate.RLock()
+			candidateLevel := candidate.level
+			candidate.RUnlock()
+
+			if candidateLevel != l {
+				// not reaching up to the current level, skip in hope of finding another candidate
+				continue
+			}
+
+			// we have a node that matches
+			return uint64(i), l
+		}
+	}
+
+	panic("findNewLocalEntrypoint called on an empty hnsw graph")
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
