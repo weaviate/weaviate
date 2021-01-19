@@ -16,15 +16,27 @@ _GraphQL - RESTful - vector search engine - neural search engine - semantic sear
 
 ## Documentation
 
+You can find detailed documentation in the [developers section of our website](https://www.semi.technology/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
+
 - [Documentation](https://semi.technology/developers/weaviate/current/)
+  - About Weaviate
+    - [Introduction video](https://www.semi.technology/developers/weaviate/current/index.html#introduction-video)
+    - [What is Weaviate](https://www.semi.technology/developers/weaviate/current/index.html#what-is-weaviate)
+    - [Why a vector search engine?](https://www.semi.technology/developers/weaviate/current/index.html#why-a-vector-search-engine)
+    - [How does Weaviate work?](https://www.semi.technology/developers/weaviate/current/index.html#how-does-weaviate-work)
+    - [When should I use Weaviate?](https://www.semi.technology/developers/weaviate/current/index.html#when-should-i-use-weaviate)
   - Installation
     - [Docker Compose](https://semi.technology/developers/weaviate/current/getting-started/installation.html#docker-compose)
     - [Cloud Deployment](https://semi.technology/developers/weaviate/current/getting-started/installation.html#cloud-deployment)
     - [Weaviate Cluster Service (beta)](https://semi.technology/developers/weaviate/current/getting-started/installation.html#weaviate-cluster-service)
     - [Kubernetes](https://semi.technology/developers/weaviate/current/getting-started/installation.html#kubernetes)
+  - [Modules](https://www.semi.technology/developers/weaviate/current/modules/)
+  - [RESTful API references](https://www.semi.technology/developers/weaviate/current/restful-api-references/)
+  - [GraphQL references](https://www.semi.technology/developers/weaviate/current/graphql-references/)
   - Client Libraries
     - [Python](https://semi.technology/developers/weaviate/current/client-libraries/python.html)
     - [JavaScript](https://semi.technology/developers/weaviate/current/client-libraries/javascript.html)
+    - [Go](https://www.semi.technology/developers/weaviate/current/client-libraries/go.html)
   - [How To's](https://semi.technology/developers/weaviate/current/how-tos/)
   - [RESTful API references](https://semi.technology/developers/weaviate/current/restful-api-references/)
   - [GraphQL references](https://semi.technology/developers/weaviate/current/graphql-references/)
