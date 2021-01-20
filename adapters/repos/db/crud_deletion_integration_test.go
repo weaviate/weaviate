@@ -220,12 +220,12 @@ func TestDeleteJourney(t *testing.T) {
 		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-	t.Run("wait 70 seconds until the cleanup is done and verify that it has performed", func(t *testing.T) {
-		ticker := time.Tick(70 * time.Second)
-		<-ticker
-
+	t.Run("wait until the cleanup is done and verify that it has performed", func(t *testing.T) {
 		index := repo.GetIndex("UpdateTestClass")
 		require.NotNil(t, index)
+
+		ticker := time.Tick(index.Shards["single"].cleanupInterval + 1)
+		<-ticker
 
 		deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
 		assert.Equal(t, 0, deletedIDsCount)
