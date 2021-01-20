@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -45,6 +46,7 @@ type Shard struct {
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
+	cleanupCancel    chan struct{}
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -55,6 +57,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
 		cleanupInterval:  60 * time.Second,
+		cleanupCancel:    make(chan struct{}),
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
@@ -154,6 +157,10 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPath())
 	}
+	// clean up deleted doc ids map because there's all of the documents have been deleted
+	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
+	s.cleanupCancel <- struct{}{}
+
 	return nil
 }
 
@@ -235,13 +242,21 @@ func (s *Shard) startPeriodicCleanup() {
 	t := time.Tick(s.cleanupInterval)
 	batchCleanupInterval := 5 * time.Second
 	batchSize := 1000
-	go func(batchSize int, batchCleanupInterval time.Duration) {
+	go func(batchSize int, batchCleanupInterval time.Duration,
+		ticker <-chan time.Time, cancel <-chan struct{}) {
 		for {
-			<-t
-			err := s.periodicCleanup(batchSize, batchCleanupInterval)
-			if err != nil {
-				fmt.Printf("periodic cleanup error: %v", err)
+			select {
+			case <-cancel:
+				return
+			case <-ticker:
+				err := s.periodicCleanup(batchSize, batchCleanupInterval)
+				if err != nil {
+					s.index.logger.WithFields(logrus.Fields{
+						"action": "shard_doc_id_periodic_cleanup",
+						"class":  s.index.Config.ClassName,
+					}).WithError(err).Error("periodic cleanup error")
+				}
 			}
 		}
-	}(batchSize, batchCleanupInterval)
+	}(batchSize, batchCleanupInterval, t, s.cleanupCancel)
 }
