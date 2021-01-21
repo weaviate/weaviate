@@ -220,15 +220,48 @@ func TestDeleteJourney(t *testing.T) {
 		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-	t.Run("wait 70 seconds until the clenup is done and verify that it has performed",
-		func(t *testing.T) {
-			ticker := time.Tick(70 * time.Second)
-			<-ticker
+	t.Run("wait until the cleanup is done and verify that it has performed", func(t *testing.T) {
+		index := repo.GetIndex("UpdateTestClass")
+		require.NotNil(t, index)
 
-			index := repo.GetIndex("UpdateTestClass")
-			require.NotNil(t, index)
+		ticker := time.Tick(index.Shards["single"].cleanupInterval + 1)
+		<-ticker
 
-			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
-			assert.Equal(t, 0, deletedIDsCount)
+		deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
+		assert.Equal(t, 0, deletedIDsCount)
+	})
+
+	t.Run("delete the index and verify that there are no deleted doc ids remaining", func(t *testing.T) {
+		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			ClassName:    "UpdateTestClass",
+			SearchVector: searchVector,
+			Pagination: &filters.Pagination{
+				Limit: 100,
+			},
 		})
+
+		expectedOrder := []interface{}{
+			"element-2", "element-3",
+		}
+
+		require.Nil(t, err)
+		require.Len(t, res, 2)
+		assert.Equal(t, expectedOrder, extractPropValues(res, "name"))
+
+		id := updateTestData()[2].ID
+
+		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id)
+		require.Nil(t, err)
+
+		index := repo.GetIndex("UpdateTestClass")
+		require.NotNil(t, index)
+
+		deletedIDsCountBeforeDeleteIndex := len(index.Shards["single"].deletedDocIDs.GetAll())
+		assert.Equal(t, 1, deletedIDsCountBeforeDeleteIndex)
+
+		err = repo.DeleteIndex("UpdateTestClass")
+
+		deletedIDsCountAfterDeleteIndex := len(index.Shards["single"].deletedDocIDs.GetAll())
+		assert.Equal(t, 0, deletedIDsCountAfterDeleteIndex)
+	})
 }
