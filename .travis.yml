@@ -20,8 +20,6 @@ after_success:
   - |
     # only push to Dockerhub if master and not a PR
     if [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
-        # Login to dockerhub
-        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
         # prepare release id's
         DOCKER_REPO_WEAVIATE="semitechnologies/weaviate"
         DOCKER_REPO_WEAVIATE_TEXT="semitechnologies/weaviate-text"
@@ -107,6 +105,12 @@ install:
 before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils 
+  - |
+    # Login to dockerhub
+    # This used to be part of the deploy step, but since dockerhub introduced rate limiting
+    # we now need to be logged in also for all pull steps, thus it is now at the beginning
+    # of the pipeline
+    echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
   - |
     if [ "$TRAVIS_BRANCH" = "master" ]; then
       # build the build tools
