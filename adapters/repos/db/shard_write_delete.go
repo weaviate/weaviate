@@ -89,6 +89,7 @@ func (s *Shard) periodicCleanup(batchSize int, batchCleanupInterval time.Duratio
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action":          "shard_doc_id_periodic_cleanup",
+		"class":           s.index.Config.ClassName,
 		"total_found":     len(docIDs),
 		"batch_size":      batchSize,
 		"batches_created": batches,
@@ -138,6 +139,7 @@ func (s *Shard) performCleanup(deletedDocIDs []uint64) error {
 	s.deletedDocIDs.BulkRemove(deletedIDs)
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "shard_doc_id_periodic_cleanup_batch_complete",
+		"class":  className,
 		"total":  len(deletedDocIDs),
 		"took":   time.Since(before),
 	}).Debug("completed doc id batch deletion")
