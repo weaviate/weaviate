@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -262,7 +263,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
-				name:        "matching words wit special characters with string value",
+				name:        "matching words with special characters with string value",
 				filter:      buildFilter("description", "it's also not exactly lightweight.", eq, dtString),
 				expectedIDs: []strfmt.UUID{},
 			},
@@ -702,5 +703,276 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		// notice the opposite order
 		assert.Equal(t, ids[1], res[0].ID)
 		assert.Equal(t, ids[0], res[1].ID)
+	})
+}
+
+// This test prevents a regression on
+// https://github.com/semi-technologies/weaviate/issues/1426
+func TestCasingOfOperatorCombinations(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	schemaGetter := &fakeSchemaGetter{}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(30 * time.Second)
+	require.Nil(t, err)
+
+	migrator := NewMigrator(repo, logger)
+
+	class := &models.Class{
+		Class: "FilterCasingBug",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+			{
+				Name:     "textProp",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+
+	objects := []*models.Object{
+		{
+			Class: class.Class,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"name":       "all lowercase",
+				"stringProp": "apple banana orange",
+				"textProp":   "apple banana orange",
+			},
+			Vector: []float32{0.1},
+		},
+		{
+			Class: class.Class,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"name":       "mixed case",
+				"stringProp": "apple Banana ORANGE",
+				"textProp":   "apple Banana ORANGE",
+			},
+			Vector: []float32{0.1},
+		},
+		{
+			Class: class.Class,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"name":       "first letter uppercase",
+				"stringProp": "Apple Banana Orange",
+				"textProp":   "Apple Banana Orange",
+			},
+			Vector: []float32{0.1},
+		},
+		{
+			Class: class.Class,
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"name":       "all uppercase",
+				"stringProp": "APPLE BANANA ORANGE",
+				"textProp":   "APPLE BANANA ORANGE",
+			},
+			Vector: []float32{0.1},
+		},
+	}
+
+	t.Run("creating the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class))
+		schemaGetter.schema.Objects = &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		}
+	})
+
+	t.Run("importing the objects", func(t *testing.T) {
+		for i, obj := range objects {
+			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
+				require.Nil(t,
+					repo.PutObject(context.Background(), obj, obj.Vector))
+			})
+		}
+	})
+
+	t.Run("verifying combinations", func(t *testing.T) {
+		type test struct {
+			name          string
+			filter        *filters.LocalFilter
+			expectedNames []string
+			limit         int
+		}
+
+		tests := []test{
+			// pT stands for propType, meaning this the type the object has according
+			// to the schema
+			// sT stands for searchType, meaning the type the user specified at
+			// search time
+			{
+				name:   "pT==sT, text, lowercase, single word, should match all",
+				filter: buildFilter("textProp", "apple", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, text, lowercase, multiple words, should match all",
+				filter: buildFilter("textProp", "apple banana orange", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, text, mixed case, single word, should match all",
+				filter: buildFilter("textProp", "Apple", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, text, mixed case, multiple words, should match all",
+				filter: buildFilter("textProp", "Apple Banana Orange", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, text, uppercase, single word, should match all",
+				filter: buildFilter("textProp", "APPLE", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, text, uppercase, multiple words, should match all",
+				filter: buildFilter("textProp", "APPLE BANANA ORANGE", eq, dtText),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, string, lowercase, single word, should match exact casing",
+				filter: buildFilter("stringProp", "apple", eq, dtString),
+				expectedNames: []string{
+					"all lowercase", "mixed case", // mixed matches because the first word is all lowercase
+				},
+			},
+			{
+				name:          "pT==sT, string, lowercase, multiple words, should match all-lowercase",
+				filter:        buildFilter("stringProp", "apple banana orange", eq, dtString),
+				expectedNames: []string{"all lowercase"},
+			},
+			{
+				name:   "pT==sT, string, mixed case, single word, should match exact matches",
+				filter: buildFilter("stringProp", "Banana", eq, dtString),
+				expectedNames: []string{
+					"mixed case", "first letter uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, string, mixed case, multiple words, should match exact matches",
+				filter: buildFilter("stringProp", "apple Banana ORANGE", eq, dtString),
+				expectedNames: []string{
+					"mixed case",
+				},
+			},
+			{
+				name:   "pT==sT, string, uppercase, single word, should match all upper",
+				filter: buildFilter("stringProp", "APPLE", eq, dtString),
+				expectedNames: []string{
+					"all uppercase",
+				},
+			},
+			{
+				name:   "pT==sT, string, uppercase, multiple words, should match only all upper",
+				filter: buildFilter("stringProp", "APPLE BANANA ORANGE", eq, dtString),
+				expectedNames: []string{
+					"all uppercase",
+				},
+			},
+
+			// The next four tests mix up the datatype specified in the prop and
+			// specified at search time. It is questionable if there is any value in
+			// intentionally mixing them up, however, these tests also serve as
+			// documentation to what would happen if they are used as such.
+
+			{
+				// sT==string means the casing is not altered in the index, so you
+				// would search exactly as it is stored in the inverted index since
+				// pT==text lowercased at import time, this matches
+				name:   "pT==text, sT==string, lowercase, single word, matches all",
+				filter: buildFilter("textProp", "apple", eq, dtString),
+				expectedNames: []string{
+					"all uppercase", "all lowercase", "mixed case",
+					"first letter uppercase",
+				},
+			},
+			{
+				// lowercased in the index, but sT==string means casing unchanged
+				// -> no matches
+				name:          "pT==text, sT==string, uppercase, single word, matches none",
+				filter:        buildFilter("textProp", "APPLE", eq, dtString),
+				expectedNames: []string{},
+			},
+			{
+				// sT==text means the search term will be lowercased
+				// since pT=string does not alter the casing only lowercase objects
+				// would be found
+				name:   "pT==string, sT==text, lowercase, single word",
+				filter: buildFilter("stringProp", "apple", eq, dtText),
+				expectedNames: []string{
+					"all lowercase", "mixed case",
+				},
+			},
+			{
+				// sT==text means the search term will be lowercased
+				// since pT=string does not alter the casing only lowercase objects
+				// would be found
+				name:   "pT==string, sT==text, uppercase, single word",
+				filter: buildFilter("stringProp", "APPLE", eq, dtText),
+				expectedNames: []string{
+					"all lowercase", "mixed case",
+				},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				if test.limit == 0 {
+					test.limit = 100
+				}
+				params := traverser.GetParams{
+					ClassName:  class.Class,
+					Pagination: &filters.Pagination{Limit: test.limit},
+					Filters:    test.filter,
+				}
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, len(test.expectedNames))
+
+				names := make([]string, len(test.expectedNames))
+				for pos, obj := range res {
+					names[pos] = obj.Schema.(map[string]interface{})["name"].(string)
+				}
+				assert.ElementsMatch(t, names, test.expectedNames, "names dont match")
+			})
+		}
 	})
 }
