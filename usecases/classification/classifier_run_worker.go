@@ -12,6 +12,7 @@
 package classification
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -37,10 +38,17 @@ func (w *runWorker) addJob(job search.Result) {
 	w.jobs = append(w.jobs, job)
 }
 
-func (w *runWorker) work(wg *sync.WaitGroup) {
+func (w *runWorker) work(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for i, item := range w.jobs {
+		// check if the whole classification operation has been cancelled
+		// if yes, then abort the classifier worker
+		if err := ctx.Err(); err != nil {
+			w.ec.add(err)
+			atomic.AddInt64(w.errorCount, 1)
+			break
+		}
 		originalIndex := (i * w.workerCount) + w.id
 		err := w.classify(item, originalIndex, w.params, w.filters, w.batchWriter)
 		if err != nil {
@@ -106,13 +114,13 @@ func (ws *runWorkers) addJobs(jobs []search.Result) {
 	}
 }
 
-func (ws *runWorkers) work() runWorkerResults {
+func (ws *runWorkers) work(ctx context.Context) runWorkerResults {
 	ws.batchWriter.Start()
 
 	wg := &sync.WaitGroup{}
 	for _, worker := range ws.workers {
 		wg.Add(1)
-		go worker.work(wg)
+		go worker.work(ctx, wg)
 	}
 
 	wg.Wait()

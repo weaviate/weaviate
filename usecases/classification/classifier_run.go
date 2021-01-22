@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus"
 )
@@ -33,8 +34,10 @@ type classifyItemFn func(item search.Result, itemIndex int,
 
 func (c *Classifier) run(params models.Classification,
 	filters filters) {
-	ctx, cancel := contextWithTimeout(30 * time.Second)
+	ctx, cancel := contextWithTimeout(30 * time.Minute)
 	defer cancel()
+
+	go c.monitorClassification(ctx, cancel, schema.ClassName(params.Class))
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
@@ -57,13 +60,31 @@ func (c *Classifier) run(params models.Classification,
 		return
 	}
 
-	params, err = c.runItems(classifyItem, params, filters, unclassifiedItems)
+	params, err = c.runItems(ctx, classifyItem, params, filters, unclassifiedItems)
 	if err != nil {
 		c.failRunWithError(params, err)
 		return
 	}
 
 	c.succeedRun(params)
+}
+
+func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context.CancelFunc,
+	className schema.ClassName) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			schema := c.schemaGetter.GetSchemaSkipAuth()
+			class := schema.FindClassByName(className)
+			if class == nil {
+				cancelFn()
+				return
+			}
+		}
+	}
 }
 
 func (c *Classifier) prepareRun(params models.Classification, filters filters,
@@ -94,7 +115,7 @@ func (c *Classifier) prepareRun(params models.Classification, filters filters,
 
 // runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
-func (c *Classifier) runItems(classifyItem classifyItemFn, params models.Classification, filters filters,
+func (c *Classifier) runItems(ctx context.Context, classifyItem classifyItemFn, params models.Classification, filters filters,
 	items []search.Result) (models.Classification, error) {
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
@@ -103,7 +124,7 @@ func (c *Classifier) runItems(classifyItem classifyItemFn, params models.Classif
 
 	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo)
 	workers.addJobs(items)
-	res := workers.work()
+	res := workers.work(ctx)
 
 	params.Meta.Completed = strfmt.DateTime(time.Now())
 	params.Meta.CountSucceeded = res.successCount
