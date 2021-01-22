@@ -31,7 +31,7 @@ func (h *hnsw) init(cfg Config) error {
 	}
 
 	h.commitLog = cl
-	h.registerMaintainence(cfg)
+	h.registerMaintainence()
 
 	return nil
 }
@@ -75,12 +75,12 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) registerMaintainence(cfg Config) {
-	h.registerTombstoneCleanup(cfg)
+func (h *hnsw) registerMaintainence() {
+	h.registerTombstoneCleanup()
 }
 
-func (h *hnsw) registerTombstoneCleanup(cfg Config) {
-	if cfg.TombstoneCleanupInterval == 0 {
+func (h *hnsw) registerTombstoneCleanup() {
+	if h.cleanupInterval == 0 {
 		// user is not interested in periodically cleaning up tombstones, clean up
 		// will be manual. (This is also helpful in tests where we want to
 		// explicitly control the point at which a cleanup happens)
@@ -88,7 +88,7 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 	}
 
 	go func() {
-		t := time.Tick(cfg.TombstoneCleanupInterval)
+		t := time.Tick(h.cleanupInterval)
 		for {
 			select {
 			case <-h.cancel:

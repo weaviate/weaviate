@@ -31,12 +31,13 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			MaximumConnections:    30,
-			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -101,12 +102,13 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			MaximumConnections:    30,
-			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -181,12 +183,13 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			MaximumConnections:    30,
-			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -418,10 +421,11 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "delete-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		MaximumConnections:    30,
-		EFConstruction:        128,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
 	})
 	require.Nil(t, err)
 
@@ -552,10 +556,11 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "more-delete-entrypoint-flakyness-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		MaximumConnections:    30,
-		EFConstruction:        128,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		VectorForIDThunk:      vecForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
 	})
 	require.Nil(t, err)
 
@@ -619,9 +624,11 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		EFConstruction:        128,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      vecForID,
-
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
 		// explicitly turn off, so we only focus on the tombstoned periods
-		TombstoneCleanupInterval: 0,
+		CleanupIntervalSeconds: 0,
 	})
 	require.Nil(t, err)
 

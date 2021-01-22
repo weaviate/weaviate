@@ -60,6 +60,11 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		cleanupCancel:    make(chan struct{}),
 	}
 
+	hnswUserConfig, err := hnsw.ParseUserConfig(index.vectorIndexUserConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s: parse vector index config", shardName)
+	}
+
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:   index.logger,
 		RootPath: s.index.Config.RootPath,
@@ -68,12 +73,9 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
 				index.logger)
 		},
-		MaximumConnections:       60,
-		EFConstruction:           128,
-		VectorForIDThunk:         s.vectorByIndexID,
-		TombstoneCleanupInterval: 5 * time.Minute,
-		DistanceProvider:         distancer.NewCosineProvider(),
-	})
+		VectorForIDThunk: s.vectorByIndexID,
+		DistanceProvider: distancer.NewCosineProvider(),
+	}, hnswUserConfig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}

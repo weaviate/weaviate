@@ -32,7 +32,7 @@ func (d *DB) init() error {
 			idx, err := NewIndex(IndexConfig{
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, d.schemaGetter, d, d.logger)
+			}, class.VectorIndexConfig, d.schemaGetter, d, d.logger)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

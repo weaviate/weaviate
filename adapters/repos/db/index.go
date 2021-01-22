@@ -35,11 +35,12 @@ import (
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	classSearcher inverted.ClassSearcher // to allow for nested by-references searches
-	Shards        map[string]*Shard
-	Config        IndexConfig
-	getSchema     schemaUC.SchemaGetter
-	logger        logrus.FieldLogger
+	classSearcher         inverted.ClassSearcher // to allow for nested by-references searches
+	Shards                map[string]*Shard
+	Config                IndexConfig
+	vectorIndexUserConfig interface{}
+	getSchema             schemaUC.SchemaGetter
+	logger                logrus.FieldLogger
 }
 
 func (i Index) ID() string {
@@ -47,14 +48,16 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter,
-	cs inverted.ClassSearcher, logger logrus.FieldLogger) (*Index, error) {
+func NewIndex(config IndexConfig, vectorIndexUserConfig interface{},
+	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher,
+	logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{
-		Config:        config,
-		Shards:        map[string]*Shard{},
-		getSchema:     sg,
-		logger:        logger,
-		classSearcher: cs,
+		Config:                config,
+		Shards:                map[string]*Shard{},
+		getSchema:             sg,
+		logger:                logger,
+		classSearcher:         cs,
+		vectorIndexUserConfig: vectorIndexUserConfig,
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
