@@ -60,10 +60,16 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		cleanupCancel:    make(chan struct{}),
 	}
 
-	hnswUserConfig, err := hnsw.ParseUserConfig(index.vectorIndexUserConfig)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s: parse vector index config", shardName)
+	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	if !ok {
+		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+			index.vectorIndexUserConfig)
 	}
+
+	// hnswUserConfig, err := hnsw.ParseUserConfig(index.vectorIndexUserConfig)
+	// if err != nil {
+	// 	return nil, errors.Wrapf(err, "shard %s: parse vector index config", shardName)
+	// }
 
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:   index.logger,

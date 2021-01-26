@@ -29,10 +29,12 @@ func (d *DB) init() error {
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
+
 			idx, err := NewIndex(IndexConfig{
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, class.VectorIndexConfig, d.schemaGetter, d, d.logger)
+			}, class.VectorIndexConfig.(schema.VectorIndexConfig), d.schemaGetter,
+				d, d.logger)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

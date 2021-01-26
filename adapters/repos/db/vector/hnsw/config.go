@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 )
 
@@ -121,6 +122,12 @@ type UserConfig struct {
 	VectorCacheMaxObjects  int `json:"vectorCacheMaxObjects"`
 }
 
+// IndexType returns the type of the underlying vector index, thus making sure
+// the schema.VectorIndexConfig interface is implemented
+func (u UserConfig) IndexType() string {
+	return "hnsw"
+}
+
 // SetDefaults in the user-specifyable part of the config
 func (c *UserConfig) SetDefaults() {
 	c.MaxConnections = DefaultMaxConnections
@@ -131,7 +138,7 @@ func (c *UserConfig) SetDefaults() {
 
 // ParseUserConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseUserConfig(input interface{}) (UserConfig, error) {
+func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
@@ -178,14 +185,19 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 		return nil
 	}
 
-	asNumber, ok := value.(json.Number)
-	if !ok {
-		return fmt.Errorf("%s: must be a number, got: %T", name, value)
-	}
+	var asInt64 int64
+	var err error
 
-	asInt64, err := asNumber.Int64()
+	// depending on whether we get the results from disk or from the REST API,
+	// numbers may be represented slightly differently
+	switch typed := value.(type) {
+	case json.Number:
+		asInt64, err = typed.Int64()
+	case float64:
+		asInt64 = int64(typed)
+	}
 	if err != nil {
-		return errors.Wrap(err, "maxConnections")
+		return errors.Wrapf(err, "%s", name)
 	}
 
 	setFn(int(asInt64))

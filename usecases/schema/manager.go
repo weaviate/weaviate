@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -36,7 +37,11 @@ type Manager struct {
 	authorizer       authorizer
 	config           config.Config
 	sync.Mutex
+
+	hnswConfigParser VectorConfigParser
 }
+
+type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
@@ -63,7 +68,8 @@ type c11yClient interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, c11yClient c11yClient,
-	authorizer authorizer, swd stopwordDetector, config config.Config) (*Manager, error) {
+	authorizer authorizer, swd stopwordDetector, config config.Config,
+	hnswConfigParser VectorConfigParser) (*Manager, error) {
 	m := &Manager{
 		config:           config,
 		migrator:         migrator,
@@ -73,6 +79,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		stopwordDetector: swd,
 		authorizer:       authorizer,
 		c11yClient:       c11yClient,
+		hnswConfigParser: hnswConfigParser,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
@@ -137,6 +144,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		schema = newSchema()
 	}
 
+	if err := m.parseVectorIndexConfigs(ctx, schema); err != nil {
+		return errors.Wrap(err, "load schema")
+	}
+
 	// store in local cache
 	m.state = *schema
 
@@ -154,6 +165,16 @@ func newSchema() *State {
 			Classes: []*models.Class{},
 		},
 	}
+}
+
+func (m *Manager) parseVectorIndexConfigs(ctx context.Context, schema *State) error {
+	for _, class := range schema.ObjectSchema.Classes {
+		if err := m.parseVectorIndexConfig(ctx, class); err != nil {
+			return errors.Wrapf(err, "class %s", class.Class)
+		}
+	}
+
+	return nil
 }
 
 // TODO: this sholud be part of the text2vec-contextionary module

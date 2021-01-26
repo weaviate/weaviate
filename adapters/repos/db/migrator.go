@@ -29,7 +29,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	idx, err := NewIndex(IndexConfig{
 		ClassName: schema.ClassName(class.Class),
 		RootPath:  m.db.config.RootPath,
-	}, class.VectorIndexConfig, m.db.schemaGetter, m.db, m.logger)
+	}, class.VectorIndexConfig.(schema.VectorIndexConfig), m.db.schemaGetter,
+		m.db, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}

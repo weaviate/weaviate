@@ -60,12 +60,13 @@ func TestRecallGeo(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			MaximumConnections:    maxNeighbors,
-			EFConstruction:        efConstruction,
 			DistanceProvider:      distancer.NewGeoProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections: maxNeighbors,
+			EFConstruction: efConstruction,
 		})
 
 		require.Nil(t, err)

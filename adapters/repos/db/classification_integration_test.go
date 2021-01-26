@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -229,40 +230,43 @@ func TestClassifications(t *testing.T) {
 // test fixtures
 func classificationTestSchema() []*models.Class {
 	return []*models.Class{
-		&models.Class{
-			Class: "ExactCategory",
+		{
+			Class:             "ExactCategory",
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{string(schema.DataTypeString)},
 				},
 			},
 		},
-		&models.Class{
-			Class: "MainCategory",
+		{
+			Class:             "MainCategory",
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{string(schema.DataTypeString)},
 				},
 			},
 		},
-		&models.Class{
-			Class: "Article",
+		{
+			Class:             "Article",
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "description",
 					DataType: []string{string(schema.DataTypeText)},
 				},
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{string(schema.DataTypeString)},
 				},
-				&models.Property{
+				{
 					Name:     "exactCategory",
 					DataType: []string{"ExactCategory"},
 				},
-				&models.Property{
+				{
 					Name:     "mainCategory",
 					DataType: []string{"MainCategory"},
 				},

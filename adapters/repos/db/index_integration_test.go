@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -58,7 +59,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -86,7 +87,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -101,7 +102,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 
 	index, err = NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, testClassName)
@@ -143,10 +144,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 
-	var productsIds = []strfmt.UUID{
+	productsIds := []strfmt.UUID{
 		"1295c052-263d-4aae-99dd-920c5a370d06",
 		"1295c052-263d-4aae-99dd-920c5a370d07",
 	}
@@ -197,7 +198,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err = NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 
 	index.addProperty(context.TODO(), &models.Property{

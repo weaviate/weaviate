@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -42,7 +43,8 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		Class: "ThingClassWithNoIndexProps",
+		Class:             "ThingClassWithNoIndexProps",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		Properties: []*models.Property{{
 			Name:     "stringProp",
 			DataType: []string{string(schema.DataTypeString)},

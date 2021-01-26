@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -636,12 +637,18 @@ func TestSchema(t *testing.T) {
 	})
 }
 
+func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
+	return nil, nil
+}
+
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(),
 		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone})
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		dummyParseVectorConfig, // only option for now
+	)
 	if err != nil {
 		panic(err.Error())
 	}

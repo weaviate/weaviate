@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -40,6 +41,11 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, principal, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
 		return err
 	}
@@ -118,6 +124,24 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	}
 
 	// all is fine!
+	return nil
+}
+
+func (m *Manager) parseVectorIndexConfig(ctx context.Context,
+	class *models.Class) error {
+	if class.VectorIndexType != "hnsw" {
+		return errors.Errorf(
+			"parse vector index config: unsupported vector index type: %s",
+			class.VectorIndexConfig)
+	}
+
+	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+	if err != nil {
+		return errors.Wrap(err, "parse vector index config")
+	}
+
+	class.VectorIndexConfig = parsed
+
 	return nil
 }
 
