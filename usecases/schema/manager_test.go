@@ -113,6 +113,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 			DataType: []string{"string"},
 			Name:     "dummy",
 		}},
+		VectorIndexConfig: "this should be replaced by the parser",
 	})
 
 	assert.Nil(t, err)
@@ -123,6 +124,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
+	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
 }
 
@@ -637,8 +639,14 @@ func TestSchema(t *testing.T) {
 	})
 }
 
+type fakeVectorConfig struct{}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
+}
+
 func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
-	return nil, nil
+	return fakeVectorConfig{}, nil
 }
 
 // New Local Schema *Manager
@@ -675,4 +683,28 @@ func testGetClassNames(l *Manager) []string {
 	}
 
 	return names
+}
+
+func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	repo := newFakeRepo()
+	repo.schema = &State{
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{{
+				Class:             "Foo",
+				VectorIndexConfig: "replace me through parsing",
+				VectorIndexType:   "hnsw", // will always be set when loading from disk
+			}},
+		},
+	}
+	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeC11y{},
+		&fakeAuthorizer{}, &fakeStopwordDetector{},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		dummyParseVectorConfig, // only option for now
+	)
+	require.Nil(t, err)
+
+	classes := sm.GetSchemaSkipAuth().Objects.Classes
+	assert.Equal(t, fakeVectorConfig{}, classes[0].VectorIndexConfig)
 }
