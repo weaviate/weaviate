@@ -33,13 +33,6 @@ type Config struct {
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
-
-	// // TODO: remove
-	// // from user config
-	// MaximumConnections          int
-	// MaximumConnectionsLevelZero int
-	// EFConstruction              int
-	// VectorCacheMaxObjects       int
 }
 
 func (c Config) Validate() error {
@@ -52,14 +45,6 @@ func (c Config) Validate() error {
 	if c.RootPath == "" {
 		ec.addf("rootPath cannot be empty")
 	}
-
-	// if c.MaximumConnections <= 0 {
-	// 	ec.addf("maximumConnections must be greater than 0")
-	// }
-
-	// if c.EFConstruction <= 0 {
-	// 	ec.addf("efConstruction must be greater than 0")
-	// }
 
 	if c.MakeCommitLoggerThunk == nil {
 		ec.addf("makeCommitLoggerThunk cannot be nil")
