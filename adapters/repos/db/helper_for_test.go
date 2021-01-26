@@ -24,8 +24,9 @@ func parkingGaragesSchema() schema.Schema {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:             "MultiRefParkingGarage",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefParkingGarage",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -38,8 +39,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MultiRefParkingLot",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefParkingLot",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -48,8 +50,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MultiRefCar",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefCar",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -62,8 +65,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MultiRefDriver",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefDriver",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -76,8 +80,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MultiRefPerson",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefPerson",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -90,8 +95,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MultiRefSociety",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MultiRefSociety",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -106,8 +112,9 @@ func parkingGaragesSchema() schema.Schema {
 
 				// for classifications test
 				{
-					Class:             "ExactCategory",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "ExactCategory",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -116,8 +123,9 @@ func parkingGaragesSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "MainCategory",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MainCategory",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -135,15 +143,17 @@ func cityCountryAirportSchema() schema.Schema {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:             "Country",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Country",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}},
 					},
 				},
 				{
-					Class:             "City",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "City",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}},
 						{Name: "inCountry", DataType: []string{"Country"}},
@@ -152,8 +162,9 @@ func cityCountryAirportSchema() schema.Schema {
 					},
 				},
 				{
-					Class:             "Airport",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Airport",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "code", DataType: []string{"string"}},
 						{Name: "phone", DataType: []string{"phoneNumber"}},

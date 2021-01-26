@@ -1558,6 +1558,9 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "invertedIndexConfig": {
+          "$ref": "#/definitions/InvertedIndexConfig"
+        },
         "moduleConfig": {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
@@ -1909,6 +1912,17 @@ func init() {
         "weight": {
           "type": "number",
           "format": "float32"
+        }
+      }
+    },
+    "InvertedIndexConfig": {
+      "description": "Configure the inverted index built into Weaviate",
+      "type": "object",
+      "properties": {
+        "cleanupIntervalSeconds": {
+          "description": "Asynchronous index clean up happens every n seconds",
+          "type": "number",
+          "format": "int"
         }
       }
     },
@@ -4205,6 +4219,9 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "invertedIndexConfig": {
+          "$ref": "#/definitions/InvertedIndexConfig"
+        },
         "moduleConfig": {
           "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
@@ -4582,6 +4599,17 @@ func init() {
         "weight": {
           "type": "number",
           "format": "float32"
+        }
+      }
+    },
+    "InvertedIndexConfig": {
+      "description": "Configure the inverted index built into Weaviate",
+      "type": "object",
+      "properties": {
+        "cleanupIntervalSeconds": {
+          "description": "Asynchronous index clean up happens every n seconds",
+          "type": "number",
+          "format": "int"
         }
       }
     },

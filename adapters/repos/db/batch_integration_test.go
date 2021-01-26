@@ -64,8 +64,9 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
 	return func(t *testing.T) {
 		class := &models.Class{
-			Class:             "ThingForBatching",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			Class:               "ThingForBatching",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "stringProp",

@@ -46,8 +46,9 @@ func TestCRUD(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
-		Class:             "TheBestThingClass",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
 			{
 				Name:     "stringProp",
@@ -64,8 +65,9 @@ func TestCRUD(t *testing.T) {
 		},
 	}
 	actionclass := &models.Class{
-		Class:             "TheBestActionClass",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		Class:               "TheBestActionClass",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
 				Name:     "stringProp",

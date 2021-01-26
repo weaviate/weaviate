@@ -500,8 +500,9 @@ func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 // test data
 var carClass = &models.Class{
-	Class:             "FilterTestCar",
-	VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+	Class:               "FilterTestCar",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
 			DataType: []string{string(schema.DataTypeString)},
@@ -623,8 +624,9 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
-			Class:             "GeoUpdateTestClass",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			Class:               "GeoUpdateTestClass",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "location",
@@ -730,8 +732,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	class := &models.Class{
-		Class:             "FilterCasingBug",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		Class:               "FilterCasingBug",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
 				Name:     "name",

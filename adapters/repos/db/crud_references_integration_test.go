@@ -46,8 +46,9 @@ func TestNestedReferences(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:             "Planet",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Planet",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -56,8 +57,9 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 				{
-					Class:             "Continent",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Continent",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -70,8 +72,9 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 				{
-					Class:             "Country",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Country",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -84,8 +87,9 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 				{
-					Class:             "City",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "City",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -98,8 +102,9 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 				{
-					Class:             "Place",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Place",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -423,8 +428,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:             "AddingReferencesTestTarget",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "AddingReferencesTestTarget",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -433,8 +439,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 					},
 				},
 				{
-					Class:             "AddingReferencesTestSource",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "AddingReferencesTestSource",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",

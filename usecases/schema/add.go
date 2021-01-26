@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // AddObject Class to the schema
@@ -68,6 +69,14 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.VectorIndexType == "" {
 		class.VectorIndexType = "hnsw"
+	}
+
+	if class.InvertedIndexConfig == nil {
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+	}
+
+	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
+		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
 	}
 }
 

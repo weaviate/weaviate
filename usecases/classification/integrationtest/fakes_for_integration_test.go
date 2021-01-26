@@ -70,16 +70,19 @@ func testSchema() schema.Schema {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:             "ExactCategory",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "ExactCategory",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 				},
 				{
-					Class:             "MainCategory",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MainCategory",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 				},
 				{
-					Class:             "Article",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "Article",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "description",
@@ -191,3 +194,9 @@ const (
 	idCategorySociety                = "ec500f39-1dc9-4580-9bd1-55a8ea8e37a2"
 	idCategoryFoodAndDrink           = "027b708a-31ca-43ea-9001-88bec864c79c"
 )
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+	}
+}

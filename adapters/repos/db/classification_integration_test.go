@@ -231,8 +231,9 @@ func TestClassifications(t *testing.T) {
 func classificationTestSchema() []*models.Class {
 	return []*models.Class{
 		{
-			Class:             "ExactCategory",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			Class:               "ExactCategory",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "name",
@@ -241,8 +242,9 @@ func classificationTestSchema() []*models.Class {
 			},
 		},
 		{
-			Class:             "MainCategory",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			Class:               "MainCategory",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "name",
@@ -251,8 +253,9 @@ func classificationTestSchema() []*models.Class {
 			},
 		},
 		{
-			Class:             "Article",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			Class:               "Article",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "description",

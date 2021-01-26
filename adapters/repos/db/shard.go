@@ -56,8 +56,9 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
-		cleanupInterval:  60 * time.Second,
-		cleanupCancel:    make(chan struct{}),
+		cleanupInterval: time.Duration(index.invertedIndexConfig.
+			CleanupIntervalSeconds) * time.Second,
+		cleanupCancel: make(chan struct{}),
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -65,11 +66,6 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			index.vectorIndexUserConfig)
 	}
-
-	// hnswUserConfig, err := hnsw.ParseUserConfig(index.vectorIndexUserConfig)
-	// if err != nil {
-	// 	return nil, errors.Wrapf(err, "shard %s: parse vector index config", shardName)
-	// }
 
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:   index.logger,

@@ -68,7 +68,8 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -222,7 +223,8 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -420,7 +422,8 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)

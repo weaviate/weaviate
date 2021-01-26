@@ -54,8 +54,9 @@ func Test_MergingObjects(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
-					Class:             "MergeTestTarget",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MergeTestTarget",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "name",
@@ -64,8 +65,9 @@ func Test_MergingObjects(t *testing.T) {
 					},
 				},
 				&models.Class{
-					Class:             "MergeTestSource",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Class:               "MergeTestSource",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
 							Name:     "string",

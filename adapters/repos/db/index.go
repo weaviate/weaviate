@@ -39,6 +39,7 @@ type Index struct {
 	Shards                map[string]*Shard
 	Config                IndexConfig
 	vectorIndexUserConfig schema.VectorIndexConfig
+	invertedIndexConfig   *models.InvertedIndexConfig
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 }
@@ -48,9 +49,9 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig, vectorIndexUserConfig schema.VectorIndexConfig,
-	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher,
-	logger logrus.FieldLogger) (*Index, error) {
+func NewIndex(config IndexConfig, invertedIndexConfig *models.InvertedIndexConfig,
+	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
+	cs inverted.ClassSearcher, logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -58,6 +59,7 @@ func NewIndex(config IndexConfig, vectorIndexUserConfig schema.VectorIndexConfig
 		logger:                logger,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
+		invertedIndexConfig:   invertedIndexConfig,
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
