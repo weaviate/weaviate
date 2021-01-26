@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bolt "go.etcd.io/bbolt"
@@ -47,7 +48,7 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -145,7 +146,7 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
 	require.Nil(t, err)
@@ -232,7 +233,7 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -319,7 +320,7 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -416,7 +417,7 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -503,7 +504,7 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil, nil)
+	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)

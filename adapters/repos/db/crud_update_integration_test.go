@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -246,13 +247,14 @@ func TestUpdateJourney(t *testing.T) {
 
 func updateTestClass() *models.Class {
 	return &models.Class{
-		Class: "UpdateTestClass",
+		Class:             "UpdateTestClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{string(schema.DataTypeInt)},
 				Name:     "intProp",
 			},
-			&models.Property{
+			{
 				DataType: []string{string(schema.DataTypeString)},
 				Name:     "name",
 			},

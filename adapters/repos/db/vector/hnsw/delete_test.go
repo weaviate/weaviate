@@ -620,8 +620,6 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "tombstoned-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		MaximumConnections:    30,
-		EFConstruction:        128,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      vecForID,
 	}, UserConfig{

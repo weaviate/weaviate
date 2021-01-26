@@ -14,9 +14,9 @@ package hnsw
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 )
@@ -39,7 +39,7 @@ func Test_InValidConfig(t *testing.T) {
 				v.ID = ""
 				return v
 			},
-			expectedErr: fmt.Errorf("id cannot be empty"),
+			expectedErr: errors.Errorf("id cannot be empty"),
 		},
 		test{
 			config: func() Config {
@@ -47,23 +47,7 @@ func Test_InValidConfig(t *testing.T) {
 				v.RootPath = ""
 				return v
 			},
-			expectedErr: fmt.Errorf("rootPath cannot be empty"),
-		},
-		test{
-			config: func() Config {
-				v := validConfig()
-				v.MaximumConnections = 0
-				return v
-			},
-			expectedErr: fmt.Errorf("maximumConnections must be greater than 0"),
-		},
-		test{
-			config: func() Config {
-				v := validConfig()
-				v.EFConstruction = 0
-				return v
-			},
-			expectedErr: fmt.Errorf("efConstruction must be greater than 0"),
+			expectedErr: errors.Errorf("rootPath cannot be empty"),
 		},
 		test{
 			config: func() Config {
@@ -71,7 +55,7 @@ func Test_InValidConfig(t *testing.T) {
 				v.MakeCommitLoggerThunk = nil
 				return v
 			},
-			expectedErr: fmt.Errorf("makeCommitLoggerThunk cannot be nil"),
+			expectedErr: errors.Errorf("makeCommitLoggerThunk cannot be nil"),
 		},
 		test{
 			config: func() Config {
@@ -79,28 +63,25 @@ func Test_InValidConfig(t *testing.T) {
 				v.VectorForIDThunk = nil
 				return v
 			},
-			expectedErr: fmt.Errorf("vectorForIDThunk cannot be nil"),
+			expectedErr: errors.Errorf("vectorForIDThunk cannot be nil"),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.expectedErr.Error(), func(t *testing.T) {
 			err := test.config().Validate()
-			assert.Equal(t, test.expectedErr, err)
+			assert.Equal(t, test.expectedErr.Error(), err.Error())
 		})
 	}
 }
 
 func validConfig() Config {
 	return Config{
-		RootPath:                    "some path",
-		ID:                          "someid",
-		MakeCommitLoggerThunk:       func() (CommitLogger, error) { return nil, nil },
-		VectorForIDThunk:            func(context.Context, uint64) ([]float32, error) { return nil, nil },
-		EFConstruction:              17,
-		MaximumConnections:          50,
-		MaximumConnectionsLevelZero: 100,
-		DistanceProvider:            distancer.NewCosineProvider(),
+		RootPath:              "some path",
+		ID:                    "someid",
+		MakeCommitLoggerThunk: func() (CommitLogger, error) { return nil, nil },
+		VectorForIDThunk:      func(context.Context, uint64) ([]float32, error) { return nil, nil },
+		DistanceProvider:      distancer.NewCosineProvider(),
 	}
 }
 
@@ -143,6 +124,24 @@ func Test_UserConfig(t *testing.T) {
 				"maxConnections":         json.Number("12"),
 				"efConstruction":         json.Number("13"),
 				"vectorCacheMaxObjects":  json.Number("14"),
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+			},
+		},
+
+		test{
+			// this is the case when reading the json representation from disk, as
+			// opposed to from the API
+			name: "with raw data as floats",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,

@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -50,7 +51,8 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		Class: className,
+		Class:             className,
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 		Properties: []*models.Property{{
 			Name:     "unrelatedProp",
 			DataType: []string{string(schema.DataTypeString)},

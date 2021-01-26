@@ -17,13 +17,15 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 var productClass = &models.Class{
-	Class: "AggregationsTestProduct",
+	Class:             "AggregationsTestProduct",
+	VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 	Properties: []*models.Property{
-		&models.Property{
+		{
 			Name:     "name",
 			DataType: []string{"string"},
 		},
@@ -31,30 +33,31 @@ var productClass = &models.Class{
 }
 
 var companyClass = &models.Class{
-	Class: "AggregationsTestCompany",
+	Class:             "AggregationsTestCompany",
+	VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 	Properties: []*models.Property{
-		&models.Property{
+		{
 			Name:     "sector",
 			DataType: []string{"string"},
 		},
-		&models.Property{
+		{
 			Name:     "location",
 			DataType: []string{"text"},
 		},
-		&models.Property{
+		{
 			Name:     "dividendYield",
 			DataType: []string{"number"},
 		},
-		&models.Property{
+		{
 			Name:     "price",
 			DataType: []string{"int"}, // unrealistic for this to be an int, but
 			// we've already tested another number prop ;-)
 		},
-		&models.Property{
+		{
 			Name:     "listedInIndex",
 			DataType: []string{"boolean"},
 		},
-		&models.Property{
+		{
 			Name:     "makesProduct",
 			DataType: []string{"AggregationsTestProduct"},
 		},

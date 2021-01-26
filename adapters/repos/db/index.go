@@ -38,7 +38,7 @@ type Index struct {
 	classSearcher         inverted.ClassSearcher // to allow for nested by-references searches
 	Shards                map[string]*Shard
 	Config                IndexConfig
-	vectorIndexUserConfig interface{}
+	vectorIndexUserConfig schema.VectorIndexConfig
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 }
@@ -48,7 +48,7 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig, vectorIndexUserConfig interface{},
+func NewIndex(config IndexConfig, vectorIndexUserConfig schema.VectorIndexConfig,
 	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher,
 	logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{

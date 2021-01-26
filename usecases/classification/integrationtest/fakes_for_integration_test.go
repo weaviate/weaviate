@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -68,36 +69,39 @@ func testSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
-					Class: "ExactCategory",
+				{
+					Class:             "ExactCategory",
+					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 				},
-				&models.Class{
-					Class: "MainCategory",
+				{
+					Class:             "MainCategory",
+					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 				},
-				&models.Class{
-					Class: "Article",
+				{
+					Class:             "Article",
+					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "description",
 							DataType: []string{string(schema.DataTypeText)},
 						},
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "exactCategory",
 							DataType: []string{"ExactCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "mainCategory",
 							DataType: []string{"MainCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "categories",
 							DataType: []string{"ExactCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "anyCategory",
 							DataType: []string{"MainCategory", "ExactCategory"},
 						},

@@ -36,8 +36,14 @@ func testGetSchemaWithoutClient(t *testing.T) {
 			map[string]interface{}{
 				"class":           "YellowCars",
 				"properties":      (interface{})(nil),
-				"vectorIndexType": "hnsw",                   // from default
-				"vectorizer":      "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
+				"vectorIndexType": "hnsw", // from default
+				"vectorIndexConfig": map[string]interface{}{ // from default
+					"cleanupIntervalSeconds": float64(300),
+					"efConstruction":         float64(128),
+					"maxConnections":         float64(64),
+					"vectorCacheMaxObjects":  float64(500000),
+				},
+				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"vectorizeClassName": true,
