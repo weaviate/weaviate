@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TODO: gh-1305
 func TestDeleteJourney(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
@@ -224,7 +223,7 @@ func TestDeleteJourney(t *testing.T) {
 		index := repo.GetIndex("UpdateTestClass")
 		require.NotNil(t, index)
 
-		ticker := time.Tick(index.Shards["single"].cleanupInterval + 1)
+		ticker := time.Tick(index.Shards["single"].cleanupInterval + 1*time.Second)
 		<-ticker
 
 		deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())

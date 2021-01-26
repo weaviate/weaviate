@@ -247,9 +247,11 @@ func TestUpdateJourney(t *testing.T) {
 
 func updateTestClass() *models.Class {
 	return &models.Class{
-		Class:               "UpdateTestClass",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
+		Class:             "UpdateTestClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 3,
+		},
 		Properties: []*models.Property{
 			{
 				DataType: []string{string(schema.DataTypeInt)},
