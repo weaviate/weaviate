@@ -126,6 +126,8 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
+	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
+		"the default was set")
 }
 
 func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {

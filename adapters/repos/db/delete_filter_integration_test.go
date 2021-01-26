@@ -51,8 +51,9 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		Class:             className,
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		Class:               className,
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:     "unrelatedProp",
 			DataType: []string{string(schema.DataTypeString)},

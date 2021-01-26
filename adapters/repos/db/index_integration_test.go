@@ -59,7 +59,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -87,7 +87,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -102,7 +102,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 
 	index, err = NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, testClassName)
@@ -144,7 +144,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -198,7 +198,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	index, err = NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 
 	index.addProperty(context.TODO(), &models.Property{
@@ -248,4 +248,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	assert.Empty(t, afterRecreateObj2)
 	assert.NotNil(t, afterRecreateAndInsertObj1)
 	assert.NotNil(t, afterRecreateAndInsertObj2)
+}
+
+func invertedConfig() *models.InvertedIndexConfig {
+	return &models.InvertedIndexConfig{
+		CleanupIntervalSeconds: 60,
+	}
 }

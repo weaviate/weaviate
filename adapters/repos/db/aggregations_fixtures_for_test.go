@@ -22,8 +22,9 @@ import (
 )
 
 var productClass = &models.Class{
-	Class:             "AggregationsTestProduct",
-	VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+	Class:               "AggregationsTestProduct",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
 			Name:     "name",
@@ -33,8 +34,9 @@ var productClass = &models.Class{
 }
 
 var companyClass = &models.Class{
-	Class:             "AggregationsTestCompany",
-	VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+	Class:               "AggregationsTestCompany",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
 			Name:     "sector",

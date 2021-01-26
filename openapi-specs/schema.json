@@ -328,6 +328,17 @@
       },
       "type": "array"
     },
+    "InvertedIndexConfig": {
+      "description": "Configure the inverted index built into Weaviate",
+      "properties": {
+        "cleanupIntervalSeconds": {
+          "description": "Asynchronous index clean up happens every n seconds",
+          "format": "int",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
@@ -487,6 +498,9 @@
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
+        },
+        "invertedIndexConfig": {
+          "$ref": "#/definitions/InvertedIndexConfig"
         },
         "vectorizer": {
           "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",

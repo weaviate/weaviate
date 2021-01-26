@@ -43,8 +43,9 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		Class:             "ThingClassWithNoIndexProps",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		Class:               "ThingClassWithNoIndexProps",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:     "stringProp",
 			DataType: []string{string(schema.DataTypeString)},
