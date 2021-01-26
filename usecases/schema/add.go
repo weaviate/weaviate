@@ -131,8 +131,8 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class) error {
 	if class.VectorIndexType != "hnsw" {
 		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %s",
-			class.VectorIndexConfig)
+			"parse vector index config: unsupported vector index type: %q",
+			class.VectorIndexType)
 	}
 
 	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
