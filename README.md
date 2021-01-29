@@ -6,7 +6,7 @@
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://codecov.io/gh/semi-technologies/weaviate)
 [![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
 
-<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=3" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
 
 ## Description
 
