@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
@@ -45,30 +46,34 @@ func TestCRUD(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		Class: "TheBestThingClass",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "stringProp",
 				DataType: []string{string(schema.DataTypeString)},
 			},
-			&models.Property{
+			{
 				Name:     "location",
 				DataType: []string{string(schema.DataTypeGeoCoordinates)},
 			},
-			&models.Property{
+			{
 				Name:     "phone",
 				DataType: []string{string(schema.DataTypePhoneNumber)},
 			},
 		},
 	}
 	actionclass := &models.Class{
-		Class: "TheBestActionClass",
+		Class:               "TheBestActionClass",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "stringProp",
 				DataType: []string{string(schema.DataTypeString)},
 			},
-			&models.Property{
+			{
 				Name:     "refProp",
 				DataType: []string{"TheBestThingClass"},
 			},

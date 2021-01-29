@@ -100,10 +100,11 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    dump.ID,
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		MaximumConnections:    30,
-		EFConstruction:        128,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      vecForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
 	})
 	if err != nil {
 		return nil, err

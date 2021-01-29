@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -53,23 +54,27 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	schema := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
-					Class: "AddingBatchReferencesTestTarget",
+				{
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					Class:               "AddingBatchReferencesTestTarget",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
 					},
 				},
-				&models.Class{
-					Class: "AddingBatchReferencesTestSource",
+				{
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					Class:               "AddingBatchReferencesTestSource",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
-						&models.Property{
+						{
 							Name:     "toTarget",
 							DataType: []string{"AddingBatchReferencesTestTarget"},
 						},

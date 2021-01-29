@@ -12,28 +12,27 @@
 package hnsw
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 )
 
-// Config for a new HSNW index
+// Config for a new HSNW index, this contains information that is derived
+// internally, e.g. by the shard. All User-settable config is specified in
+// Config.UserConfig
 type Config struct {
+	// internal
 	RootPath              string
 	ID                    string
 	MakeCommitLoggerThunk MakeCommitLogger
-	MaximumConnections    int
-	EFConstruction        int
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
-
-	// Optional, no period clean up will be scheduled if interval is not set
-	TombstoneCleanupInterval time.Duration
 }
 
 func (c Config) Validate() error {
@@ -45,14 +44,6 @@ func (c Config) Validate() error {
 
 	if c.RootPath == "" {
 		ec.addf("rootPath cannot be empty")
-	}
-
-	if c.MaximumConnections <= 0 {
-		ec.addf("maximumConnections must be greater than 0")
-	}
-
-	if c.EFConstruction <= 0 {
-		ec.addf("efConstruction must be greater than 0")
 	}
 
 	if c.MakeCommitLoggerThunk == nil {
@@ -99,4 +90,107 @@ func (ec *errorCompounder) toError() error {
 	}
 
 	return errors.New(msg.String())
+}
+
+const (
+	DefaultCleanupIntervalSeconds = 5 * 60
+	DefaultMaxConnections         = 64
+	DefaultEFConstruction         = 128
+	DefaultVectorCacheMaxObjects  = 500000
+)
+
+// UserConfig bundles all values settable by a user in the per-class settings
+type UserConfig struct {
+	CleanupIntervalSeconds int `json:"cleanupIntervalSeconds"`
+	MaxConnections         int `json:"maxConnections"`
+	EFConstruction         int `json:"efConstruction"`
+	VectorCacheMaxObjects  int `json:"vectorCacheMaxObjects"`
+}
+
+// IndexType returns the type of the underlying vector index, thus making sure
+// the schema.VectorIndexConfig interface is implemented
+func (u UserConfig) IndexType() string {
+	return "hnsw"
+}
+
+// SetDefaults in the user-specifyable part of the config
+func (c *UserConfig) SetDefaults() {
+	c.MaxConnections = DefaultMaxConnections
+	c.EFConstruction = DefaultEFConstruction
+	c.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
+	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
+}
+
+// ParseUserConfig from an unknown input value, as this is not further
+// specified in the API to allow of exchanging the index type
+func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
+	uc := UserConfig{}
+	uc.SetDefaults()
+
+	if input == nil {
+		return uc, nil
+	}
+
+	asMap, ok := input.(map[string]interface{})
+	if !ok || asMap == nil {
+		return uc, fmt.Errorf("input must be a non-nil map")
+	}
+
+	if err := optionalIntFromMap(asMap, "maxConnections", func(v int) {
+		uc.MaxConnections = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "cleanupIntervalSeconds", func(v int) {
+		uc.CleanupIntervalSeconds = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "efConstruction", func(v int) {
+		uc.EFConstruction = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "vectorCacheMaxObjects", func(v int) {
+		uc.VectorCacheMaxObjects = v
+	}); err != nil {
+		return uc, err
+	}
+
+	return uc, nil
+}
+
+func optionalIntFromMap(in map[string]interface{}, name string,
+	setFn func(v int)) error {
+	value, ok := in[name]
+	if !ok {
+		return nil
+	}
+
+	var asInt64 int64
+	var err error
+
+	// depending on whether we get the results from disk or from the REST API,
+	// numbers may be represented slightly differently
+	switch typed := value.(type) {
+	case json.Number:
+		asInt64, err = typed.Int64()
+	case float64:
+		asInt64 = int64(typed)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "%s", name)
+	}
+
+	setFn(int(asInt64))
+	return nil
+}
+
+func NewDefaultUserConfig() UserConfig {
+	uc := UserConfig{}
+	uc.SetDefaults()
+	return uc
 }

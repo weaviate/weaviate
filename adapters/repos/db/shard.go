@@ -56,8 +56,15 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
-		cleanupInterval:  60 * time.Second,
-		cleanupCancel:    make(chan struct{}),
+		cleanupInterval: time.Duration(index.invertedIndexConfig.
+			CleanupIntervalSeconds) * time.Second,
+		cleanupCancel: make(chan struct{}),
+	}
+
+	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	if !ok {
+		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+			index.vectorIndexUserConfig)
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
@@ -68,12 +75,9 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
 				index.logger)
 		},
-		MaximumConnections:       60,
-		EFConstruction:           128,
-		VectorForIDThunk:         s.vectorByIndexID,
-		TombstoneCleanupInterval: 5 * time.Minute,
-		DistanceProvider:         distancer.NewCosineProvider(),
-	})
+		VectorForIDThunk: s.vectorByIndexID,
+		DistanceProvider: distancer.NewCosineProvider(),
+	}, hnswUserConfig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}

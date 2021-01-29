@@ -59,10 +59,12 @@ func NewIndex(config Config) (*Index, error) {
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
-		EFConstruction:        128,
-		MaximumConnections:    64,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
 		DistanceProvider:      distancer.NewGeoProvider(),
+	}, hnsw.UserConfig{
+		MaxConnections:         64,
+		EFConstruction:         128,
+		CleanupIntervalSeconds: hnsw.DefaultCleanupIntervalSeconds,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
