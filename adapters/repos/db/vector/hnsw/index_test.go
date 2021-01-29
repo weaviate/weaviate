@@ -29,10 +29,11 @@ func TestHnswIndex(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "unittest",
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 

@@ -27,6 +27,9 @@ import (
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 
+// DefaultCleanupIntervalSeconds can be overwritten on a per-class basis
+const DefaultCleanupIntervalSeconds = int64(60)
+
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`

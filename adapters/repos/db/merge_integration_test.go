@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -53,42 +54,46 @@ func Test_MergingObjects(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
-					Class: "MergeTestTarget",
+					Class:               "MergeTestTarget",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
 					},
 				},
 				&models.Class{
-					Class: "MergeTestSource",
+					Class:               "MergeTestSource",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
-						&models.Property{
+						{
 							Name:     "string",
 							DataType: []string{"string"},
 						},
-						&models.Property{
+						{
 							Name:     "text",
 							DataType: []string{"text"},
 						},
-						&models.Property{
+						{
 							Name:     "number",
 							DataType: []string{"number"},
 						},
-						&models.Property{
+						{
 							Name:     "int",
 							DataType: []string{"int"},
 						},
-						&models.Property{
+						{
 							Name:     "date",
 							DataType: []string{"date"},
 						},
-						&models.Property{
+						{
 							Name:     "geo",
 							DataType: []string{"geoCoordinates"},
 						},
-						&models.Property{
+						{
 							Name:     "toTarget",
 							DataType: []string{"MergeTestTarget"},
 						},

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -44,62 +45,72 @@ func TestNestedReferences(t *testing.T) {
 	refSchema := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
-					Class: "Planet",
+				{
+					Class:               "Planet",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
 					},
 				},
-				&models.Class{
-					Class: "Continent",
+				{
+					Class:               "Continent",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "onPlanet",
 							DataType: []string{"Planet"},
 						},
 					},
 				},
-				&models.Class{
-					Class: "Country",
+				{
+					Class:               "Country",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "onContinent",
 							DataType: []string{"Continent"},
 						},
 					},
 				},
-				&models.Class{
-					Class: "City",
+				{
+					Class:               "City",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "inCountry",
 							DataType: []string{"Country"},
 						},
 					},
 				},
-				&models.Class{
-					Class: "Place",
+				{
+					Class:               "Place",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "inCity",
 							DataType: []string{"City"},
 						},
@@ -416,23 +427,27 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	schema := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
-					Class: "AddingReferencesTestTarget",
+				{
+					Class:               "AddingReferencesTestTarget",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
 					},
 				},
-				&models.Class{
-					Class: "AddingReferencesTestSource",
+				{
+					Class:               "AddingReferencesTestSource",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
-						&models.Property{
+						{
 							Name:     "toTarget",
 							DataType: []string{"AddingReferencesTestTarget"},
 						},

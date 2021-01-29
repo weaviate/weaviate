@@ -31,11 +31,12 @@ type vectorCache struct {
 	sync.RWMutex
 }
 
-func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache {
+func newCache(getFromSource VectorForID, maxSize int,
+	logger logrus.FieldLogger) *vectorCache {
 	vc := &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
-		maxSize:       500000, // TODO: make configurable
+		maxSize:       maxSize,
 		getFromSource: getFromSource,
 		cancel:        make(chan bool),
 		logger:        logger,

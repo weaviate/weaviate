@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -131,7 +132,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Contextionary,
-		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config)
+		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config,
+		hnsw.ParseUserConfig)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).

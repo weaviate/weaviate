@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -499,33 +500,35 @@ func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 // test data
 var carClass = &models.Class{
-	Class: "FilterTestCar",
+	Class:               "FilterTestCar",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeString)},
 			Name:     "modelName",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeString)},
 			Name:     "contact",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeText)},
 			Name:     "description",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeInt)},
 			Name:     "horsepower",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeNumber)},
 			Name:     "weight",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeGeoCoordinates)},
 			Name:     "parkedAt",
 		},
-		&models.Property{
+		{
 			DataType: []string{string(schema.DataTypeDate)},
 			Name:     "released",
 		},
@@ -621,7 +624,9 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
-			Class: "GeoUpdateTestClass",
+			Class:               "GeoUpdateTestClass",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "location",
@@ -727,7 +732,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	class := &models.Class{
-		Class: "FilterCasingBug",
+		Class:               "FilterCasingBug",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
 				Name:     "name",
