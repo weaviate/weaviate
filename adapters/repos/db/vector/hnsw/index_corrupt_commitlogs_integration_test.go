@@ -59,16 +59,17 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
 				return original, nil
 			},
-			TombstoneCleanupInterval: 0,
-			ID:                       "corrupt_test",
-			RootPath:                 rootPath,
-			DistanceProvider:         distancer.NewCosineProvider(),
-			EFConstruction:           100,
-			Logger:                   logger,
-			MaximumConnections:       100,
+			ID:               "corrupt_test",
+			RootPath:         rootPath,
+			DistanceProvider: distancer.NewCosineProvider(),
+			Logger:           logger,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections:         100,
+			EFConstruction:         100,
+			CleanupIntervalSeconds: 0,
 		})
 		require.Nil(t, err)
 		index = idx
@@ -106,17 +107,18 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 
 	t.Run("create a new one from the disk files", func(t *testing.T) {
 		idx, err := New(Config{
-			MakeCommitLoggerThunk:    MakeNoopCommitLogger, // no longer need a real one
-			TombstoneCleanupInterval: 0,
-			ID:                       "corrupt_test",
-			RootPath:                 rootPath,
-			DistanceProvider:         distancer.NewCosineProvider(),
-			EFConstruction:           100,
-			Logger:                   logger,
-			MaximumConnections:       100,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
+			ID:                    "corrupt_test",
+			RootPath:              rootPath,
+			DistanceProvider:      distancer.NewCosineProvider(),
+			Logger:                logger,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+		}, UserConfig{
+			MaxConnections:         100,
+			EFConstruction:         100,
+			CleanupIntervalSeconds: 0,
 		})
 		require.Nil(t, err)
 		index = idx

@@ -15,7 +15,9 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // On init we get the current schema and create one index object per class.
@@ -29,10 +31,24 @@ func (d *DB) init() error {
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
+
+			invertedConfig := class.InvertedIndexConfig
+			if invertedConfig == nil {
+				// for backward compatibility, this field was introduced in v1.0.4,
+				// prior schemas will not yet have the field. Init with the defaults
+				// which were previously hard-coded.
+				// In this method we are essentially reading the schema from disk, so
+				// it could have been created before v1.0.4
+				invertedConfig = &models.InvertedIndexConfig{
+					CleanupIntervalSeconds: config.DefaultCleanupIntervalSeconds,
+				}
+			}
+
 			idx, err := NewIndex(IndexConfig{
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, d.schemaGetter, d, d.logger)
+			}, invertedConfig, class.VectorIndexConfig.(schema.VectorIndexConfig),
+				d.schemaGetter, d, d.logger)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

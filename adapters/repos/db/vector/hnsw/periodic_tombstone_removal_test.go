@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"testing"
-	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
@@ -23,14 +22,15 @@ import (
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	index, err := New(Config{
-		RootPath:                 "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                       "automatic-tombstone-removal",
-		MakeCommitLoggerThunk:    MakeNoopCommitLogger,
-		MaximumConnections:       30,
-		EFConstruction:           60,
-		DistanceProvider:         distancer.NewCosineProvider(),
-		VectorForIDThunk:         testVectorForID,
-		TombstoneCleanupInterval: 100 * time.Millisecond,
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "automatic-tombstone-removal",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		CleanupIntervalSeconds: 1,
+		MaxConnections:         30,
+		EFConstruction:         128,
 	})
 	require.Nil(t, err)
 

@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // AddObject Class to the schema
@@ -44,6 +46,11 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	err = m.parseVectorIndexConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 	err = m.saveSchema(ctx)
@@ -62,6 +69,14 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.VectorIndexType == "" {
 		class.VectorIndexType = "hnsw"
+	}
+
+	if class.InvertedIndexConfig == nil {
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+	}
+
+	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
+		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
 	}
 }
 
@@ -118,6 +133,24 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	}
 
 	// all is fine!
+	return nil
+}
+
+func (m *Manager) parseVectorIndexConfig(ctx context.Context,
+	class *models.Class) error {
+	if class.VectorIndexType != "hnsw" {
+		return errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
+			class.VectorIndexType)
+	}
+
+	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+	if err != nil {
+		return errors.Wrap(err, "parse vector index config")
+	}
+
+	class.VectorIndexConfig = parsed
+
 	return nil
 }
 

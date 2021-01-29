@@ -45,10 +45,11 @@ func TestHnswPersistence(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -72,7 +73,6 @@ func TestHnswPersistence(t *testing.T) {
 	})
 
 	// destroy the index
-	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -80,10 +80,11 @@ func TestHnswPersistence(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -115,10 +116,11 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -151,7 +153,6 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	dumpIndex(index, "without_cleanup_original_index_before_storage")
 
 	// destroy the index
-	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -159,10 +160,11 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -194,10 +196,11 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -235,7 +238,6 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	})
 
 	// destroy the index
-	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -243,10 +245,11 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 	// dumpIndex(secondIndex, "with cleanup second index")
@@ -276,17 +279,17 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// dumpIndex(secondIndex)
 
-	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	secondIndex = nil
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
@@ -312,17 +315,17 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		MaximumConnections:    30,
-		EFConstruction:        60,
 		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
 	})
 	require.Nil(t, err)
 
