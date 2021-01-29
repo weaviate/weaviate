@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
@@ -67,7 +68,8 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -221,7 +223,8 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -419,7 +422,8 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
-	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(),
+		&fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)

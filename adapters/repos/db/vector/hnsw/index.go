@@ -17,6 +17,7 @@ import (
 	"io/ioutil"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -87,6 +88,8 @@ type hnsw struct {
 
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
+
+	cleanupInterval time.Duration
 }
 
 type CommitLogger interface {
@@ -118,7 +121,7 @@ type VectorForID func(ctx context.Context, id uint64) ([]float32, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config) (*hnsw, error) {
+func New(cfg Config, uc UserConfig) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -129,16 +132,17 @@ func New(cfg Config) (*hnsw, error) {
 		cfg.Logger = logger
 	}
 
-	vectorCache := newCache(cfg.VectorForIDThunk, cfg.Logger)
+	vectorCache := newCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+		cfg.Logger)
 	index := &hnsw{
-		maximumConnections: cfg.MaximumConnections,
+		maximumConnections: uc.MaxConnections,
 
 		// inspired by original paper and other implementations
-		maximumConnectionsLayerZero: 2 * cfg.MaximumConnections,
+		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:   1 / math.Log(float64(cfg.MaximumConnections)),
-		efConstruction:    cfg.EFConstruction,
+		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:    uc.EFConstruction,
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
@@ -151,6 +155,7 @@ func New(cfg Config) (*hnsw, error) {
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		initialInsertOnce: &sync.Once{},
+		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 	}
 
 	if err := index.init(cfg); err != nil {

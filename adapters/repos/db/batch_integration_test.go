@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -63,13 +64,15 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
 	return func(t *testing.T) {
 		class := &models.Class{
-			Class: "ThingForBatching",
+			Class:               "ThingForBatching",
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "stringProp",
 					DataType: []string{string(schema.DataTypeString)},
 				},
-				&models.Property{
+				{
 					Name:     "location",
 					DataType: []string{string(schema.DataTypeGeoCoordinates)},
 				},

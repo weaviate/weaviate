@@ -26,10 +26,16 @@ type Migrator struct {
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
-	idx, err := NewIndex(IndexConfig{
-		ClassName: schema.ClassName(class.Class),
-		RootPath:  m.db.config.RootPath,
-	}, m.db.schemaGetter, m.db, m.logger)
+	idx, err := NewIndex(
+		IndexConfig{
+			ClassName: schema.ClassName(class.Class),
+			RootPath:  m.db.config.RootPath,
+		},
+		// no backward-compatibility check required, since newly added classes will
+		// always have the field set
+		class.InvertedIndexConfig,
+		class.VectorIndexConfig.(schema.VectorIndexConfig),
+		m.db.schemaGetter, m.db, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
