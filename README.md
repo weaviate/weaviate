@@ -12,7 +12,7 @@
 
 Weaviate is a cloud-native, real-time vector search engine (aka _neural search engine_ or _deep search engine_) that allows you to bring your machine learning models to scale. There are extensions for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice, and a console to visualize your data.
 
-_GraphQL - RESTful - vector search engine - neural search engine - semantic search - HNSW - deep search - machine learning - kNN_
+_GraphQL - RESTful - vector search engine - vector database - neural search engine - semantic search - HNSW - deep search - machine learning - kNN_
 
 ## Documentation
 
@@ -41,6 +41,103 @@ You can find detailed documentation in the [developers section of our website](h
   - [RESTful API references](https://semi.technology/developers/weaviate/current/restful-api-references/)
   - [GraphQL references](https://semi.technology/developers/weaviate/current/graphql-references/)
   - [More resources](https://semi.technology/developers/weaviate/current/more-resources/)
+
+## Examples
+
+You can find [more examples here](https://github.com/semi-technologies/weaviate-examples)
+
+### Unmask Superheroes in 5 steps using the NLP module
+
+A simple example in Python (you can also use other [client libs](https://www.semi.technology/developers/weaviate/current/client-libraries/)) showing how Weaviate can help you unmask superheroes thanks to its vector search capabilities 🦸
+
+1. Connect to a Weaviate
+
+```python
+import weaviate
+client = weaviate.Client("http://localhost:8080")
+```
+
+2. Add a class to the schema
+
+```python
+classObj = {
+    "class": "Superhero",
+    "description": "A class describing a super hero",
+    "properties": [
+        {
+            "name": "name",
+            "dataType": [
+                "string"
+            ],
+            "description": "Name of the super hero"
+        }
+    ],
+    "vectorizer": "text2vec-contextionary" # Tell Weaviate to vectorize the content
+}
+client.schema.create_class(classObj) # returns None if successful
+```
+
+Step 3. Add the superheroes with a batch request
+
+```python
+
+batman = {
+    "name": "Batman"
+}
+superman = {
+    "name": "Superman"
+}
+batch = weaviate.ObjectsBatchRequest()
+batch.add(batman, "Superhero")
+batch.add(superman, "Superhero")
+client.batch.create(batch)
+```
+
+Step 4. Try to find superheroes in the vectorspace
+
+```python
+def findAlterego(alterEgo):
+    whoIsIt = client.query.get(
+        "Superhero",
+        ["name", "_additional {certainty, id } "]
+    ).with_near_text({
+        "concepts": [alterEgo] # query that gets vectorized 🪄
+    }).do()
+
+    print(
+        alterEgo, "is", whoIsIt['data']['Get']['Superhero'][0]['name'],
+        "with a certainy of", whoIsIt['data']['Get']['Superhero'][0]['_additional']['certainty']
+    )
+
+findAlterego("Clark Kent")  # prints something like: Clark Kent is Superman with a certainy of 0.6026741
+findAlterego("Bruce Wayne") # prints something like: Bruce Wayne is Batman with a certainy of 0.6895526
+```
+
+Step 5. See how the superheroes are represented in the vectorspace
+
+```python
+def showVectorForAlterego(alterEgo):
+    whoIsIt = client.query.get(
+        "Superhero",
+        ["_additional {id} "]
+    ).with_near_text({
+        "concepts": [alterEgo] # query that gets vectorized 🪄
+    }).do()
+
+    getVector = client.data_object.get_by_id(
+        whoIsIt['data']['Get']['Superhero'][0]['_additional']['id'],
+        additional_properties=["vector"]
+    )
+
+    print(
+        "The vector for",
+        alterEgo,
+        "is",
+        getVector['vector']
+    )
+
+showVectorForAlterego("Clark Kent") # prints something like: The vector for Clark Kent is [-0.05484624, 0.08283167, -0.3002325, ...etc...
+```
 
 ## Support
 
