@@ -81,7 +81,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "add docID->UUID index")
 	}
 
-	if err := s.updateInvertedIndex(tx, nextObj, status, previous); err != nil {
+	if err := s.updateInvertedIndex(tx, nextObj, status.docID); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
@@ -136,7 +136,7 @@ func (s *Shard) mutableMergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "add docID->UUID index")
 	}
 
-	if err := s.updateInvertedIndex(tx, nextObj, status, previous); err != nil {
+	if err := s.updateInvertedIndex(tx, nextObj, status.docID); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
