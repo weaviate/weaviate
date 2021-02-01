@@ -51,7 +51,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
-	schema := schema.Schema{
+	s := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -85,14 +85,14 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Objects.Classes {
+		for _, class := range s.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
 				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
 	})
-	schemaGetter.schema = schema
+	schemaGetter.schema = s
 
 	target1 := strfmt.UUID("7b395e5c-cf4d-4297-b8cc-1d849a057de3")
 	target2 := strfmt.UUID("8f9f54f3-a7db-415e-881a-0e6fb79a7ec7")
@@ -124,6 +124,37 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		}
 	})
 
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		t.Run("count==0 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count>0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, gt, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+	})
+
 	t.Run("add reference between them - first batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
 			"weaviate://localhost/AddingBatchReferencesTestSource/%s/toTarget",
@@ -144,6 +175,38 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		}
 		_, err = repo.AddBatchReferences(context.Background(), refs)
 		assert.Nil(t, err)
+	})
+
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		// so far we have imported two refs (!)
+		t.Run("count==2 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count==0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
 	})
 
 	t.Run("add reference between them - second batch", func(t *testing.T) {

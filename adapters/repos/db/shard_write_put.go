@@ -190,8 +190,6 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 // async batches
 func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	docID uint64) error {
-	// if this is a new object, we simply have to add those. If this is an update
-	// (see below), we have to calculate the delta and then only add the new ones
 	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
