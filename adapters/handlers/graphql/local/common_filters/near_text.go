@@ -11,7 +11,9 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/usecases/traverser"
+import (
+	"github.com/semi-technologies/weaviate/usecases/traverser"
+)
 
 // TODO: This is specific to the text2vec-contextionary module and should be
 // provided from there
@@ -74,6 +76,22 @@ func extractMovement(input interface{}) traverser.ExploreMove {
 	res.Values = make([]string, len(keywords))
 	for i, value := range keywords {
 		res.Values[i] = value.(string)
+	}
+
+	objects, ok := moveToMap["objects"].([]interface{})
+	if ok {
+		res.Objects = make([]traverser.ObjectMove, len(objects))
+		for i, value := range objects {
+			v, ok := value.(map[string]interface{})
+			if ok {
+				if v["id"] != nil {
+					res.Objects[i].ID = v["id"].(string)
+				}
+				if v["beacon"] != nil {
+					res.Objects[i].Beacon = v["beacon"].(string)
+				}
+			}
+		}
 	}
 
 	return res

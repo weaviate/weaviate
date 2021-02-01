@@ -97,6 +97,12 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
+func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props SelectProperties, additional AdditionalProperties) (*search.Result, error) {
+	args := f.Called(id)
+	return args.Get(0).(*search.Result), args.Error(1)
+}
+
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {

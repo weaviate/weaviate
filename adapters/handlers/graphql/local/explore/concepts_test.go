@@ -264,6 +264,205 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			}},
 		},
+
+		testCase{
+			name: "with moveTo and objects set",
+			query: `
+			{
+					Explore(
+							limit: 17
+							nearText: {
+								concepts: ["car", "best brand"]
+								moveTo: {
+									concepts: ["mercedes"]
+									force: 0.7
+									objects: [
+										{id: "moveto-uuid"},
+										{beacon: "weaviate://localhost/other-moveto-uuid"},
+									]
+								}
+							}
+							) {
+							beacon className
+						}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				Limit: 17,
+				NearText: &traverser.NearTextParams{
+					Values: []string{"car", "best brand"},
+					MoveTo: traverser.ExploreMove{
+						Values: []string{"mercedes"},
+						Force:  0.7,
+						Objects: []traverser.ObjectMove{
+							{ID: "moveto-uuid"},
+							{Beacon: "weaviate://localhost/other-moveto-uuid"},
+						},
+					},
+				},
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with moveTo and moveAwayFrom and objects set",
+			query: `
+			{
+					Explore(
+							limit: 17
+							nearText: {
+								concepts: ["car", "best brand"]
+								moveTo: {
+									concepts: ["mercedes"]
+									force: 0.7
+									objects: [
+										{id: "moveto-uuid1"},
+										{beacon: "weaviate://localhost/moveto-uuid2"},
+									]
+								}
+								moveAwayFrom: {
+									concepts: ["van"]
+									force: 0.7
+									objects: [
+										{id: "moveAway-uuid1"},
+										{beacon: "weaviate://localhost/moveAway-uuid2"},
+										{id: "moveAway-uuid3"},
+										{id: "moveAway-uuid4"},
+									]
+								}
+							}
+							) {
+							beacon className
+						}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				Limit: 17,
+				NearText: &traverser.NearTextParams{
+					Values: []string{"car", "best brand"},
+					MoveTo: traverser.ExploreMove{
+						Values: []string{"mercedes"},
+						Force:  0.7,
+						Objects: []traverser.ObjectMove{
+							{ID: "moveto-uuid1"},
+							{Beacon: "weaviate://localhost/moveto-uuid2"},
+						},
+					},
+					MoveAwayFrom: traverser.ExploreMove{
+						Values: []string{"van"},
+						Force:  0.7,
+						Objects: []traverser.ObjectMove{
+							{ID: "moveAway-uuid1"},
+							{Beacon: "weaviate://localhost/moveAway-uuid2"},
+							{ID: "moveAway-uuid3"},
+							{ID: "moveAway-uuid4"},
+						},
+					},
+				},
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "Resolve Explore with nearObject and beacon set",
+			query: `
+			{
+				Explore(
+					nearObject: {
+						beacon: "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d"
+						certainty: 0.7
+					}) {
+						beacon className certainty
+					}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearObject: &traverser.NearObjectParams{
+					Beacon:    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
+					Certainty: 0.7,
+				},
+			},
+			resolverReturn: []search.Result{
+				{
+					Beacon:    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
+					ClassName: "bestClass",
+					Certainty: 0.7,
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
+						"className": "bestClass",
+						"certainty": float32(0.7),
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "Resolve Explore with nearObject and id set",
+			query: `
+			{
+					Explore(
+							limit: 17
+							nearObject: {
+								id: "27b5213d-e152-4fea-bd63-2063d529024d"
+								certainty: 0.7
+							}
+							) {
+							beacon className
+						}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				Limit: 17,
+				NearObject: &traverser.NearObjectParams{
+					ID:        "27b5213d-e152-4fea-bd63-2063d529024d",
+					Certainty: 0.7,
+				},
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
 	}
 
 	tests.AssertExtraction(t)
