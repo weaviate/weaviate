@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -101,6 +102,8 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 		affectedIndices = append(affectedIndices, batchId+i)
 	}
 
+	invertedMerger := inverted.NewDeltaMerger()
+
 	for _, ref := range batch {
 		uuidParsed, err := uuid.Parse(ref.From.TargetID.String())
 		if err != nil {
@@ -121,17 +124,20 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 		// generally the batch ref is an append only change which does not alter
 		// the vector position. There is however one inverted index link that needs
 		// to be cleanup: the ref count
-		if err := b.updateInverted(tx, res, ref); err != nil {
+		if err := b.updateInverted(tx, invertedMerger, res, ref); err != nil {
 			return nil, errors.Wrap(err, "determine ref count cleanup")
 		}
 	}
+
+	spew.Dump(invertedMerger.Merge())
 
 	return affectedIndices, nil
 }
 
 // TODO: batch instead of doing those one by one
 func (b *referencesBatcher) updateInverted(tx *bolt.Tx,
-	mergeResult mutableMergeResult, ref objects.BatchReference) error {
+	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
+	ref objects.BatchReference) error {
 	prevProps, err := b.analyzeRefCount(mergeResult.previous, ref)
 	if err != nil {
 		return err
@@ -143,6 +149,8 @@ func (b *referencesBatcher) updateInverted(tx *bolt.Tx,
 	}
 
 	delta := inverted.Delta(prevProps, nextProps)
+	invertedMerger.AddAdditions(delta.ToAdd, mergeResult.status.docID)
+	invertedMerger.AddDeletions(delta.ToDelete, mergeResult.status.docID)
 
 	before := time.Now()
 	err = b.shard.extendInvertedIndices(tx, delta.ToAdd, mergeResult.status.docID)
