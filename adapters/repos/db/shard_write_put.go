@@ -101,7 +101,7 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	s.metrics.PutObjectUpdateDocID(before)
 
 	before = time.Now()
-	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
+	if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
 		return status, errors.Wrap(err, "update inverted indices")
 	}
 	s.metrics.PutObjectUpdateInverted(before)
@@ -188,9 +188,8 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 // of the caller to make sure that doc IDs are treated as immutable and any
 // outdated doc IDs have been marked as deleted, so they can be cleaned up in
 // async batches
-// TODO: remove previous, change status to doc id
 func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
-	status objectInsertStatus, previous []byte) error {
+	docID uint64) error {
 	// if this is a new object, we simply have to add those. If this is an update
 	// (see below), we have to calculate the delta and then only add the new ones
 	props, err := s.analyzeObject(object)
@@ -199,7 +198,7 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	}
 
 	before := time.Now()
-	err = s.extendInvertedIndices(tx, props, status.docID)
+	err = s.extendInvertedIndices(tx, props, docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
