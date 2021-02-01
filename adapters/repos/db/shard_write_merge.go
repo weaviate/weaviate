@@ -57,7 +57,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
 
-	nextObj, err := s.mergeObjectData(previous, merge)
+	nextObj, _, err := s.mergeObjectData(previous, merge)
 	if err != nil {
 		return nil, objectInsertStatus{}, errors.Wrap(err, "merge object data")
 	}
@@ -108,46 +108,57 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 // this alters neither the vector position, nor does it remove anything from
 // the inverted index
 func (s *Shard) mutableMergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
-	idBytes []byte) (*storobj.Object, objectInsertStatus, error) {
+	idBytes []byte) (mutableMergeResult, error) {
 	bucket := tx.Bucket(helpers.ObjectsBucket)
+	out := mutableMergeResult{}
+
 	previous := bucket.Get([]byte(idBytes))
 
-	nextObj, err := s.mergeObjectData(previous, merge)
+	nextObj, previousObj, err := s.mergeObjectData(previous, merge)
 	if err != nil {
-		return nil, objectInsertStatus{}, errors.Wrap(err, "merge object data")
+		return out, errors.Wrap(err, "merge object data")
 	}
+
+	out.next = nextObj
+	out.previous = previousObj
 
 	status, err := s.determineMutableInsertStatus(previous, nextObj)
 	if err != nil {
-		return nil, status, errors.Wrap(err, "check insert/update status")
+		return out, errors.Wrap(err, "check insert/update status")
 	}
+	out.status = status
 
 	nextObj.SetDocID(status.docID) // is not changed
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
-		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
+		return out, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
 	if err := s.upsertObjectData(bucket, idBytes, nextBytes); err != nil {
-		return nil, status, errors.Wrap(err, "upsert object data")
+		return out, errors.Wrap(err, "upsert object data")
 	}
 
 	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-		return nil, status, errors.Wrap(err, "add docID->UUID index")
+		return out, errors.Wrap(err, "add docID->UUID index")
 	}
 
-	if err := s.updateInvertedIndex(tx, nextObj, status.docID); err != nil {
-		return nil, status, errors.Wrap(err, "udpate inverted indices")
-	}
+	// do not updated inverted index, since this requires delta analysis, which
+	// must be done by the caller!
 
-	return nextObj, status, nil
+	return out, nil
+}
+
+type mutableMergeResult struct {
+	next     *storobj.Object
+	previous *storobj.Object
+	status   objectInsertStatus
 }
 
 func (s *Shard) mergeObjectData(previous []byte,
-	merge objects.MergeDocument) (*storobj.Object, error) {
+	merge objects.MergeDocument) (*storobj.Object, *storobj.Object, error) {
 	var previousObj *storobj.Object
 	if len(previous) == 0 {
-		// DocID must be overwrite after status check, simply set to initial
+		// DocID must be overwriten after status check, simply set to initial
 		// value
 		previousObj = storobj.New(0)
 		previousObj.SetClass(merge.Class)
@@ -155,18 +166,18 @@ func (s *Shard) mergeObjectData(previous []byte,
 	} else {
 		p, err := storobj.FromBinary(previous)
 		if err != nil {
-			return nil, errors.Wrap(err, "unmarshal previous")
+			return nil, nil, errors.Wrap(err, "unmarshal previous")
 		}
 
 		previousObj = p
 	}
 
-	return mergeProps(previousObj, merge), nil
+	return mergeProps(previousObj, merge), previousObj, nil
 }
 
 func mergeProps(previous *storobj.Object,
 	merge objects.MergeDocument) *storobj.Object {
-	next := *previous
+	next := previous.DeepCopyDangerous()
 	properties, ok := next.Properties().(map[string]interface{})
 	if !ok || properties == nil {
 		properties = map[string]interface{}{}
@@ -196,5 +207,5 @@ func mergeProps(previous *storobj.Object,
 
 	next.SetProperties(properties)
 
-	return &next
+	return next
 }
