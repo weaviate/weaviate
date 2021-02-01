@@ -46,12 +46,24 @@ type NearTextParams struct {
 
 // ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
 type ExploreMove struct {
-	Values []string
-	Force  float32
+	Values  []string
+	Force   float32
+	Objects []ObjectMove
+}
+
+type ObjectMove struct {
+	ID     string
+	Beacon string
 }
 
 type NearVectorParams struct {
 	Vector    []float32
+	Certainty float64
+}
+
+type NearObjectParams struct {
+	ID        string
+	Beacon    string
 	Certainty float64
 }
 
@@ -60,5 +72,6 @@ type NearVectorParams struct {
 type ExploreParams struct {
 	NearText   *NearTextParams
 	NearVector *NearVectorParams
+	NearObject *NearObjectParams
 	Limit      int
 }
