@@ -196,6 +196,11 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// never had to interact with the vector index. Now that they're
 			// immutable, the udpated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
+			// UPDATE gh-1334: Since batch refs are now a special case where we
+			// tolerate a re-use of the doc id, the above assumption is no longer
+			// correct. However, this test still adds value, since we were now able
+			// to remove the the additional storage updates. By still including this
+			// test we verify that such an update is indeed no longer necessary
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},

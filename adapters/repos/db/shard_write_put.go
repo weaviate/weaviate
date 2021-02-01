@@ -151,6 +151,33 @@ func (s Shard) determineInsertStatus(previous []byte,
 	return out, nil
 }
 
+// determineMutableInsertStatus is a special version of determineInsertStatus
+// where it does not alter the doc id if one already exists. Calling this
+// method only makes sense under very special conditions, such as those
+// outlined in mutableMergeObjectInTx
+func (s Shard) determineMutableInsertStatus(previous []byte,
+	next *storobj.Object) (objectInsertStatus, error) {
+	var out objectInsertStatus
+
+	if previous == nil {
+		docID, err := s.counter.GetAndInc()
+		if err != nil {
+			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
+		}
+		out.docID = docID
+		return out, nil
+	}
+
+	docID, err := storobj.DocIDFromBinary(previous)
+	if err != nil {
+		return out, errors.Wrap(err, "get previous doc id from object binary")
+	}
+	out.docID = docID
+
+	// we are planning on mutating and thus not altering the doc id
+	return out, nil
+}
+
 func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) error {
 	return bucket.Put(id, data)
 }
@@ -161,6 +188,7 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 // of the caller to make sure that doc IDs are treated as immutable and any
 // outdated doc IDs have been marked as deleted, so they can be cleaned up in
 // async batches
+// TODO: remove previous, change status to doc id
 func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	status objectInsertStatus, previous []byte) error {
 	// if this is a new object, we simply have to add those. If this is an update
