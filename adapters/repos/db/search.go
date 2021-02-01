@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
@@ -80,21 +82,41 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	var found search.Results
 
-	emptyAdditional := traverser.AdditionalProperties{}
-	// TODO: Search in parallel, rather than sequentially or this will be
-	// painfully slow on large schemas
-	for _, index := range db.indices {
-		// TODO support all additional props
-		res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
-		if err != nil {
-			return nil, errors.Wrapf(err, "search index %s", index.ID())
-		}
+	wg := &sync.WaitGroup{}
+	mutex := &sync.Mutex{}
+	var searchErrors []error
 
-		found = append(found, storobj.SearchResults(res, emptyAdditional)...)
-		if len(found) >= limit {
-			// we are done
-			break
+	emptyAdditional := traverser.AdditionalProperties{}
+	for _, index := range db.indices {
+		wg.Add(1)
+		go func(index *Index, wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			// TODO support all additional props
+			res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
+			if err != nil {
+				mutex.Lock()
+				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
+				mutex.Unlock()
+			}
+
+			mutex.Lock()
+			found = append(found, storobj.SearchResults(res, emptyAdditional)...)
+			mutex.Unlock()
+		}(index, wg)
+	}
+
+	wg.Wait()
+
+	if len(searchErrors) > 0 {
+		var msg strings.Builder
+		for i, err := range searchErrors {
+			if i != 0 {
+				msg.WriteString(", ")
+			}
+			msg.WriteString(err.Error())
 		}
+		return nil, errors.New(msg.String())
 	}
 
 	found, err := found.SortByDistanceToVector(vector)
