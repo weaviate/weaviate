@@ -1,7 +1,5 @@
 package inverted
 
-import "github.com/davecgh/go-spew/spew"
-
 // DeltaMerger can be used to condense the number of single writes into one big
 // one. Additionally it removes overlaps between additions and deletions. It is
 // meant to be used in batch situation, where 5 ref objects in a row might each
@@ -68,6 +66,26 @@ type MergeProperty struct {
 type MergeItem struct {
 	Data   []byte
 	DocIDs []MergeDocIDWithFrequency
+}
+
+// IDs is meant for cases such as deletion, where the frequency is irrelevant,
+// but the expected format is a []docID
+func (mi MergeItem) IDs() []uint64 {
+	out := make([]uint64, len(mi.DocIDs))
+	for i, tuple := range mi.DocIDs {
+		out[i] = tuple.DocID
+	}
+
+	return out
+}
+
+// Countable converts the merge item to a regular (non-merge) Countable. Note
+// that this loses the IDs and Frequency information, so IDs have to be passed
+// separately using .IDs()
+func (mi MergeItem) Countable() Countable {
+	return Countable{
+		Data: mi.Data,
+	}
 }
 
 type MergeDocIDWithFrequency struct {
@@ -137,7 +155,6 @@ func (pwd *propWithDocIDs) merge() *MergeProperty {
 		}
 
 		items[i] = *mergedItem
-		spew.Dump(items[i])
 		i++
 	}
 

@@ -252,6 +252,52 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
 
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		// so far we have imported two refs (!)
+		t.Run("count==4 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 4, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count==0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+
+		t.Run("count==2 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+	})
+
 	t.Run("verify objects are still searchable through the vector index",
 		func(t *testing.T) {
 			// prior to making the inverted index and its docIDs immutable, a ref
