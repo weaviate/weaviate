@@ -51,7 +51,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
-	schema := schema.Schema{
+	s := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -85,14 +85,14 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	}
 
 	t.Run("add required classes", func(t *testing.T) {
-		for _, class := range schema.Objects.Classes {
+		for _, class := range s.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
 				err := migrator.AddClass(context.Background(), class)
 				require.Nil(t, err)
 			})
 		}
 	})
-	schemaGetter.schema = schema
+	schemaGetter.schema = s
 
 	target1 := strfmt.UUID("7b395e5c-cf4d-4297-b8cc-1d849a057de3")
 	target2 := strfmt.UUID("8f9f54f3-a7db-415e-881a-0e6fb79a7ec7")
@@ -124,6 +124,37 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		}
 	})
 
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		t.Run("count==0 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count>0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, gt, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+	})
+
 	t.Run("add reference between them - first batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
 			"weaviate://localhost/AddingBatchReferencesTestSource/%s/toTarget",
@@ -144,6 +175,38 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		}
 		_, err = repo.AddBatchReferences(context.Background(), refs)
 		assert.Nil(t, err)
+	})
+
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		// so far we have imported two refs (!)
+		t.Run("count==2 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count==0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
 	})
 
 	t.Run("add reference between them - second batch", func(t *testing.T) {
@@ -189,6 +252,83 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
 
+	t.Run("verify ref count through filters", func(t *testing.T) {
+		// so far we have imported two refs (!)
+		t.Run("count==4 should return the source", func(t *testing.T) {
+			filter := buildFilter("toTarget", 4, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, res[0].ID, sourceID)
+		})
+
+		t.Run("count==0 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+
+		t.Run("count==2 should not return anything", func(t *testing.T) {
+			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Filters:   filter,
+				ClassName: "AddingBatchReferencesTestSource",
+				Pagination: &filters.Pagination{
+					Limit: 10,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+	})
+
+	t.Run("verify search by cross-ref", func(t *testing.T) {
+		filter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: eq,
+				On: &filters.Path{
+					Class:    schema.ClassName("AddingBatchReferencesTestSource"),
+					Property: schema.PropertyName("toTarget"),
+					Child: &filters.Path{
+						Class:    schema.ClassName("AddingBatchReferencesTestTarget"),
+						Property: schema.PropertyName("name"),
+					},
+				},
+				Value: &filters.Value{
+					Value: "item",
+					Type:  dtString,
+				},
+			},
+		}
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters:   filter,
+			ClassName: "AddingBatchReferencesTestSource",
+			Pagination: &filters.Pagination{
+				Limit: 10,
+			},
+		})
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, res[0].ID, sourceID)
+	})
+
 	t.Run("verify objects are still searchable through the vector index",
 		func(t *testing.T) {
 			// prior to making the inverted index and its docIDs immutable, a ref
@@ -196,6 +336,11 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// never had to interact with the vector index. Now that they're
 			// immutable, the udpated doc ID needs to be "re-inserted" even if the
 			// vector is still the same
+			// UPDATE gh-1334: Since batch refs are now a special case where we
+			// tolerate a re-use of the doc id, the above assumption is no longer
+			// correct. However, this test still adds value, since we were now able
+			// to remove the the additional storage updates. By still including this
+			// test we verify that such an update is indeed no longer necessary
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},
