@@ -137,12 +137,12 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
 	ref objects.BatchReference) error {
-	prevProps, err := b.analyzeRefCount(mergeResult.previous, ref)
+	prevProps, err := b.analyzeRef(mergeResult.previous, ref)
 	if err != nil {
 		return err
 	}
 
-	nextProps, err := b.analyzeRefCount(mergeResult.next, ref)
+	nextProps, err := b.analyzeRef(mergeResult.next, ref)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
 	return nil
 }
 
-func (b *referencesBatcher) analyzeRefCount(obj *storobj.Object,
+func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	ref objects.BatchReference) ([]inverted.Property, error) {
 	props := obj.Properties()
 	if props == nil {
@@ -235,14 +235,25 @@ func (b *referencesBatcher) analyzeRefCount(obj *storobj.Object,
 		refs = parsed
 	}
 
-	items, err := inverted.NewAnalyzer().RefCount(refs)
+	a := inverted.NewAnalyzer()
+
+	countItems, err := a.RefCount(refs)
+	if err != nil {
+		return nil, err
+	}
+
+	valueItems, err := a.Ref(refs)
 	if err != nil {
 		return nil, err
 	}
 
 	return []inverted.Property{{
 		Name:         helpers.MetaCountProp(ref.From.Property.String()),
-		Items:        items,
+		Items:        countItems,
+		HasFrequency: false,
+	}, {
+		Name:         ref.From.Property.String(),
+		Items:        valueItems,
 		HasFrequency: false,
 	}}, nil
 }
