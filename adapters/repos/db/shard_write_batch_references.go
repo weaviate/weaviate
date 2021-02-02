@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -107,35 +106,36 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 	for _, ref := range batch {
 		uuidParsed, err := uuid.Parse(ref.From.TargetID.String())
 		if err != nil {
-			return nil, errors.Wrap(err, "invalid id")
+			return affectedIndices, errors.Wrap(err, "invalid id")
 		}
 
 		idBytes, err := uuidParsed.MarshalBinary()
 		if err != nil {
-			return nil, err
+			return affectedIndices, err
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
 		res, err := b.shard.mutableMergeObjectInTx(tx, mergeDoc, idBytes)
 		if err != nil {
-			return nil, err
+			return affectedIndices, err
 		}
 
 		// generally the batch ref is an append only change which does not alter
 		// the vector position. There is however one inverted index link that needs
 		// to be cleanup: the ref count
-		if err := b.updateInverted(tx, invertedMerger, res, ref); err != nil {
-			return nil, errors.Wrap(err, "determine ref count cleanup")
+		if err := b.analyzeInverted(tx, invertedMerger, res, ref); err != nil {
+			return affectedIndices, errors.Wrap(err, "determine ref count cleanup")
 		}
 	}
 
-	spew.Dump(invertedMerger.Merge())
+	if err := b.writeInverted(tx, invertedMerger.Merge()); err != nil {
+		return affectedIndices, err
+	}
 
 	return affectedIndices, nil
 }
 
-// TODO: batch instead of doing those one by one
-func (b *referencesBatcher) updateInverted(tx *bolt.Tx,
+func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
 	ref objects.BatchReference) error {
 	prevProps, err := b.analyzeRefCount(mergeResult.previous, ref)
@@ -152,26 +152,57 @@ func (b *referencesBatcher) updateInverted(tx *bolt.Tx,
 	invertedMerger.AddAdditions(delta.ToAdd, mergeResult.status.docID)
 	invertedMerger.AddDeletions(delta.ToDelete, mergeResult.status.docID)
 
-	before := time.Now()
-	err = b.shard.extendInvertedIndices(tx, delta.ToAdd, mergeResult.status.docID)
-	if err != nil {
-		return errors.Wrap(err, "put inverted indices props")
-	}
-	b.shard.metrics.InvertedExtend(before, len(delta.ToAdd))
-
-	return b.deleteProps(tx, delta.ToDelete, mergeResult.status.docID)
+	return nil
 }
 
-func (b *referencesBatcher) deleteProps(tx *bolt.Tx,
-	props []inverted.Property, docID uint64) error {
-	for _, prop := range props {
+func (b *referencesBatcher) writeInverted(tx *bolt.Tx,
+	in inverted.DeltaMergeResult) error {
+	before := time.Now()
+	if err := b.writeInvertedAdditions(tx, in.Additions); err != nil {
+		return errors.Wrap(err, "write additions")
+	}
+	b.shard.metrics.InvertedExtend(before, len(in.Additions))
+
+	before = time.Now()
+	if err := b.writeInvertedDeletions(tx, in.Deletions); err != nil {
+		return errors.Wrap(err, "write deletions")
+	}
+	b.shard.metrics.InvertedDeleteDelta(before)
+
+	return nil
+}
+
+func (b *referencesBatcher) writeInvertedDeletions(tx *bolt.Tx,
+	in []inverted.MergeProperty) error {
+	for _, prop := range in {
 		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
 		if bucket == nil {
 			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 		}
 
-		for _, item := range prop.Items {
-			err := b.shard.tryDeleteFromInvertedIndicesProp(bucket, item, []uint64{docID}, false)
+		for _, item := range prop.MergeItems {
+			err := b.shard.tryDeleteFromInvertedIndicesProp(bucket, item.Countable(),
+				item.IDs(), false)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
+	in []inverted.MergeProperty) error {
+	for _, prop := range in {
+		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
+		if bucket == nil {
+			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
+		}
+
+		for _, item := range prop.MergeItems {
+			fmt.Printf("extending %v with %v\n", item.Data, item.DocIDs)
+			err := b.shard.batchExtendInvertedIndexItems(bucket, item, false)
 			if err != nil {
 				return err
 			}
@@ -185,13 +216,11 @@ func (b *referencesBatcher) analyzeRefCount(obj *storobj.Object,
 	ref objects.BatchReference) ([]inverted.Property, error) {
 	props := obj.Properties()
 	if props == nil {
-		fmt.Printf("exiting because props nil\n")
 		return nil, nil
 	}
 
 	propMap, ok := props.(map[string]interface{})
 	if !ok {
-		fmt.Printf("exiting because props not a map\n")
 		return nil, nil
 	}
 

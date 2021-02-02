@@ -18,6 +18,7 @@ import (
 	"hash/crc64"
 	"io"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -316,4 +317,84 @@ func (s *Shard) checksum(in []byte) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 8))
 	err := binary.Write(buf, binary.LittleEndian, &checksum)
 	return buf.Bytes(), err
+}
+
+// batchExtendInvertedIndexItems is similar to the regular
+// extendInvertedIndexItem..., but instead of writing a single docid+frequency
+// it supports n docid/frequency pairs
+func (s *Shard) batchExtendInvertedIndexItems(b *bolt.Bucket,
+	item inverted.MergeItem, hasFrequency bool) error {
+	data := b.Get(item.Data)
+
+	updated := bytes.NewBuffer(data)
+	if len(data) == 0 {
+		// this is the first time someones writing this row, initialize counter in
+		// beginning as zero, and a dummy checksum
+		updated.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0}) // dummy checksum
+		docCount := uint64(0)
+		binary.Write(updated, binary.LittleEndian, &docCount)
+	}
+
+	spew.Dump(item)
+	for _, idTuple := range item.DocIDs {
+		// append current document
+		fmt.Printf("adding doc id %#v\n", idTuple.DocID)
+		if err := binary.Write(updated, binary.LittleEndian, &idTuple.DocID); err != nil {
+			return errors.Wrap(err, "write doc id")
+		}
+		if hasFrequency {
+			if err := binary.Write(updated, binary.LittleEndian, &idTuple.Frequency); err != nil {
+				return errors.Wrap(err, "write doc frequency")
+			}
+		}
+	}
+
+	extended := updated.Bytes()
+
+	// read and increase doc count
+	reader := bytes.NewReader(extended[8:])
+	var docCount uint64
+	binary.Read(reader, binary.LittleEndian, &docCount)
+	docCount = docCount + uint64(len(item.DocIDs))
+	countBuf := bytes.NewBuffer(make([]byte, 0, 8))
+	binary.Write(countBuf, binary.LittleEndian, &docCount)
+
+	// overwrite old doc count
+
+	startPos := 8 // first 8 bytes are checksum, so 8-15 is count
+	countBytes := countBuf.Bytes()
+	for i := 0; i < 8; i++ {
+		extended[startPos+i] = countBytes[i]
+	}
+
+	// finally calculate the checksum and prepend one more time.
+	chksum, err := s.checksum(extended[8:])
+	if err != nil {
+		return err
+	}
+
+	// overwrite first eight bytes with checksum
+	startPos = 0 // first 8 bytes are checksum
+	for i := 0; i < 8; i++ {
+		extended[startPos+i] = chksum[i]
+	}
+
+	lengthOfOneEntry := 8
+	if hasFrequency {
+		lengthOfOneEntry = 16
+	}
+	if len(extended) != 0 && len(extended) > 16 && (len(extended)-16)%lengthOfOneEntry != 0 {
+		// -16 to remove the checksum and doc count
+		// module 16 for 8 bytes of docID + frequency or alternatively 8 without the
+		// frequency
+		return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
+			"with original length %d", len(extended), len(data))
+	}
+
+	err = b.Put(item.Data, extended)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
