@@ -18,7 +18,6 @@ import (
 	"hash/crc64"
 	"io"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -335,10 +334,8 @@ func (s *Shard) batchExtendInvertedIndexItems(b *bolt.Bucket,
 		binary.Write(updated, binary.LittleEndian, &docCount)
 	}
 
-	spew.Dump(item)
 	for _, idTuple := range item.DocIDs {
 		// append current document
-		fmt.Printf("adding doc id %#v\n", idTuple.DocID)
 		if err := binary.Write(updated, binary.LittleEndian, &idTuple.DocID); err != nil {
 			return errors.Wrap(err, "write doc id")
 		}

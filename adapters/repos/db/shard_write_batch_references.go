@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -201,7 +200,6 @@ func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
 		}
 
 		for _, item := range prop.MergeItems {
-			fmt.Printf("extending %v with %v\n", item.Data, item.DocIDs)
 			err := b.shard.batchExtendInvertedIndexItems(bucket, item, false)
 			if err != nil {
 				return err
