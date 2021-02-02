@@ -399,6 +399,85 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	return nil
 }
 
+// DeepCopyDangerous() creates a deep copy of the underlying Object
+// WARNING: This was purpose built for the batch ref usecase and only covers
+// the situations that are required there. This means that cases which aren't
+// reflected in that usecase may still contain references. Thus the suffix
+// "Dangerous". If needed, make sure everything is copied and remove the
+// suffix.
+func (ko *Object) DeepCopyDangerous() *Object {
+	return &Object{
+		MarshallerVersion: ko.MarshallerVersion,
+		docID:             ko.docID,
+		Object:            deepCopyObject(ko.Object),
+		Vector:            deepCopyVector(ko.Vector),
+	}
+}
+
+func deepCopyVector(orig []float32) []float32 {
+	out := make([]float32, len(orig))
+	copy(out, orig)
+	return out
+}
+
+func deepCopyObject(orig models.Object) models.Object {
+	return models.Object{
+		Class:              orig.Class,
+		ID:                 orig.ID,
+		CreationTimeUnix:   orig.CreationTimeUnix,
+		LastUpdateTimeUnix: orig.LastUpdateTimeUnix,
+		Vector:             deepCopyVector(orig.Vector),
+		VectorWeights:      orig.VectorWeights,
+		Additional:         orig.Additional, // WARNING: not a deep copy!!
+		Properties:         deepCopyProperties(orig.Properties),
+	}
+}
+
+func deepCopyProperties(orig models.PropertySchema) models.PropertySchema {
+	if orig == nil {
+		return nil
+	}
+
+	asMap, ok := orig.(map[string]interface{})
+	if !ok {
+		// not a map, don't know what to do with this
+		return nil
+	}
+
+	out := map[string]interface{}{}
+
+	for key, value := range asMap {
+		if mref, ok := value.(models.MultipleRef); ok {
+			out[key] = deepCopyMRef(mref)
+			continue
+		}
+
+		// Note: This is not a true deep copy, value could still be a pointer type,
+		// such as *models.GeoCoordinates, thus leading to passing a reference
+		// instead of actually making a copy. However, for the purposes we need
+		// this method for this is acceptable based on our current knowledge
+		out[key] = value
+	}
+
+	return out
+}
+
+func deepCopyMRef(orig models.MultipleRef) models.MultipleRef {
+	if orig == nil {
+		return nil
+	}
+
+	out := make(models.MultipleRef, len(orig))
+	for i, ref := range orig {
+		// models.SingleRef contains only pass-by-value props, so a simple deref as
+		// the struct creates a copy
+		copiedRef := *ref
+		out[i] = &copiedRef
+	}
+
+	return out
+}
+
 type errorCompounder struct {
 	errors []error
 }

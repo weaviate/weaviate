@@ -19,7 +19,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -108,15 +111,74 @@ func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
 	// error can never be assigned to the correct items, see
 	// https://github.com/semi-technologies/weaviate/issues/1363
 	if err := ctx.Err(); err != nil {
-		return affectedIndices, errors.Wrapf(err, "begin transaction %d of batch", batchId)
+		return affectedIndices, errors.Wrapf(err, "begin transaction %d of batch",
+			batchId)
 	}
+
+	invertedMerger := inverted.NewDeltaMerger()
+	// cache schema for the duration of the transaction
+	classSchema := b.shard.index.getSchema.GetSchemaSkipAuth()
 
 	for j, object := range batch {
 		if err := b.storeObjectOfBatchInTx(ctx, tx, batchId, j, object); err != nil {
-			return nil, errors.Wrapf(err, "object %d", j)
+			return affectedIndices, errors.Wrapf(err, "store object %d", j)
+		}
+
+		if err := b.analyzeObjectForInvertedIndex(invertedMerger, classSchema,
+			object); err != nil {
+			return affectedIndices, errors.Wrapf(err, "analyze object %d", j)
 		}
 	}
+
+	before := time.Now()
+	if err := b.writeInvertedAdditions(tx,
+		invertedMerger.Merge().Additions); err != nil {
+		return affectedIndices, errors.Wrap(err, "updated inverted index")
+	}
+	b.shard.metrics.PutObjectUpdateInverted(before)
+
 	return affectedIndices, nil
+}
+
+func (b *objectsBatcher) analyzeObjectForInvertedIndex(merger *inverted.DeltaMerger,
+	classSchema schema.Schema, obj *storobj.Object) error {
+	propValues, ok := obj.Properties().(map[string]interface{})
+	if !ok || propValues == nil {
+		return nil
+	}
+
+	schemaClass := classSchema.FindClassByName(obj.Class())
+	if schemaClass == nil {
+		return errors.Errorf("class %q not present in schema", obj.Class())
+	}
+
+	analyzed, err := inverted.NewAnalyzer().Object(propValues, schemaClass.Properties,
+		obj.ID())
+	if err != nil {
+		return err
+	}
+
+	merger.AddAdditions(analyzed, obj.DocID())
+	return nil
+}
+
+func (b *objectsBatcher) writeInvertedAdditions(tx *bolt.Tx,
+	in []inverted.MergeProperty) error {
+	for _, prop := range in {
+		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
+		if bucket == nil {
+			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
+		}
+
+		for _, item := range prop.MergeItems {
+			err := b.shard.batchExtendInvertedIndexItems(bucket, item, prop.HasFrequency)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx,
@@ -134,7 +196,7 @@ func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx
 		return err
 	}
 
-	status, err := b.shard.putObjectInTx(tx, object, idBytes)
+	status, err := b.shard.putObjectInTx(tx, object, idBytes, true)
 	if err != nil {
 		return err
 	}
