@@ -160,6 +160,21 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				require.Equal(t, true, ok, "results should contain our desired id")
 				assert.Equal(t, "third element", item.Schema.(map[string]interface{})["stringProp"])
 			})
+
+			t.Run("can be queried through the inverted index", func(t *testing.T) {
+				filter := buildFilter("stringProp", "third", eq, dtString)
+				params := traverser.GetParams{
+					ClassName:  "ThingForBatching",
+					Pagination: &filters.Pagination{Limit: 10},
+					Filters:    filter,
+				}
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+
+				require.Len(t, res, 1)
+				assert.Equal(t, strfmt.UUID("90ade18e-2b99-4903-aa34-1d5d648c932d"),
+					res[0].ID)
+			})
 		})
 
 		t.Run("with an import which will fail", func(t *testing.T) {
@@ -182,7 +197,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 					Object: &models.Object{
 						Class: "ThingForBatching",
 						Properties: map[string]interface{}{
-							"stringProp": "first element",
+							"stringProp": "second element",
 						},
 						ID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
 					},
@@ -194,7 +209,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 					Object: &models.Object{
 						Class: "ThingForBatching",
 						Properties: map[string]interface{}{
-							"stringProp": "second element",
+							"stringProp": "third element",
 						},
 						ID: "", // ID can't be empty in es, this should produce an error
 					},
