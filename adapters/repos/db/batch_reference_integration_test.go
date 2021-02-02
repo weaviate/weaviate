@@ -298,6 +298,37 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		})
 	})
 
+	t.Run("verify search by cross-ref", func(t *testing.T) {
+		filter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: eq,
+				On: &filters.Path{
+					Class:    schema.ClassName("AddingBatchReferencesTestSource"),
+					Property: schema.PropertyName("toTarget"),
+					Child: &filters.Path{
+						Class:    schema.ClassName("AddingBatchReferencesTestTarget"),
+						Property: schema.PropertyName("name"),
+					},
+				},
+				Value: &filters.Value{
+					Value: "item",
+					Type:  dtString,
+				},
+			},
+		}
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters:   filter,
+			ClassName: "AddingBatchReferencesTestSource",
+			Pagination: &filters.Pagination{
+				Limit: 10,
+			},
+		})
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, res[0].ID, sourceID)
+	})
+
 	t.Run("verify objects are still searchable through the vector index",
 		func(t *testing.T) {
 			// prior to making the inverted index and its docIDs immutable, a ref
