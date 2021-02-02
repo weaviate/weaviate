@@ -32,7 +32,7 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 	var status objectInsertStatus
 
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		s, err := s.putObjectInTx(tx, object, idBytes)
+		s, err := s.putObjectInTx(tx, object, idBytes, false)
 		if err != nil {
 			return err
 		}
@@ -70,7 +70,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 }
 
 func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
-	idBytes []byte) (objectInsertStatus, error) {
+	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
@@ -100,11 +100,13 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	}
 	s.metrics.PutObjectUpdateDocID(before)
 
-	before = time.Now()
-	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
-		return status, errors.Wrap(err, "update inverted indices")
+	if !skipInverted {
+		before = time.Now()
+		if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
+			return status, errors.Wrap(err, "update inverted indices")
+		}
+		s.metrics.PutObjectUpdateInverted(before)
 	}
-	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
@@ -151,6 +153,33 @@ func (s Shard) determineInsertStatus(previous []byte,
 	return out, nil
 }
 
+// determineMutableInsertStatus is a special version of determineInsertStatus
+// where it does not alter the doc id if one already exists. Calling this
+// method only makes sense under very special conditions, such as those
+// outlined in mutableMergeObjectInTx
+func (s Shard) determineMutableInsertStatus(previous []byte,
+	next *storobj.Object) (objectInsertStatus, error) {
+	var out objectInsertStatus
+
+	if previous == nil {
+		docID, err := s.counter.GetAndInc()
+		if err != nil {
+			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
+		}
+		out.docID = docID
+		return out, nil
+	}
+
+	docID, err := storobj.DocIDFromBinary(previous)
+	if err != nil {
+		return out, errors.Wrap(err, "get previous doc id from object binary")
+	}
+	out.docID = docID
+
+	// we are planning on mutating and thus not altering the doc id
+	return out, nil
+}
+
 func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) error {
 	return bucket.Put(id, data)
 }
@@ -162,16 +191,14 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 // outdated doc IDs have been marked as deleted, so they can be cleaned up in
 // async batches
 func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
-	status objectInsertStatus, previous []byte) error {
-	// if this is a new object, we simply have to add those. If this is an update
-	// (see below), we have to calculate the delta and then only add the new ones
+	docID uint64) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
 	before := time.Now()
-	err = s.extendInvertedIndices(tx, props, status.docID)
+	err = s.extendInvertedIndices(tx, props, docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
