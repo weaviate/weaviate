@@ -32,6 +32,7 @@ type GetParams struct {
 	// module when we have actual modularization
 	NearText             *NearTextParams
 	NearVector           *NearVectorParams
+	NearObject           *NearObjectParams
 	SearchVector         []float32
 	Group                *GroupParams
 	AdditionalProperties AdditionalProperties
