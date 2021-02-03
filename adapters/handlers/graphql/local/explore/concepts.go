@@ -49,6 +49,7 @@ func Build(schema *models.Schema) *graphql.Field {
 			},
 
 			"nearVector": nearVectorArgument(),
+			"nearObject": nearObjectArgument(),
 		},
 	}
 
@@ -141,7 +142,7 @@ func nearTextFields() graphql.InputObjectConfigFieldMap {
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   "ExploreNearTextMoveTo",
-					Fields: movementInp(),
+					Fields: movementInp("ExploreNearTextMoveTo"),
 				}),
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
@@ -153,7 +154,7 @@ func nearTextFields() graphql.InputObjectConfigFieldMap {
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   "ExploreNearTextMoveAwayFrom",
-					Fields: movementInp(),
+					Fields: movementInp("ExploreNearTextMoveAwayFrom"),
 				}),
 		},
 	}
@@ -161,7 +162,7 @@ func nearTextFields() graphql.InputObjectConfigFieldMap {
 
 // TODO: This is module specific and must be provided by the
 // text2vec-contextionary module
-func movementInp() graphql.InputObjectConfigFieldMap {
+func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Keywords,
@@ -171,7 +172,30 @@ func movementInp() graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Force,
 			Type:        graphql.NewNonNull(graphql.Float),
 		},
+		"objects": &graphql.InputObjectFieldConfig{
+			Description: "objects",
+			Type:        graphql.NewList(objectsInpObj(prefix)),
+		},
 	}
+}
+
+func objectsInpObj(prefix string) *graphql.InputObject {
+	return graphql.NewInputObject(
+		graphql.InputObjectConfig{
+			Name: fmt.Sprintf("%sMovementObjectsInpObj", prefix),
+			Fields: graphql.InputObjectConfigFieldMap{
+				"id": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: "id of an object",
+				},
+				"beacon": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: descriptions.Beacon,
+				},
+			},
+			Description: "Movement Object",
+		},
+	)
 }
 
 func nearVectorArgument() *graphql.ArgumentConfig {
@@ -191,6 +215,34 @@ func nearVectorFields() graphql.InputObjectConfigFieldMap {
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Certainty,
 			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
+	}
+}
+
+func nearObjectArgument() *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:   "ExploreNearObjectInpObj",
+				Fields: nearObjectFields(),
+			},
+		),
+	}
+}
+
+func nearObjectFields() graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"id": &graphql.InputObjectFieldConfig{
+			Description: descriptions.ID,
+			Type:        graphql.String,
+		},
+		"beacon": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Beacon,
+			Type:        graphql.String,
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Certainty,

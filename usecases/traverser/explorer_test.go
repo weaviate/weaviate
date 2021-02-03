@@ -149,6 +149,181 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
+	t.Run("when an explore param is set for nearObject without id and beacon", func(t *testing.T) {
+		// TODO: this is a module specific test case, which relies on the
+		// text2vec-contextionary module
+		params := GetParams{
+			ClassName: "BestClass",
+			NearObject: &NearObjectParams{
+				Certainty: 0.9,
+			},
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+		}
+
+		search := &fakeVectorSearcher{}
+		// explicitly set the vectorizer to nil to make sure it is not used in this
+		// case
+		vectorizer := CorpiVectorizer(nil)
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("vector search must be called with right params", func(t *testing.T) {
+			assert.NotNil(t, err)
+			assert.Nil(t, res)
+			assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+		})
+	})
+
+	t.Run("when an explore param is set for nearObject with beacon", func(t *testing.T) {
+		// TODO: this is a module specific test case, which relies on the
+		// text2vec-contextionary module
+		params := GetParams{
+			ClassName: "BestClass",
+			NearObject: &NearObjectParams{
+				Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+				Certainty: 0.9,
+			},
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+		}
+
+		searchRes := search.Result{
+			ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			Schema: map[string]interface{}{
+				"name": "Foo",
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		// explicitly set the vectorizer to nil to make sure it is not used in this
+		// case
+		vectorizer := CorpiVectorizer(nil)
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		search.
+			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+			Return(&searchRes, nil)
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("vector search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain object", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+				}, res[1])
+		})
+	})
+
+	t.Run("when an explore param is set for nearObject with id", func(t *testing.T) {
+		// TODO: this is a module specific test case, which relies on the
+		// text2vec-contextionary module
+		params := GetParams{
+			ClassName: "BestClass",
+			NearObject: &NearObjectParams{
+				ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+				Certainty: 0.9,
+			},
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+		}
+
+		searchRes := search.Result{
+			ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			Schema: map[string]interface{}{
+				"name": "Foo",
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		// explicitly set the vectorizer to nil to make sure it is not used in this
+		// case
+		vectorizer := CorpiVectorizer(nil)
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		search.
+			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+			Return(&searchRes, nil)
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("vector search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain object", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+				}, res[1])
+		})
+	})
+
 	t.Run("when an explore param is set for nearText and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
@@ -243,7 +418,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 		})
 
-	t.Run("when two conflicting near searchers are set", func(t *testing.T) {
+	t.Run("when two conflicting (nearVector, nearText) near searchers are set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -253,6 +428,84 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 			NearText: &NearTextParams{
 				Values: []string{"foo"},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when two conflicting (nearText, nearObject) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearText: &NearTextParams{
+				Values: []string{"foo"},
+			},
+			NearObject: &NearObjectParams{
+				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when two conflicting (nearVector, nearObject) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			NearObject: &NearObjectParams{
+				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when three conflicting (nearText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearText: &NearTextParams{
+				Values: []string{"foo"},
+			},
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			NearObject: &NearObjectParams{
+				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 		}
 

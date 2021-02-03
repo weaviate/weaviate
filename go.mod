@@ -38,7 +38,7 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	go.etcd.io/bbolt v1.3.3
-	go.mongodb.org/mongo-driver v1.4.5 // indirect
+	go.mongodb.org/mongo-driver v1.4.6 // indirect
 	golang.org/x/exp v0.0.0-20191030013958-a1ab85dbe136 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45 // indirect

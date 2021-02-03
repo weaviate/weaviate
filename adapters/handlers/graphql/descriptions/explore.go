@@ -22,6 +22,7 @@ const (
 	Certainty            = "Desired Certainty. The higher the value the stricter the search becomes, the lower the value the fuzzier the search becomes"
 	Force                = "The force to apply for a particular movements. Must be between 0 and 1 where 0 is equivalent to no movement and 1 is equivalent to largest movement possible"
 	ClassName            = "Name of the Class"
+	ID                   = "Concept identifier in the uuid format"
 	Beacon               = "Concept identifier in the beacon format, such as weaviate://<hostname>/<kind>/id"
 	Distance             = "Normalized Distance between the result item and the search vector. Normalized to be between 0 (identical vectors) and 1 (perfect opposite)."
 )

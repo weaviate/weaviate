@@ -662,6 +662,60 @@ func TestNearTextRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("for things with optional certainty and objects set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearText: {
+								concepts: ["c1", "c2", "c3"],
+								certainty: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+									objects: [
+										{ id: "moveTo-uuid1" }
+										{ beacon: "weaviate://localhost/moveTo-uuid3" }
+									]
+								},
+								moveAwayFrom: {
+									concepts:["epic"],
+									force: 0.25
+									objects: [
+										{ id: "moveAway-uuid1" }
+										{ beacon: "weaviate://localhost/moveAway-uuid2" }
+										{ beacon: "weaviate://localhost/moveAway-uuid3" }
+									]
+								}
+							}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearText: &traverser.NearTextParams{
+				Values:    []string{"c1", "c2", "c3"},
+				Certainty: 0.4,
+				MoveTo: traverser.ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+					Objects: []traverser.ObjectMove{
+						{ID: "moveTo-uuid1"},
+						{Beacon: "weaviate://localhost/moveTo-uuid3"},
+					},
+				},
+				MoveAwayFrom: traverser.ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+					Objects: []traverser.ObjectMove{
+						{ID: "moveAway-uuid1"},
+						{Beacon: "weaviate://localhost/moveAway-uuid2"},
+						{Beacon: "weaviate://localhost/moveAway-uuid3"},
+					},
+				},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestNearVectorRanker(t *testing.T) {
@@ -877,6 +931,94 @@ func TestGetRelation(t *testing.T) {
 			fragment actionFragment on SomeAction { intField hasAction { ...innerFragment } } 
 			
 			{ Get { SomeAction { hasAction { ...actionFragment } } } }`
+		resolver.AssertResolve(t, query)
+	})
+}
+
+func TestNearObject(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	t.Run("for objects with beacon", func(t *testing.T) {
+		query := `{ Get { SomeAction(
+								nearObject: {
+									beacon: "weaviate://localhost/some-uuid"
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				Beacon: "weaviate://localhost/some-uuid",
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with beacon and optional certainty set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									beacon: "weaviate://localhost/some-other-uuid"
+									certainty: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				Beacon:    "weaviate://localhost/some-other-uuid",
+				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with id set", func(t *testing.T) {
+		query := `{ Get { SomeAction(
+								nearObject: {
+									id: "some-uuid"
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID: "some-uuid",
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with id and optional certainty set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									id: "some-other-uuid"
+									certainty: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-other-uuid",
+				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
 		resolver.AssertResolve(t, query)
 	})
 }

@@ -180,6 +180,7 @@ func buildGetClassField(classObject *graphql.Object,
 			},
 
 			"nearVector": nearVectorArgument(class.Class),
+			"nearObject": nearObjectArgument(class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 		},
@@ -293,6 +294,12 @@ func makeResolveGetClass(className string) graphql.FieldResolveFn {
 			nearVectorParams = &p
 		}
 
+		var nearObjectParams *traverser.NearObjectParams
+		if nearObject, ok := p.Args["nearObject"]; ok {
+			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			nearObjectParams = &p
+		}
+
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
@@ -302,6 +309,7 @@ func makeResolveGetClass(className string) graphql.FieldResolveFn {
 			Properties:           properties,
 			NearText:             nearTextParams,
 			NearVector:           nearVectorParams,
+			NearObject:           nearObjectParams,
 			Group:                group,
 			AdditionalProperties: additional,
 		}
