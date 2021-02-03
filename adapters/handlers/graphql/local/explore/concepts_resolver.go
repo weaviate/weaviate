@@ -74,6 +74,11 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 		params.NearVector = &extracted
 	}
 
+	if param, ok := p.Args["nearObject"]; ok {
+		extracted := common_filters.ExtractNearObject(param.(map[string]interface{}))
+		params.NearObject = &extracted
+	}
+
 	if param, ok := p.Args["limit"]; ok {
 		params.Limit = param.(int)
 	}
