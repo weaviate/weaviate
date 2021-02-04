@@ -14,6 +14,7 @@ package contextionary
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -279,7 +280,7 @@ func (c *Client) WordCount(ctx context.Context) (int64, error) {
 func (c *Client) AddExtension(ctx context.Context, extension *models.C11yExtension) error {
 	_, err := c.grpcClient.AddExtension(ctx, &pb.ExtensionInput{
 		Concept:    extension.Concept,
-		Definition: extension.Definition,
+		Definition: strings.ToLower(extension.Definition),
 		Weight:     extension.Weight,
 	})
 
