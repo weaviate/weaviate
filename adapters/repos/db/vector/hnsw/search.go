@@ -315,7 +315,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	for level := h.currentMaximumLayer; level >= 1; level-- {
 		eps := &binarySearchTreeGeneric{}
 		eps.insert(entryPointID, entryPointDistance)
-		// ignore allowList on layers > 0
 		res, err := h.searchLayerByVector(searchVec, *eps, 1, level, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
@@ -326,9 +325,19 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		// had before (i.e. either from a previous level or even the main
 		// entrypoint)
 		if res.root != nil {
-			best := res.minimum()
-			entryPointID = best.index
-			entryPointDistance = best.dist
+			best := res.flattenInOrder()
+
+			for _, cand := range best {
+				if !h.nodeByID(cand.index).isUnderMaintenance() {
+					entryPointID = cand.index
+					entryPointDistance = cand.dist
+					break
+				}
+
+				// if we managed to go through the loop without finding a single
+				// suitable node, we simply stick with the original, i.e. the global
+				// entrypoint
+			}
 		}
 	}
 

@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -120,6 +121,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	var control []uint64
+	var bfControl []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
 		allowList := helpers.AllowList{}
@@ -134,7 +136,29 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
 		require.Nil(t, err)
 		require.True(t, len(res) > 0)
+		require.Len(t, res, 20)
 		control = res
+	})
+
+	t.Run("brute force control", func(t *testing.T) {
+		bf := bruteForceCosine(vectors, []float32{0.1, 0.1, 0.1}, 100)
+		bfControl = make([]uint64, len(bf))
+		i := 0
+		for _, elem := range bf {
+			if elem%2 == 0 {
+				continue
+			}
+
+			bfControl[i] = elem
+			i++
+		}
+
+		if i > 20 {
+			i = 20
+		}
+
+		bfControl = bfControl[:i]
+		assert.Equal(t, bfControl, control, "control should match bf control")
 	})
 
 	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
@@ -715,4 +739,37 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	t.Run("clean up tombstoned nodes", func(t *testing.T) {
 		require.Nil(t, index.CleanUpTombstonedNodes())
 	})
+}
+
+func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
+	type distanceAndIndex struct {
+		distance float32
+		index    uint64
+	}
+
+	distances := make([]distanceAndIndex, len(vectors))
+
+	distancer := distancer.NewCosineProvider().New(query)
+	for i, vec := range vectors {
+		dist, _, _ := distancer.Distance(vec)
+		distances[i] = distanceAndIndex{
+			index:    uint64(i),
+			distance: dist,
+		}
+	}
+
+	sort.Slice(distances, func(a, b int) bool {
+		return distances[a].distance < distances[b].distance
+	})
+
+	if len(distances) < k {
+		k = len(distances)
+	}
+
+	out := make([]uint64, k)
+	for i := 0; i < k; i++ {
+		out[i] = distances[i].index
+	}
+
+	return out
 }
