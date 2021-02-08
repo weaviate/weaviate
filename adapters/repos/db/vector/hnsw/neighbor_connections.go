@@ -107,6 +107,10 @@ func (n *neighborFinderConnector) Do() error {
 }
 
 func (n *neighborFinderConnector) doAtLevel(level int) error {
+	if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
+		return err
+	}
+
 	results, err := n.graph.searchLayerByVector(n.nodeVec, *n.results, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
@@ -124,6 +128,39 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
+	if n.node.isUnderMaintenance() {
+		haveAlternative := false
+		for i, ep := range n.results.flattenInOrder() {
+			if haveAlternative {
+				break
+			}
+			if i == 0 {
+				continue
+			}
+
+			if !n.graph.nodeByID(ep.index).isUnderMaintenance() {
+				haveAlternative = true
+			}
+		}
+
+		if !haveAlternative {
+			globalEP := n.graph.entryPointID
+			dist, ok, err := n.graph.distBetweenNodeAndVec(globalEP, n.nodeVec)
+			if err != nil {
+				return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+			}
+			if !ok {
+				return fmt.Errorf("entrypoint was deleted in the object store, " +
+					"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+			}
+			n.results.insert(globalEP, dist)
 		}
 	}
 
