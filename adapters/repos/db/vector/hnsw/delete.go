@@ -235,6 +235,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			entryPointID = alternative
 		}
 
+		neighborNode.markAsMaintenance()
 		neighborNode.Lock()
 		// delete all existing connections before re-assigning
 		neighborNode.connections = map[int][]uint64{}
@@ -247,6 +248,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
+		neighborNode.unmarkAsMaintenance()
 	}
 
 	return nil
