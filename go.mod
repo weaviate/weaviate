@@ -9,12 +9,12 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fatih/camelcase v1.0.0
-	github.com/go-openapi/errors v0.19.9
+	github.com/go-openapi/errors v0.20.0
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.26
 	github.com/go-openapi/spec v0.19.8
 	github.com/go-openapi/strfmt v0.20.0
-	github.com/go-openapi/swag v0.19.13
+	github.com/go-openapi/swag v0.19.14
 	github.com/go-openapi/validate v0.19.10
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/uuid v1.1.1
@@ -22,6 +22,7 @@ require (
 	github.com/graphql-go/graphql v0.7.9
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/json-iterator/go v1.1.8 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
