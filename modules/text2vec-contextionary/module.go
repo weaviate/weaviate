@@ -43,7 +43,17 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *ContextionaryModule) Init() error {
+func (m *ContextionaryModule) Init(params modules.ModuleInitParams) error {
+	if m.storageProvider == nil && params.GetStorageProvider() != nil {
+		m.storageProvider = params.GetStorageProvider()
+	}
+	if m.appState == nil && params.GetAppState() != nil {
+		appState, ok := params.GetAppState().(*state.State)
+		if ok {
+			m.appState = appState
+		}
+	}
+
 	if err := m.initExtensions(); err != nil {
 		return errors.Wrap(err, "init extensions")
 	}
