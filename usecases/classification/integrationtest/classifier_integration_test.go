@@ -145,6 +145,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
+			assert.Equal(t, int64(400), class.Meta.CountSucceeded)
 		})
 
 		t.Run("verify everything is classified", func(t *testing.T) {
