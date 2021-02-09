@@ -13,8 +13,12 @@ package rest
 
 import (
 	"context"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
+	"plugin"
+	"strings"
 	"time"
 
 	openapierrors "github.com/go-openapi/errors"
@@ -186,7 +190,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	registerModules(appState)
+	err = registerModules(appState)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
@@ -342,12 +351,63 @@ func registerModules(appState *state.State) error {
 
 	// TODO: don't pass entire appState in, but only what's needed. Probably only
 	// config?
+	moduleParams := modules.NewInitParams(storageProvider, appState)
+
+	enabledModules := map[string]bool{}
+	if len(appState.ServerConfig.Config.EnableModules) > 0 {
+		modules := strings.Split(appState.ServerConfig.Config.EnableModules, ",")
+		for _, module := range modules {
+			enabledModules[strings.TrimSpace(module)] = true
+		}
+	}
+
+	modulesDir := appState.ServerConfig.Config.ModulesPath
+	if len(modulesDir) == 0 {
+		modulesDir = "./modules"
+	}
+	files, err := ioutil.ReadDir(modulesDir)
+	if err != nil {
+		return errors.Wrapf(err, "cannot read modules from directory: %s", modulesDir)
+	}
+
+	for i := range files {
+		filename := files[i].Name()
+		if !enabledModules[filepath.Base(filename)] {
+			break
+		}
+
+		module, err := loadModulePlugin(filename)
+		if err != nil {
+			return err
+		}
+
+		appState.Modules.Register(module)
+	}
+
 	appState.Modules.Register(modcontextionary.New(storageProvider, appState))
 
-	err = appState.Modules.Init()
+	err = appState.Modules.Init(moduleParams)
 	if err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 
 	return nil
+}
+
+func loadModulePlugin(filename string) (modules.Module, error) {
+	plug, err := plugin.Open(filename)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot open module: %s", filename)
+	}
+
+	moduleImpl, err := plug.Lookup("Module")
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot load module: %s", filename)
+	}
+
+	module, ok := moduleImpl.(modules.Module)
+	if !ok {
+		return nil, errors.Wrapf(err, "not a module: %s", filename)
+	}
+	return module, nil
 }

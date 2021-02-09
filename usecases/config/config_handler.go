@@ -46,6 +46,8 @@ type Config struct {
 	Origin                  string         `json:"origin" yaml:"origin"`
 	Persistence             Persistence    `json:"persistence" yaml:"persistence"`
 	DefaultVectorizerModule string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	EnableModules           string         `json:"enable_modules" yaml:"enable_modules"`
+	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 }
 
 // Validate the non-nested parameters. Nested objects must provide their own
