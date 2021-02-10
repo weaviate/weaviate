@@ -521,6 +521,56 @@ func Test_Explorer_GetClass(t *testing.T) {
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 
+	t.Run("when nearText.moveTo has no concepts and objects defined", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearText: &NearTextParams{
+				Values: []string{"foo"},
+				MoveTo: ExploreMove{
+					Force: 0.1,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
+	})
+
+	t.Run("when nearText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearText: &NearTextParams{
+				Values: []string{"foo"},
+				MoveAwayFrom: ExploreMove{
+					Force: 0.1,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
+	})
+
 	t.Run("when no explore param is set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",

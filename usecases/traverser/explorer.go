@@ -462,6 +462,18 @@ func (e *Explorer) validateNearParams(nearText *NearTextParams, nearVector *Near
 			"which are conflicting, choose one instead")
 	}
 
+	if nearText != nil && nearText.MoveTo.Force > 0 &&
+		nearText.MoveTo.Values == nil && nearText.MoveTo.Objects == nil {
+		return errors.Errorf("'nearText.moveTo' parameter " +
+			"needs to have defined either 'concepts' or 'objects' fields")
+	}
+
+	if nearText != nil && nearText.MoveAwayFrom.Force > 0 &&
+		nearText.MoveAwayFrom.Values == nil && nearText.MoveAwayFrom.Objects == nil {
+		return errors.Errorf("'nearText.moveAwayFrom' parameter " +
+			"needs to have defined either 'concepts' or 'objects' fields")
+	}
+
 	return nil
 }
 

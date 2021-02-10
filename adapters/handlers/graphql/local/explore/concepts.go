@@ -166,15 +166,15 @@ func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Keywords,
-			Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
-		},
-		"force": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Force,
-			Type:        graphql.NewNonNull(graphql.Float),
+			Type:        graphql.NewList(graphql.String),
 		},
 		"objects": &graphql.InputObjectFieldConfig{
 			Description: "objects",
 			Type:        graphql.NewList(objectsInpObj(prefix)),
+		},
+		"force": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Force,
+			Type:        graphql.NewNonNull(graphql.Float),
 		},
 	}
 }
