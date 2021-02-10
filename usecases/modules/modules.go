@@ -19,7 +19,7 @@ import (
 
 type Module interface {
 	Name() string
-	Init() error
+	Init(params ModuleInitParams) error
 	RootHandler() http.Handler
 }
 
@@ -52,9 +52,9 @@ func (m *Provider) GetAll() []Module {
 	return out
 }
 
-func (m *Provider) Init() error {
+func (m *Provider) Init(params ModuleInitParams) error {
 	for i, mod := range m.GetAll() {
-		if err := mod.Init(); err != nil {
+		if err := mod.Init(params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
 		}
 	}
