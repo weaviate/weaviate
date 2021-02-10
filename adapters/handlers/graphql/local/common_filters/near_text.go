@@ -72,10 +72,12 @@ func extractMovement(input interface{}) traverser.ExploreMove {
 	res := traverser.ExploreMove{}
 	res.Force = float32(moveToMap["force"].(float64))
 
-	keywords := moveToMap["concepts"].([]interface{})
-	res.Values = make([]string, len(keywords))
-	for i, value := range keywords {
-		res.Values[i] = value.(string)
+	keywords, ok := moveToMap["concepts"].([]interface{})
+	if ok {
+		res.Values = make([]string, len(keywords))
+		for i, value := range keywords {
+			res.Values[i] = value.(string)
+		}
 	}
 
 	objects, ok := moveToMap["objects"].([]interface{})
