@@ -633,6 +633,13 @@ func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
 	return errors.Errorf("invalid vectorizer %q", moduleName)
 }
 
+type fakeModuleConfig struct{}
+
+func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {}
+func (f *fakeModuleConfig) ValidateClass(class *models.Class) error {
+	return nil
+}
+
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
@@ -643,7 +650,7 @@ func newSchemaManager() *Manager {
 		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		vectorizerValidator,
+		vectorizerValidator, &fakeModuleConfig{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -690,7 +697,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		&fakeAuthorizer{}, &fakeStopwordDetector{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		&fakeVectorizerValidator{},
+		&fakeVectorizerValidator{}, &fakeModuleConfig{},
 	)
 	require.Nil(t, err)
 

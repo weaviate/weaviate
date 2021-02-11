@@ -141,7 +141,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Contextionary,
 		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules)
+		hnsw.ParseUserConfig, appState.Modules, appState.Modules)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
