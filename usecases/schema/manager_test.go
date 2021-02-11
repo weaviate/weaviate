@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -197,7 +198,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 	})
 
 	require.NotNil(t, err)
-	assert.Equal(t, "unrecognized or unsupported vectorizer \"vectorizer-5000000\"",
+	assert.Equal(t, "vectorizer: invalid vectorizer \"vectorizer-5000000\"",
 		err.Error())
 }
 
@@ -620,13 +621,29 @@ func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
 	return fakeVectorConfig{}, nil
 }
 
+type fakeVectorizerValidator struct {
+	valid string
+}
+
+func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
+	if moduleName == f.valid {
+		return nil
+	}
+
+	return errors.Errorf("invalid vectorizer %q", moduleName)
+}
+
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
+	vectorizerValidator := &fakeVectorizerValidator{
+		valid: config.VectorizerModuleText2VecContextionary,
+	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(),
 		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
+		vectorizerValidator,
 	)
 	if err != nil {
 		panic(err.Error())
@@ -673,6 +690,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		&fakeAuthorizer{}, &fakeStopwordDetector{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
+		&fakeVectorizerValidator{},
 	)
 	require.Nil(t, err)
 

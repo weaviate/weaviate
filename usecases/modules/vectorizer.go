@@ -10,6 +10,21 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
+func (m *Provider) ValidateVectorizer(moduleName string) error {
+	mod := m.GetByName(moduleName)
+	if mod == nil {
+		return errors.Errorf("no module with name %q present", moduleName)
+	}
+
+	_, ok := mod.(modulecapabilities.Vectorizer)
+	if !ok {
+		return errors.Errorf("module %q exists, but does not provide the "+
+			"Vectorizer capability", moduleName)
+	}
+
+	return nil
+}
+
 func (m *Provider) Vectorizer(moduleName, className string) (objects.Vectorizer, error) {
 	mod := m.GetByName(moduleName)
 	if mod == nil {
