@@ -213,50 +213,51 @@ func (m *Manager) indexPropertyInVectorIndex(in interface{}) bool {
 	return !skipBool
 }
 
-// TODO: This validates text2vec-contextionary specific logic
-//
-// Generally the user is free to "noindex" as many properties as they want.
-// However, we need to be able to build a vector from every object imported. If
-// the user decides not to index the classname and additionally no-indexes all
-// usabled (i.e. text/string) properties, we know for a fact, that we won't be
-// able to build a vector. In this case we should fail early and deny
-// validation.
-func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.Class) error {
-	if class.Vectorizer != "text2vec-contextionary" {
-		// this is text2vec-contextionary specific, so skip in other cases
-		return nil
-	}
+// TODO: move to or replace with module
+// // TODO: This validates text2vec-contextionary specific logic
+// //
+// // Generally the user is free to "noindex" as many properties as they want.
+// // However, we need to be able to build a vector from every object imported. If
+// // the user decides not to index the classname and additionally no-indexes all
+// // usabled (i.e. text/string) properties, we know for a fact, that we won't be
+// // able to build a vector. In this case we should fail early and deny
+// // validation.
+// func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.Class) error {
+// 	if class.Vectorizer != "text2vec-contextionary" {
+// 		// this is text2vec-contextionary specific, so skip in other cases
+// 		return nil
+// 	}
 
-	if VectorizeClassName(class) {
-		// if the user chooses to vectorize the classname, vector-building will
-		// always be possible, no need to investigate further
+// 	if VectorizeClassName(class) {
+// 		// if the user chooses to vectorize the classname, vector-building will
+// 		// always be possible, no need to investigate further
 
-		return nil
-	}
+// 		return nil
+// 	}
 
-	// search if there is at least one indexed, string/text prop. If found pass validation
-	for _, prop := range class.Properties {
-		if len(prop.DataType) < 1 {
-			return fmt.Errorf("property %s must have at least one datatype, got %v", prop.Name, prop.DataType)
-		}
+// 	// search if there is at least one indexed, string/text prop. If found pass validation
+// 	for _, prop := range class.Properties {
+// 		if len(prop.DataType) < 1 {
+// 			return fmt.Errorf("property %s must have at least one datatype, got %v", prop.Name, prop.DataType)
+// 		}
 
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
-			continue
-		}
+// 		if prop.DataType[0] != string(schema.DataTypeString) &&
+// 			prop.DataType[0] != string(schema.DataTypeText) {
+// 			continue
+// 		}
 
-		if m.indexPropertyInVectorIndex(prop.ModuleConfig) {
-			// found at least one, this is a valid schema
-			return nil
-		}
-	}
+// 		if m.indexPropertyInVectorIndex(prop.ModuleConfig) {
+// 			// found at least one, this is a valid schema
+// 			return nil
+// 		}
+// 	}
 
-	return fmt.Errorf("invalid properties: didn't find a single property which is of type string or text " +
-		"and is not excluded from indexing. In addition the class name is excluded from vectorization as well, " +
-		"meaning that it cannot be used to determine the vector position. To fix this, set " +
-		"'vectorizeClassName' to true if the class name is contextionary-valid. Alternatively add at least " +
-		"contextionary-valid text/string property which is not excluded from indexing.")
-}
+// 	return fmt.Errorf("invalid properties: didn't find a single property which is of type string or text " +
+// 		"and is not excluded from indexing. In addition the class name is excluded from vectorization as well, " +
+// 		"meaning that it cannot be used to determine the vector position. To fix this, set " +
+// 		"'vectorizeClassName' to true if the class name is contextionary-valid. Alternatively add at least " +
+// 		"contextionary-valid text/string property which is not excluded from indexing.")
+// }
 
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
 	if err := m.validateVectorizer(ctx, class); err != nil {

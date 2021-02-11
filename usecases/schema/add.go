@@ -78,6 +78,8 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
 	}
+
+	m.moduleConfig.SetClassDefaults(class)
 }
 
 func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
@@ -119,15 +121,12 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		}
 	}
 
-	// The user has the option to no-index select properties, but if they
-	// no-index every prop, there is a chance we don't have enough info to build
-	// vectors. See validation function for details.
-	err = m.validatePropertyIndexState(ctx, class)
+	err = m.validateVectorSettings(ctx, class)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateVectorSettings(ctx, class)
+	err = m.moduleConfig.ValidateClass(class)
 	if err != nil {
 		return err
 	}

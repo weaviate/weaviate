@@ -703,52 +703,53 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	})
 }
 
-func Test_AllUsablePropsNoindexed(t *testing.T) {
-	t.Run("all schema vectorization turned off", func(t *testing.T) {
-		class := &models.Class{
-			Vectorizer: "text2vec-contextionary",
-			Class:      "ValidName",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": false,
-				},
-			},
-			Properties: []*models.Property{
-				{
-					DataType: []string{"text"},
-					Name:     "decsription",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-				{
-					DataType: []string{"string"},
-					Name:     "name",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-				{
-					DataType: []string{"int"},
-					Name:     "amount",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-			},
-		}
+// TODO: move to module
+// func Test_AllUsablePropsNoindexed(t *testing.T) {
+// 	t.Run("all schema vectorization turned off", func(t *testing.T) {
+// 		class := &models.Class{
+// 			Vectorizer: "text2vec-contextionary",
+// 			Class:      "ValidName",
+// 			ModuleConfig: map[string]interface{}{
+// 				"text2vec-contextionary": map[string]interface{}{
+// 					"vectorizeClassName": false,
+// 				},
+// 			},
+// 			Properties: []*models.Property{
+// 				{
+// 					DataType: []string{"text"},
+// 					Name:     "decsription",
+// 					ModuleConfig: map[string]interface{}{
+// 						"text2vec-contextionary": map[string]interface{}{
+// 							"vectorizeClassName": false,
+// 							"skip":               true,
+// 						},
+// 					},
+// 				},
+// 				{
+// 					DataType: []string{"string"},
+// 					Name:     "name",
+// 					ModuleConfig: map[string]interface{}{
+// 						"text2vec-contextionary": map[string]interface{}{
+// 							"vectorizeClassName": false,
+// 							"skip":               true,
+// 						},
+// 					},
+// 				},
+// 				{
+// 					DataType: []string{"int"},
+// 					Name:     "amount",
+// 					ModuleConfig: map[string]interface{}{
+// 						"text2vec-contextionary": map[string]interface{}{
+// 							"vectorizeClassName": false,
+// 							"skip":               true,
+// 						},
+// 					},
+// 				},
+// 			},
+// 		}
 
-		m := newSchemaManager()
-		err := m.AddObject(context.Background(), nil, class)
-		assert.NotNil(t, err)
-	})
-}
+// 		m := newSchemaManager()
+// 		err := m.AddObject(context.Background(), nil, class)
+// 		assert.NotNil(t, err)
+// 	})
+// }

@@ -37,6 +37,7 @@ type Manager struct {
 	authorizer          authorizer
 	config              config.Config
 	vectorizerValidator VectorizerValidator
+	moduleConfig        ModuleConfig
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -50,6 +51,11 @@ type SchemaGetter interface {
 
 type VectorizerValidator interface {
 	ValidateVectorizer(moduleName string) error
+}
+
+type ModuleConfig interface {
+	SetClassDefaults(class *models.Class)
+	ValidateClass(class *models.Class) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
@@ -75,7 +81,8 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector, config config.Config,
 	hnswConfigParser VectorConfigParser,
-	vectorizerValidator VectorizerValidator) (*Manager, error) {
+	vectorizerValidator VectorizerValidator,
+	moduleConfig ModuleConfig) (*Manager, error) {
 	m := &Manager{
 		config:              config,
 		migrator:            migrator,
@@ -87,6 +94,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		c11yClient:          c11yClient,
 		hnswConfigParser:    hnswConfigParser,
 		vectorizerValidator: vectorizerValidator,
+		moduleConfig:        moduleConfig,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
