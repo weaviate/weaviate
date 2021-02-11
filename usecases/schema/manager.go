@@ -27,15 +27,16 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator         migrate.Migrator
-	repo             Repo
-	stopwordDetector stopwordDetector
-	c11yClient       c11yClient
-	state            State
-	callbacks        []func(updatedSchema schema.Schema)
-	logger           logrus.FieldLogger
-	authorizer       authorizer
-	config           config.Config
+	migrator            migrate.Migrator
+	repo                Repo
+	stopwordDetector    stopwordDetector
+	c11yClient          c11yClient
+	state               State
+	callbacks           []func(updatedSchema schema.Schema)
+	logger              logrus.FieldLogger
+	authorizer          authorizer
+	config              config.Config
+	vectorizerValidator VectorizerValidator
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -45,6 +46,10 @@ type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
+}
+
+type VectorizerValidator interface {
+	ValidateVectorizer(moduleName string) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
@@ -69,17 +74,19 @@ type c11yClient interface {
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector, config config.Config,
-	hnswConfigParser VectorConfigParser) (*Manager, error) {
+	hnswConfigParser VectorConfigParser,
+	vectorizerValidator VectorizerValidator) (*Manager, error) {
 	m := &Manager{
-		config:           config,
-		migrator:         migrator,
-		repo:             repo,
-		state:            State{},
-		logger:           logger,
-		stopwordDetector: swd,
-		authorizer:       authorizer,
-		c11yClient:       c11yClient,
-		hnswConfigParser: hnswConfigParser,
+		config:              config,
+		migrator:            migrator,
+		repo:                repo,
+		state:               State{},
+		logger:              logger,
+		stopwordDetector:    swd,
+		authorizer:          authorizer,
+		c11yClient:          c11yClient,
+		hnswConfigParser:    hnswConfigParser,
+		vectorizerValidator: vectorizerValidator,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())

@@ -271,12 +271,15 @@ func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Clas
 }
 
 func (m *Manager) validateVectorizer(ctx context.Context, class *models.Class) error {
-	switch class.Vectorizer {
-	case config.VectorizerModuleNone, config.VectorizerModuleText2VecContextionary:
+	if class.Vectorizer == config.VectorizerModuleNone {
 		return nil
-	default:
-		return errors.Errorf("unrecognized or unsupported vectorizer %q", class.Vectorizer)
 	}
+
+	if err := m.vectorizerValidator.ValidateVectorizer(class.Vectorizer); err != nil {
+		return errors.Wrap(err, "vectorizer")
+	}
+
+	return nil
 }
 
 func (m *Manager) validateVectorIndex(ctx context.Context, class *models.Class) error {
