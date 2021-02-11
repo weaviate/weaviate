@@ -20,7 +20,7 @@ import (
 type Module interface {
 	Name() string
 	Init(params ModuleInitParams) error
-	RootHandler() http.Handler
+	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
 }
 
 type Provider struct {

@@ -45,10 +45,11 @@ func Test_ReferencesAdd(t *testing.T) {
 		cfg = &config.WeaviateConfig{}
 		authorizer = &fakeAuthorizer{}
 		vectorizer = &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		manager = NewManager(locks, schemaManager,
-			cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+			cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {

@@ -21,13 +21,13 @@ import (
 // BatchManager manages kind changes in batch at a use-case level , i.e.
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
-	config        *config.WeaviateConfig
-	locks         locks
-	schemaManager schemaManager
-	logger        logrus.FieldLogger
-	authorizer    authorizer
-	vectorRepo    BatchVectorRepo
-	vectorizer    Vectorizer
+	config             *config.WeaviateConfig
+	locks              locks
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	authorizer         authorizer
+	vectorRepo         BatchVectorRepo
+	vectorizerProvider VectorizerProvider
 }
 
 type BatchVectorRepo interface {
@@ -41,16 +41,16 @@ type batchRepoNew interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer Vectorizer, locks locks,
-	schemaManager schemaManager, config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer) *BatchManager {
+func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
+	locks locks, schemaManager schemaManager, config *config.WeaviateConfig,
+	logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
-		config:        config,
-		locks:         locks,
-		schemaManager: schemaManager,
-		logger:        logger,
-		vectorRepo:    vectorRepo,
-		vectorizer:    vectorizer,
-		authorizer:    authorizer,
+		config:             config,
+		locks:              locks,
+		schemaManager:      schemaManager,
+		logger:             logger,
+		vectorRepo:         vectorRepo,
+		vectorizerProvider: vectorizer,
+		authorizer:         authorizer,
 	}
 }

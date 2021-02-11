@@ -24,27 +24,27 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	config        *config.WeaviateConfig
-	locks         locks
-	schemaManager schemaManager
-	logger        logrus.FieldLogger
-	authorizer    authorizer
-	vectorizer    Vectorizer
-	vectorRepo    VectorRepo
-	timeSource    timeSource
-	nnExtender    nnExtender
-	projector     featureProjector
+	config             *config.WeaviateConfig
+	locks              locks
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	authorizer         authorizer
+	vectorizerProvider VectorizerProvider
+	vectorRepo         VectorRepo
+	timeSource         timeSource
+	nnExtender         nnExtender
+	projector          featureProjector
 }
 
 type nnExtender interface {
@@ -60,8 +60,8 @@ type timeSource interface {
 	Now() int64
 }
 
-type Vectorizer interface {
-	Object(ctx context.Context, concept *models.Object) ([]float32, []vectorizer.InputElement, error)
+type VectorizerProvider interface {
+	Vectorizer(moduleName string) (modulecapabilities.Vectorizer, error)
 }
 
 type locks interface {
@@ -92,19 +92,19 @@ type VectorRepo interface {
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo,
+	authorizer authorizer, vectorizer VectorizerProvider, vectorRepo VectorRepo,
 	nnExtender nnExtender, projector featureProjector) *Manager {
 	return &Manager{
-		config:        config,
-		locks:         locks,
-		schemaManager: schemaManager,
-		logger:        logger,
-		vectorizer:    vectorizer,
-		authorizer:    authorizer,
-		vectorRepo:    vectorRepo,
-		nnExtender:    nnExtender,
-		timeSource:    defaultTimeSource{},
-		projector:     projector,
+		config:             config,
+		locks:              locks,
+		schemaManager:      schemaManager,
+		logger:             logger,
+		vectorizerProvider: vectorizer,
+		authorizer:         authorizer,
+		vectorRepo:         vectorRepo,
+		nnExtender:         nnExtender,
+		timeSource:         defaultTimeSource{},
+		projector:          projector,
 	}
 }
 
