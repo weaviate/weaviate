@@ -15,6 +15,7 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type Module interface {
@@ -24,7 +25,12 @@ type Module interface {
 }
 
 type Provider struct {
-	registered map[string]Module
+	registered   map[string]Module
+	schemaGetter schemaGetter
+}
+
+type schemaGetter interface {
+	GetSchemaSkipAuth() schema.Schema
 }
 
 func NewProvider() *Provider {
@@ -50,6 +56,10 @@ func (m *Provider) GetAll() []Module {
 	}
 
 	return out
+}
+
+func (m *Provider) SetSchemaGetter(sg schemaGetter) {
+	m.schemaGetter = sg
 }
 
 func (m *Provider) Init(params ModuleInitParams) error {

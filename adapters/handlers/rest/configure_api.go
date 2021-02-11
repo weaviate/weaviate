@@ -71,7 +71,6 @@ type vectorRepo interface {
 
 type vectorizer interface {
 	traverser.CorpiVectorizer
-	SetIndexChecker(libvectorizer.IndexCheck)
 }
 
 type explorer interface {
@@ -120,7 +119,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	vectorizer = libvectorizer.New(appState.Contextionary, nil)
+	vectorizer = libvectorizer.New(appState.Contextionary)
 	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 		appState.Logger, nnExtender, featureProjector, pathBuilder)
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
@@ -152,7 +151,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.SchemaManager = schemaManager
 
 	vectorRepo.SetSchemaGetter(schemaManager)
-	vectorizer.SetIndexChecker(schemaManager)
+	appState.Modules.SetSchemaGetter(schemaManager)
 
 	err = vectorRepo.WaitForStartup(2 * time.Minute)
 	if err != nil {

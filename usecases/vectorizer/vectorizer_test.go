@@ -145,11 +145,15 @@ func TestVectorizingObjects(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
 
-			v := New(client, indexer)
+			v := New(client)
 
-			err := v.Object(context.Background(), test.input)
+			ic := &fakeIndexCheck{
+				excludedProperty:   test.excludedProperty,
+				skippedProperty:    test.noindex,
+				vectorizeClassName: test.excludedClass != "Car",
+			}
+			err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
@@ -158,28 +162,6 @@ func TestVectorizingObjects(t *testing.T) {
 			assert.ElementsMatch(t, expected, actual)
 		})
 	}
-}
-
-type propertyIndexer struct {
-	noIndex          string
-	excludedClass    string
-	excludedProperty string
-}
-
-func (p *propertyIndexer) IndexedInverted(className, property string) bool {
-	panic("IndexedInverted should not matter to the vectorizer")
-}
-
-func (p *propertyIndexer) IndexedContextionary(className, property string) bool {
-	return property != p.noIndex
-}
-
-func (p *propertyIndexer) VectorizeClassName(class string) bool {
-	return p.excludedClass != class
-}
-
-func (p *propertyIndexer) VectorizePropertyName(class, prop string) bool {
-	return p.excludedProperty != prop
 }
 
 func TestVectorizingActions(t *testing.T) {
@@ -239,10 +221,14 @@ func TestVectorizingActions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
-			v := New(client, indexer)
+			v := New(client)
 
-			err := v.Object(context.Background(), test.input)
+			ic := &fakeIndexCheck{
+				excludedProperty:   test.excludedProperty,
+				skippedProperty:    test.noindex,
+				vectorizeClassName: test.excludedClass != "Flight",
+			}
+			err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
@@ -258,7 +244,6 @@ func TestVectorizingSearchTerms(t *testing.T) {
 		name               string
 		input              []string
 		expectedClientCall []string
-		noindex            string
 	}
 
 	tests := []testCase{
@@ -287,8 +272,7 @@ func TestVectorizingSearchTerms(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex, "", ""}
-			v := New(client, indexer)
+			v := New(client)
 
 			res, err := v.Corpi(context.Background(), test.input)
 

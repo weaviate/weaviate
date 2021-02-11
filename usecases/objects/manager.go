@@ -24,7 +24,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
@@ -61,7 +60,11 @@ type timeSource interface {
 }
 
 type VectorizerProvider interface {
-	Vectorizer(moduleName string) (modulecapabilities.Vectorizer, error)
+	Vectorizer(moduleName, className string) (Vectorizer, error)
+}
+
+type Vectorizer interface {
+	UpdateObject(ctx context.Context, obj *models.Object) error
 }
 
 type locks interface {

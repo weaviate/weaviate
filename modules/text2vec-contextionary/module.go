@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
+	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
@@ -87,7 +88,7 @@ func (m *ContextionaryModule) initConcepts() error {
 }
 
 func (m *ContextionaryModule) initVectorizer() error {
-	m.vectorizer = vectorizer.New(m.appState.Contextionary, m.appState.SchemaManager)
+	m.vectorizer = vectorizer.New(m.appState.Contextionary)
 
 	return nil
 }
@@ -105,8 +106,9 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *ContextionaryModule) UpdateObject(ctx context.Context,
-	obj *models.Object) error {
-	return m.vectorizer.Object(ctx, obj)
+	obj *models.Object, cfg modulecapabilities.ClassConfig) error {
+	icheck := localvectorizer.NewIndexChecker(cfg)
+	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
 // verify we implement the modules.Module interface
