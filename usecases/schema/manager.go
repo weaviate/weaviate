@@ -177,6 +177,7 @@ func (m *Manager) parseVectorIndexConfigs(ctx context.Context, schema *State) er
 	return nil
 }
 
+// TODO: Keep until validation has been migrated
 // TODO: this sholud be part of the text2vec-contextionary module
 // VectorizeClassName is the only safe way to access this property, as it could
 // otherwise be nil. It is also the single place a default is set

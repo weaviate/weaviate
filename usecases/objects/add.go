@@ -120,7 +120,7 @@ func (m *Manager) obtainVector(ctx context.Context, class *models.Object,
 			return NewErrInvalidUserInput("%v", err)
 		}
 	} else {
-		vectorizer, err := m.vectorizerProvider.Vectorizer(vectorizerName)
+		vectorizer, err := m.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
 		if err != nil {
 			return err
 		}

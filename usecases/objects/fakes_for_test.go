@@ -17,7 +17,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/projector"
@@ -66,7 +65,7 @@ type fakeVectorizerProvider struct {
 	vectorizer *fakeVectorizer
 }
 
-func (f *fakeVectorizerProvider) Vectorizer(modName string) (modulecapabilities.Vectorizer, error) {
+func (f *fakeVectorizerProvider) Vectorizer(modName, className string) (Vectorizer, error) {
 	return f.vectorizer, nil
 }
 

@@ -180,7 +180,7 @@ func (b *BatchManager) obtainVector(ctx context.Context, class *models.Object,
 			return NewErrInvalidUserInput("%v", err)
 		}
 	} else {
-		vectorizer, err := b.vectorizerProvider.Vectorizer(vectorizerName)
+		vectorizer, err := b.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
 		if err != nil {
 			return err
 		}

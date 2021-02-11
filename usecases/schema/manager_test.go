@@ -64,7 +64,6 @@ var schemaTests = []struct {
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddObjectClass", fn: testAddObjectClass},
-	{name: "AddObjectClassWithVectorizedName", fn: testAddObjectClassWithVectorizedName},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
 	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
@@ -125,7 +124,6 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
-	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
 }
@@ -155,7 +153,6 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
@@ -182,7 +179,6 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
@@ -223,29 +219,6 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 	require.NotNil(t, err)
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType "+
 		"\"vector-index-2-million\"", err.Error())
-}
-
-func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	objectClasses := testGetClassNames(lsm)
-	assert.NotContains(t, objectClasses, "Car")
-
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Vectorizer: "text2vec-contextionary",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
-	})
-
-	assert.Nil(t, err)
-
-	objectClasses = testGetClassNames(lsm)
-	assert.Contains(t, objectClasses, "Car")
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testRemoveObjectClass(t *testing.T, lsm *Manager) {
@@ -442,10 +415,6 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	assert.False(t, lsm.IndexedContextionary("Car", "colorRaw"), "color should not be indexed")
 	assert.True(t, lsm.IndexedInverted("Car", "allDefault"), "allDefault should be indexed")
 	assert.True(t, lsm.IndexedContextionary("Car", "allDefault"), "allDefault should be indexed")
-
-	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
-	assert.False(t, lsm.VectorizePropertyName("Car", "allDefault"), "allDefault prop should not be vectorized")
-	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
 }
 
 func pointerToFalse() *bool {

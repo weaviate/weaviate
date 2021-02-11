@@ -1,11 +1,16 @@
 package modules
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
-func (m *Provider) Vectorizer(moduleName string) (modulecapabilities.Vectorizer, error) {
+func (m *Provider) Vectorizer(moduleName, className string) (objects.Vectorizer, error) {
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return nil, errors.Errorf("no module with name %q present", moduleName)
@@ -17,5 +22,27 @@ func (m *Provider) Vectorizer(moduleName string) (modulecapabilities.Vectorizer,
 			"Vectorizer capability", moduleName)
 	}
 
-	return vec, nil
+	sch := m.schemaGetter.GetSchemaSkipAuth()
+	class := sch.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, errors.Errorf("class %q not found in schema", className)
+	}
+
+	cfg := NewClassBasedModuleConfig(class, moduleName)
+	return NewObjectsVectorizer(vec, cfg), nil
+}
+
+type ObjectsVectorizer struct {
+	modVectorizer modulecapabilities.Vectorizer
+	cfg           *ClassBasedModuleConfig
+}
+
+func NewObjectsVectorizer(vec modulecapabilities.Vectorizer,
+	cfg *ClassBasedModuleConfig) *ObjectsVectorizer {
+	return &ObjectsVectorizer{modVectorizer: vec, cfg: cfg}
+}
+
+func (ov *ObjectsVectorizer) UpdateObject(ctx context.Context,
+	obj *models.Object) error {
+	return ov.modVectorizer.UpdateObject(ctx, obj, ov.cfg)
 }
