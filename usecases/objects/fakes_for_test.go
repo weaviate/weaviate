@@ -17,11 +17,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -62,13 +62,22 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+type fakeVectorizerProvider struct {
+	vectorizer *fakeVectorizer
+}
+
+func (f *fakeVectorizerProvider) Vectorizer(modName string) (modulecapabilities.Vectorizer, error) {
+	return f.vectorizer, nil
+}
+
 type fakeVectorizer struct {
 	mock.Mock
 }
 
-func (f *fakeVectorizer) Object(ctx context.Context, object *models.Object) ([]float32, []vectorizer.InputElement, error) {
+func (f *fakeVectorizer) UpdateObject(ctx context.Context, object *models.Object) error {
 	args := f.Called(object)
-	return args.Get(0).([]float32), nil, args.Error(1)
+	object.Vector = args.Get(0).([]float32)
+	return args.Error(1)
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {

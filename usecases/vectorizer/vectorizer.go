@@ -64,13 +64,28 @@ func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
 }
 
 // Object object to vector
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object) ([]float32, []InputElement, error) {
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object) error {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
 	}
 
-	return v.object(ctx, object.Class, object.Properties, overrides)
+	vec, sources, err := v.object(ctx, object.Class, object.Properties, overrides)
+	if err != nil {
+		return err
+	}
+
+	object.Vector = vec
+
+	if object.Additional == nil {
+		object.Additional = &models.AdditionalProperties{}
+	}
+
+	object.Additional.Interpretation = &models.Interpretation{
+		Source: sourceFromInputElements(sources),
+	}
+
+	return nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
@@ -177,4 +192,17 @@ type InputElement struct {
 	Concept    string
 	Weight     float32
 	Occurrence uint64
+}
+
+func sourceFromInputElements(in []InputElement) []*models.InterpretationSource {
+	out := make([]*models.InterpretationSource, len(in))
+	for i, elem := range in {
+		out[i] = &models.InterpretationSource{
+			Concept:    elem.Concept,
+			Occurrence: elem.Occurrence,
+			Weight:     float64(elem.Weight),
+		}
+	}
+
+	return out
 }

@@ -129,9 +129,10 @@ func Test_Kinds_Authorization(t *testing.T) {
 				extender := &fakeExtender{}
 				projector := &fakeProjector{}
 				vectorizer := &fakeVectorizer{}
+				vecProvider := &fakeVectorizerProvider{vectorizer}
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
-					cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+					cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
@@ -198,7 +199,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			authorizer := &authDenier{}
 			vectorRepo := &fakeVectorRepo{}
 			vectorizer := &fakeVectorizer{}
-			manager := NewBatchManager(vectorRepo, vectorizer, locks, schemaManager, cfg, logger, authorizer)
+			vecProvider := &fakeVectorizerProvider{vectorizer}
+			manager := NewBatchManager(vectorRepo, vecProvider, locks, schemaManager, cfg, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
