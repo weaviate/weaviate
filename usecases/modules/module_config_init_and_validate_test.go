@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -223,7 +224,7 @@ func (d *dummyModuleClassConfigurator) PropertyConfigDefaults(
 }
 
 func (d *dummyModuleClassConfigurator) ValidateClass(
-	class *models.Class, cfg modulecapabilities.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig) error {
 	return d.validateError
 }
 

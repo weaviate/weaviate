@@ -59,5 +59,5 @@ func NewObjectsVectorizer(vec modulecapabilities.Vectorizer,
 
 func (ov *ObjectsVectorizer) UpdateObject(ctx context.Context,
 	obj *models.Object) error {
-	return ov.modVectorizer.UpdateObject(ctx, obj, ov.cfg)
+	return ov.modVectorizer.VectorizeObject(ctx, obj, ov.cfg)
 }
