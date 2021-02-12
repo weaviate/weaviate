@@ -69,5 +69,18 @@ func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 }
 
 func (p *Provider) ValidateClass(class *models.Class) error {
-	return nil
+	if class.Vectorizer == "none" {
+		// the class does not use a vectorizer, nothing to do for us
+		return nil
+	}
+
+	mod := p.GetByName(class.Vectorizer)
+	cc, ok := mod.(modulecapabilities.ClassConfigurator)
+	if !ok {
+		// the module exists, but is not a class configurator, nothing to do for us
+		return nil
+	}
+
+	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
+	return cc.ValidateClass(class, cfg)
 }
