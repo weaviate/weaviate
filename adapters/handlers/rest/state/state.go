@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
+	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -31,16 +32,16 @@ import (
 // NOTE: This is not true yet, se gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC             *oidc.Client
-	AnonymousAccess  *anonymous.Client
-	Authorizer       authorization.Authorizer
-	ServerConfig     *config.WeaviateConfig
-	Locks            locks.ConnectorSchemaLock
-	Logger           *logrus.Logger
-	GraphQL          graphql.GraphQL
-	Contextionary    contextionary
-	StopwordDetector stopwordDetector
-	Modules          *modules.Provider
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	Authorizer      authorization.Authorizer
+	ServerConfig    *config.WeaviateConfig
+	Locks           locks.ConnectorSchemaLock
+	Logger          *logrus.Logger
+	GraphQL         graphql.GraphQL
+	Contextionary   contextionary // TODO: this must be removed during the modularization migration
+	Modules         *modules.Provider
+	SchemaManager   *schema.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -50,10 +51,6 @@ type State struct {
 // type gqlProvider interface { GetGraphQL graphql.GraphQL }
 func (s *State) GetGraphQL() graphql.GraphQL {
 	return s.GraphQL
-}
-
-type stopwordDetector interface {
-	IsStopWord(ctx context.Context, word string) (bool, error)
 }
 
 type contextionary interface {

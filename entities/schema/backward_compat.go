@@ -82,6 +82,9 @@ func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, e
 
 	// For each data type
 	for _, dataType := range prop.DataType {
+		if len(dataType) == 0 {
+			return nil, fmt.Errorf("invalid-dataType")
+		}
 		// Get the first letter to see if it is a capital
 		firstLetter := string(dataType[0])
 		if strings.ToUpper(firstLetter) == firstLetter {
