@@ -70,9 +70,7 @@ type vectorRepo interface {
 }
 
 type vectorizer interface {
-	objects.Vectorizer
 	traverser.CorpiVectorizer
-	SetIndexChecker(libvectorizer.IndexCheck)
 }
 
 type explorer interface {
@@ -82,6 +80,13 @@ type explorer interface {
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState := startupRoutine()
+
+	err := registerModules(appState)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
 
 	validateContextionaryVersion(appState)
 
@@ -114,10 +119,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	vectorizer = libvectorizer.New(appState.Contextionary, nil)
+	vectorizer = libvectorizer.New(appState.Contextionary)
 	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 		appState.Logger, nnExtender, featureProjector, pathBuilder)
-	var err error
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -135,18 +139,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Logger, appState.Contextionary,
-		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig)
+		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+		hnsw.ParseUserConfig, appState.Modules, appState.Modules)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+	appState.SchemaManager = schemaManager
 
 	vectorRepo.SetSchemaGetter(schemaManager)
-	vectorizer.SetIndexChecker(schemaManager)
+	appState.Modules.SetSchemaGetter(schemaManager)
 
 	err = vectorRepo.WaitForStartup(2 * time.Minute)
 	if err != nil {
@@ -159,9 +163,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	kindsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorizer, vectorRepo, nnExtender, featureProjector)
-	batchKindsManager := objects.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
-		schemaManager, appState.ServerConfig, appState.Logger,
+		appState.Authorizer, appState.Modules, vectorRepo, nnExtender, featureProjector)
+	batchKindsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
+		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
@@ -190,13 +194,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	err = registerModules(appState)
+	err = initModules(appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
+			Fatal("modules didn't initialize")
 	}
-
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
@@ -250,16 +253,12 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("initialized stopword detector")
-
 	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Fatal("cannot create c11y client")
 	}
 
-	appState.StopwordDetector = c11y
 	appState.Contextionary = c11y
 
 	return appState
@@ -341,17 +340,7 @@ func validateContextionaryVersion(appState *state.State) {
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
-	storageProvider, err := modulestorage.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err != nil {
-		return errors.Wrap(err, "init storage provider")
-	}
-
 	appState.Modules = modules.NewProvider()
-
-	// TODO: don't pass entire appState in, but only what's needed. Probably only
-	// config?
-	moduleParams := modules.NewInitParams(storageProvider, appState)
 
 	enabledModules := map[string]bool{}
 	if len(appState.ServerConfig.Config.EnableModules) > 0 {
@@ -384,10 +373,23 @@ func registerModules(appState *state.State) error {
 		appState.Modules.Register(module)
 	}
 
-	appState.Modules.Register(modcontextionary.New(storageProvider, appState))
+	appState.Modules.Register(modcontextionary.New())
 
-	err = appState.Modules.Init(moduleParams)
+	return nil
+}
+
+func initModules(appState *state.State) error {
+	storageProvider, err := modulestorage.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
+		return errors.Wrap(err, "init storage provider")
+	}
+
+	// TODO: don't pass entire appState in, but only what's needed. Probably only
+	// config?
+	moduleParams := modules.NewInitParams(storageProvider, appState)
+
+	if err := appState.Modules.Init(moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 

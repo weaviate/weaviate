@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -64,7 +63,6 @@ var schemaTests = []struct {
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddObjectClass", fn: testAddObjectClass},
-	{name: "AddObjectClassWithVectorizedName", fn: testAddObjectClassWithVectorizedName},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
 	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
@@ -125,7 +123,6 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
-	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
 }
@@ -155,7 +152,6 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
@@ -182,7 +178,6 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleText2VecContextionary, objectClasses[0].Vectorizer)
 	assert.Equal(t, "hnsw", objectClasses[0].VectorIndexType)
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
@@ -201,7 +196,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 	})
 
 	require.NotNil(t, err)
-	assert.Equal(t, "unrecognized or unsupported vectorizer \"vectorizer-5000000\"",
+	assert.Equal(t, "vectorizer: invalid vectorizer \"vectorizer-5000000\"",
 		err.Error())
 }
 
@@ -223,29 +218,6 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 	require.NotNil(t, err)
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType "+
 		"\"vector-index-2-million\"", err.Error())
-}
-
-func testAddObjectClassWithVectorizedName(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	objectClasses := testGetClassNames(lsm)
-	assert.NotContains(t, objectClasses, "Car")
-
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Vectorizer: "text2vec-contextionary",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
-	})
-
-	assert.Nil(t, err)
-
-	objectClasses = testGetClassNames(lsm)
-	assert.Contains(t, objectClasses, "Car")
-	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testRemoveObjectClass(t *testing.T, lsm *Manager) {
@@ -437,15 +409,8 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
 
 	assert.True(t, lsm.IndexedInverted("Car", "color"), "color should be indexed")
-	assert.True(t, lsm.IndexedContextionary("Car", "color"), "color should be indexed")
 	assert.False(t, lsm.IndexedInverted("Car", "colorRaw"), "color should not be indexed")
-	assert.False(t, lsm.IndexedContextionary("Car", "colorRaw"), "color should not be indexed")
 	assert.True(t, lsm.IndexedInverted("Car", "allDefault"), "allDefault should be indexed")
-	assert.True(t, lsm.IndexedContextionary("Car", "allDefault"), "allDefault should be indexed")
-
-	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
-	assert.False(t, lsm.VectorizePropertyName("Car", "allDefault"), "allDefault prop should not be vectorized")
-	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
 }
 
 func pointerToFalse() *bool {
@@ -641,23 +606,16 @@ func TestSchema(t *testing.T) {
 	})
 }
 
-type fakeVectorConfig struct{}
-
-func (f fakeVectorConfig) IndexType() string {
-	return "fake"
-}
-
-func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
-	return fakeVectorConfig{}, nil
-}
-
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(),
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
+	vectorizerValidator := &fakeVectorizerValidator{
+		valid: config.VectorizerModuleText2VecContextionary,
+	}
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
+		vectorizerValidator, &fakeModuleConfig{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -700,10 +658,10 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 			}},
 		},
 	}
-	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeC11y{},
-		&fakeAuthorizer{}, &fakeStopwordDetector{},
+	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
+		&fakeVectorizerValidator{}, &fakeModuleConfig{},
 	)
 	require.Nil(t, err)
 

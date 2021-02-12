@@ -52,7 +52,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewBatchManager(vectorRepo, vectorizer, locks,
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewBatchManager(vectorRepo, vecProvider, locks,
 			schemaManager, config, logger, authorizer)
 	}
 
@@ -187,8 +188,9 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
 		vectorizer := &fakeVectorizer{}
-		vectorizer.On("Object", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewBatchManager(vectorRepo, vectorizer, locks,
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
+		manager = NewBatchManager(vectorRepo, vecProvider, locks,
 			schemaManager, config, logger, authorizer)
 	}
 
