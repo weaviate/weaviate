@@ -14,7 +14,9 @@ package schema
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type fakeRepo struct {
@@ -34,34 +36,37 @@ func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
 	return nil
 }
 
-type fakeC11y struct {
-}
-
-func (f *fakeC11y) GetNumberOfItems() int {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetVectorLength() int {
-	panic("not implemented")
-}
-
-// Every word in this fake c11y is present with the same position (4), except
-// for the word Carrot which is not present
-func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
-	if word == "carrot" || word == "the" {
-		return false, nil
-	}
-	return true, nil
-}
-
-type fakeStopwordDetector struct{}
-
-func (f *fakeStopwordDetector) IsStopWord(ctx context.Context, word string) (bool, error) {
-	return word == "the", nil
-}
-
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
+}
+
+type fakeVectorConfig struct{}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
+}
+
+func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
+	return fakeVectorConfig{}, nil
+}
+
+type fakeVectorizerValidator struct {
+	valid string
+}
+
+func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
+	if moduleName == f.valid {
+		return nil
+	}
+
+	return errors.Errorf("invalid vectorizer %q", moduleName)
+}
+
+type fakeModuleConfig struct{}
+
+func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {}
+func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }

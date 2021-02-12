@@ -26,8 +26,7 @@ import (
 
 // Vectorizer turns objects into vectors
 type Vectorizer struct {
-	client     client
-	indexCheck IndexCheck
+	client client
 }
 
 type ErrNoUsableWords struct {
@@ -48,48 +47,62 @@ type client interface {
 }
 
 // IndexCheck returns whether a property of a class should be indexed
-type IndexCheck interface {
-	IndexedContextionary(className, property string) bool
-	VectorizeClassName(className string) bool
-	VectorizePropertyName(className, propertyName string) bool
+type ClassIndexCheck interface {
+	PropertyIndexed(property string) bool
+	VectorizeClassName() bool
+	VectorizePropertyName(propertyName string) bool
 }
 
 // New from c11y client
-func New(client client, indexCheck IndexCheck) *Vectorizer {
-	return &Vectorizer{client, indexCheck}
-}
-
-func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
-	v.indexCheck = ic
+func New(client client) *Vectorizer {
+	return &Vectorizer{client}
 }
 
 // Object object to vector
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object) ([]float32, []InputElement, error) {
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
+	icheck ClassIndexCheck) error {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
 	}
 
-	return v.object(ctx, object.Class, object.Properties, overrides)
+	vec, sources, err := v.object(ctx, object.Class, object.Properties, overrides,
+		icheck)
+	if err != nil {
+		return err
+	}
+
+	object.Vector = vec
+
+	if object.Additional == nil {
+		object.Additional = &models.AdditionalProperties{}
+	}
+
+	object.Additional.Interpretation = &models.Interpretation{
+		Source: sourceFromInputElements(sources),
+	}
+
+	return nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, overrides map[string]string) ([]float32, []InputElement, error) {
+	schema interface{}, overrides map[string]string,
+	icheck ClassIndexCheck) ([]float32, []InputElement, error) {
 	var corpi []string
 
-	if v.indexCheck.VectorizeClassName(className) {
+	if icheck.VectorizeClassName() {
 		corpi = append(corpi, camelCaseToLower(className))
 	}
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
-			if !v.indexCheck.IndexedContextionary(className, prop) {
+			if !icheck.PropertyIndexed(prop) {
 				continue
 			}
 
 			valueString, ok := value.(string)
 			if ok {
-				if v.indexCheck.VectorizePropertyName(className, prop) {
+				if icheck.VectorizePropertyName(prop) {
 					// use prop and value
 					corpi = append(corpi, strings.ToLower(
 						fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
@@ -177,4 +190,17 @@ type InputElement struct {
 	Concept    string
 	Weight     float32
 	Occurrence uint64
+}
+
+func sourceFromInputElements(in []InputElement) []*models.InterpretationSource {
+	out := make([]*models.InterpretationSource, len(in))
+	for i, elem := range in {
+		out[i] = &models.InterpretationSource{
+			Concept:    elem.Concept,
+			Occurrence: elem.Occurrence,
+			Weight:     float64(elem.Weight),
+		}
+	}
+
+	return out
 }

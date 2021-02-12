@@ -42,7 +42,9 @@ func Test_Delete_Action(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
+			vectorRepo, extender, projector)
 	}
 
 	reset()
@@ -78,7 +80,9 @@ func Test_Delete_Thing(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
+			vectorRepo, extender, projector)
 	}
 
 	reset()

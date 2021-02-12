@@ -35,3 +35,21 @@ func (c *fakeClient) NearestWordsByVector(ctx context.Context,
 func (c *fakeClient) IsWordPresent(ctx context.Context, word string) (bool, error) {
 	return true, nil
 }
+
+type fakeIndexCheck struct {
+	skippedProperty    string
+	vectorizeClassName bool
+	excludedProperty   string
+}
+
+func (f *fakeIndexCheck) PropertyIndexed(propName string) bool {
+	return f.skippedProperty != propName
+}
+
+func (f *fakeIndexCheck) VectorizePropertyName(propName string) bool {
+	return f.excludedProperty != propName
+}
+
+func (f *fakeIndexCheck) VectorizeClassName() bool {
+	return f.vectorizeClassName
+}

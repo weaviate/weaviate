@@ -12,21 +12,23 @@
 package modcontextionary
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
+	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
-func New(sp modules.StorageProvider, state *state.State) *ContextionaryModule {
-	return &ContextionaryModule{
-		storageProvider: sp,
-		appState:        state,
-	}
+func New() *ContextionaryModule {
+	return &ContextionaryModule{}
 }
 
 // ContextionaryModule for now only handles storage and retrival of extensions,
@@ -37,6 +39,13 @@ type ContextionaryModule struct {
 	extensions      *extensions.RESTHandlers
 	concepts        *concepts.RESTHandlers
 	appState        *state.State
+	vectorizer      *vectorizer.Vectorizer
+	configValidator configValidator
+}
+
+type configValidator interface {
+	Do(ctx context.Context, class *models.Class, cfg moduletools.ClassConfig,
+		indexChecker localvectorizer.IndexChecker) error
 }
 
 func (m *ContextionaryModule) Name() string {
@@ -44,15 +53,12 @@ func (m *ContextionaryModule) Name() string {
 }
 
 func (m *ContextionaryModule) Init(params modules.ModuleInitParams) error {
-	if m.storageProvider == nil && params.GetStorageProvider() != nil {
-		m.storageProvider = params.GetStorageProvider()
+	m.storageProvider = params.GetStorageProvider()
+	appState, ok := params.GetAppState().(*state.State)
+	if !ok {
+		return errors.Errorf("appState is not a *state.State")
 	}
-	if m.appState == nil && params.GetAppState() != nil {
-		appState, ok := params.GetAppState().(*state.State)
-		if ok {
-			m.appState = appState
-		}
-	}
+	m.appState = appState
 
 	if err := m.initExtensions(); err != nil {
 		return errors.Wrap(err, "init extensions")
@@ -60,6 +66,10 @@ func (m *ContextionaryModule) Init(params modules.ModuleInitParams) error {
 
 	if err := m.initConcepts(); err != nil {
 		return errors.Wrap(err, "init concepts")
+	}
+
+	if err := m.initVectorizer(); err != nil {
+		return errors.Wrap(err, "init vectorizer")
 	}
 
 	return nil
@@ -84,6 +94,18 @@ func (m *ContextionaryModule) initConcepts() error {
 	return nil
 }
 
+func (m *ContextionaryModule) initVectorizer() error {
+	m.vectorizer = vectorizer.New(m.appState.Contextionary)
+	rc, ok := m.appState.Contextionary.(localvectorizer.RemoteClient)
+	if !ok {
+		return errors.Errorf("invalid contextionary remote client")
+	}
+
+	m.configValidator = localvectorizer.NewConfigValidator(rc)
+
+	return nil
+}
+
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -96,5 +118,14 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 	return mux
 }
 
+func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
+	obj *models.Object, cfg moduletools.ClassConfig) error {
+	icheck := localvectorizer.NewIndexChecker(cfg)
+	return m.vectorizer.Object(ctx, obj, icheck)
+}
+
 // verify we implement the modules.Module interface
-var _ = modules.Module(New(nil, nil))
+var (
+	_ = modules.Module(New())
+	_ = modulecapabilities.Vectorizer(New())
+)

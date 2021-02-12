@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 type schemaManager interface {
@@ -111,33 +110,24 @@ func (m *Manager) getVectorizerOfClass(className string,
 
 func (m *Manager) obtainVector(ctx context.Context, class *models.Object,
 	principal *models.Principal) error {
-	vectorizer, err := m.getVectorizerOfClass(class.Class, principal)
+	vectorizerName, err := m.getVectorizerOfClass(class.Class, principal)
 	if err != nil {
 		return err
 	}
 
-	// TODO: dynamically discover modules and lose any understanding of internals
-	// of modules
-	switch vectorizer {
-	case config.VectorizerModuleNone:
+	if vectorizerName == config.VectorizerModuleNone {
 		if err := m.validateVectorPresent(class); err != nil {
 			return NewErrInvalidUserInput("%v", err)
 		}
-	case config.VectorizerModuleText2VecContextionary:
-		v, source, err := m.vectorizer.Object(ctx, class)
+	} else {
+		vectorizer, err := m.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
 		if err != nil {
-			return NewErrInternal("text2vec-contextionary: vectorize: %v", err)
+			return err
 		}
 
-		if class.Additional == nil {
-			class.Additional = &models.AdditionalProperties{}
+		if err := vectorizer.UpdateObject(ctx, class); err != nil {
+			return NewErrInternal("%v", err)
 		}
-
-		class.Additional.Interpretation = &models.Interpretation{
-			Source: sourceFromInputElements(source),
-		}
-
-		class.Vector = v
 	}
 
 	return nil
@@ -166,19 +156,6 @@ func (m *Manager) validateVectorPresent(class *models.Object) error {
 	}
 
 	return nil
-}
-
-func sourceFromInputElements(in []vectorizer.InputElement) []*models.InterpretationSource {
-	out := make([]*models.InterpretationSource, len(in))
-	for i, elem := range in {
-		out[i] = &models.InterpretationSource{
-			Concept:    elem.Concept,
-			Occurrence: elem.Occurrence,
-			Weight:     float64(elem.Weight),
-		}
-	}
-
-	return out
 }
 
 func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, class *models.Object) error {

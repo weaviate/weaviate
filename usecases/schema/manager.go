@@ -27,15 +27,15 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator         migrate.Migrator
-	repo             Repo
-	stopwordDetector stopwordDetector
-	c11yClient       c11yClient
-	state            State
-	callbacks        []func(updatedSchema schema.Schema)
-	logger           logrus.FieldLogger
-	authorizer       authorizer
-	config           config.Config
+	migrator            migrate.Migrator
+	repo                Repo
+	state               State
+	callbacks           []func(updatedSchema schema.Schema)
+	logger              logrus.FieldLogger
+	authorizer          authorizer
+	config              config.Config
+	vectorizerValidator VectorizerValidator
+	moduleConfig        ModuleConfig
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -45,6 +45,15 @@ type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
+}
+
+type VectorizerValidator interface {
+	ValidateVectorizer(moduleName string) error
+}
+
+type ModuleConfig interface {
+	SetClassDefaults(class *models.Class)
+	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
@@ -57,29 +66,21 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
-type stopwordDetector interface {
-	IsStopWord(ctx context.Context, word string) (bool, error)
-}
-
-type c11yClient interface {
-	IsWordPresent(ctx context.Context, word string) (bool, error)
-}
-
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
-	logger logrus.FieldLogger, c11yClient c11yClient,
-	authorizer authorizer, swd stopwordDetector, config config.Config,
-	hnswConfigParser VectorConfigParser) (*Manager, error) {
+	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
+	moduleConfig ModuleConfig) (*Manager, error) {
 	m := &Manager{
-		config:           config,
-		migrator:         migrator,
-		repo:             repo,
-		state:            State{},
-		logger:           logger,
-		stopwordDetector: swd,
-		authorizer:       authorizer,
-		c11yClient:       c11yClient,
-		hnswConfigParser: hnswConfigParser,
+		config:              config,
+		migrator:            migrator,
+		repo:                repo,
+		state:               State{},
+		logger:              logger,
+		authorizer:          authorizer,
+		hnswConfigParser:    hnswConfigParser,
+		vectorizerValidator: vectorizerValidator,
+		moduleConfig:        moduleConfig,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
@@ -175,46 +176,4 @@ func (m *Manager) parseVectorIndexConfigs(ctx context.Context, schema *State) er
 	}
 
 	return nil
-}
-
-// TODO: this sholud be part of the text2vec-contextionary module
-// VectorizeClassName is the only safe way to access this property, as it could
-// otherwise be nil. It is also the single place a default is set
-func VectorizeClassName(class *models.Class) bool {
-	if class.Vectorizer != config.VectorizerModuleText2VecContextionary {
-		// this class doesn't use the text2-vec module, so it can never be true
-		return false
-	}
-
-	const defaultValue = true
-
-	// TODO: This is not the right place to parse module config, as part of the
-	// modularziation this should be done in a different place. However, for now,
-	// with only one hard-coded module, this is helpful:
-	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
-	if !ok {
-		return defaultValue
-	}
-
-	t2vConfig, ok := moduleConfig["text2vec-contextionary"]
-	if !ok {
-		return defaultValue
-	}
-
-	asMap, ok := t2vConfig.(map[string]interface{})
-	if !ok {
-		return defaultValue
-	}
-
-	vCN, ok := asMap["vectorizeClassName"]
-	if !ok {
-		return defaultValue
-	}
-
-	asBool, ok := vCN.(bool)
-	if !ok {
-		return defaultValue
-	}
-
-	return asBool
 }

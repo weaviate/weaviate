@@ -22,147 +22,31 @@ import (
 
 func Test_Validation_ClassNames(t *testing.T) {
 	type testCase struct {
-		input     string
-		valid     bool
-		storedAs  string
-		name      string
-		vectorize bool
+		input    string
+		valid    bool
+		storedAs string
+		name     string
 	}
 
-	// TODO: most or all of these contain text2vec-contextionary-specific logic
-	// for all test cases keep in mind that the word "carrot" is not present in
-	// the fake c11y, but every other word is.
-	//
-	// Additionally, the word "the" is a stopword
-	//
 	// all inputs represent class names (!)
 	tests := []testCase{
 		// valid names
-		testCase{
-			name:      "Single uppercase word present in the c11y",
-			input:     "Car",
-			valid:     true,
-			storedAs:  "Car",
-			vectorize: true,
+		{
+			name:     "Single uppercase word",
+			input:    "Car",
+			valid:    true,
+			storedAs: "Car",
 		},
-		testCase{
-			name:      "Single lowercase word present in the c11y, stored as uppercase",
-			input:     "car",
-			valid:     true,
-			storedAs:  "Car",
-			vectorize: true,
+		{
+			name:     "Single lowercase word, stored as uppercase",
+			input:    "car",
+			valid:    true,
+			storedAs: "Car",
 		},
-		testCase{
-			name:      "combination of valid words starting with uppercase letter",
-			input:     "CarGarage",
-			valid:     true,
-			storedAs:  "CarGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words starting with lowercase letter, stored as uppercase",
-			input:     "carGarage",
-			valid:     true,
-			storedAs:  "CarGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words and stopwords, starting with uppercase",
-			input:     "TheCarGarage",
-			valid:     true,
-			storedAs:  "TheCarGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words and stopwords starting with lowercase letter, stored as uppercase",
-			input:     "carTheGarage",
-			valid:     true,
-			storedAs:  "CarTheGarage",
-			vectorize: true,
-		},
-
-		// inavlid names
-		testCase{
-			name:      "Single uppercase word NOT present in the c11y",
-			input:     "Carrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "Single lowercase word NOT present in the c11y",
-			input:     "carrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "Single uppercase stopword",
-			input:     "The",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "Single lowercase stopword",
-			input:     "the",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, valid word first lowercased",
-			input:     "potatoCarrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, valid word first uppercased",
-			input:     "PotatoCarrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, invalid word first lowercased",
-			input:     "carrotPotato",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, invalid word first uppercased",
-			input:     "CarrotPotato",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of only stopwords, starting with lowercase",
-			input:     "theThe",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of only stopwords, starting with uppercase",
-			input:     "TheThe",
-			valid:     false,
-			vectorize: true,
-		},
-
-		// vectorize turned off
-		testCase{
-			name:      "non-vectorized: combination of only stopwords, starting with uppercase",
-			input:     "TheThe",
-			valid:     true,
-			vectorize: false,
-			storedAs:  "TheThe",
-		},
-		testCase{
-			name:      "non-vectorized: excluded word",
-			input:     "carrot",
-			valid:     true,
-			vectorize: false,
-			storedAs:  "Carrot",
-		},
-		testCase{
-			name:      "empty class",
-			input:     "",
-			valid:     false,
-			vectorize: false,
+		{
+			name:  "empty class",
+			input: "",
+			valid: false,
 		},
 	}
 
@@ -170,22 +54,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names without keywords or properties", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					moduleConfig := map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": test.vectorize,
-						},
-					}
-
 					class := &models.Class{
-						Vectorizer:   "text2vec-contextionary",
-						Class:        test.input,
-						ModuleConfig: moduleConfig,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
+						Vectorizer: "text2vec-contextionary",
+						Class:      test.input,
 					}
 
 					m := newSchemaManager()
@@ -207,21 +78,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names with valid keywords", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					moduleConfig := map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": test.vectorize,
-						},
-					}
 					class := &models.Class{
-						Vectorizer:   "text2vec-contextionary",
-						Class:        test.input,
-						ModuleConfig: moduleConfig,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
+						Vectorizer: "text2vec-contextionary",
+						Class:      test.input,
 					}
 
 					m := newSchemaManager()
@@ -246,21 +105,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 			for _, test := range tests {
 				originalName := "ValidOriginalName"
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					moduleConfig := map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": test.vectorize,
-						},
-					}
 					class := &models.Class{
-						Vectorizer:   "text2vec-contextionary",
-						Class:        originalName,
-						ModuleConfig: moduleConfig,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
+						Vectorizer: "text2vec-contextionary",
+						Class:      originalName,
 					}
 
 					m := newSchemaManager()
@@ -293,21 +140,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				originalName := "ValidOriginalName"
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					moduleConfig := map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": test.vectorize,
-						},
-					}
 					class := &models.Class{
-						Vectorizer:   "text2vec-contextionary",
-						Class:        originalName,
-						ModuleConfig: moduleConfig,
-						Properties: []*models.Property{
-							&models.Property{
-								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
-								DataType: []string{"string"},
-							},
-						},
+						Vectorizer: "text2vec-contextionary",
+						Class:      originalName,
 					}
 
 					m := newSchemaManager()
@@ -337,11 +172,10 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 func Test_Validation_PropertyNames(t *testing.T) {
 	type testCase struct {
-		input     string
-		valid     bool
-		storedAs  string
-		name      string
-		vectorize bool
+		input    string
+		valid    bool
+		storedAs string
+		name     string
 	}
 
 	// for all test cases keep in mind that the word "carrot" is not present in
@@ -351,124 +185,21 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	tests := []testCase{
 		// valid names
 		testCase{
-			name:      "Single uppercase word present in the c11y, stored as lowercase",
-			input:     "Brand",
-			valid:     true,
-			storedAs:  "brand",
-			vectorize: true,
+			name:     "Single uppercase word, stored as lowercase",
+			input:    "Brand",
+			valid:    true,
+			storedAs: "brand",
 		},
 		testCase{
-			name:      "Single lowercase word present in the c11y",
-			input:     "brand",
-			valid:     true,
-			storedAs:  "brand",
-			vectorize: true,
+			name:     "Single lowercase word",
+			input:    "brand",
+			valid:    true,
+			storedAs: "brand",
 		},
 		testCase{
-			name:      "combination of valid words starting with uppercase letter, stored as lowercase",
-			input:     "BrandGarage",
-			valid:     true,
-			storedAs:  "brandGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words starting with lowercase letter",
-			input:     "brandGarage",
-			valid:     true,
-			storedAs:  "brandGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words and stop words starting with uppercase letter, stored as lowercase",
-			input:     "TheGarage",
-			valid:     true,
-			storedAs:  "theGarage",
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid words and stop words starting with lowercase letter",
-			input:     "theGarage",
-			valid:     true,
-			storedAs:  "theGarage",
-			vectorize: true,
-		},
-
-		// inavlid names
-		testCase{
-			name:      "Single uppercase word NOT present in the c11y",
-			input:     "Carrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "Single lowercase word NOT present in the c11y",
-			input:     "carrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "Single lowercase stop word",
-			input:     "the",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, valid word first lowercased",
-			input:     "potatoCarrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, valid word first uppercased",
-			input:     "PotatoCarrot",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, invalid word first lowercased",
-			input:     "carrotPotato",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of valid and invalid words, invalid word first uppercased",
-			input:     "CarrotPotato",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of only stop words,  first lowercased",
-			input:     "theThe",
-			valid:     false,
-			vectorize: true,
-		},
-		testCase{
-			name:      "combination of only stop words, first uppercased",
-			input:     "TheThe",
-			valid:     false,
-			vectorize: true,
-		},
-
-		// without vectorizing
-		testCase{
-			name:      "non-vectorizing: combination of only stop words, first uppercased",
-			input:     "TheThe",
-			valid:     true,
-			vectorize: false,
-			storedAs:  "theThe",
-		},
-		testCase{
-			name:      "non-vectorizing: combination of only stop words, first uppercased",
-			input:     "carrot",
-			valid:     true,
-			vectorize: false,
-			storedAs:  "carrot",
-		},
-		testCase{
-			name:      "non-vectorizing: empty",
-			input:     "",
-			valid:     false,
-			vectorize: false,
+			name:  "empty prop name",
+			input: "",
+			valid: false,
 		},
 	}
 
@@ -482,11 +213,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							ModuleConfig: map[string]interface{}{
-								"text2vec-contextionary": map[string]interface{}{
-									"vectorizePropertyName": test.vectorize,
-								},
-							},
 						}},
 					}
 
@@ -516,11 +242,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							ModuleConfig: map[string]interface{}{
-								"text2vec-contextionary": map[string]interface{}{
-									"vectorizePropertyName": test.vectorize,
-								},
-							},
 						}},
 					}
 
@@ -565,9 +286,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						DataType: []string{"string"},
 						Name:     test.input,
 						ModuleConfig: map[string]interface{}{
-							"text2vec-contextionary": map[string]interface{}{
-								"vectorizePropertyName": test.vectorize,
-							},
+							"text2vec-contextionary": map[string]interface{}{},
 						},
 					}
 					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
@@ -595,11 +314,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							ModuleConfig: map[string]interface{}{
-								"text2vec-contextionary": map[string]interface{}{
-									"vectorizePropertyName": test.vectorize,
-								},
-							},
 						}},
 					}
 
@@ -633,12 +347,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{
 							&models.Property{
 								DataType: []string{"string"},
-								ModuleConfig: map[string]interface{}{
-									"text2vec-contextionary": map[string]interface{}{
-										"vectorizePropertyName": test.vectorize,
-									},
-								},
-								Name: originalName,
+								Name:     originalName,
 							},
 						},
 					}
@@ -676,11 +385,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							ModuleConfig: map[string]interface{}{
-								"text2vec-contextionary": map[string]interface{}{
-									"vectorizePropertyName": test.vectorize,
-								},
-							},
 						}},
 					}
 
@@ -700,55 +404,5 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 			}
 		})
-	})
-}
-
-func Test_AllUsablePropsNoindexed(t *testing.T) {
-	t.Run("all schema vectorization turned off", func(t *testing.T) {
-		class := &models.Class{
-			Vectorizer: "text2vec-contextionary",
-			Class:      "ValidName",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": false,
-				},
-			},
-			Properties: []*models.Property{
-				{
-					DataType: []string{"text"},
-					Name:     "decsription",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-				{
-					DataType: []string{"string"},
-					Name:     "name",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-				{
-					DataType: []string{"int"},
-					Name:     "amount",
-					ModuleConfig: map[string]interface{}{
-						"text2vec-contextionary": map[string]interface{}{
-							"vectorizeClassName": false,
-							"skip":               true,
-						},
-					},
-				},
-			},
-		}
-
-		m := newSchemaManager()
-		err := m.AddObject(context.Background(), nil, class)
-		assert.NotNil(t, err)
 	})
 }
