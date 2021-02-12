@@ -31,7 +31,7 @@ require (
 	github.com/prometheus/client_golang v0.9.3 // indirect
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200701085343-13c11a568705
+	github.com/semi-technologies/contextionary v0.0.0-20210212161414-8c1316389775
 	github.com/sirupsen/logrus v1.6.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1

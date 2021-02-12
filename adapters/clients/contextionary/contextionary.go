@@ -84,7 +84,6 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 	pbParams := &pb.SchemaSearchParams{
 		Certainty:  params.Certainty,
 		Name:       params.Name,
-		Kind:       kindToProto(),
 		SearchType: searchTypeToProto(params.SearchType),
 	}
 
@@ -94,10 +93,6 @@ func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams
 	}
 
 	return schemaSearchResultsFromProto(res), nil
-}
-
-func kindToProto() pb.Kind {
-	return pb.Kind_THING
 }
 
 func searchTypeToProto(input traverser.SearchType) pb.SearchType {
