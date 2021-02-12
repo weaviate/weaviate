@@ -8,7 +8,7 @@ import (
 	"github.com/fatih/camelcase"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
@@ -32,7 +32,7 @@ func NewConfigValidator(rc RemoteClient) *ConfigValidator {
 }
 
 func (cv *ConfigValidator) Do(class *models.Class,
-	cfg modulecapabilities.ClassConfig, icheck IndexChecker) error {
+	cfg moduletools.ClassConfig, icheck IndexChecker) error {
 	ctx := context.TODO() // TODO: add to module system
 
 	err := cv.validateClassName(ctx, class.Class, icheck.VectorizeClassName())

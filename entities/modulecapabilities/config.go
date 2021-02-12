@@ -2,15 +2,9 @@ package modulecapabilities
 
 import (
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
-
-// ClassConfig is a helper type which is passed TO the module to read it's
-// per-class config
-type ClassConfig interface {
-	Class() map[string]interface{}
-	Property(propName string) map[string]interface{}
-}
 
 // ClassConfigurator is an optional capability interface which a module MAY
 // implement. If it is implemented, all methods will be called when the user
@@ -37,5 +31,5 @@ type ClassConfigurator interface {
 	// over class.Properties and call classConfig.Property(prop.Name) to validate
 	// the per-property config. A module MUST NOT extract another module's config
 	// from class.ModuleConfig["other-modules-name"].
-	ValidateClass(class *models.Class, classConfig ClassConfig) error
+	ValidateClass(class *models.Class, classConfig moduletools.ClassConfig) error
 }

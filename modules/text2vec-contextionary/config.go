@@ -3,6 +3,7 @@ package modcontextionary
 import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 )
@@ -22,7 +23,7 @@ func (m *ContextionaryModule) PropertyConfigDefaults(
 }
 
 func (m *ContextionaryModule) ValidateClass(class *models.Class,
-	cfg modulecapabilities.ClassConfig) error {
+	cfg moduletools.ClassConfig) error {
 	icheck := vectorizer.NewIndexChecker(cfg)
 	return m.configValidator.Do(class, cfg, icheck)
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,8 +82,8 @@ type dummyVectorizerModule struct {
 	dummyModuleNoCapabilities
 }
 
-func (m dummyVectorizerModule) UpdateObject(ctx context.Context,
-	in *models.Object, cfg modulecapabilities.ClassConfig) error {
+func (m dummyVectorizerModule) VectorizeObject(ctx context.Context,
+	in *models.Object, cfg moduletools.ClassConfig) error {
 	in.Vector = []float32{1, 2, 3}
 	return nil
 }

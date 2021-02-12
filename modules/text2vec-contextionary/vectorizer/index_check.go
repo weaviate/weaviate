@@ -1,6 +1,8 @@
 package vectorizer
 
-import "github.com/semi-technologies/weaviate/entities/modulecapabilities"
+import (
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+)
 
 const (
 	DefaultPropertyIndexed       = true
@@ -9,10 +11,10 @@ const (
 )
 
 type indexChecker struct {
-	cfg modulecapabilities.ClassConfig
+	cfg moduletools.ClassConfig
 }
 
-func NewIndexChecker(cfg modulecapabilities.ClassConfig) *indexChecker {
+func NewIndexChecker(cfg moduletools.ClassConfig) *indexChecker {
 	return &indexChecker{cfg: cfg}
 }
 

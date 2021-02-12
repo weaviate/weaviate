@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
@@ -43,7 +44,7 @@ type ContextionaryModule struct {
 }
 
 type configValidator interface {
-	Do(class *models.Class, cfg modulecapabilities.ClassConfig,
+	Do(class *models.Class, cfg moduletools.ClassConfig,
 		indexChecker localvectorizer.IndexChecker) error
 }
 
@@ -117,8 +118,8 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 	return mux
 }
 
-func (m *ContextionaryModule) UpdateObject(ctx context.Context,
-	obj *models.Object, cfg modulecapabilities.ClassConfig) error {
+func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
+	obj *models.Object, cfg moduletools.ClassConfig) error {
 	icheck := localvectorizer.NewIndexChecker(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
