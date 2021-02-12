@@ -32,7 +32,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 }
 
 // Check that the format of the name is correct
-func (m *Manager) validateClassName(ctx context.Context, className string, vectorizeClass bool) error {
+func (m *Manager) validateClassName(ctx context.Context, className string) error {
 	_, err := schema.ValidateClassName(className)
 	return err
 }
