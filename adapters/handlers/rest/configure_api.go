@@ -360,12 +360,18 @@ func registerModules(appState *state.State) error {
 	}
 
 	for i := range files {
-		filename := files[i].Name()
-		if !enabledModules[filepath.Base(filename)] {
-			break
+		if files[i].IsDir() {
+			continue
 		}
 
-		module, err := loadModulePlugin(filename)
+		filename := files[i].Name()
+		moduleName := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+		if !enabledModules[moduleName] {
+			continue
+		}
+
+		fullPath := filepath.Join(modulesDir, filename)
+		module, err := loadModulePlugin(fullPath)
 		if err != nil {
 			return err
 		}
