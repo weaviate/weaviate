@@ -1,6 +1,8 @@
 package modcontextionary
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -22,10 +24,10 @@ func (m *ContextionaryModule) PropertyConfigDefaults(
 	}
 }
 
-func (m *ContextionaryModule) ValidateClass(class *models.Class,
-	cfg moduletools.ClassConfig) error {
+func (m *ContextionaryModule) ValidateClass(ctx context.Context,
+	class *models.Class, cfg moduletools.ClassConfig) error {
 	icheck := vectorizer.NewIndexChecker(cfg)
-	return m.configValidator.Do(class, cfg, icheck)
+	return m.configValidator.Do(ctx, class, cfg, icheck)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

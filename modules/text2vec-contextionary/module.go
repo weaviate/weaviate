@@ -44,7 +44,7 @@ type ContextionaryModule struct {
 }
 
 type configValidator interface {
-	Do(class *models.Class, cfg moduletools.ClassConfig,
+	Do(ctx context.Context, class *models.Class, cfg moduletools.ClassConfig,
 		indexChecker localvectorizer.IndexChecker) error
 }
 

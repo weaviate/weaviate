@@ -16,9 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -606,35 +604,6 @@ func TestSchema(t *testing.T) {
 			})
 		}
 	})
-}
-
-type fakeVectorConfig struct{}
-
-func (f fakeVectorConfig) IndexType() string {
-	return "fake"
-}
-
-func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
-	return fakeVectorConfig{}, nil
-}
-
-type fakeVectorizerValidator struct {
-	valid string
-}
-
-func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
-	if moduleName == f.valid {
-		return nil
-	}
-
-	return errors.Errorf("invalid vectorizer %q", moduleName)
-}
-
-type fakeModuleConfig struct{}
-
-func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {}
-func (f *fakeModuleConfig) ValidateClass(class *models.Class) error {
-	return nil
 }
 
 // New Local Schema *Manager

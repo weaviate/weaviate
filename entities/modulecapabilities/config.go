@@ -1,6 +1,8 @@
 package modulecapabilities
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -31,5 +33,6 @@ type ClassConfigurator interface {
 	// over class.Properties and call classConfig.Property(prop.Name) to validate
 	// the per-property config. A module MUST NOT extract another module's config
 	// from class.ModuleConfig["other-modules-name"].
-	ValidateClass(class *models.Class, classConfig moduletools.ClassConfig) error
+	ValidateClass(ctx context.Context, class *models.Class,
+		classConfig moduletools.ClassConfig) error
 }

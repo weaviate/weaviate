@@ -126,7 +126,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	err = m.moduleConfig.ValidateClass(class)
+	err = m.moduleConfig.ValidateClass(ctx, class)
 	if err != nil {
 		return err
 	}

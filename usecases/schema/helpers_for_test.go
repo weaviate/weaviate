@@ -14,7 +14,9 @@ package schema
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type fakeRepo struct {
@@ -37,5 +39,34 @@ func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
+}
+
+type fakeVectorConfig struct{}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
+}
+
+func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
+	return fakeVectorConfig{}, nil
+}
+
+type fakeVectorizerValidator struct {
+	valid string
+}
+
+func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
+	if moduleName == f.valid {
+		return nil
+	}
+
+	return errors.Errorf("invalid vectorizer %q", moduleName)
+}
+
+type fakeModuleConfig struct{}
+
+func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {}
+func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }

@@ -53,7 +53,7 @@ type VectorizerValidator interface {
 
 type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
-	ValidateClass(class *models.Class) error
+	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
