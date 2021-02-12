@@ -23,7 +23,8 @@ func (m *ContextionaryModule) PropertyConfigDefaults(
 
 func (m *ContextionaryModule) ValidateClass(class *models.Class,
 	cfg modulecapabilities.ClassConfig) error {
-	return nil
+	icheck := vectorizer.NewIndexChecker(cfg)
+	return m.configValidator.Do(class, cfg, icheck)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

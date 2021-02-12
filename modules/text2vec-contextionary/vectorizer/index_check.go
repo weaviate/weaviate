@@ -8,15 +8,15 @@ const (
 	DefaultVectorizePropertyName = false
 )
 
-type IndexChecker struct {
+type indexChecker struct {
 	cfg modulecapabilities.ClassConfig
 }
 
-func NewIndexChecker(cfg modulecapabilities.ClassConfig) *IndexChecker {
-	return &IndexChecker{cfg: cfg}
+func NewIndexChecker(cfg modulecapabilities.ClassConfig) *indexChecker {
+	return &indexChecker{cfg: cfg}
 }
 
-func (ic *IndexChecker) PropertyIndexed(propName string) bool {
+func (ic *indexChecker) PropertyIndexed(propName string) bool {
 	vcn, ok := ic.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
@@ -30,7 +30,7 @@ func (ic *IndexChecker) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (ic *IndexChecker) VectorizePropertyName(propName string) bool {
+func (ic *indexChecker) VectorizePropertyName(propName string) bool {
 	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
@@ -44,7 +44,7 @@ func (ic *IndexChecker) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (ic *IndexChecker) VectorizeClassName() bool {
+func (ic *indexChecker) VectorizeClassName() bool {
 	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName

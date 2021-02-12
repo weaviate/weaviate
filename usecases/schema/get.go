@@ -58,22 +58,3 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 
 	return false
 }
-
-// TODO: This is text2vec-contextionary specific logic and should be moved there
-func (m *Manager) IndexedContextionary(className, propertyName string) bool {
-	s := schema.Schema{
-		Objects: m.state.ObjectSchema,
-	}
-	class := s.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		return false
-	}
-
-	for _, prop := range class.Properties {
-		if prop.Name == propertyName {
-			return m.indexPropertyInVectorIndex(prop.ModuleConfig)
-		}
-	}
-
-	return false
-}

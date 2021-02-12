@@ -411,11 +411,8 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
 
 	assert.True(t, lsm.IndexedInverted("Car", "color"), "color should be indexed")
-	assert.True(t, lsm.IndexedContextionary("Car", "color"), "color should be indexed")
 	assert.False(t, lsm.IndexedInverted("Car", "colorRaw"), "color should not be indexed")
-	assert.False(t, lsm.IndexedContextionary("Car", "colorRaw"), "color should not be indexed")
 	assert.True(t, lsm.IndexedInverted("Car", "allDefault"), "allDefault should be indexed")
-	assert.True(t, lsm.IndexedContextionary("Car", "allDefault"), "allDefault should be indexed")
 }
 
 func pointerToFalse() *bool {

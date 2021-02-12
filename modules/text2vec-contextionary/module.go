@@ -39,6 +39,12 @@ type ContextionaryModule struct {
 	concepts        *concepts.RESTHandlers
 	appState        *state.State
 	vectorizer      *vectorizer.Vectorizer
+	configValidator configValidator
+}
+
+type configValidator interface {
+	Do(class *models.Class, cfg modulecapabilities.ClassConfig,
+		indexChecker localvectorizer.IndexChecker) error
 }
 
 func (m *ContextionaryModule) Name() string {
@@ -89,6 +95,12 @@ func (m *ContextionaryModule) initConcepts() error {
 
 func (m *ContextionaryModule) initVectorizer() error {
 	m.vectorizer = vectorizer.New(m.appState.Contextionary)
+	rc, ok := m.appState.Contextionary.(localvectorizer.RemoteClient)
+	if !ok {
+		return errors.Errorf("invalid contextionary remote client")
+	}
+
+	m.configValidator = localvectorizer.NewConfigValidator(rc)
 
 	return nil
 }
