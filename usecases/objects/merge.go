@@ -47,24 +47,25 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Properties.(map[string]interface{}),
 		updated.Class, id)
 
-	vector, source, err := m.mergeObjectSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
+	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, previous.ClassName, previous.Schema,
+		primitive, principal)
 	if err != nil {
 		return NewErrInternal("vectorize merged: %v", err)
 	}
-
-	err = m.vectorRepo.Merge(ctx, MergeDocument{
+	mergeDoc := MergeDocument{
 		Class:           updated.Class,
 		ID:              id,
 		PrimitiveSchema: primitive,
 		References:      refs,
-		Vector:          vector,
+		Vector:          objWithVec.Vector,
 		UpdateTime:      m.timeSource.Now(),
-		AdditionalProperties: models.AdditionalProperties{
-			Interpretation: &models.Interpretation{
-				Source: source,
-			},
-		},
-	})
+	}
+
+	if objWithVec.Additional != nil {
+		mergeDoc.AdditionalProperties = *objWithVec.Additional
+	}
+
+	err = m.vectorRepo.Merge(ctx, mergeDoc)
 	if err != nil {
 		return NewErrInternal("repo: %v", err)
 	}
@@ -101,15 +102,16 @@ func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, pr
 	return object, nil
 }
 
-func (m *Manager) mergeObjectSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
+func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
+	old interface{}, new map[string]interface{},
+	principal *models.Principal) (*models.Object, error) {
 	var merged map[string]interface{}
 	if old == nil {
 		merged = new
 	} else {
 		oldMap, ok := old.(map[string]interface{})
 		if !ok {
-			return nil, nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
+			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
 		}
 
 		for key, value := range new {
@@ -119,12 +121,12 @@ func (m *Manager) mergeObjectSchemasAndVectorize(ctx context.Context, className 
 		merged = oldMap
 	}
 
-	v, source, err := m.vectorizer.Object(ctx, &models.Object{Class: className, Properties: merged})
-	if err != nil {
-		return nil, nil, err
+	obj := &models.Object{Class: className, Properties: merged}
+	if err := m.obtainVector(ctx, obj, principal); err != nil {
+		return nil, err
 	}
 
-	return v, sourceFromInputElements(source), nil
+	return obj, nil
 }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,

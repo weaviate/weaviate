@@ -80,11 +80,6 @@ func Test_MergeObject(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -129,11 +124,6 @@ func Test_MergeObject(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -179,11 +169,6 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/ZooAction/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
@@ -204,10 +189,11 @@ func Test_MergeObject(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
+			vecProvider := &fakeVectorizerProvider{vectorizer}
 			extender := &fakeExtender{}
 			projector := &fakeProjector{}
 			manager := NewManager(locks, schemaManager,
-				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+				cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
@@ -223,7 +209,7 @@ func Test_MergeObject(t *testing.T) {
 
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
-				vectorizer.On("Object", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
+				vectorizer.On("UpdateObject", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
 			}
 
 			// only for validation of cross-refs. Maybe indicates that if this call
@@ -291,11 +277,6 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -340,11 +321,6 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -390,11 +366,6 @@ func Test_MergeThing(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
-				AdditionalProperties: models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{},
-					},
-				},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/Zoo/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
@@ -415,10 +386,11 @@ func Test_MergeThing(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
+			vecProvider := &fakeVectorizerProvider{vectorizer}
 			extender := &fakeExtender{}
 			projector := &fakeProjector{}
 			manager := NewManager(locks, schemaManager,
-				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+				cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
@@ -434,7 +406,7 @@ func Test_MergeThing(t *testing.T) {
 
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
-				vectorizer.On("Object", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
+				vectorizer.On("UpdateObject", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
 			}
 
 			// only for validation of cross-refs. Maybe indicates that if this call

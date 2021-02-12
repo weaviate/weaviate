@@ -59,8 +59,9 @@ func Test_GetAction(t *testing.T) {
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorizer, vectorRepo, extender, projectorFake)
+			vecProvider, vectorRepo, extender, projectorFake)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -332,8 +333,9 @@ func Test_GetThing(t *testing.T) {
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorizer, vectorRepo, extender, projectorFake)
+			vecProvider, vectorRepo, extender, projectorFake)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {

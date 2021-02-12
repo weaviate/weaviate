@@ -55,7 +55,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -174,8 +175,9 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		vectorizer.On("Object", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {

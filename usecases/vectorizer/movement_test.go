@@ -83,8 +83,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				client := &fakeClient{}
-				indexer := &propertyIndexer{}
-				v := New(client, indexer)
+				v := New(client)
 				res, err := v.MoveTo(test.source, test.target, test.weight)
 				assert.Equal(t, test.expectedError, err)
 				assert.Equal(t, test.expectedResult, res)
@@ -149,8 +148,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				client := &fakeClient{}
-				indexer := &propertyIndexer{}
-				v := New(client, indexer)
+				v := New(client)
 				res, err := v.MoveAwayFrom(test.source, test.target, test.weight)
 				assert.Equal(t, test.expectedError, err)
 				for i := range test.expectedResult {

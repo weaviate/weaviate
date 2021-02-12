@@ -170,32 +170,24 @@ func (b *BatchManager) getVectorizerOfClass(className string,
 // outscoped to be its own type used by both
 func (b *BatchManager) obtainVector(ctx context.Context, class *models.Object,
 	principal *models.Principal) error {
-	vectorizer, err := b.getVectorizerOfClass(class.Class, principal)
+	vectorizerName, err := b.getVectorizerOfClass(class.Class, principal)
 	if err != nil {
 		return err
 	}
 
-	// TODO: dynamically discover modules and lose any understanding of internals
-	// of modules
-	switch vectorizer {
-	case config.VectorizerModuleNone:
+	if vectorizerName == config.VectorizerModuleNone {
 		if err := b.validateVectorPresent(class); err != nil {
 			return NewErrInvalidUserInput("%v", err)
 		}
-	case config.VectorizerModuleText2VecContextionary:
-		v, source, err := b.vectorizer.Object(ctx, class)
+	} else {
+		vectorizer, err := b.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
 		if err != nil {
-			return NewErrInternal("text2vec-contextionary: vectorize: %v", err)
+			return err
 		}
 
-		if class.Additional == nil {
-			class.Additional = &models.AdditionalProperties{}
+		if err := vectorizer.UpdateObject(ctx, class); err != nil {
+			return NewErrInternal("%v", err)
 		}
-
-		class.Additional.Interpretation = &models.Interpretation{
-			Source: sourceFromInputElements(source),
-		}
-		class.Vector = v
 	}
 
 	return nil
