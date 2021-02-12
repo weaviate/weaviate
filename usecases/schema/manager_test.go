@@ -643,8 +643,7 @@ func newSchemaManager() *Manager {
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: config.VectorizerModuleText2VecContextionary,
 	}
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(),
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{},
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, &fakeModuleConfig{},
@@ -690,8 +689,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 			}},
 		},
 	}
-	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeC11y{},
-		&fakeAuthorizer{}, &fakeStopwordDetector{},
+	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, &fakeModuleConfig{},

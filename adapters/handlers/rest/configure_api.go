@@ -139,8 +139,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Logger, appState.Contextionary,
-		appState.Authorizer, appState.StopwordDetector, appState.ServerConfig.Config,
+		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		hnsw.ParseUserConfig, appState.Modules, appState.Modules)
 	if err != nil {
 		appState.Logger.
@@ -254,16 +253,12 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("initialized stopword detector")
-
 	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Fatal("cannot create c11y client")
 	}
 
-	appState.StopwordDetector = c11y
 	appState.Contextionary = c11y
 
 	return appState

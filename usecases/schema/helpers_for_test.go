@@ -34,32 +34,6 @@ func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
 	return nil
 }
 
-type fakeC11y struct {
-}
-
-func (f *fakeC11y) GetNumberOfItems() int {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetVectorLength() int {
-	panic("not implemented")
-}
-
-// Every word in this fake c11y is present with the same position (4), except
-// for the word Carrot which is not present
-func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
-	if word == "carrot" || word == "the" {
-		return false, nil
-	}
-	return true, nil
-}
-
-type fakeStopwordDetector struct{}
-
-func (f *fakeStopwordDetector) IsStopWord(ctx context.Context, word string) (bool, error) {
-	return word == "the", nil
-}
-
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {

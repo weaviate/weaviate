@@ -29,8 +29,6 @@ import (
 type Manager struct {
 	migrator            migrate.Migrator
 	repo                Repo
-	stopwordDetector    stopwordDetector
-	c11yClient          c11yClient
 	state               State
 	callbacks           []func(updatedSchema schema.Schema)
 	logger              logrus.FieldLogger
@@ -68,20 +66,10 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
-type stopwordDetector interface {
-	IsStopWord(ctx context.Context, word string) (bool, error)
-}
-
-type c11yClient interface {
-	IsWordPresent(ctx context.Context, word string) (bool, error)
-}
-
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
-	logger logrus.FieldLogger, c11yClient c11yClient,
-	authorizer authorizer, swd stopwordDetector, config config.Config,
-	hnswConfigParser VectorConfigParser,
-	vectorizerValidator VectorizerValidator,
+	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	moduleConfig ModuleConfig) (*Manager, error) {
 	m := &Manager{
 		config:              config,
@@ -89,9 +77,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		repo:                repo,
 		state:               State{},
 		logger:              logger,
-		stopwordDetector:    swd,
 		authorizer:          authorizer,
-		c11yClient:          c11yClient,
 		hnswConfigParser:    hnswConfigParser,
 		vectorizerValidator: vectorizerValidator,
 		moduleConfig:        moduleConfig,
