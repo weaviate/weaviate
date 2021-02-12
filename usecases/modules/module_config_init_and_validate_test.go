@@ -3,10 +3,12 @@ package modules
 import (
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetClassDefaults(t *testing.T) {
@@ -69,7 +71,7 @@ func TestSetClassDefaults(t *testing.T) {
 
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
-			dummyModuleNoCapabilities{
+			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -121,7 +123,7 @@ func TestSetClassDefaults(t *testing.T) {
 
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
-			dummyModuleNoCapabilities{
+			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -132,8 +134,77 @@ func TestSetClassDefaults(t *testing.T) {
 	})
 }
 
+func TestValidateClass(t *testing.T) {
+	t.Run("when class has no vectorizer set, it does not check", func(t *testing.T) {
+		class := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:     "Foo",
+				DataType: []string{"string"},
+			}},
+			Vectorizer: "none",
+		}
+
+		p := NewProvider()
+		p.Register(&dummyModuleClassConfigurator{
+			validateError: errors.Errorf("if I was used, you'd fail"),
+			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+				name: "my-module",
+			},
+		})
+		p.SetClassDefaults(class)
+
+		assert.Nil(t, p.ValidateClass(class))
+	})
+
+	t.Run("when vectorizer does not have capability, it skips validation",
+		func(t *testing.T) {
+			class := &models.Class{
+				Class: "Foo",
+				Properties: []*models.Property{{
+					Name:     "Foo",
+					DataType: []string{"string"},
+				}},
+				Vectorizer: "my-module",
+			}
+
+			p := NewProvider()
+			p.Register(&dummyModuleNoCapabilities{
+				name: "my-module",
+			})
+			p.SetClassDefaults(class)
+
+			assert.Nil(t, p.ValidateClass(class))
+		})
+
+	t.Run("the module validates if capable and configured", func(t *testing.T) {
+		class := &models.Class{
+			Class: "Foo",
+			Properties: []*models.Property{{
+				Name:     "Foo",
+				DataType: []string{"string"},
+			}},
+			Vectorizer: "my-module",
+		}
+
+		p := NewProvider()
+		p.Register(&dummyModuleClassConfigurator{
+			validateError: errors.Errorf("no can do!"),
+			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+				name: "my-module",
+			},
+		})
+		p.SetClassDefaults(class)
+
+		err := p.ValidateClass(class)
+		require.NotNil(t, err)
+		assert.Equal(t, "no can do!", err.Error())
+	})
+}
+
 type dummyModuleClassConfigurator struct {
 	dummyModuleNoCapabilities
+	validateError error
 }
 
 func (d *dummyModuleClassConfigurator) ClassConfigDefaults() map[string]interface{} {
@@ -153,7 +224,7 @@ func (d *dummyModuleClassConfigurator) PropertyConfigDefaults(
 
 func (d *dummyModuleClassConfigurator) ValidateClass(
 	class *models.Class, cfg modulecapabilities.ClassConfig) error {
-	return nil
+	return d.validateError
 }
 
 var _ = modulecapabilities.ClassConfigurator(
