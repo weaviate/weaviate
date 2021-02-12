@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -136,6 +137,7 @@ func TestSetClassDefaults(t *testing.T) {
 }
 
 func TestValidateClass(t *testing.T) {
+	ctx := context.Background()
 	t.Run("when class has no vectorizer set, it does not check", func(t *testing.T) {
 		class := &models.Class{
 			Class: "Foo",
@@ -155,7 +157,7 @@ func TestValidateClass(t *testing.T) {
 		})
 		p.SetClassDefaults(class)
 
-		assert.Nil(t, p.ValidateClass(class))
+		assert.Nil(t, p.ValidateClass(ctx, class))
 	})
 
 	t.Run("when vectorizer does not have capability, it skips validation",
@@ -175,7 +177,7 @@ func TestValidateClass(t *testing.T) {
 			})
 			p.SetClassDefaults(class)
 
-			assert.Nil(t, p.ValidateClass(class))
+			assert.Nil(t, p.ValidateClass(ctx, class))
 		})
 
 	t.Run("the module validates if capable and configured", func(t *testing.T) {
@@ -197,7 +199,7 @@ func TestValidateClass(t *testing.T) {
 		})
 		p.SetClassDefaults(class)
 
-		err := p.ValidateClass(class)
+		err := p.ValidateClass(ctx, class)
 		require.NotNil(t, err)
 		assert.Equal(t, "no can do!", err.Error())
 	})
@@ -223,7 +225,7 @@ func (d *dummyModuleClassConfigurator) PropertyConfigDefaults(
 	}
 }
 
-func (d *dummyModuleClassConfigurator) ValidateClass(
+func (d *dummyModuleClassConfigurator) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig) error {
 	return d.validateError
 }

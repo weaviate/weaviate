@@ -31,10 +31,8 @@ func NewConfigValidator(rc RemoteClient) *ConfigValidator {
 	return &ConfigValidator{remote: rc}
 }
 
-func (cv *ConfigValidator) Do(class *models.Class,
+func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 	cfg moduletools.ClassConfig, icheck IndexChecker) error {
-	ctx := context.TODO() // TODO: add to module system
-
 	err := cv.validateClassName(ctx, class.Class, icheck.VectorizeClassName())
 	if err != nil {
 		return errors.Errorf("invalid class name")

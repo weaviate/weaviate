@@ -1,6 +1,8 @@
 package modules
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -68,7 +70,7 @@ func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 	}
 }
 
-func (p *Provider) ValidateClass(class *models.Class) error {
+func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error {
 	if class.Vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
 		return nil
@@ -82,5 +84,5 @@ func (p *Provider) ValidateClass(class *models.Class) error {
 	}
 
 	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
-	return cc.ValidateClass(class, cfg)
+	return cc.ValidateClass(ctx, class, cfg)
 }

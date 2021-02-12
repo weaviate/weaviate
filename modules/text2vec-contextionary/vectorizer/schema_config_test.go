@@ -150,7 +150,7 @@ func TestConfigValidator(t *testing.T) {
 				}
 
 				v := NewConfigValidator(&fakeRemote{})
-				err := v.Do(class, nil, &fakeIndexChecker{
+				err := v.Do(context.Background(), class, nil, &fakeIndexChecker{
 					vectorizeClassName: test.vectorize,
 					propertyIndexed:    true,
 				})
@@ -297,7 +297,7 @@ func TestConfigValidator(t *testing.T) {
 				}
 
 				v := NewConfigValidator(&fakeRemote{})
-				err := v.Do(class, nil, &fakeIndexChecker{
+				err := v.Do(context.Background(), class, nil, &fakeIndexChecker{
 					vectorizePropertyName: test.vectorize,
 					propertyIndexed:       true,
 				})
@@ -328,7 +328,7 @@ func TestConfigValidator(t *testing.T) {
 			}
 
 			v := NewConfigValidator(&fakeRemote{})
-			err := v.Do(class, nil, &fakeIndexChecker{
+			err := v.Do(context.Background(), class, nil, &fakeIndexChecker{
 				vectorizePropertyName: false,
 				vectorizeClassName:    false,
 				propertyIndexed:       false,
