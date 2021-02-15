@@ -415,7 +415,7 @@ func loadModulePlugin(filename string) (modules.Module, error) {
 
 	module, ok := moduleImpl.(modules.Module)
 	if !ok {
-		return nil, errors.Wrapf(err, "not a module: %s", filename)
+		return nil, errors.Errorf("not a module: %s", filename)
 	}
 	return module, nil
 }
