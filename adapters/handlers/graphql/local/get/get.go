@@ -16,17 +16,19 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 )
 
 // Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, logger logrus.FieldLogger) (*graphql.Field, error) {
+func Build(schema *schema.Schema, logger logrus.FieldLogger,
+	modules []modulecapabilities.Module) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
 
-	cb := newClassBuilder(schema, logger)
+	cb := newClassBuilder(schema, logger, modules)
 
 	var err error
 	var objects *graphql.Object

@@ -17,6 +17,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 )
@@ -26,13 +27,16 @@ type classBuilder struct {
 	knownClasses map[string]*graphql.Object
 	beaconClass  *graphql.Object
 	logger       logrus.FieldLogger
+	modules      []modulecapabilities.Module
 }
 
-func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger) *classBuilder {
+func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger,
+	modules []modulecapabilities.Module) *classBuilder {
 	b := &classBuilder{}
 
 	b.logger = logger
 	b.schema = schema
+	b.modules = modules
 
 	b.initKnownClasses()
 	b.initBeaconClass()
@@ -82,7 +86,7 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 func (b *classBuilder) classField(class *models.Class) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, class)
+	classField := buildGetClassField(classObject, class, b.modules)
 	return &classField, nil
 }
 

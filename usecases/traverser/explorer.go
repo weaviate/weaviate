@@ -18,12 +18,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
-	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +38,7 @@ type Explorer struct {
 	nnExtender  nnExtender
 	projector   projector
 	pathBuilder pathBuilder
+	modules     []modulecapabilities.Module
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -66,8 +67,8 @@ type pathBuilder interface {
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
-	projector projector, pathBuilder pathBuilder) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder}
+	projector projector, pathBuilder pathBuilder, modules []modulecapabilities.Module) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder, modules}
 }
 
 // GetClass from search and connector repo
@@ -380,12 +381,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 	}
 
 	if params.NearText != nil {
-		vector, err := e.vectorFromNearTextParams(ctx, params.NearText)
-		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
-		}
-
-		return vector, nil
+		return e.vectorFromModules(ctx, params.NearText)
 	}
 
 	if params.NearVector != nil {
@@ -414,12 +410,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	}
 
 	if params.NearText != nil {
-		vector, err := e.vectorFromNearTextParams(ctx, params.NearText)
-		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
-		}
-
-		return vector, nil
+		return e.vectorFromModules(ctx, params.NearText)
 	}
 
 	if params.NearVector != nil {
@@ -438,6 +429,29 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	// either nearText or nearVector has to be set, so if we land here, something
 	// has gone very wrong
 	panic("vectorFromParams was called without any known params present")
+}
+
+func (e *Explorer) vectorFromModules(ctx context.Context,
+	nearTextParams *NearTextParams) ([]float32, error) {
+	for _, mod := range e.modules {
+		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+			for paramName, searchVectorFn := range searcher.VectorSearches() {
+				if paramName == "nearText" && nearTextParams != nil {
+					// TODO: gh-1462 Introduce module params in traverser.GetParams instead of c11y specific params
+					vector, err := searchVectorFn(ctx,
+						ConvertFromTraverserNearTextParams(nearTextParams),
+						e.findVector,
+					)
+					if err != nil {
+						return nil, errors.Errorf("vectorize params: %v", err)
+					}
+					return vector, nil
+				}
+			}
+		}
+	}
+
+	panic("vectorFromModules was called without any known params present")
 }
 
 func (e *Explorer) validateNearParams(nearText *NearTextParams, nearVector *NearVectorParams,
@@ -507,82 +521,6 @@ func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, e
 	}
 
 	return res.Vector, nil
-}
-
-func (e *Explorer) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []ObjectMove) ([]float32, error) {
-	var objectVectors [][]float32
-
-	if len(values) > 0 {
-		moveToVector, err := e.vectorizer.Corpi(ctx, values)
-		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
-		}
-		objectVectors = append(objectVectors, moveToVector)
-	}
-
-	if len(objects) > 0 {
-		var id strfmt.UUID
-		for _, obj := range objects {
-			if len(obj.ID) > 0 {
-				id = strfmt.UUID(obj.ID)
-			}
-			if len(obj.Beacon) > 0 {
-				ref, err := crossref.Parse(obj.Beacon)
-				if err != nil {
-					return nil, err
-				}
-				id = ref.TargetID
-			}
-
-			vector, err := e.findVector(ctx, id)
-			if err != nil {
-				return nil, err
-			}
-
-			objectVectors = append(objectVectors, vector)
-		}
-	}
-
-	return libvectorizer.CombineVectors(objectVectors), nil
-}
-
-func (e *Explorer) vectorFromNearTextParams(ctx context.Context,
-	params *NearTextParams) ([]float32, error) {
-	vector, err := e.vectorizer.Corpi(ctx, params.Values)
-	if err != nil {
-		return nil, errors.Errorf("vectorize keywords: %v", err)
-	}
-
-	moveTo := params.MoveTo
-	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
-		moveToVector, err := e.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects)
-		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
-		}
-
-		afterMoveTo, err := e.vectorizer.MoveTo(vector, moveToVector, moveTo.Force)
-		if err != nil {
-			return nil, err
-		}
-		vector = afterMoveTo
-	}
-
-	moveAway := params.MoveAwayFrom
-	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
-		moveAwayVector, err := e.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects)
-		if err != nil {
-			return nil, errors.Errorf("vectorize move away from: %v", err)
-		}
-
-		afterMoveFrom, err := e.vectorizer.MoveAwayFrom(vector, moveAwayVector, moveAway.Force)
-		if err != nil {
-			return nil, err
-		}
-		vector = afterMoveFrom
-	}
-
-	return vector, nil
 }
 
 func beacon(res search.Result) string {
