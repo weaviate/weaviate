@@ -93,6 +93,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("ENABLE_MODULES"); v != "" {
+		config.EnableModules = v
+	}
+
 	return nil
 }
 
