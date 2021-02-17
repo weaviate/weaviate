@@ -3,6 +3,7 @@ package modtransformers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -40,7 +41,15 @@ func (m *TransformersModule) Init(params modules.ModuleInitParams) error {
 
 func (m *TransformersModule) initVectorizer() error {
 	// TODO: Get discovery information from config
+	// TODO: this should be coming from the init method
+	ctx, cancel := context.WithTimeout(context.TODO(), 1*time.Minute)
+	defer cancel()
+
 	client := clients.New("http://localhost:8000")
+	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+		return errors.Wrap(err, "init remote vectorizer")
+	}
+
 	m.vectorizer = vectorizer.New(client)
 
 	return nil
