@@ -18,18 +18,20 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
+      ENABLE_MODULES="text2vec-contextionary" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080
     ;;
-  local-customdb)
+  local-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       PERSISTENCE_DATA_PATH="./data" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
