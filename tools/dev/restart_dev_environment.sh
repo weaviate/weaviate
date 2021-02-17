@@ -10,6 +10,9 @@ ADDITIONAL_SERVICES=()
 if [[ "$*" == *--keycloak* ]]; then
   ADDITIONAL_SERVICES+=('keycloak')
 fi
+if [[ "$*" == *--transformers* ]]; then
+  ADDITIONAL_SERVICES+=('t2v-transformers')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
@@ -29,6 +32,11 @@ if [[ "$*" == *--keycloak* ]]; then
   echo
   echo Keycloak is ready, now importing some users.
   ./tools/dev/keycloak/import_users.sh
+fi
+
+if [[ "$*" == *--transformers* ]]; then
+  echo "You have specified the --transformers option. Starting up"
+  echo "the text2vec-transformers model container"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"
