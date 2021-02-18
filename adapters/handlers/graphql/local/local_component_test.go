@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,7 +113,8 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			localSchema, err := Build(&test.localSchema, nil, config.Config{})
+			modules := modules.NewProvider().GetAll()
+			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules)
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{
