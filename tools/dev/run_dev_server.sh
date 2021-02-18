@@ -22,7 +22,9 @@ case $CONFIG in
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
-        --port 8080
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
     ;;
   local-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -35,7 +37,9 @@ case $CONFIG in
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
-        --port 8080
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
     ;;
   local-oidc)
       CONTEXTIONARY_URL=localhost:9999 \
