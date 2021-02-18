@@ -17,17 +17,17 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // TODO: This is module specific logic, for now we are simply deciding to show
 // the nearText option if there is at least one class which has the
 // text2vec-contextionary vectorizer module active. This logic does not belong
 // here and should be removed with actual modularization
-func shouldShowNearText(schema *models.Schema) bool {
+func shouldShowNearText(schema *models.Schema, vectorizer string) bool {
 	for _, c := range schema.Classes {
-		if c.Vectorizer == config.VectorizerModuleText2VecContextionary {
+		if c.Vectorizer == vectorizer {
 			return true
 		}
 	}
@@ -36,12 +36,12 @@ func shouldShowNearText(schema *models.Schema) bool {
 }
 
 // Build builds the object containing the Local->Explore Fields, such as Objects
-func Build(schema *models.Schema) *graphql.Field {
+func Build(schema *models.Schema, modules []modulecapabilities.Module) *graphql.Field {
 	field := &graphql.Field{
 		Name:        "Explore",
 		Description: descriptions.LocalExplore,
 		Type:        graphql.NewList(exploreObject()),
-		Resolve:     resolve,
+		Resolve:     newResolver(modules).resolve,
 		Args: graphql.FieldConfigArgument{
 			"limit": &graphql.ArgumentConfig{
 				Type:        graphql.Int,
@@ -53,9 +53,15 @@ func Build(schema *models.Schema) *graphql.Field {
 		},
 	}
 
-	// TODO: this is module-specific and should be added dynamically
-	if shouldShowNearText(schema) {
-		field.Args["nearText"] = nearTextArgument()
+	for _, module := range modules {
+		if shouldShowNearText(schema, module.Name()) {
+			arg, ok := module.(modulecapabilities.GraphQLArguments)
+			if ok {
+				for name, argument := range arg.ExploreArguments() {
+					field.Args[name] = argument
+				}
+			}
+		}
 	}
 
 	return field
@@ -113,89 +119,6 @@ func exploreObject() *graphql.Object {
 	}
 
 	return graphql.NewObject(getLocalExploreFieldsObject)
-}
-
-// TODO: This is module specific and must be provided by the
-// text2vec-contextionary module
-func nearTextArgument() *graphql.ArgumentConfig {
-	return &graphql.ArgumentConfig{
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:        "ExploreNearTextInpObj",
-				Fields:      nearTextFields(),
-				Description: descriptions.GetWhereInpObj,
-			},
-		),
-	}
-}
-
-// TODO: This is module specific and must be provided by the
-// text2vec-contextionary module
-func nearTextFields() graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"concepts": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.Concepts,
-			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
-		},
-		"moveTo": &graphql.InputObjectFieldConfig{
-			Description: descriptions.VectorMovement,
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:   "ExploreNearTextMoveTo",
-					Fields: movementInp("ExploreNearTextMoveTo"),
-				}),
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
-		},
-		"moveAwayFrom": &graphql.InputObjectFieldConfig{
-			Description: descriptions.VectorMovement,
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:   "ExploreNearTextMoveAwayFrom",
-					Fields: movementInp("ExploreNearTextMoveAwayFrom"),
-				}),
-		},
-	}
-}
-
-// TODO: This is module specific and must be provided by the
-// text2vec-contextionary module
-func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"concepts": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Keywords,
-			Type:        graphql.NewList(graphql.String),
-		},
-		"objects": &graphql.InputObjectFieldConfig{
-			Description: "objects",
-			Type:        graphql.NewList(objectsInpObj(prefix)),
-		},
-		"force": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Force,
-			Type:        graphql.NewNonNull(graphql.Float),
-		},
-	}
-}
-
-func objectsInpObj(prefix string) *graphql.InputObject {
-	return graphql.NewInputObject(
-		graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%sMovementObjectsInpObj", prefix),
-			Fields: graphql.InputObjectConfigFieldMap{
-				"id": &graphql.InputObjectFieldConfig{
-					Type:        graphql.String,
-					Description: "id of an object",
-				},
-				"beacon": &graphql.InputObjectFieldConfig{
-					Type:        graphql.String,
-					Description: descriptions.Beacon,
-				},
-			},
-			Description: "Movement Object",
-		},
-	)
 }
 
 func nearVectorArgument() *graphql.ArgumentConfig {
