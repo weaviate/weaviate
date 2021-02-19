@@ -24,6 +24,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
+type VectorizerDef interface {
+	Object(ctx context.Context, object *models.Object, icheck ClassIndexCheck) error
+	Corpi(ctx context.Context, corpi []string) ([]float32, error)
+	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
+	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
+}
+
 // Vectorizer turns objects into vectors
 type Vectorizer struct {
 	client client

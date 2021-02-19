@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -161,15 +160,8 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 	})
 }
 
-// TODO: this is module logic and rather than making this decision ourselves in
-// the API, we should ask the modules UC for what to provide when we want to
-// have real modularization
-func shouldIncludeNearText(class *models.Class) bool {
-	return class.Vectorizer == config.VectorizerModuleText2VecContextionary
-}
-
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class) graphql.Field {
+	class *models.Class, modulesProvider ModulesProvider) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
@@ -184,12 +176,11 @@ func buildGetClassField(classObject *graphql.Object,
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 		},
-		Resolve: makeResolveGetClass(class.Class),
+		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
-	// TODO: this is module-specific and should be added dynamically
-	if shouldIncludeNearText(class) {
-		field.Args["nearText"] = nearTextArgument(class.Class)
+	for name, argument := range modulesProvider.GetArguments(class) {
+		field.Args[name] = argument
 	}
 
 	return field
@@ -247,7 +238,15 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 	}
 }
 
-func makeResolveGetClass(className string) graphql.FieldResolveFn {
+type resolver struct {
+	modulesProvider ModulesProvider
+}
+
+func newResolver(modulesProvider ModulesProvider) *resolver {
+	return &resolver{modulesProvider}
+}
+
+func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		source, ok := p.Source.(map[string]interface{})
 		if !ok {
@@ -280,14 +279,6 @@ func makeResolveGetClass(className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		// TODO: This is specific to the text2vec-contextionary module and should
-		// be provided from that particular module dynamically
-		var nearTextParams *traverser.NearTextParams
-		if nearText, ok := p.Args["nearText"]; ok {
-			p := common_filters.ExtractNearText(nearText.(map[string]interface{}))
-			nearTextParams = &p
-		}
-
 		var nearVectorParams *traverser.NearVectorParams
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
@@ -298,6 +289,13 @@ func makeResolveGetClass(className string) graphql.FieldResolveFn {
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			nearObjectParams = &p
+		}
+
+		var nearTextParams *traverser.NearTextParams
+		for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
+			if param == "nearText" {
+				nearTextParams = traverser.ConvertToTraverserNearTextParams(extractedParams)
+			}
 		}
 
 		group := extractGroup(p.Args)

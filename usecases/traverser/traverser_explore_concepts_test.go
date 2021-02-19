@@ -34,7 +34,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -54,7 +54,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -76,7 +76,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -128,7 +128,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -180,7 +180,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -238,7 +238,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -296,7 +296,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -337,7 +337,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -376,7 +376,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -439,7 +439,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
