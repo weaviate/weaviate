@@ -64,15 +64,32 @@ func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 	return map[string]modulecapabilities.VectorForParams{}
 }
 
-func getMockModules() []modulecapabilities.Module {
-	modules := []modulecapabilities.Module{}
-	modules = append(modules, &mockText2vecContextionaryModule{})
-	return modules
+type fakeModulesProvider struct{}
+
+func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+	txt2vec := &mockText2vecContextionaryModule{}
+	if class.Vectorizer == txt2vec.Name() {
+		return txt2vec.GetArguments(class.Class)
+	}
+	return map[string]*graphql.ArgumentConfig{}
+}
+
+func (p *fakeModulesProvider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+	exractedParams := map[string]interface{}{}
+	txt2vec := &mockText2vecContextionaryModule{}
+	if param, ok := arguments["nearText"]; ok {
+		exractedParams["nearText"] = txt2vec.ExtractFunctions()["nearText"](param.(map[string]interface{}))
+	}
+	return exractedParams
+}
+
+func getFakeModulesProvider() ModulesProvider {
+	return &fakeModulesProvider{}
 }
 
 func newMockResolver() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, getMockModules())
+	field, err := Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

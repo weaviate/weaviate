@@ -24,8 +24,8 @@ import (
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config, modules []modulecapabilities.Module) (graphql.Fields, error) {
-	getField, err := get.Build(dbSchema, logger, modules)
+	config config.Config, modulesProvider modulecapabilities.ModulesProvider) (graphql.Fields, error) {
+	getField, err := get.Build(dbSchema, logger, modulesProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
-	exploreField := explore.Build(dbSchema.Objects, modules)
+	exploreField := explore.Build(dbSchema.Objects, modulesProvider)
 
 	localFields := graphql.Fields{
 		"Get":       getField,

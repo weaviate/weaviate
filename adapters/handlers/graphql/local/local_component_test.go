@@ -113,7 +113,7 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			modules := modules.NewProvider().GetAll()
+			modules := modules.NewProvider()
 			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules)
 			require.Nil(t, err, test.name)
 

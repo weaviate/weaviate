@@ -18,7 +18,6 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -58,11 +57,11 @@ func newResources(s interface{}) (*resources, error) {
 }
 
 type resolver struct {
-	modules []modulecapabilities.Module
+	modulesProvider ModulesProvider
 }
 
-func newResolver(modules []modulecapabilities.Module) *resolver {
-	return &resolver{modules}
+func newResolver(modulesProvider ModulesProvider) *resolver {
+	return &resolver{modulesProvider}
 }
 
 func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
@@ -87,19 +86,9 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 		params.Limit = param.(int)
 	}
 
-	for _, module := range r.modules {
-		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			for paramName, extractFn := range args.ExtractFunctions() {
-				if param, ok := p.Args[paramName]; ok {
-					extracted := extractFn(param.(map[string]interface{}))
-					// TODO: gh-1462 Introduce module params in traverser.GetParams instead of c11y specific params
-					if paramName == "nearText" {
-						if nearTextParamsExtracted, ok := extracted.(modulecapabilities.NearTextParams); ok {
-							params.NearText = traverser.ConvertToTraverserNearTextParams(nearTextParamsExtracted)
-						}
-					}
-				}
-			}
+	for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
+		if param == "nearText" {
+			params.NearText = traverser.ConvertToTraverserNearTextParams(extractedParams)
 		}
 	}
 

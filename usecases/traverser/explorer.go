@@ -31,14 +31,19 @@ import (
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	search      vectorClassSearch
-	vectorizer  CorpiVectorizer
-	distancer   distancer
-	logger      logrus.FieldLogger
-	nnExtender  nnExtender
-	projector   projector
-	pathBuilder pathBuilder
-	modules     []modulecapabilities.Module
+	search          vectorClassSearch
+	vectorizer      CorpiVectorizer
+	distancer       distancer
+	logger          logrus.FieldLogger
+	nnExtender      nnExtender
+	projector       projector
+	pathBuilder     pathBuilder
+	modulesProvider ModulesProvider
+}
+
+type ModulesProvider interface {
+	VectorFromParams(ctx context.Context, param string, params interface{},
+		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -67,8 +72,8 @@ type pathBuilder interface {
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
-	projector projector, pathBuilder pathBuilder, modules []modulecapabilities.Module) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder, modules}
+	projector projector, pathBuilder pathBuilder, modulesProvider ModulesProvider) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder, modulesProvider}
 }
 
 // GetClass from search and connector repo
@@ -433,25 +438,15 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 
 func (e *Explorer) vectorFromModules(ctx context.Context,
 	nearTextParams *NearTextParams) ([]float32, error) {
-	for _, mod := range e.modules {
-		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-			for paramName, searchVectorFn := range searcher.VectorSearches() {
-				if paramName == "nearText" && nearTextParams != nil {
-					// TODO: gh-1462 Introduce module params in traverser.GetParams instead of c11y specific params
-					vector, err := searchVectorFn(ctx,
-						ConvertFromTraverserNearTextParams(nearTextParams),
-						e.findVector,
-					)
-					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
-					}
-					return vector, nil
-				}
-			}
-		}
+	vector, err := e.modulesProvider.VectorFromParams(ctx,
+		"nearText",
+		ConvertFromTraverserNearTextParams(nearTextParams),
+		e.findVector,
+	)
+	if err != nil {
+		return nil, errors.Errorf("vectorize params: %v", err)
 	}
-
-	panic("vectorFromModules was called without any known params present")
+	return vector, nil
 }
 
 func (e *Explorer) validateNearParams(nearText *NearTextParams, nearVector *NearVectorParams,

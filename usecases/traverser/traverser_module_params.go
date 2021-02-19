@@ -47,15 +47,18 @@ func convertFromTraverserObjects(objects []ObjectMove) []modulecapabilities.Obje
 	return nil
 }
 
-func ConvertToTraverserNearTextParams(params modulecapabilities.NearTextParams) *NearTextParams {
-	return &NearTextParams{
-		Values:       params.Values,
-		Limit:        params.Limit,
-		MoveTo:       convertToTraverserExploreMove(params.MoveTo),
-		MoveAwayFrom: convertToTraverserExploreMove(params.MoveAwayFrom),
-		Certainty:    params.Certainty,
-		Network:      params.Network,
+func ConvertToTraverserNearTextParams(params interface{}) *NearTextParams {
+	if extractedNearTextParams, ok := params.(modulecapabilities.NearTextParams); ok {
+		return &NearTextParams{
+			Values:       extractedNearTextParams.Values,
+			Limit:        extractedNearTextParams.Limit,
+			MoveTo:       convertToTraverserExploreMove(extractedNearTextParams.MoveTo),
+			MoveAwayFrom: convertToTraverserExploreMove(extractedNearTextParams.MoveAwayFrom),
+			Certainty:    extractedNearTextParams.Certainty,
+			Network:      extractedNearTextParams.Network,
+		}
 	}
+	return nil
 }
 
 func convertToTraverserExploreMove(move modulecapabilities.ExploreMove) ExploreMove {
