@@ -62,8 +62,8 @@ func (m *TransformersModule) RootHandler() http.Handler {
 
 func (m *TransformersModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig) error {
-	// TODO: use proper ClassIndexCheck once supported
-	return m.vectorizer.Object(ctx, obj, dummyICheck{})
+	icheck := vectorizer.NewIndexChecker(cfg)
+	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
 // verify we implement the modules.Module interface
