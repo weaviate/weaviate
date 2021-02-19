@@ -17,31 +17,21 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-// TODO: This is module specific logic, for now we are simply deciding to show
-// the nearText option if there is at least one class which has the
-// text2vec-contextionary vectorizer module active. This logic does not belong
-// here and should be removed with actual modularization
-func shouldShowNearText(schema *models.Schema, vectorizer string) bool {
-	for _, c := range schema.Classes {
-		if c.Vectorizer == vectorizer {
-			return true
-		}
-	}
-
-	return false
+type ModulesProvider interface {
+	ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig
+	ExtractParams(arguments map[string]interface{}) map[string]interface{}
 }
 
 // Build builds the object containing the Local->Explore Fields, such as Objects
-func Build(schema *models.Schema, modules []modulecapabilities.Module) *graphql.Field {
+func Build(schema *models.Schema, modulesProvider ModulesProvider) *graphql.Field {
 	field := &graphql.Field{
 		Name:        "Explore",
 		Description: descriptions.LocalExplore,
 		Type:        graphql.NewList(exploreObject()),
-		Resolve:     newResolver(modules).resolve,
+		Resolve:     newResolver(modulesProvider).resolve,
 		Args: graphql.FieldConfigArgument{
 			"limit": &graphql.ArgumentConfig{
 				Type:        graphql.Int,
@@ -53,15 +43,8 @@ func Build(schema *models.Schema, modules []modulecapabilities.Module) *graphql.
 		},
 	}
 
-	for _, module := range modules {
-		if shouldShowNearText(schema, module.Name()) {
-			arg, ok := module.(modulecapabilities.GraphQLArguments)
-			if ok {
-				for name, argument := range arg.ExploreArguments() {
-					field.Args[name] = argument
-				}
-			}
-		}
+	for name, argument := range modulesProvider.ExploreArguments(schema) {
+		field.Args[name] = argument
 	}
 
 	return field

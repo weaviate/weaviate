@@ -12,9 +12,12 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -107,4 +110,84 @@ func (m *Provider) validate() error {
 	}
 
 	return nil
+}
+
+func (m *Provider) shouldIncludeClassArgument(class *models.Class, vectorizer string) bool {
+	return class.Vectorizer == vectorizer
+}
+
+func (m *Provider) shouldIncludeArgument(schema *models.Schema, vectorizer string) bool {
+	for _, c := range schema.Classes {
+		if m.shouldIncludeClassArgument(c, vectorizer) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetArguments provides GraphQL Get arguments
+func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+	arguments := map[string]*graphql.ArgumentConfig{}
+	for _, module := range m.GetAll() {
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
+				for name, argument := range arg.GetArguments(class.Class) {
+					arguments[name] = argument
+				}
+			}
+		}
+	}
+	return arguments
+}
+
+// ExploreArguments provides GraphQL Explore arguments
+func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
+	arguments := map[string]*graphql.ArgumentConfig{}
+	for _, module := range m.GetAll() {
+		if m.shouldIncludeArgument(schema, module.Name()) {
+			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
+				for name, argument := range arg.ExploreArguments() {
+					arguments[name] = argument
+				}
+			}
+		}
+	}
+	return arguments
+}
+
+// ExtractParams extracts GraphQL arguments
+func (m *Provider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+	exractedParams := map[string]interface{}{}
+	for _, module := range m.GetAll() {
+		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+			for paramName, extractFn := range args.ExtractFunctions() {
+				if param, ok := arguments[paramName]; ok {
+					extracted := extractFn(param.(map[string]interface{}))
+					exractedParams[paramName] = extracted
+				}
+			}
+		}
+	}
+	return exractedParams
+}
+
+// VectorFromParams gets a vector for a given argument
+func (m *Provider) VectorFromParams(ctx context.Context,
+	param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	for _, mod := range m.GetAll() {
+		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
+				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
+					vector, err := searchVectorFn(ctx, params, findVectorFn)
+					if err != nil {
+						return nil, errors.Errorf("vectorize params: %v", err)
+					}
+					return vector, nil
+				}
+			}
+		}
+	}
+
+	panic("VectorFromParams was called without any known params present")
 }

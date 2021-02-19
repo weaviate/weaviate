@@ -122,7 +122,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	migrator = vectorMigrator
 	vectorizer = libvectorizer.New(appState.Contextionary)
 	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-		appState.Logger, nnExtender, featureProjector, pathBuilder, appState.Modules.GetAll())
+		appState.Logger, nnExtender, featureProjector, pathBuilder, appState.Modules)
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
 	if err != nil {
 		appState.Logger.

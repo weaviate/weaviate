@@ -33,14 +33,33 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
-func getMockModules() []modulecapabilities.Module {
-	modules := []modulecapabilities.Module{}
-	modules = append(modules, &mockText2vecContextionaryModule{})
-	return modules
+type fakeModulesProvider struct{}
+
+func (p *fakeModulesProvider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
+	txt2vec := &mockText2vecContextionaryModule{}
+	for _, c := range schema.Classes {
+		if c.Vectorizer == txt2vec.Name() {
+			return txt2vec.ExploreArguments()
+		}
+	}
+	return map[string]*graphql.ArgumentConfig{}
+}
+
+func (p *fakeModulesProvider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+	exractedParams := map[string]interface{}{}
+	txt2vec := &mockText2vecContextionaryModule{}
+	if param, ok := arguments["nearText"]; ok {
+		exractedParams["nearText"] = txt2vec.ExtractFunctions()["nearText"](param.(map[string]interface{}))
+	}
+	return exractedParams
+}
+
+func getFakeModulesProvider() ModulesProvider {
+	return &fakeModulesProvider{}
 }
 
 func newMockResolver() *mockResolver {
-	field := Build(testhelper.SimpleSchema.Objects, getMockModules())
+	field := Build(testhelper.SimpleSchema.Objects, getFakeModulesProvider())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
@@ -53,7 +72,7 @@ func newMockResolver() *mockResolver {
 }
 
 func newMockResolverEmptySchema() *mockResolver {
-	field := Build(&models.Schema{}, getMockModules())
+	field := Build(&models.Schema{}, getFakeModulesProvider())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"

@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
@@ -161,15 +160,8 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 	})
 }
 
-// TODO: this is module logic and rather than making this decision ourselves in
-// the API, we should ask the modules UC for what to provide when we want to
-// have real modularization
-func shouldIncludeNearText(class *models.Class, vectorizer string) bool {
-	return class.Vectorizer == vectorizer
-}
-
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modules []modulecapabilities.Module) graphql.Field {
+	class *models.Class, modulesProvider ModulesProvider) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
@@ -184,18 +176,11 @@ func buildGetClassField(classObject *graphql.Object,
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 		},
-		Resolve: newResolver(modules).makeResolveGetClass(class.Class),
+		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
-	for _, module := range modules {
-		if shouldIncludeNearText(class, module.Name()) {
-			arg, ok := module.(modulecapabilities.GraphQLArguments)
-			if ok {
-				for name, argument := range arg.GetArguments(class.Class) {
-					field.Args[name] = argument
-				}
-			}
-		}
+	for name, argument := range modulesProvider.GetArguments(class) {
+		field.Args[name] = argument
 	}
 
 	return field
@@ -254,11 +239,11 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 }
 
 type resolver struct {
-	modules []modulecapabilities.Module
+	modulesProvider ModulesProvider
 }
 
-func newResolver(modules []modulecapabilities.Module) *resolver {
-	return &resolver{modules}
+func newResolver(modulesProvider ModulesProvider) *resolver {
+	return &resolver{modulesProvider}
 }
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
@@ -306,21 +291,10 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			nearObjectParams = &p
 		}
 
-		// do the module name check
 		var nearTextParams *traverser.NearTextParams
-		for _, module := range r.modules {
-			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-				for paramName, extractFn := range args.ExtractFunctions() {
-					if param, ok := p.Args[paramName]; ok {
-						extracted := extractFn(param.(map[string]interface{}))
-						// TODO: gh-1462 Introduce module params in traverser.GetParams instead of c11y specific params
-						if paramName == "nearText" {
-							if nearTextParamsExtracted, ok := extracted.(modulecapabilities.NearTextParams); ok {
-								nearTextParams = traverser.ConvertToTraverserNearTextParams(nearTextParamsExtracted)
-							}
-						}
-					}
-				}
+		for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
+			if param == "nearText" {
+				nearTextParams = traverser.ConvertToTraverserNearTextParams(extractedParams)
 			}
 		}
 
