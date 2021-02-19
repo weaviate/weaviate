@@ -13,15 +13,20 @@ package traverser
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modcontextionarygraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -63,6 +68,32 @@ func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight
 
 func (f *fakeVectorizer) NormalizedDistance(source, target []float32) (float32, error) {
 	return 0.5, nil
+}
+
+type fakeTxt2VecVectorizer struct{}
+
+func (f *fakeTxt2VecVectorizer) Object(ctx context.Context, object *models.Object, icheck vectorizer.ClassIndexCheck) error {
+	panic("not implemented")
+}
+
+func (f *fakeTxt2VecVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
+	return []float32{1, 2, 3}, nil
+}
+
+func (f *fakeTxt2VecVectorizer) MoveTo(source []float32, target []float32, weight float32) ([]float32, error) {
+	res := make([]float32, len(source))
+	for i, v := range source {
+		res[i] = v + 1
+	}
+	return res, nil
+}
+
+func (f *fakeTxt2VecVectorizer) MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error) {
+	res := make([]float32, len(source))
+	for i, v := range source {
+		res[i] = v - 0.5
+	}
+	return res, nil
 }
 
 type fakeVectorSearcher struct {
@@ -176,4 +207,34 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) CalculatePath(in []search.Result, params *sempath.Params) ([]search.Result, error) {
 	return f.returnArgs, nil
+}
+
+type fakeText2vecContextionaryModule struct{}
+
+func (m *fakeText2vecContextionaryModule) Name() string {
+	return "text2vec-contextionary"
+}
+
+func (m *fakeText2vecContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
+	return nil
+}
+
+func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
+	return nil
+}
+
+func (m *fakeText2vecContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
+	return modcontextionarygraphql.New().GetArguments(classname)
+}
+
+func (m *fakeText2vecContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
+	return modcontextionarygraphql.New().ExploreArguments()
+}
+
+func (m *fakeText2vecContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
+	return modcontextionarygraphql.New().ExtractFunctions()
+}
+
+func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+	return modcontextionarygraphql.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
 }

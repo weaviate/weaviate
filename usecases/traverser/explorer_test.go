@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
@@ -60,7 +61,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -122,7 +123,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		search.
@@ -169,7 +170,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -223,7 +224,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		search.
 			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -295,7 +296,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		search.
 			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -352,7 +353,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			projector := &fakeProjector{}
 			pathBuilder := &fakePathBuilder{}
-			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
@@ -399,7 +400,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			projector := &fakeProjector{}
 			pathBuilder := &fakePathBuilder{}
-			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 			search.
@@ -437,7 +438,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -462,7 +463,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -487,7 +488,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -515,7 +516,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -540,7 +541,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -565,7 +566,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -599,7 +600,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -665,7 +666,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -729,7 +730,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		// expectedParamsToSearch.SearchVector = nil
@@ -803,7 +804,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -907,7 +908,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
@@ -1010,7 +1011,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
@@ -1136,7 +1137,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		searcher.
@@ -1268,7 +1269,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1416,7 +1417,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1615,7 +1616,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(fakeSearch, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1832,7 +1833,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
@@ -1921,4 +1922,17 @@ func newFakeDistancer69() func(a, b []float32) (float32, error) {
 
 func ptFloat32(in float32) *float32 {
 	return &in
+}
+
+type fakeModulesProvider struct{}
+
+func (p *fakeModulesProvider) VectorFromParams(ctx context.Context, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	txt2vec := &fakeText2vecContextionaryModule{}
+	vectorForParams := txt2vec.VectorSearches()["nearText"]
+	return vectorForParams(ctx, params, findVectorFn)
+}
+
+func getFakeModulesProvider() ModulesProvider {
+	return &fakeModulesProvider{}
 }

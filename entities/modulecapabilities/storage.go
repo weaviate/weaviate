@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modules
+package modulecapabilities
 
 type StorageProvider interface {
 	Storage(name string) (Storage, error)
