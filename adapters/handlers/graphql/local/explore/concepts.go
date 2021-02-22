@@ -43,8 +43,10 @@ func Build(schema *models.Schema, modulesProvider ModulesProvider) *graphql.Fiel
 		},
 	}
 
-	for name, argument := range modulesProvider.ExploreArguments(schema) {
-		field.Args[name] = argument
+	if modulesProvider != nil {
+		for name, argument := range modulesProvider.ExploreArguments(schema) {
+			field.Args[name] = argument
+		}
 	}
 
 	return field

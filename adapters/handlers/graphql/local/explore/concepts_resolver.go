@@ -86,9 +86,11 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 		params.Limit = param.(int)
 	}
 
-	for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
-		if param == "nearText" {
-			params.NearText = traverser.ConvertToTraverserNearTextParams(extractedParams)
+	if r.modulesProvider != nil {
+		for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
+			if param == "nearText" {
+				params.NearText = traverser.ConvertToTraverserNearTextParams(extractedParams)
+			}
 		}
 	}
 

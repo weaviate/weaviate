@@ -179,8 +179,10 @@ func buildGetClassField(classObject *graphql.Object,
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
-	for name, argument := range modulesProvider.GetArguments(class) {
-		field.Args[name] = argument
+	if modulesProvider != nil {
+		for name, argument := range modulesProvider.GetArguments(class) {
+			field.Args[name] = argument
+		}
 	}
 
 	return field
@@ -292,9 +294,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		}
 
 		var nearTextParams *traverser.NearTextParams
-		for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
-			if param == "nearText" {
-				nearTextParams = traverser.ConvertToTraverserNearTextParams(extractedParams)
+		if r.modulesProvider != nil {
+			for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
+				if param == "nearText" {
+					nearTextParams = traverser.ConvertToTraverserNearTextParams(extractedParams)
+				}
 			}
 		}
 

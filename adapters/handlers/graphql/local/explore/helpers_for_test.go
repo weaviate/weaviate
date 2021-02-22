@@ -71,6 +71,19 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
+func newMockResolverNoModules() *mockResolver {
+	field := Build(testhelper.SimpleSchema.Objects, nil)
+	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
+	mocker.RootFieldName = "Explore"
+	mocker.RootField = field
+	mocker.RootObject = map[string]interface{}{
+		"Resolver":    Resolver(mocker),
+		"RequestsLog": mockLog,
+	}
+	return mocker
+}
+
 func newMockResolverEmptySchema() *mockResolver {
 	field := Build(&models.Schema{}, getFakeModulesProvider())
 	mocker := &mockResolver{}
