@@ -9,7 +9,29 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modules
+package modulecapabilities
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/entities/models"
+)
+
+type Module interface {
+	Name() string
+	Init(params ModuleInitParams) error
+	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
+}
+
+type ModulesProvider interface {
+	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
+	ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig
+	ExtractParams(arguments map[string]interface{}) map[string]interface{}
+	VectorFromParams(ctx context.Context, param string, params interface{},
+		findVectorFn FindVectorFn) ([]float32, error)
+}
 
 type ModuleInitParams interface {
 	GetStorageProvider() StorageProvider

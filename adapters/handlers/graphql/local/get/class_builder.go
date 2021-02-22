@@ -22,17 +22,20 @@ import (
 )
 
 type classBuilder struct {
-	schema       *schema.Schema
-	knownClasses map[string]*graphql.Object
-	beaconClass  *graphql.Object
-	logger       logrus.FieldLogger
+	schema          *schema.Schema
+	knownClasses    map[string]*graphql.Object
+	beaconClass     *graphql.Object
+	logger          logrus.FieldLogger
+	modulesProvider ModulesProvider
 }
 
-func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger) *classBuilder {
+func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider) *classBuilder {
 	b := &classBuilder{}
 
 	b.logger = logger
 	b.schema = schema
+	b.modulesProvider = modulesProvider
 
 	b.initKnownClasses()
 	b.initBeaconClass()
@@ -82,7 +85,7 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 func (b *classBuilder) classField(class *models.Class) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, class)
+	classField := buildGetClassField(classObject, class, b.modulesProvider)
 	return &classField, nil
 }
 
