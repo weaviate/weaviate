@@ -101,6 +101,20 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
+func newMockResolverWithNoModules() *mockResolver {
+	logger, _ := test.NewNullLogger()
+	field, err := Build(&test_helper.SimpleSchema, logger, nil)
+	if err != nil {
+		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
+	}
+	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
+	mocker.RootFieldName = "Get"
+	mocker.RootField = field
+	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": RequestsLog(mockLog)}
+	return mocker
+}
+
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params traverser.GetParams) (interface{}, error) {
 	args := m.Called(params)
