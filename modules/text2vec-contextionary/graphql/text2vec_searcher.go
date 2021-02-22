@@ -38,13 +38,13 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 func (s *Searcher) vectorForNearTextParams(ctx context.Context, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	return s.vectorFromNearTextParams(ctx,
-		params.(*modulecapabilities.NearTextParams),
+		params.(*NearTextParams),
 		findVectorFn,
 	)
 }
 
 func (s *Searcher) vectorFromNearTextParams(ctx context.Context,
-	params *modulecapabilities.NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
@@ -82,7 +82,7 @@ func (s *Searcher) vectorFromNearTextParams(ctx context.Context,
 }
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []modulecapabilities.ObjectMove,
+	values []string, objects []ObjectMove,
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	var objectVectors [][]float32
 
