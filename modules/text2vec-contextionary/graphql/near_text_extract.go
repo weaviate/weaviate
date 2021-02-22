@@ -9,19 +9,23 @@
 //  CONTACT: hello@semi.technology
 //
 
-package common_filters
+package graphql
 
 import (
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 )
+
+func extractNearTextFn(param map[string]interface{}) interface{} {
+	return extractNearText(param)
+}
 
 // TODO: This is specific to the text2vec-contextionary module and should be
 // provided from there
 //
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func ExtractNearText(source map[string]interface{}) traverser.NearTextParams {
-	var args traverser.NearTextParams
+func extractNearText(source map[string]interface{}) interface{} {
+	var args modulecapabilities.NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})
@@ -64,12 +68,12 @@ func ExtractNearText(source map[string]interface{}) traverser.NearTextParams {
 	return args
 }
 
-func extractMovement(input interface{}) traverser.ExploreMove {
+func extractMovement(input interface{}) modulecapabilities.ExploreMove {
 	// the type is fixed through gql config, no need to catch incorrect type
 	// assumption, all fields are required so we don't need to check for their
 	// presence
 	moveToMap := input.(map[string]interface{})
-	res := traverser.ExploreMove{}
+	res := modulecapabilities.ExploreMove{}
 	res.Force = float32(moveToMap["force"].(float64))
 
 	keywords, ok := moveToMap["concepts"].([]interface{})
@@ -82,7 +86,7 @@ func extractMovement(input interface{}) traverser.ExploreMove {
 
 	objects, ok := moveToMap["objects"].([]interface{})
 	if ok {
-		res.Objects = make([]traverser.ObjectMove, len(objects))
+		res.Objects = make([]modulecapabilities.ObjectMove, len(objects))
 		for i, value := range objects {
 			v, ok := value.(map[string]interface{})
 			if ok {

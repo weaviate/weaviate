@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/graphql-go/graphql"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -22,8 +23,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
+	text2vecgraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
 	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
@@ -35,12 +36,14 @@ func New() *ContextionaryModule {
 // but with making Weaviate more modular, this should contain anything related
 // to the module
 type ContextionaryModule struct {
-	storageProvider modules.StorageProvider
+	storageProvider modulecapabilities.StorageProvider
 	extensions      *extensions.RESTHandlers
 	concepts        *concepts.RESTHandlers
 	appState        *state.State
-	vectorizer      *vectorizer.Vectorizer
+	vectorizer      vectorizer.VectorizerDef
 	configValidator configValidator
+	graphqlProvider modulecapabilities.GraphQLArguments
+	searcher        modulecapabilities.Searcher
 }
 
 type configValidator interface {
@@ -52,7 +55,7 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *ContextionaryModule) Init(params modules.ModuleInitParams) error {
+func (m *ContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
@@ -70,6 +73,10 @@ func (m *ContextionaryModule) Init(params modules.ModuleInitParams) error {
 
 	if err := m.initVectorizer(); err != nil {
 		return errors.Wrap(err, "init vectorizer")
+	}
+
+	if err := m.initGraphqlProvider(); err != nil {
+		return errors.Wrap(err, "init graphql provider")
 	}
 
 	return nil
@@ -103,6 +110,13 @@ func (m *ContextionaryModule) initVectorizer() error {
 
 	m.configValidator = localvectorizer.NewConfigValidator(rc)
 
+	m.searcher = text2vecgraphql.NewSearcher(m.vectorizer)
+
+	return nil
+}
+
+func (m *ContextionaryModule) initGraphqlProvider() error {
+	m.graphqlProvider = text2vecgraphql.New()
 	return nil
 }
 
@@ -124,8 +138,24 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
+func (m *ContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
+	return m.graphqlProvider.GetArguments(classname)
+}
+
+func (m *ContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
+	return m.graphqlProvider.ExploreArguments()
+}
+
+func (m *ContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
+	return m.graphqlProvider.ExtractFunctions()
+}
+
+func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+	return m.searcher.VectorSearches()
+}
+
 // verify we implement the modules.Module interface
 var (
-	_ = modules.Module(New())
+	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 )

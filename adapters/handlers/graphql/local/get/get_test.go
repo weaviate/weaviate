@@ -1023,6 +1023,129 @@ func TestNearObject(t *testing.T) {
 	})
 }
 
+func TestNearTextNoNoModules(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolverWithNoModules()
+
+	t.Run("for nearText that is not available", func(t *testing.T) {
+		query := `{ Get { SomeAction(nearText: {
+	              concepts: ["c1", "c2", "c3"],
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								},
+								moveAwayFrom: {
+									concepts:["epic"],
+									force: 0.25
+								}
+	      			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return(nil, nil).Once()
+
+		resolver.AssertFailToResolve(t, query)
+	})
+}
+
+func TestNearObjectNoModules(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolverWithNoModules()
+
+	t.Run("for objects with beacon", func(t *testing.T) {
+		query := `{ Get { SomeAction(
+								nearObject: {
+									beacon: "weaviate://localhost/some-uuid"
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				Beacon: "weaviate://localhost/some-uuid",
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with ID", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									id: "some-uuid"
+									certainty: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-uuid",
+				Certainty: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+}
+
+func TestNearVectorNoModules(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolverWithNoModules()
+
+	t.Run("for actions", func(t *testing.T) {
+		query := `{ Get { SomeAction(nearVector: {
+							  vector: [0.123, 0.984] 
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &traverser.NearVectorParams{
+				Vector: []float32{0.123, 0.984},
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearVector: {
+							  vector: [0.123, 0.984] 
+								certainty: 0.4
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+}
+
 func ptFloat32(in float32) *float32 {
 	return &in
 }

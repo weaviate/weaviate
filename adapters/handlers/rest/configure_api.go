@@ -33,6 +33,7 @@ import (
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -121,7 +122,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	migrator = vectorMigrator
 	vectorizer = libvectorizer.New(appState.Contextionary)
 	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-		appState.Logger, nnExtender, featureProjector, pathBuilder)
+		appState.Logger, nnExtender, featureProjector, pathBuilder, appState.Modules)
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -393,7 +394,7 @@ func initModules(appState *state.State) error {
 
 	// TODO: don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := modules.NewInitParams(storageProvider, appState)
+	moduleParams := modulecapabilities.NewInitParams(storageProvider, appState)
 
 	if err := appState.Modules.Init(moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
@@ -402,7 +403,7 @@ func initModules(appState *state.State) error {
 	return nil
 }
 
-func loadModulePlugin(filename string) (modules.Module, error) {
+func loadModulePlugin(filename string) (modulecapabilities.Module, error) {
 	plug, err := plugin.Open(filename)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot open module: %s", filename)
@@ -413,7 +414,7 @@ func loadModulePlugin(filename string) (modules.Module, error) {
 		return nil, errors.Wrapf(err, "cannot load module: %s", filename)
 	}
 
-	module, ok := moduleImpl.(modules.Module)
+	module, ok := moduleImpl.(modulecapabilities.Module)
 	if !ok {
 		return nil, errors.Errorf("not a module: %s", filename)
 	}
