@@ -20,12 +20,12 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -60,7 +60,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	config config.Config, traverser *traverser.Traverser, modulesProvider modulecapabilities.ModulesProvider) (graphql.GraphQL, error) {
+	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider) (graphql.GraphQL, error) {
 	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)

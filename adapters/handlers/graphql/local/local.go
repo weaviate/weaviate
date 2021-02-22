@@ -16,15 +16,15 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 )
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config, modulesProvider modulecapabilities.ModulesProvider) (graphql.Fields, error) {
+	config config.Config, modulesProvider *modules.Provider) (graphql.Fields, error) {
 	getField, err := get.Build(dbSchema, logger, modulesProvider)
 	if err != nil {
 		return nil, err
