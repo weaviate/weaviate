@@ -18,10 +18,18 @@ import (
 // ExtractFn extracts graphql params to given struct implementation
 type ExtractFn = func(param map[string]interface{}) interface{}
 
+type NearParam interface {
+	GetCertainty() float64
+}
+
+// ValidateFn validates a given module param
+type ValidateFn = func(param interface{}) error
+
 // GraphQLArguments defines the capabilities of modules to add their
 // arguments to graphql API
 type GraphQLArguments interface {
 	GetArguments(classname string) map[string]*graphql.ArgumentConfig
 	ExploreArguments() map[string]*graphql.ArgumentConfig
 	ExtractFunctions() map[string]ExtractFn
+	ValidateFunctions() map[string]ValidateFn
 }
