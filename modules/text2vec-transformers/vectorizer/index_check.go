@@ -19,6 +19,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizeClassName    = true
 	DefaultVectorizePropertyName = false
+	DefaultPoolingStrategy       = "masked_mean"
 )
 
 type indexChecker struct {
@@ -69,4 +70,18 @@ func (ic *indexChecker) VectorizeClassName() bool {
 	}
 
 	return asBool
+}
+
+func (ic *indexChecker) PoolingStrategy() string {
+	vcn, ok := ic.cfg.Class()["poolingStrategy"]
+	if !ok {
+		return DefaultPoolingStrategy
+	}
+
+	asString, ok := vcn.(string)
+	if !ok {
+		return DefaultPoolingStrategy
+	}
+
+	return asString
 }

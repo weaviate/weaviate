@@ -24,7 +24,7 @@ type TransformersModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object,
-		icheck vectorizer.ClassIndexCheck) error
+		icheck vectorizer.ClassSettings) error
 }
 
 func (m *TransformersModule) Name() string {
@@ -71,18 +71,3 @@ var (
 	_ = modules.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 )
-
-// A placeholder until we support parsing the config
-type dummyICheck struct{}
-
-func (d dummyICheck) PropertyIndexed(propName string) bool {
-	return true
-}
-
-func (d dummyICheck) VectorizePropertyName(propName string) bool {
-	return false
-}
-
-func (d dummyICheck) VectorizeClassName() bool {
-	return true
-}

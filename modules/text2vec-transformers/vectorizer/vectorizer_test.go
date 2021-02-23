@@ -14,12 +14,14 @@ import (
 // text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
-		name               string
-		input              *models.Object
-		expectedClientCall string
-		noindex            string
-		excludedProperty   string // to simulate a schema where property names aren't vectorized
-		excludedClass      string // to simulate a schema where class names aren't vectorized
+		name                    string
+		input                   *models.Object
+		expectedClientCall      string
+		expectedPoolingStrategy string
+		noindex                 string
+		excludedProperty        string // to simulate a schema where property names aren't vectorized
+		excludedClass           string // to simulate a schema where class names aren't vectorized
+		poolingStrategy         string
 	}
 
 	tests := []testCase{
@@ -28,7 +30,9 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 			},
-			expectedClientCall: "car",
+			poolingStrategy:         "cls",
+			expectedPoolingStrategy: "cls",
+			expectedClientCall:      "car",
 		},
 		testCase{
 			name: "object with one string prop",
@@ -143,6 +147,7 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:   test.excludedProperty,
 				skippedProperty:    test.noindex,
 				vectorizeClassName: test.excludedClass != "Car",
+				poolingStrategy:    test.poolingStrategy,
 			}
 			err := v.Object(context.Background(), test.input, ic)
 
@@ -151,6 +156,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expected := strings.Split(test.expectedClientCall, " ")
 			actual := strings.Split(client.lastInput, " ")
 			assert.ElementsMatch(t, expected, actual)
+			assert.Equal(t, client.lastConfig.PoolingStrategy, test.expectedPoolingStrategy)
 		})
 	}
 }
