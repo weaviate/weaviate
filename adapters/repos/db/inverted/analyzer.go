@@ -31,8 +31,7 @@ type Property struct {
 	HasFrequency bool
 }
 
-type Analyzer struct {
-}
+type Analyzer struct{}
 
 // Text removes non alpha-numeric and splits into words, then aggregates
 // duplicates
