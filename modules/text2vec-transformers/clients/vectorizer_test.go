@@ -26,7 +26,10 @@ func TestClient(t *testing.T) {
 			Vector:     []float32{0.1, 0.2, 0.3},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), "This is my text")
+		res, err := c.Vectorize(context.Background(), "This is my text",
+			ent.VectorizationConfig{
+				PoolingStrategy: "masked_mean",
+			})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -39,7 +42,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text")
+		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -52,7 +55,8 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := New(server.URL)
-		_, err := c.Vectorize(context.Background(), "This is my text")
+		_, err := c.Vectorize(context.Background(), "This is my text",
+			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "nope, not gonna happen")
@@ -83,6 +87,9 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	textInput := b["text"].(string)
 	assert.Greater(f.t, len(textInput), 0)
+
+	pooling := b["config"].(map[string]interface{})["pooling_strategy"].(string)
+	assert.Equal(f.t, "masked_mean", pooling)
 
 	out := map[string]interface{}{
 		"text":   textInput,

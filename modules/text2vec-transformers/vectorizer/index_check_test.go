@@ -34,6 +34,7 @@ func TestIndexChecker(t *testing.T) {
 		assert.True(t, ic.PropertyIndexed("someProp"))
 		assert.False(t, ic.VectorizePropertyName("someProp"))
 		assert.True(t, ic.VectorizeClassName())
+		assert.Equal(t, ic.PoolingStrategy(), "masked_mean")
 	})
 
 	t.Run("with all explicit config matching the defaults", func(t *testing.T) {
@@ -42,6 +43,7 @@ func TestIndexChecker(t *testing.T) {
 			ModuleConfig: map[string]interface{}{
 				"my-module": map[string]interface{}{
 					"vectorizeClassName": true,
+					"poolingStrategy":    "masked_mean",
 				},
 			},
 			Properties: []*models.Property{{
@@ -61,6 +63,7 @@ func TestIndexChecker(t *testing.T) {
 		assert.True(t, ic.PropertyIndexed("someProp"))
 		assert.False(t, ic.VectorizePropertyName("someProp"))
 		assert.True(t, ic.VectorizeClassName())
+		assert.Equal(t, ic.PoolingStrategy(), "masked_mean")
 	})
 
 	t.Run("with all explicit config using non-default values", func(t *testing.T) {
@@ -69,6 +72,7 @@ func TestIndexChecker(t *testing.T) {
 			ModuleConfig: map[string]interface{}{
 				"my-module": map[string]interface{}{
 					"vectorizeClassName": false,
+					"poolingStrategy":    "cls",
 				},
 			},
 			Properties: []*models.Property{{
@@ -88,5 +92,6 @@ func TestIndexChecker(t *testing.T) {
 		assert.False(t, ic.PropertyIndexed("someProp"))
 		assert.True(t, ic.VectorizePropertyName("someProp"))
 		assert.False(t, ic.VectorizeClassName())
+		assert.Equal(t, ic.PoolingStrategy(), "cls")
 	})
 }

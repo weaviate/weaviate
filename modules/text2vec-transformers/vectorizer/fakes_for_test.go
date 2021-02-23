@@ -7,12 +7,14 @@ import (
 )
 
 type fakeClient struct {
-	lastInput string
+	lastInput  string
+	lastConfig ent.VectorizationConfig
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text string) (*ent.VectorizationResult, error) {
+	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	c.lastInput = text
+	c.lastConfig = cfg
 	return &ent.VectorizationResult{
 		Vector:     []float32{0, 1, 2, 3},
 		Dimensions: 4,
@@ -24,6 +26,7 @@ type fakeIndexCheck struct {
 	skippedProperty    string
 	vectorizeClassName bool
 	excludedProperty   string
+	poolingStrategy    string
 }
 
 func (f *fakeIndexCheck) PropertyIndexed(propName string) bool {
@@ -36,4 +39,8 @@ func (f *fakeIndexCheck) VectorizePropertyName(propName string) bool {
 
 func (f *fakeIndexCheck) VectorizeClassName() bool {
 	return f.vectorizeClassName
+}
+
+func (f *fakeIndexCheck) PoolingStrategy() string {
+	return f.poolingStrategy
 }

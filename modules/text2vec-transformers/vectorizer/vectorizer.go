@@ -21,18 +21,20 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input string) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input string,
+		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
-type ClassIndexCheck interface {
+type ClassSettings interface {
 	PropertyIndexed(property string) bool
 	VectorizeClassName() bool
 	VectorizePropertyName(propertyName string) bool
+	PoolingStrategy() string
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	icheck ClassIndexCheck) error {
+	icheck ClassSettings) error {
 	vec, err := v.object(ctx, object.Class, object.Properties, icheck)
 	if err != nil {
 		return err
@@ -43,7 +45,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, icheck ClassIndexCheck) ([]float32, error) {
+	schema interface{}, icheck ClassSettings) ([]float32, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {
@@ -75,7 +77,9 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	text := strings.Join(corpi, " ")
-	res, err := v.client.Vectorize(ctx, text)
+	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
+		PoolingStrategy: icheck.PoolingStrategy(),
+	})
 	if err != nil {
 		return nil, err
 	}

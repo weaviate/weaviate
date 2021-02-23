@@ -24,9 +24,14 @@ func New(origin string) *vectorizer {
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context,
-	input string) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(vecRequest{Text: input})
+func (v *vectorizer) Vectorize(ctx context.Context, input string,
+	config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	body, err := json.Marshal(vecRequest{
+		Text: input,
+		Config: vecRequestConfig{
+			PoolingStrategy: config.PoolingStrategy,
+		},
+	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
@@ -70,8 +75,13 @@ func (v *vectorizer) url(path string) string {
 }
 
 type vecRequest struct {
-	Text   string    `json:"text"`
-	Dims   int       `json:"dims"`
-	Vector []float32 `json:"vector"`
-	Error  string    `json:"error"`
+	Text   string           `json:"text"`
+	Dims   int              `json:"dims"`
+	Vector []float32        `json:"vector"`
+	Error  string           `json:"error"`
+	Config vecRequestConfig `json:"config"`
+}
+
+type vecRequestConfig struct {
+	PoolingStrategy string `json:"pooling_strategy"`
 }

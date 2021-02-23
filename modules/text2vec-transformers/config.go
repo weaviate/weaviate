@@ -13,6 +13,7 @@ import (
 func (m *TransformersModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
+		"poolingStrategy":    vectorizer.DefaultPoolingStrategy,
 	}
 }
 
