@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -48,6 +49,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 			logger,
 			appState.ServerConfig.Config,
 			traverser,
+			appState.Modules,
 		)
 		if err != nil {
 			logger.WithField("action", "graphql_rebuild").
@@ -58,8 +60,8 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	config config.Config, traverser *traverser.Traverser) (graphql.GraphQL, error) {
-	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config)
+	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider) (graphql.GraphQL, error) {
+	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
