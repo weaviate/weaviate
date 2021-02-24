@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package graphql
+package neartext
 
 import "testing"
 

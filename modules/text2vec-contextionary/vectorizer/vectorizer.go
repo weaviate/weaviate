@@ -24,13 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-type VectorizerDef interface {
-	Object(ctx context.Context, object *models.Object, icheck ClassIndexCheck) error
-	Corpi(ctx context.Context, corpi []string) ([]float32, error)
-	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
-}
-
 // Vectorizer turns objects into vectors
 type Vectorizer struct {
 	client client
@@ -50,7 +43,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
-		overrides map[string]string) ([]float32, []InputElement, error)
+		overrides map[string]string) ([]float32, []models.InterpretationSource, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -94,7 +87,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string,
-	icheck ClassIndexCheck) ([]float32, []InputElement, error) {
+	icheck ClassIndexCheck) ([]float32, []models.InterpretationSource, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {
@@ -192,14 +185,7 @@ func camelCaseToLower(in string) string {
 	return sb.String()
 }
 
-// TODO: replace with models.InterpretationSource
-type InputElement struct {
-	Concept    string
-	Weight     float32
-	Occurrence uint64
-}
-
-func sourceFromInputElements(in []InputElement) []*models.InterpretationSource {
+func sourceFromInputElements(in []models.InterpretationSource) []*models.InterpretationSource {
 	out := make([]*models.InterpretationSource, len(in))
 	for i, elem := range in {
 		out[i] = &models.InterpretationSource{

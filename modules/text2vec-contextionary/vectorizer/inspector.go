@@ -21,19 +21,19 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-type inspectorClient interface {
+type InspectorClient interface {
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	VectorForCorpi(ctx context.Context, words []string,
-		overrides map[string]string) ([]float32, []InputElement, error)
+		overrides map[string]string) ([]float32, []models.InterpretationSource, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
 	IsWordPresent(ctx context.Context, word string) (bool, error)
 }
 
 type Inspector struct {
-	client inspectorClient
+	client InspectorClient
 }
 
-func NewInspector(client inspectorClient) *Inspector {
+func NewInspector(client InspectorClient) *Inspector {
 	return &Inspector{client: client}
 }
 

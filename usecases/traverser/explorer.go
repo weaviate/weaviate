@@ -33,7 +33,6 @@ import (
 // used by an API, but through a Traverser.
 type Explorer struct {
 	search          vectorClassSearch
-	vectorizer      CorpiVectorizer
 	distancer       distancer
 	logger          logrus.FieldLogger
 	nnExtender      nnExtender
@@ -72,10 +71,10 @@ type pathBuilder interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
-	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
+func NewExplorer(search vectorClassSearch, distancer distancer,
+	logger logrus.FieldLogger, nnExtender nnExtender,
 	projector projector, pathBuilder pathBuilder, modulesProvider ModulesProvider) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder, modulesProvider}
+	return &Explorer{search, distancer, logger, nnExtender, projector, pathBuilder, modulesProvider}
 }
 
 // GetClass from search and connector repo
