@@ -28,66 +28,6 @@ import (
 )
 
 func Test_Explorer_GetClass(t *testing.T) {
-	t.Run("when an explore param is set for nearText", func(t *testing.T) {
-		// TODO: this is a module specific test case, which relies on the
-		// text2vec-contextionary module
-		params := GetParams{
-			ClassName: "BestClass",
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-			},
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-		}
-
-		searchResults := []search.Result{
-			{
-				ID: "id1",
-				Schema: map[string]interface{}{
-					"name": "Foo",
-				},
-			},
-			{
-				ID: "id2",
-				Schema: map[string]interface{}{
-					"age": 200,
-				},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
-		search.
-			On("VectorClassSearch", expectedParamsToSearch).
-			Return(searchResults, nil)
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("vector search must be called with right params", func(t *testing.T) {
-			assert.Nil(t, err)
-			search.AssertExpectations(t)
-		})
-
-		t.Run("response must contain concepts", func(t *testing.T) {
-			require.Len(t, res, 2)
-			assert.Equal(t,
-				map[string]interface{}{
-					"name": "Foo",
-				}, res[0])
-			assert.Equal(t,
-				map[string]interface{}{
-					"age": 200,
-				}, res[1])
-		})
-	})
-
 	t.Run("when an explore param is set for nearVector", func(t *testing.T) {
 		// TODO: this is a module specific test case, which relies on the
 		// text2vec-contextionary module
@@ -325,53 +265,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-	t.Run("when an explore param is set for nearText and the required certainty not met",
-		func(t *testing.T) {
-			params := GetParams{
-				ClassName: "BestClass",
-				NearText: &NearTextParams{
-					Values:    []string{"foo"},
-					Certainty: 0.8,
-				},
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    nil,
-			}
-
-			searchResults := []search.Result{
-				{
-					ID: "id1",
-				},
-				{
-					ID: "id2",
-				},
-			}
-
-			search := &fakeVectorSearcher{}
-			vectorizer := &fakeVectorizer{}
-			extender := &fakeExtender{}
-			log, _ := test.NewNullLogger()
-
-			projector := &fakeProjector{}
-			pathBuilder := &fakePathBuilder{}
-			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-			expectedParamsToSearch := params
-			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
-			search.
-				On("VectorClassSearch", expectedParamsToSearch).
-				Return(searchResults, nil)
-
-			res, err := explorer.GetClass(context.Background(), params)
-
-			t.Run("vector search must be called with right params", func(t *testing.T) {
-				assert.Nil(t, err)
-				search.AssertExpectations(t)
-			})
-
-			t.Run("no concept met the required certainty", func(t *testing.T) {
-				assert.Len(t, res, 0)
-			})
-		})
-
 	t.Run("when an explore param is set for nearVector and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
@@ -419,56 +312,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 		})
 
-	t.Run("when two conflicting (nearVector, nearText) near searchers are set", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			NearVector: &NearVectorParams{
-				Vector: []float32{0.8, 0.2, 0.7},
-			},
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		_, err := explorer.GetClass(context.Background(), params)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "parameters which are conflicting")
-	})
-
-	t.Run("when two conflicting (nearText, nearObject) near searchers are set", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-			},
-			NearObject: &NearObjectParams{
-				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		_, err := explorer.GetClass(context.Background(), params)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "parameters which are conflicting")
-	})
-
 	t.Run("when two conflicting (nearVector, nearObject) near searchers are set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
@@ -492,84 +335,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
-	})
-
-	t.Run("when three conflicting (nearText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-			},
-			NearVector: &NearVectorParams{
-				Vector: []float32{0.8, 0.2, 0.7},
-			},
-			NearObject: &NearObjectParams{
-				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		_, err := explorer.GetClass(context.Background(), params)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "parameters which are conflicting")
-	})
-
-	t.Run("when nearText.moveTo has no concepts and objects defined", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-				MoveTo: ExploreMove{
-					Force: 0.1,
-				},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		_, err := explorer.GetClass(context.Background(), params)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
-	})
-
-	t.Run("when nearText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			NearText: &NearTextParams{
-				Values: []string{"foo"},
-				MoveAwayFrom: ExploreMove{
-					Force: 0.1,
-				},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		_, err := explorer.GetClass(context.Background(), params)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
 	})
 
 	t.Run("when no explore param is set", func(t *testing.T) {
@@ -695,67 +460,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				}, res[1])
-		})
-	})
-
-	t.Run("when the certainty prop is set", func(t *testing.T) {
-		params := GetParams{
-			Filters:      nil,
-			ClassName:    "BestClass",
-			Pagination:   &filters.Pagination{Limit: 100},
-			SearchVector: []float32{1.0, 2.0, 3.0},
-			NearText: &NearTextParams{
-				Values:    []string{"foobar"},
-				Limit:     100,
-				Certainty: 0,
-			},
-			AdditionalProperties: AdditionalProperties{
-				Certainty: true,
-			},
-		}
-
-		searchResults := []search.Result{
-			{
-				ID: "id2",
-				Schema: map[string]interface{}{
-					"age": 200,
-				},
-				Vector: []float32{0.5, 1.5, 0.0},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		extender := &fakeExtender{}
-		log, _ := test.NewNullLogger()
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
-		// expectedParamsToSearch.SearchVector = nil
-		search.
-			On("VectorClassSearch", expectedParamsToSearch).
-			Return(searchResults, nil)
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("class search must be called with right params", func(t *testing.T) {
-			assert.Nil(t, err)
-			search.AssertExpectations(t)
-		})
-
-		t.Run("response must contain concepts", func(t *testing.T) {
-			require.Len(t, res, 1)
-
-			resMap := res[0].(map[string]interface{})
-			assert.Equal(t, 2, len(resMap))
-			assert.Contains(t, resMap, "age")
-			assert.Equal(t, 200, resMap["age"])
-			additionalMap := resMap["_additional"]
-			assert.Contains(t, additionalMap, "certainty")
-			// Certainty is fixed to 0.69 in this mock
-			assert.InEpsilon(t, 0.31, additionalMap.(map[string]interface{})["certainty"], 0.000001)
 		})
 	})
 
@@ -1042,162 +746,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"featureProjection": &models.FeatureProjection{
 							Vector: []float32{1, 0},
-						},
-					},
-				}, res[1])
-		})
-	})
-
-	t.Run("when the semanticPath prop is set", func(t *testing.T) {
-		params := GetParams{
-			ClassName:  "BestClass",
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
-				SemanticPath: &sempath.Params{},
-			},
-			NearText: &NearTextParams{
-				Values: []string{"foobar"},
-			},
-		}
-
-		searchResults := []search.Result{
-			{
-				ID: "id1",
-				Schema: map[string]interface{}{
-					"name": "Foo",
-				},
-			},
-			{
-				ID: "id2",
-				Schema: map[string]interface{}{
-					"name": "Bar",
-				},
-			},
-		}
-
-		searcher := &fakeVectorSearcher{}
-		vectorizer := &fakeVectorizer{}
-		log, _ := test.NewNullLogger()
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
-		pathBuilder := &fakePathBuilder{
-			returnArgs: []search.Result{
-				{
-					ID: "id1",
-					Schema: map[string]interface{}{
-						"name": "Foo",
-					},
-					AdditionalProperties: &models.AdditionalProperties{
-						SemanticPath: &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
-									Concept:            "pathelem1",
-									DistanceToQuery:    0,
-									DistanceToResult:   2.1,
-									DistanceToPrevious: nil,
-									DistanceToNext:     ptFloat32(0.5),
-								},
-								&models.SemanticPathElement{
-									Concept:            "pathelem2",
-									DistanceToQuery:    2.1,
-									DistanceToResult:   0,
-									DistanceToPrevious: ptFloat32(0.5),
-									DistanceToNext:     nil,
-								},
-							},
-						},
-					},
-				},
-				{
-					ID: "id2",
-					Schema: map[string]interface{}{
-						"name": "Bar",
-					},
-					AdditionalProperties: &models.AdditionalProperties{
-						SemanticPath: &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
-									Concept:            "pathelem1",
-									DistanceToQuery:    0,
-									DistanceToResult:   2.1,
-									DistanceToPrevious: nil,
-									DistanceToNext:     ptFloat32(0.5),
-								},
-								&models.SemanticPathElement{
-									Concept:            "pathelem2",
-									DistanceToQuery:    2.1,
-									DistanceToResult:   0,
-									DistanceToPrevious: ptFloat32(0.5),
-									DistanceToNext:     nil,
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
-		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
-		searcher.
-			On("VectorClassSearch", expectedParamsToSearch).
-			Return(searchResults, nil)
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("class search must be called with right params", func(t *testing.T) {
-			assert.Nil(t, err)
-			searcher.AssertExpectations(t)
-		})
-
-		t.Run("response must contain concepts", func(t *testing.T) {
-			require.Len(t, res, 2)
-			assert.Equal(t,
-				map[string]interface{}{
-					"name": "Foo",
-					"_additional": map[string]interface{}{
-						"semanticPath": &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
-									Concept:            "pathelem1",
-									DistanceToQuery:    0,
-									DistanceToResult:   2.1,
-									DistanceToPrevious: nil,
-									DistanceToNext:     ptFloat32(0.5),
-								},
-								&models.SemanticPathElement{
-									Concept:            "pathelem2",
-									DistanceToQuery:    2.1,
-									DistanceToResult:   0,
-									DistanceToPrevious: ptFloat32(0.5),
-									DistanceToNext:     nil,
-								},
-							},
-						},
-					},
-				}, res[0])
-			assert.Equal(t,
-				map[string]interface{}{
-					"name": "Bar",
-					"_additional": map[string]interface{}{
-						"semanticPath": &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
-									Concept:            "pathelem1",
-									DistanceToQuery:    0,
-									DistanceToResult:   2.1,
-									DistanceToPrevious: nil,
-									DistanceToNext:     ptFloat32(0.5),
-								},
-								&models.SemanticPathElement{
-									Concept:            "pathelem2",
-									DistanceToQuery:    2.1,
-									DistanceToResult:   0,
-									DistanceToPrevious: ptFloat32(0.5),
-									DistanceToNext:     nil,
-								},
-							},
 						},
 					},
 				}, res[1])
@@ -1907,6 +1455,476 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 }
 
+func Test_Explorer_GetClass_With_Modules(t *testing.T) {
+	t.Run("when an explore param is set for nearText", func(t *testing.T) {
+		params := GetParams{
+			ClassName: "BestClass",
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+				}),
+			},
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("vector search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+				}, res[1])
+		})
+	})
+
+	t.Run("when an explore param is set for nearText and the required certainty not met",
+		func(t *testing.T) {
+			params := GetParams{
+				ClassName: "BestClass",
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts":  []interface{}{"foo"},
+						"certainty": float64(0.8),
+					}),
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchResults := []search.Result{
+				{
+					ID: "id1",
+				},
+				{
+					ID: "id2",
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			vectorizer := &fakeVectorizer{}
+			extender := &fakeExtender{}
+			log, _ := test.NewNullLogger()
+
+			projector := &fakeProjector{}
+			pathBuilder := &fakePathBuilder{}
+			explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+			expectedParamsToSearch := params
+			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("no concept met the required certainty", func(t *testing.T) {
+				assert.Len(t, res, 0)
+			})
+		})
+
+	t.Run("when two conflicting (nearVector, nearText) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+				}),
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when two conflicting (nearText, nearObject) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearObject: &NearObjectParams{
+				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+				}),
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when three conflicting (nearText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearVector: &NearVectorParams{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			NearObject: &NearObjectParams{
+				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+				}),
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "parameters which are conflicting")
+	})
+
+	t.Run("when nearText.moveTo has no concepts and objects defined", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+					"moveTo": map[string]interface{}{
+						"force": float64(0.1),
+					},
+				}),
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
+	})
+
+	t.Run("when nearText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foo"},
+					"moveAwayFrom": map[string]interface{}{
+						"force": float64(0.1),
+					},
+				}),
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		_, err := explorer.GetClass(context.Background(), params)
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
+	})
+
+	t.Run("when the certainty prop is set", func(t *testing.T) {
+		params := GetParams{
+			Filters:      nil,
+			ClassName:    "BestClass",
+			Pagination:   &filters.Pagination{Limit: 100},
+			SearchVector: []float32{1.0, 2.0, 3.0},
+			AdditionalProperties: AdditionalProperties{
+				Certainty: true,
+			},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"foobar"},
+					"limit":     100,
+					"certainty": float64(0.0),
+				}),
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+				Vector: []float32{0.5, 1.5, 0.0},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
+		// expectedParamsToSearch.SearchVector = nil
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 1)
+
+			resMap := res[0].(map[string]interface{})
+			assert.Equal(t, 2, len(resMap))
+			assert.Contains(t, resMap, "age")
+			assert.Equal(t, 200, resMap["age"])
+			additionalMap := resMap["_additional"]
+			assert.Contains(t, additionalMap, "certainty")
+			// Certainty is fixed to 0.69 in this mock
+			assert.InEpsilon(t, 0.31, additionalMap.(map[string]interface{})["certainty"], 0.000001)
+		})
+	})
+
+	t.Run("when the semanticPath prop is set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: AdditionalProperties{
+				SemanticPath: &sempath.Params{},
+			},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foobar"},
+				}),
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"name": "Bar",
+				},
+			},
+		}
+
+		searcher := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{
+			returnArgs: []search.Result{
+				{
+					ID: "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+					AdditionalProperties: &models.AdditionalProperties{
+						SemanticPath: &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				},
+				{
+					ID: "id2",
+					Schema: map[string]interface{}{
+						"name": "Bar",
+					},
+					AdditionalProperties: &models.AdditionalProperties{
+						SemanticPath: &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+		searcher.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			searcher.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"semanticPath": &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Bar",
+					"_additional": map[string]interface{}{
+						"semanticPath": &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				}, res[1])
+		})
+	})
+}
+
 func newFakeDistancer() func(a, b []float32) (float32, error) {
 	return func(source, target []float32) (float32, error) {
 		return 0.5, nil
@@ -1926,11 +1944,22 @@ func ptFloat32(in float32) *float32 {
 
 type fakeModulesProvider struct{}
 
-func (p *fakeModulesProvider) VectorFromParams(ctx context.Context, param string, params interface{},
+func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	vectorForParams := txt2vec.VectorSearches()["nearText"]
 	return vectorForParams(ctx, params, findVectorFn)
+}
+
+func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
+	txt2vec := &fakeText2vecContextionaryModule{}
+	validateFn := txt2vec.ValidateFunctions()["nearText"]
+	return validateFn(value)
+}
+
+func extractNearTextParam(param map[string]interface{}) interface{} {
+	txt2vec := &fakeText2vecContextionaryModule{}
+	return txt2vec.ExtractFunctions()["nearText"](param)
 }
 
 func getFakeModulesProvider() ModulesProvider {

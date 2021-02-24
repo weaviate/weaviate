@@ -236,6 +236,10 @@ func (m *fakeText2vecContextionaryModule) ExtractFunctions() map[string]moduleca
 	return modcontextionarygraphql.New().ExtractFunctions()
 }
 
+func (m *fakeText2vecContextionaryModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
+	return modcontextionarygraphql.New().ValidateFunctions()
+}
+
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return modcontextionarygraphql.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
 }
