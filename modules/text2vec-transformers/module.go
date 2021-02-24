@@ -18,12 +18,21 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer textVectorizer
+	vectorizer      textVectorizer
+	graphqlProvider modulecapabilities.GraphQLArguments
+	searcher        modulecapabilities.Searcher
 }
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object,
 		icheck vectorizer.ClassSettings) error
+
+	Texts(ctx context.Context, input []string) ([]float32, error)
+	// TODO all of these should be moved out of here, gh-1470
+
+	MoveTo(source, target []float32, weight float32) ([]float32, error)
+	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
+	CombineVectors([][]float32) []float32
 }
 
 func (m *TransformersModule) Name() string {
@@ -33,6 +42,10 @@ func (m *TransformersModule) Name() string {
 func (m *TransformersModule) Init(params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(); err != nil {
 		return errors.Wrap(err, "init vectorizer")
+	}
+
+	if err := m.initNearText(); err != nil {
+		return errors.Wrap(err, "init near text")
 	}
 
 	return nil
