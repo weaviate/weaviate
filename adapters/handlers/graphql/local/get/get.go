@@ -23,7 +23,7 @@ import (
 
 type ModulesProvider interface {
 	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
-	ExtractParams(arguments map[string]interface{}) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}) map[string]interface{}
 }
 
 // Build the Local.Get part of the graphql tree

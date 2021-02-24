@@ -43,8 +43,8 @@ type Explorer struct {
 }
 
 type ModulesProvider interface {
-	ValidateParam(name string, value interface{}) error
-	VectorFromParams(ctx context.Context, param string, params interface{},
+	ValidateSearchParam(name string, value interface{}) error
+	VectorFromSearchParam(ctx context.Context, param string, params interface{},
 		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 }
 
@@ -453,7 +453,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 func (e *Explorer) vectorFromModules(ctx context.Context,
 	paramName string, paramValue interface{}) ([]float32, error) {
 	if e.modulesProvider != nil {
-		vector, err := e.modulesProvider.VectorFromParams(ctx,
+		vector, err := e.modulesProvider.VectorFromSearchParam(ctx,
 			paramName, paramValue, e.findVector,
 		)
 		if err != nil {
@@ -497,7 +497,7 @@ func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *
 		}
 
 		for name, value := range moduleParams {
-			err := e.modulesProvider.ValidateParam(name, value)
+			err := e.modulesProvider.ValidateSearchParam(name, value)
 			if err != nil {
 				return err
 			}

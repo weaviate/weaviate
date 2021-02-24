@@ -43,7 +43,7 @@ func TestModulesProvider(t *testing.T) {
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractParams(arguments)
+		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
 
 		// then
 		mod1 := registered[0]

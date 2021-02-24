@@ -1944,14 +1944,14 @@ func ptFloat32(in float32) *float32 {
 
 type fakeModulesProvider struct{}
 
-func (p *fakeModulesProvider) VectorFromParams(ctx context.Context, param string, params interface{},
+func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	vectorForParams := txt2vec.VectorSearches()["nearText"]
 	return vectorForParams(ctx, params, findVectorFn)
 }
 
-func (p *fakeModulesProvider) ValidateParam(name string, value interface{}) error {
+func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	validateFn := txt2vec.ValidateFunctions()["nearText"]
 	return validateFn(value)
