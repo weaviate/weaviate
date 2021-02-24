@@ -585,21 +585,23 @@ func TestNearTextRanker(t *testing.T) {
 									concepts:["epic"],
 									force: 0.25
 								}
-        			}) { intField } } }`
+							}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearText: &traverser.NearTextParams{
-				Values: []string{"c1", "c2", "c3"},
-				MoveTo: traverser.ExploreMove{
-					Values: []string{"positive"},
-					Force:  0.5,
-				},
-				MoveAwayFrom: traverser.ExploreMove{
-					Values: []string{"epic"},
-					Force:  0.25,
-				},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
 			},
 		}
 
@@ -644,17 +646,19 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearText: &traverser.NearTextParams{
-				Values:    []string{"c1", "c2", "c3"},
-				Certainty: 0.4,
-				MoveTo: traverser.ExploreMove{
-					Values: []string{"positive"},
-					Force:  0.5,
-				},
-				MoveAwayFrom: traverser.ExploreMove{
-					Values: []string{"epic"},
-					Force:  0.25,
-				},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"c1", "c2", "c3"},
+					"certainty": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -689,26 +693,38 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearText: &traverser.NearTextParams{
-				Values:    []string{"c1", "c2", "c3"},
-				Certainty: 0.4,
-				MoveTo: traverser.ExploreMove{
-					Values: []string{"positive"},
-					Force:  0.5,
-					Objects: []traverser.ObjectMove{
-						{ID: "moveTo-uuid1"},
-						{Beacon: "weaviate://localhost/moveTo-uuid3"},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"c1", "c2", "c3"},
+					"certainty": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveTo-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid3",
+							},
+						},
 					},
-				},
-				MoveAwayFrom: traverser.ExploreMove{
-					Values: []string{"epic"},
-					Force:  0.25,
-					Objects: []traverser.ObjectMove{
-						{ID: "moveAway-uuid1"},
-						{Beacon: "weaviate://localhost/moveAway-uuid2"},
-						{Beacon: "weaviate://localhost/moveAway-uuid3"},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveAway-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAway-uuid2",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAway-uuid3",
+							},
+						},
 					},
-				},
+				}),
 			},
 		}
 		resolver.On("GetClass", expectedParams).
