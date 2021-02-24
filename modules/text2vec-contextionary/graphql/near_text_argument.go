@@ -19,7 +19,7 @@ import (
 )
 
 func nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Txt2VecC11y%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{

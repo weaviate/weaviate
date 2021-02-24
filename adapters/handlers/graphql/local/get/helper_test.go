@@ -74,13 +74,17 @@ func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*grap
 	return map[string]*graphql.ArgumentConfig{}
 }
 
-func (p *fakeModulesProvider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
-	txt2vec := &mockText2vecContextionaryModule{}
 	if param, ok := arguments["nearText"]; ok {
-		exractedParams["nearText"] = txt2vec.ExtractFunctions()["nearText"](param.(map[string]interface{}))
+		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
 	return exractedParams
+}
+
+func extractNearTextParam(param map[string]interface{}) interface{} {
+	txt2vec := &mockText2vecContextionaryModule{}
+	return txt2vec.ExtractFunctions()["nearText"](param)
 }
 
 func getFakeModulesProvider() ModulesProvider {

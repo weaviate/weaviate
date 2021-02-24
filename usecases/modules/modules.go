@@ -155,8 +155,8 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 	return arguments
 }
 
-// ExtractParams extracts GraphQL arguments
-func (m *Provider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+// ExtractSearchParams extracts GraphQL arguments
+func (m *Provider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
 		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
@@ -171,8 +171,23 @@ func (m *Provider) ExtractParams(arguments map[string]interface{}) map[string]in
 	return exractedParams
 }
 
-// VectorFromParams gets a vector for a given argument
-func (m *Provider) VectorFromParams(ctx context.Context,
+// ValidateSearchParam validates module parameters
+func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
+	for _, module := range m.GetAll() {
+		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+			if validateFns := args.ValidateFunctions(); validateFns != nil {
+				if validateFn, ok := validateFns[name]; ok {
+					return validateFn(value)
+				}
+			}
+		}
+	}
+
+	panic("ValidateParam was called without any known params present")
+}
+
+// VectorFromSearchParam gets a vector for a given argument
+func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	for _, mod := range m.GetAll() {
