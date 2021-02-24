@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,12 +48,12 @@ type graphQL struct {
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, traverser Traverser,
-	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
+	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider) (GraphQL, error) {
 	logger.WithField("action", "graphql_rebuild").
 		WithField("schema", schema).
 		Debug("rebuilding the graphql schema")
 
-	graphqlSchema, err := buildGraphqlSchema(schema, logger, config)
+	graphqlSchema, err := buildGraphqlSchema(schema, logger, config, modulesProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -80,8 +81,8 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 }
 
 func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema, logger, config)
+	config config.Config, modulesProvider *modules.Provider) (graphql.Schema, error) {
+	localSchema, err := local.Build(dbSchema, logger, config, modulesProvider)
 	if err != nil {
 		return graphql.Schema{}, err
 	}

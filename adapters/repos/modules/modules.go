@@ -16,7 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/modules"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
@@ -61,7 +61,7 @@ type storageBucket struct {
 	repo      *Repo
 }
 
-func (r *Repo) Storage(bucketName string) (modules.Storage, error) {
+func (r *Repo) Storage(bucketName string) (modulecapabilities.Storage, error) {
 	storage := &storageBucket{
 		bucketKey: []byte(bucketName),
 		repo:      r,
@@ -112,7 +112,7 @@ func (s *storageBucket) Get(key []byte) ([]byte, error) {
 	return out, err
 }
 
-func (s *storageBucket) Scan(scan modules.ScanFn) error {
+func (s *storageBucket) Scan(scan modulecapabilities.ScanFn) error {
 	err := s.repo.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(s.bucketKey)
 

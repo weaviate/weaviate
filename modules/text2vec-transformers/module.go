@@ -11,7 +11,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
-	"github.com/semi-technologies/weaviate/usecases/modules"
 )
 
 func New() *TransformersModule {
@@ -31,7 +30,7 @@ func (m *TransformersModule) Name() string {
 	return "text2vec-transformers"
 }
 
-func (m *TransformersModule) Init(params modules.ModuleInitParams) error {
+func (m *TransformersModule) Init(params modulecapabilities.ModuleInitParams) error {
 	if err := m.initVectorizer(); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -68,6 +67,6 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 
 // verify we implement the modules.Module interface
 var (
-	_ = modules.Module(New())
+	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 )

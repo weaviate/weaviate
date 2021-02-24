@@ -38,7 +38,7 @@ type result struct {
 func Test_ResolveExplore(t *testing.T) {
 	t.Parallel()
 
-	tests := testCases{
+	testsNearText := testCases{
 		testCase{
 			name: "Resolve Explore with nearText",
 			query: `
@@ -50,37 +50,6 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearText: &traverser.NearTextParams{
 					Values: []string{"car", "best brand"},
-				},
-			},
-			resolverReturn: []search.Result{
-				search.Result{
-					Beacon:    "weaviate://localhost/some-uuid",
-					ClassName: "bestClass",
-					Certainty: 0.7,
-				},
-			},
-			expectedResults: []result{{
-				pathToField: []string{"Explore"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"beacon":    "weaviate://localhost/some-uuid",
-						"className": "bestClass",
-						"certainty": float32(0.7),
-					},
-				},
-			}},
-		},
-		testCase{
-			name: "Resolve Explore with nearVector",
-			query: `
-			{
-					Explore(nearVector: {vector: [0, 1, 0.8]}) {
-							beacon className certainty
-					}
-			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
-				NearVector: &traverser.NearVectorParams{
-					Vector: []float32{0, 1, 0.8},
 				},
 			},
 			resolverReturn: []search.Result{
@@ -131,39 +100,6 @@ func Test_ResolveExplore(t *testing.T) {
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
-					},
-				},
-			}},
-		},
-
-		testCase{
-			name: "with nearVector with optional limit",
-			query: `
-			{
-					Explore(limit: 17, nearVector: {vector: [0, 1, 0.8]}) {
-							beacon className certainty
-					}
-			}`,
-			expectedParamsToTraverser: traverser.ExploreParams{
-				NearVector: &traverser.NearVectorParams{
-					Vector: []float32{0, 1, 0.8},
-				},
-				Limit: 17,
-			},
-			resolverReturn: []search.Result{
-				search.Result{
-					Beacon:    "weaviate://localhost/some-uuid",
-					ClassName: "bestClass",
-					Certainty: 0.7,
-				},
-			},
-			expectedResults: []result{{
-				pathToField: []string{"Explore"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"beacon":    "weaviate://localhost/some-uuid",
-						"className": "bestClass",
-						"certainty": float32(0.7),
 					},
 				},
 			}},
@@ -388,6 +324,73 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			}},
 		},
+	}
+
+	tests := testCases{
+		testCase{
+			name: "Resolve Explore with nearVector",
+			query: `
+			{
+					Explore(nearVector: {vector: [0, 1, 0.8]}) {
+							beacon className certainty
+					}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &traverser.NearVectorParams{
+					Vector: []float32{0, 1, 0.8},
+				},
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+					Certainty: 0.7,
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+						"certainty": float32(0.7),
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with nearVector with optional limit",
+			query: `
+			{
+					Explore(limit: 17, nearVector: {vector: [0, 1, 0.8]}) {
+							beacon className certainty
+					}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &traverser.NearVectorParams{
+					Vector: []float32{0, 1, 0.8},
+				},
+				Limit: 17,
+			},
+			resolverReturn: []search.Result{
+				search.Result{
+					Beacon:    "weaviate://localhost/some-uuid",
+					ClassName: "bestClass",
+					Certainty: 0.7,
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/some-uuid",
+						"className": "bestClass",
+						"certainty": float32(0.7),
+					},
+				},
+			}},
+		},
 
 		testCase{
 			name: "Resolve Explore with nearObject and beacon set",
@@ -465,7 +468,9 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 	}
 
-	tests.AssertExtraction(t)
+	tests.AssertExtraction(t, newMockResolver())
+	testsNearText.AssertExtraction(t, newMockResolver())
+	tests.AssertExtraction(t, newMockResolverNoModules())
 }
 
 func Test_ExploreWithNoText2VecClasses(t *testing.T) {
@@ -483,11 +488,24 @@ func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"Explore\"")
 }
 
-func (tests testCases) AssertExtraction(t *testing.T) {
+func Test_ExploreWithNoModules(t *testing.T) {
+	resolver := newMockResolverNoModules()
+	query := `
+	{
+			Explore(
+				nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+				){
+					beacon className
+		}
+	}`
+	res := resolver.Resolve(query)
+	require.Len(t, res.Errors, 1)
+	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"Explore\"")
+}
+
+func (tests testCases) AssertExtraction(t *testing.T, resolver *mockResolver) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver := newMockResolver()
-
 			resolver.On("Explore", testCase.expectedParamsToTraverser).
 				Return(testCase.resolverReturn, nil).Once()
 
