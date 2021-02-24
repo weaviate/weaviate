@@ -171,6 +171,21 @@ func (m *Provider) ExtractParams(arguments map[string]interface{}) map[string]in
 	return exractedParams
 }
 
+// ValidateParam validates module parameters
+func (m *Provider) ValidateParam(name string, value interface{}) error {
+	for _, module := range m.GetAll() {
+		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+			if validateFns := args.ValidateFunctions(); validateFns != nil {
+				if validateFn, ok := validateFns[name]; ok {
+					return validateFn(value)
+				}
+			}
+		}
+	}
+
+	panic("ValidateParam was called without any known params present")
+}
+
 // VectorFromParams gets a vector for a given argument
 func (m *Provider) VectorFromParams(ctx context.Context,
 	param string, params interface{},

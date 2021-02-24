@@ -59,8 +59,10 @@ func Test_ExploreConcepts(t *testing.T) {
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
-			NearText:   &NearTextParams{},
 			NearVector: &NearVectorParams{},
+			ModuleParams: map[string]interface{}{
+				"nearText": nil,
+			},
 		}
 
 		_, err := traverser.Explore(context.Background(), nil, params)
@@ -81,8 +83,10 @@ func Test_ExploreConcepts(t *testing.T) {
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
-			NearText: &NearTextParams{
-				Values: []string{"a search term", "another"},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"a search term", "another"},
+				}),
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -342,9 +346,11 @@ func Test_ExploreConcepts(t *testing.T) {
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
-			NearText: &NearTextParams{
-				Values:    []string{"a search term", "another"},
-				Certainty: 0.6,
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"a search term", "another"},
+					"certainty": float64(0.6),
+				}),
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -382,16 +388,18 @@ func Test_ExploreConcepts(t *testing.T) {
 			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Limit: 100,
-			NearText: &NearTextParams{
-				Values: []string{"a search term", "another"},
-				MoveTo: ExploreMove{
-					Values: []string{"foo"},
-					Force:  0.7,
-				},
-				MoveAwayFrom: ExploreMove{
-					Values: []string{"bar"},
-					Force:  0.7,
-				},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"a search term", "another"},
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"foo"},
+						"force":    float64(0.7),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"bar"},
+						"force":    float64(0.7),
+					},
+				}),
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -446,24 +454,34 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		params := ExploreParams{
 			Limit: 100,
-			NearText: &NearTextParams{
-				Values: []string{"a search term", "another"},
-				MoveTo: ExploreMove{
-					Values: []string{"foo"},
-					Force:  0.7,
-					Objects: []ObjectMove{
-						{ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041"},
+			ModuleParams: map[string]interface{}{
+				"nearText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"a search term", "another"},
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"foo"},
+						"force":    float64(0.7),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+							},
+						},
 					},
-				},
-				MoveAwayFrom: ExploreMove{
-					Values: []string{"bar"},
-					Force:  0.7,
-					Objects: []ObjectMove{
-						{ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e042"},
-						{Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e043"},
-						{Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e044"},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"bar"},
+						"force":    float64(0.7),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "e9c12c22-766f-4bde-b140-d4cf8fd6e042",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e043",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e044",
+							},
+						},
 					},
-				},
+				}),
 			},
 		}
 		vectorSearcher.results = []search.Result{
