@@ -18,6 +18,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -123,7 +124,7 @@ func (m *mockMod1Module) Name() string {
 	return "mod1"
 }
 
-func (m *mockMod1Module) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *mockMod1Module) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
@@ -161,7 +162,7 @@ func (m *mockMod2Module) Name() string {
 	return "mod2"
 }
 
-func (m *mockMod2Module) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *mockMod2Module) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
@@ -193,7 +194,7 @@ func (m *mockMod3Module) Name() string {
 	return "mod3"
 }
 
-func (m *mockMod3Module) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *mockMod3Module) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
