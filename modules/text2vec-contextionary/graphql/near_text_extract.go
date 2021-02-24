@@ -11,21 +11,10 @@
 
 package graphql
 
-import (
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-)
-
-func extractNearTextFn(param map[string]interface{}) interface{} {
-	return extractNearText(param)
-}
-
-// TODO: This is specific to the text2vec-contextionary module and should be
-// provided from there
-//
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func extractNearText(source map[string]interface{}) interface{} {
-	var args modulecapabilities.NearTextParams
+func extractNearTextFn(source map[string]interface{}) interface{} {
+	var args NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})
@@ -65,15 +54,15 @@ func extractNearText(source map[string]interface{}) interface{} {
 		args.MoveAwayFrom = extractMovement(moveAwayFrom)
 	}
 
-	return args
+	return &args
 }
 
-func extractMovement(input interface{}) modulecapabilities.ExploreMove {
+func extractMovement(input interface{}) ExploreMove {
 	// the type is fixed through gql config, no need to catch incorrect type
 	// assumption, all fields are required so we don't need to check for their
 	// presence
 	moveToMap := input.(map[string]interface{})
-	res := modulecapabilities.ExploreMove{}
+	res := ExploreMove{}
 	res.Force = float32(moveToMap["force"].(float64))
 
 	keywords, ok := moveToMap["concepts"].([]interface{})
@@ -86,7 +75,7 @@ func extractMovement(input interface{}) modulecapabilities.ExploreMove {
 
 	objects, ok := moveToMap["objects"].([]interface{})
 	if ok {
-		res.Objects = make([]modulecapabilities.ObjectMove, len(objects))
+		res.Objects = make([]ObjectMove, len(objects))
 		for i, value := range objects {
 			v, ok := value.(map[string]interface{})
 			if ok {

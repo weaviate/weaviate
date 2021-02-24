@@ -39,3 +39,9 @@ func (g *GraphQLArgumentsProvider) ExtractFunctions() map[string]modulecapabilit
 	extractedFns["nearText"] = extractNearTextFn
 	return extractedFns
 }
+
+func (g *GraphQLArgumentsProvider) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
+	validateFns := map[string]modulecapabilities.ValidateFn{}
+	validateFns["nearText"] = validateNearText
+	return validateFns
+}

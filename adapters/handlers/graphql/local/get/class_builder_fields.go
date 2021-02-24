@@ -293,12 +293,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			nearObjectParams = &p
 		}
 
-		var nearTextParams *traverser.NearTextParams
+		var moduleParams map[string]interface{}
 		if r.modulesProvider != nil {
-			for param, extractedParams := range r.modulesProvider.ExtractParams(p.Args) {
-				if param == "nearText" {
-					nearTextParams = traverser.ConvertToTraverserNearTextParams(extractedParams)
-				}
+			extractedParams := r.modulesProvider.ExtractSearchParams(p.Args)
+			if len(extractedParams) > 0 {
+				moduleParams = extractedParams
 			}
 		}
 
@@ -309,10 +308,10 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,
-			NearText:             nearTextParams,
 			NearVector:           nearVectorParams,
 			NearObject:           nearObjectParams,
 			Group:                group,
+			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
 		}
 

@@ -33,29 +33,6 @@ func (t *Traverser) Explore(ctx context.Context,
 	return t.explorer.Concepts(ctx, params)
 }
 
-// TODO: This belongs to the text2vec-contextionary module
-// NearTextParams to do a vector based explore search
-type NearTextParams struct {
-	Values       []string
-	Limit        int
-	MoveTo       ExploreMove
-	MoveAwayFrom ExploreMove
-	Certainty    float64
-	Network      bool
-}
-
-// ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
-type ExploreMove struct {
-	Values  []string
-	Force   float32
-	Objects []ObjectMove
-}
-
-type ObjectMove struct {
-	ID     string
-	Beacon string
-}
-
 type NearVectorParams struct {
 	Vector    []float32
 	Certainty float64
@@ -68,10 +45,9 @@ type NearObjectParams struct {
 }
 
 // ExploreParams are the parameters used by the GraphQL `Explore { }` API
-// TODO: this contains a module specific param
 type ExploreParams struct {
-	NearText   *NearTextParams
-	NearVector *NearVectorParams
-	NearObject *NearObjectParams
-	Limit      int
+	NearVector   *NearVectorParams
+	NearObject   *NearObjectParams
+	Limit        int
+	ModuleParams map[string]interface{}
 }

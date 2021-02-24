@@ -150,6 +150,10 @@ func (m *ContextionaryModule) ExtractFunctions() map[string]modulecapabilities.E
 	return m.graphqlProvider.ExtractFunctions()
 }
 
+func (m *ContextionaryModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
+	return m.graphqlProvider.ValidateFunctions()
+}
+
 func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return m.searcher.VectorSearches()
 }

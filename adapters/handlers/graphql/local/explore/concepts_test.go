@@ -48,12 +48,14 @@ func Test_ResolveExplore(t *testing.T) {
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				NearText: &traverser.NearTextParams{
-					Values: []string{"car", "best brand"},
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts": []interface{}{"car", "best brand"},
+					}),
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
@@ -82,9 +84,11 @@ func Test_ResolveExplore(t *testing.T) {
 				}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				NearText: &traverser.NearTextParams{
-					Values:    []string{"car", "best brand"},
-					Certainty: 0.6,
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts":  []interface{}{"car", "best brand"},
+						"certainty": float64(0.6),
+					}),
 				},
 				Limit: 17,
 			},
@@ -124,12 +128,14 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearText: &traverser.NearTextParams{
-					Values: []string{"car", "best brand"},
-					MoveTo: traverser.ExploreMove{
-						Values: []string{"mercedes"},
-						Force:  0.7,
-					},
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts": []interface{}{"car", "best brand"},
+						"moveTo": map[string]interface{}{
+							"concepts": []interface{}{"mercedes"},
+							"force":    float64(0.7),
+						},
+					}),
 				},
 			},
 			resolverReturn: []search.Result{
@@ -172,16 +178,18 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearText: &traverser.NearTextParams{
-					Values: []string{"car", "best brand"},
-					MoveTo: traverser.ExploreMove{
-						Values: []string{"mercedes"},
-						Force:  0.7,
-					},
-					MoveAwayFrom: traverser.ExploreMove{
-						Values: []string{"van"},
-						Force:  0.7,
-					},
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts": []interface{}{"car", "best brand"},
+						"moveTo": map[string]interface{}{
+							"concepts": []interface{}{"mercedes"},
+							"force":    float64(0.7),
+						},
+						"moveAwayFrom": map[string]interface{}{
+							"concepts": []interface{}{"van"},
+							"force":    float64(0.7),
+						},
+					}),
 				},
 			},
 			resolverReturn: []search.Result{
@@ -224,16 +232,22 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearText: &traverser.NearTextParams{
-					Values: []string{"car", "best brand"},
-					MoveTo: traverser.ExploreMove{
-						Values: []string{"mercedes"},
-						Force:  0.7,
-						Objects: []traverser.ObjectMove{
-							{ID: "moveto-uuid"},
-							{Beacon: "weaviate://localhost/other-moveto-uuid"},
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts": []interface{}{"car", "best brand"},
+						"moveTo": map[string]interface{}{
+							"concepts": []interface{}{"mercedes"},
+							"force":    float64(0.7),
+							"objects": []interface{}{
+								map[string]interface{}{
+									"id": "moveto-uuid",
+								},
+								map[string]interface{}{
+									"beacon": "weaviate://localhost/other-moveto-uuid",
+								},
+							},
 						},
-					},
+					}),
 				},
 			},
 			resolverReturn: []search.Result{
@@ -286,26 +300,40 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearText: &traverser.NearTextParams{
-					Values: []string{"car", "best brand"},
-					MoveTo: traverser.ExploreMove{
-						Values: []string{"mercedes"},
-						Force:  0.7,
-						Objects: []traverser.ObjectMove{
-							{ID: "moveto-uuid1"},
-							{Beacon: "weaviate://localhost/moveto-uuid2"},
+				ModuleParams: map[string]interface{}{
+					"nearText": extractNearTextParam(map[string]interface{}{
+						"concepts": []interface{}{"car", "best brand"},
+						"moveTo": map[string]interface{}{
+							"concepts": []interface{}{"mercedes"},
+							"force":    float64(0.7),
+							"objects": []interface{}{
+								map[string]interface{}{
+									"id": "moveto-uuid1",
+								},
+								map[string]interface{}{
+									"beacon": "weaviate://localhost/moveto-uuid2",
+								},
+							},
 						},
-					},
-					MoveAwayFrom: traverser.ExploreMove{
-						Values: []string{"van"},
-						Force:  0.7,
-						Objects: []traverser.ObjectMove{
-							{ID: "moveAway-uuid1"},
-							{Beacon: "weaviate://localhost/moveAway-uuid2"},
-							{ID: "moveAway-uuid3"},
-							{ID: "moveAway-uuid4"},
+						"moveAwayFrom": map[string]interface{}{
+							"concepts": []interface{}{"van"},
+							"force":    float64(0.7),
+							"objects": []interface{}{
+								map[string]interface{}{
+									"id": "moveAway-uuid1",
+								},
+								map[string]interface{}{
+									"beacon": "weaviate://localhost/moveAway-uuid2",
+								},
+								map[string]interface{}{
+									"id": "moveAway-uuid3",
+								},
+								map[string]interface{}{
+									"id": "moveAway-uuid4",
+								},
+							},
 						},
-					},
+					}),
 				},
 			},
 			resolverReturn: []search.Result{
