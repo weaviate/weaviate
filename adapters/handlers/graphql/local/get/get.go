@@ -16,17 +16,24 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 )
 
+type ModulesProvider interface {
+	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
+	ExtractParams(arguments map[string]interface{}) map[string]interface{}
+}
+
 // Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, logger logrus.FieldLogger) (*graphql.Field, error) {
+func Build(schema *schema.Schema, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
 
-	cb := newClassBuilder(schema, logger)
+	cb := newClassBuilder(schema, logger, modulesProvider)
 
 	var err error
 	var objects *graphql.Object

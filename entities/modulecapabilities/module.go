@@ -9,7 +9,17 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modules
+package modulecapabilities
+
+import (
+	"net/http"
+)
+
+type Module interface {
+	Name() string
+	Init(params ModuleInitParams) error
+	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
+}
 
 type ModuleInitParams interface {
 	GetStorageProvider() StorageProvider

@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
@@ -80,7 +81,7 @@ func (m dummyModuleNoCapabilities) Name() string {
 	return m.name
 }
 
-func (m dummyModuleNoCapabilities) Init(params ModuleInitParams) error {
+func (m dummyModuleNoCapabilities) Init(params modulecapabilities.ModuleInitParams) error {
 	return nil
 }
 
