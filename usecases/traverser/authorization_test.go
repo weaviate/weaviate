@@ -76,13 +76,12 @@ func Test_Traverser_Authorization(t *testing.T) {
 		for _, test := range tests {
 			locks := &fakeLocks{}
 			authorizer := &authDenier{}
-			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
 			schemaGetter := &fakeSchemaGetter{}
 
 			manager := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-				vectorizer, vectorRepo, explorer, schemaGetter)
+				vectorRepo, explorer, schemaGetter)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

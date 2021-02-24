@@ -70,10 +70,6 @@ type vectorRepo interface {
 	WaitForStartup(time.Duration) error
 }
 
-type vectorizer interface {
-	traverser.CorpiVectorizer
-}
-
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
 	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
@@ -105,7 +101,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
-	var vectorizer vectorizer
 	var migrator migrate.Migrator
 	var explorer explorer
 	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
@@ -120,8 +115,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	vectorizer = libvectorizer.New(appState.Contextionary)
-	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
+	explorer = traverser.NewExplorer(repo, libvectorizer.NormalizedDistance,
 		appState.Logger, nnExtender, featureProjector, pathBuilder, appState.Modules)
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
 	if err != nil {
@@ -170,8 +164,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer)
 
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorizer,
-		vectorRepo, explorer, schemaManager)
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Contextionary, appState.Logger)
