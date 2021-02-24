@@ -30,7 +30,7 @@ func (m *TransformersModule) Name() string {
 	return "text2vec-transformers"
 }
 
-func (m *TransformersModule) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *TransformersModule) Init(params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}

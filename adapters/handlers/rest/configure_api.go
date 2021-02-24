@@ -30,7 +30,7 @@ import (
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
@@ -409,7 +409,7 @@ func initModules(appState *state.State) error {
 
 	// TODO: don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := modulecapabilities.NewInitParams(storageProvider, appState)
+	moduleParams := moduletools.NewInitParams(storageProvider, appState)
 
 	if err := appState.Modules.Init(moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")

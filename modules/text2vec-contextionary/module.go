@@ -36,7 +36,7 @@ func New() *ContextionaryModule {
 // but with making Weaviate more modular, this should contain anything related
 // to the module
 type ContextionaryModule struct {
-	storageProvider modulecapabilities.StorageProvider
+	storageProvider moduletools.StorageProvider
 	extensions      *extensions.RESTHandlers
 	concepts        *concepts.RESTHandlers
 	appState        *state.State
@@ -55,7 +55,7 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *ContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *ContextionaryModule) Init(params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
