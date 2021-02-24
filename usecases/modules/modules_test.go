@@ -66,7 +66,7 @@ func TestModulesProvider(t *testing.T) {
 
 		// then
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "nearArgument defined in more than one module: [mod1 mod2]")
+		assert.Contains(t, err.Error(), "nearArgument defined in more than one module")
 	})
 
 	t.Run("should not register modules providing internal search param", func(t *testing.T) {
@@ -99,7 +99,7 @@ func TestModulesProvider(t *testing.T) {
 
 		// then
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "nearArgument defined in more than one module: [mod1 mod2]")
+		assert.Contains(t, err.Error(), "nearArgument defined in more than one module")
 		assert.Contains(t, err.Error(), "nearObject conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "nearVector conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "where conflicts with weaviate's internal searcher in modules: [mod3]")
