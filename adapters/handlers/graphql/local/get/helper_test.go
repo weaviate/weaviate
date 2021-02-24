@@ -74,7 +74,7 @@ func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*grap
 	return map[string]*graphql.ArgumentConfig{}
 }
 
-func (p *fakeModulesProvider) ExtractParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearText"]; ok {
 		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))

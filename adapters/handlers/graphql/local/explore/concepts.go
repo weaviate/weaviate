@@ -22,7 +22,7 @@ import (
 
 type ModulesProvider interface {
 	ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig
-	ExtractParams(arguments map[string]interface{}) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}) map[string]interface{}
 }
 
 // Build builds the object containing the Local->Explore Fields, such as Objects

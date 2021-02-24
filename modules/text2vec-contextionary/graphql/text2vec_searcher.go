@@ -31,19 +31,19 @@ func NewSearcher(vectorizer libvectorizer.VectorizerDef) *Searcher {
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearText"] = s.vectorForNearTextParams
+	vectorSearches["nearText"] = s.vectorForNearTextParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearTextParams(ctx context.Context, params interface{},
+func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
-	return s.vectorFromNearTextParams(ctx,
+	return s.vectorFromNearTextParam(ctx,
 		params.(*NearTextParams),
 		findVectorFn,
 	)
 }
 
-func (s *Searcher) vectorFromNearTextParams(ctx context.Context,
+func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {

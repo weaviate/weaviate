@@ -295,7 +295,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		var moduleParams map[string]interface{}
 		if r.modulesProvider != nil {
-			extractedParams := r.modulesProvider.ExtractParams(p.Args)
+			extractedParams := r.modulesProvider.ExtractSearchParams(p.Args)
 			if len(extractedParams) > 0 {
 				moduleParams = extractedParams
 			}
