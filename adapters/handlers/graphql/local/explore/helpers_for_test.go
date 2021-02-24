@@ -19,6 +19,7 @@ import (
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionarygraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -109,7 +110,7 @@ func (m *mockText2vecContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *mockText2vecContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *mockText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
