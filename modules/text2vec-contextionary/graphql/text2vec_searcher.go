@@ -31,20 +31,20 @@ func NewSearcher(vectorizer libvectorizer.VectorizerDef) *Searcher {
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearText"] = s.vectorForNearTextParams
+	vectorSearches["nearText"] = s.vectorForNearTextParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearTextParams(ctx context.Context, params interface{},
+func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
-	return s.vectorFromNearTextParams(ctx,
-		params.(*modulecapabilities.NearTextParams),
+	return s.vectorFromNearTextParam(ctx,
+		params.(*NearTextParams),
 		findVectorFn,
 	)
 }
 
-func (s *Searcher) vectorFromNearTextParams(ctx context.Context,
-	params *modulecapabilities.NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
+	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
@@ -82,7 +82,7 @@ func (s *Searcher) vectorFromNearTextParams(ctx context.Context,
 }
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []modulecapabilities.ObjectMove,
+	values []string, objects []ObjectMove,
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	var objectVectors [][]float32
 

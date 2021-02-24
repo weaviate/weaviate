@@ -22,19 +22,15 @@ import (
 )
 
 type GetParams struct {
-	Filters    *filters.LocalFilter
-	ClassName  string
-	Pagination *filters.Pagination
-	Properties SelectProperties
-
-	// TODO: The searcher params must be some sort of an interface and accept a
-	// list, since NearText will be provided from the `text2vec-contextionary`
-	// module when we have actual modularization
-	NearText             *NearTextParams
+	Filters              *filters.LocalFilter
+	ClassName            string
+	Pagination           *filters.Pagination
+	Properties           SelectProperties
 	NearVector           *NearVectorParams
 	NearObject           *NearObjectParams
 	SearchVector         []float32
 	Group                *GroupParams
+	ModuleParams         map[string]interface{}
 	AdditionalProperties AdditionalProperties
 }
 
