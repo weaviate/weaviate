@@ -17,7 +17,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
 )
 
 type Searcher struct {
@@ -29,7 +31,8 @@ func NewSearcher(vectorizer vectorizer) *Searcher {
 }
 
 type vectorizer interface {
-	Texts(ctx context.Context, input []string) ([]float32, error)
+	Texts(ctx context.Context, input []string,
+		settings localvectorizer.ClassSettings) ([]float32, error)
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
 	CombineVectors(vectors [][]float32) []float32
@@ -42,23 +45,24 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 }
 
 func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
-	return s.vectorFromNearTextParam(ctx,
-		params.(*NearTextParams),
-		findVectorFn,
-	)
+	findVectorFn modulecapabilities.FindVectorFn,
+	cfg moduletools.ClassConfig) ([]float32, error) {
+	return s.vectorFromNearTextParam(ctx, params.(*NearTextParams), findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
-	vector, err := s.vectorizer.Texts(ctx, params.Values)
+	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn,
+	cfg moduletools.ClassConfig) ([]float32, error) {
+	settings := localvectorizer.NewClassSettings(cfg)
+	vector, err := s.vectorizer.Texts(ctx, params.Values, settings)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
 	}
 
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
-		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects, findVectorFn)
+		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
+			moveTo.Objects, findVectorFn, settings)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -72,7 +76,8 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
-		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects, findVectorFn)
+		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
+			moveAway.Objects, findVectorFn, settings)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -89,11 +94,12 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+	settings localvectorizer.ClassSettings) ([]float32, error) {
 	var objectVectors [][]float32
 
 	if len(values) > 0 {
-		moveToVector, err := s.vectorizer.Texts(ctx, values)
+		moveToVector, err := s.vectorizer.Texts(ctx, values, settings)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}

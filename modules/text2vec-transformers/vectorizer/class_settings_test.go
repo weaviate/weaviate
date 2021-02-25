@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIndexChecker(t *testing.T) {
+func TestClassSettings(t *testing.T) {
 	t.Run("with all defaults", func(t *testing.T) {
 		class := &models.Class{
 			Class: "MyClass",
@@ -29,7 +29,7 @@ func TestIndexChecker(t *testing.T) {
 		}
 
 		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
-		ic := NewIndexChecker(cfg)
+		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
 		assert.False(t, ic.VectorizePropertyName("someProp"))
@@ -58,7 +58,7 @@ func TestIndexChecker(t *testing.T) {
 		}
 
 		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
-		ic := NewIndexChecker(cfg)
+		ic := NewClassSettings(cfg)
 
 		assert.True(t, ic.PropertyIndexed("someProp"))
 		assert.False(t, ic.VectorizePropertyName("someProp"))
@@ -87,7 +87,7 @@ func TestIndexChecker(t *testing.T) {
 		}
 
 		cfg := modules.NewClassBasedModuleConfig(class, "my-module")
-		ic := NewIndexChecker(cfg)
+		ic := NewClassSettings(cfg)
 
 		assert.False(t, ic.PropertyIndexed("someProp"))
 		assert.True(t, ic.VectorizePropertyName("someProp"))

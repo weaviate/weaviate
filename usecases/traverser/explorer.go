@@ -43,8 +43,10 @@ type Explorer struct {
 
 type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}) error
-	VectorFromSearchParam(ctx context.Context, param string, params interface{},
-		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+	VectorFromSearchParam(ctx context.Context, className string, param string,
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+	CrossClassVectorFromSearchParam(ctx context.Context, param string,
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -71,8 +73,8 @@ type pathBuilder interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, distancer distancer,
-	logger logrus.FieldLogger, nnExtender nnExtender,
+func NewExplorer(search vectorClassSearch,
+	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
 	projector projector, pathBuilder pathBuilder, modulesProvider ModulesProvider) *Explorer {
 	return &Explorer{search, distancer, logger, nnExtender, projector, pathBuilder, modulesProvider}
 }
@@ -396,7 +398,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 
 	if len(params.ModuleParams) == 1 {
 		for name, value := range params.ModuleParams {
-			return e.vectorFromModules(ctx, name, value)
+			return e.vectorFromModules(ctx, params.ClassName, name, value)
 		}
 	}
 
@@ -427,7 +429,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 
 	if len(params.ModuleParams) == 1 {
 		for name, value := range params.ModuleParams {
-			return e.vectorFromModules(ctx, name, value)
+			return e.crossClassVectorFromModules(ctx, name, value)
 		}
 	}
 
@@ -450,9 +452,24 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromModules(ctx context.Context,
-	paramName string, paramValue interface{}) ([]float32, error) {
+	className, paramName string, paramValue interface{}) ([]float32, error) {
 	if e.modulesProvider != nil {
 		vector, err := e.modulesProvider.VectorFromSearchParam(ctx,
+			className, paramName, paramValue, e.findVector,
+		)
+		if err != nil {
+			return nil, errors.Errorf("vectorize params: %v", err)
+		}
+		return vector, nil
+	}
+	return nil, errors.New("no modules defined")
+}
+
+// similar to vectorFromModules, but not specific to a single class
+func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
+	paramName string, paramValue interface{}) ([]float32, error) {
+	if e.modulesProvider != nil {
+		vector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
 			paramName, paramValue, e.findVector,
 		)
 		if err != nil {
