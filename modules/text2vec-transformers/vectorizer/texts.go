@@ -9,16 +9,14 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modulecapabilities
+package vectorizer
 
-type StorageProvider interface {
-	Storage(name string) (Storage, error)
-}
+import (
+	"context"
 
-type ScanFn func(k, v []byte) (bool, error)
+	"github.com/pkg/errors"
+)
 
-type Storage interface {
-	Get(key []byte) ([]byte, error)
-	Scan(scan ScanFn) error
-	Put(key, value []byte) error
+func (v *Vectorizer) Texts(ctx context.Context, inputs []string) ([]float32, error) {
+	return nil, errors.Errorf("vectorizers.Texts not implemented yet")
 }
