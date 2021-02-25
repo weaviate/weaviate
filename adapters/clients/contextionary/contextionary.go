@@ -18,8 +18,8 @@ import (
 
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -210,23 +210,23 @@ func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighb
 	return out
 }
 
-func vectorFromProto(in *pb.Vector) ([]float32, []vectorizer.InputElement, error) {
+func vectorFromProto(in *pb.Vector) ([]float32, []models.InterpretationSource, error) {
 	output := make([]float32, len(in.Entries))
 	for i, entry := range in.Entries {
 		output[i] = entry.Entry
 	}
 
-	source := make([]vectorizer.InputElement, len(in.Source))
+	source := make([]models.InterpretationSource, len(in.Source))
 	for i, s := range in.Source {
 		source[i].Concept = s.Concept
-		source[i].Weight = s.Weight
+		source[i].Weight = float64(s.Weight)
 		source[i].Occurrence = s.Occurrence
 	}
 
 	return output, source, nil
 }
 
-func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []vectorizer.InputElement, error) {
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []models.InterpretationSource, error) {
 	overrides := overridesFromMap(overridesMap)
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
