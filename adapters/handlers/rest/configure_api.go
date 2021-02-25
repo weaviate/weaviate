@@ -350,38 +350,6 @@ func registerModules(appState *state.State) error {
 		}
 	}
 
-	// LOADING modules is disabled, as for now we have decided against using Go
-	// plugins for modules.
-
-	// modulesDir := appState.ServerConfig.Config.ModulesPath
-	// if len(modulesDir) == 0 {
-	// 	modulesDir = "./modules"
-	// }
-	// files, err := ioutil.ReadDir(modulesDir)
-	// if err != nil {
-	// 	return errors.Wrapf(err, "cannot read modules from directory: %s", modulesDir)
-	// }
-
-	// for i := range files {
-	// 	if files[i].IsDir() {
-	// 		continue
-	// 	}
-
-	// 	filename := files[i].Name()
-	// 	moduleName := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	// 	if !enabledModules[moduleName] {
-	// 		continue
-	// 	}
-
-	// 	fullPath := filepath.Join(modulesDir, filename)
-	// 	module, err := loadModulePlugin(fullPath)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-
-	// 	appState.Modules.Register(module)
-	// }
-
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
 	}
@@ -410,21 +378,3 @@ func initModules(appState *state.State) error {
 
 	return nil
 }
-
-// func loadModulePlugin(filename string) (modulecpabilities.Module, error) {
-// 	plug, err := plugin.Open(filename)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "cannot open module: %s", filename)
-// 	}
-
-// 	moduleImpl, err := plug.Lookup("Module")
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "cannot load module: %s", filename)
-// 	}
-
-// 	module, ok := moduleImpl.(modules.Module)
-// 	if !ok {
-// 		return nil, errors.Errorf("not a module: %s", filename)
-// 	}
-// 	return module, nil
-// }
