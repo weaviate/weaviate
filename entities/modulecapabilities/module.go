@@ -13,32 +13,12 @@ package modulecapabilities
 
 import (
 	"net/http"
+
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 )
 
 type Module interface {
 	Name() string
-	Init(params ModuleInitParams) error
+	Init(params moduletools.ModuleInitParams) error
 	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
-}
-
-type ModuleInitParams interface {
-	GetStorageProvider() StorageProvider
-	GetAppState() interface{}
-}
-
-type InitParams struct {
-	storageProvider StorageProvider
-	appState        interface{}
-}
-
-func NewInitParams(storageProvider StorageProvider, appState interface{}) ModuleInitParams {
-	return &InitParams{storageProvider, appState}
-}
-
-func (p *InitParams) GetStorageProvider() StorageProvider {
-	return p.storageProvider
-}
-
-func (p *InitParams) GetAppState() interface{} {
-	return p.appState
 }

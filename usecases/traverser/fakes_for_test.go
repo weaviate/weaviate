@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
@@ -185,7 +186,7 @@ func (m *fakeText2vecContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *fakeText2vecContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *fakeText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 

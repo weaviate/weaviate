@@ -50,25 +50,26 @@ type Config struct {
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 }
 
+type moduleProvider interface {
+	ValidateVectorizer(moduleName string) error
+}
+
 // Validate the non-nested parameters. Nested objects must provide their own
 // validation methods
-func (c Config) Validate() error {
-	if err := c.validateDefaultVectorizerModule(); err != nil {
-		return err
+func (c Config) Validate(modProv moduleProvider) error {
+	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
+		return errors.Wrap(err, "default vectorizer module")
 	}
 
 	return nil
 }
 
-func (c Config) validateDefaultVectorizerModule() error {
-	switch c.DefaultVectorizerModule {
-	// TODO: retrieve dynamically from modules
-	case VectorizerModuleNone, VectorizerModuleText2VecContextionary:
+func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
+	if c.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
-	default:
-		return errors.Errorf("unrecognized default vectorizer module: %q",
-			c.DefaultVectorizerModule)
 	}
+
+	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
 }
 
 // QueryDefaults for optional parameters
@@ -143,10 +144,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	if err := FromEnv(&f.Config); err != nil {
 		return err
-	}
-
-	if err := f.Config.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
 	}
 
 	if err := f.Config.Authentication.Validate(); err != nil {
