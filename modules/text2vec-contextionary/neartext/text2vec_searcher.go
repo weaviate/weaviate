@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
@@ -42,7 +43,7 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 }
 
 func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
 	return s.vectorFromNearTextParam(ctx,
 		params.(*NearTextParams),
 		findVectorFn,
