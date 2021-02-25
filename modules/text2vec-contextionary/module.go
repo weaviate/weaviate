@@ -23,9 +23,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
-	text2vecgraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
+	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 func New() *ContextionaryModule {
@@ -40,7 +39,7 @@ type ContextionaryModule struct {
 	extensions      *extensions.RESTHandlers
 	concepts        *concepts.RESTHandlers
 	appState        *state.State
-	vectorizer      vectorizer.VectorizerDef
+	vectorizer      *localvectorizer.Vectorizer
 	configValidator configValidator
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
@@ -95,14 +94,14 @@ func (m *ContextionaryModule) initExtensions() error {
 }
 
 func (m *ContextionaryModule) initConcepts() error {
-	uc := vectorizer.NewInspector(m.appState.Contextionary)
+	uc := localvectorizer.NewInspector(m.appState.Contextionary)
 	m.concepts = concepts.NewRESTHandlers(uc)
 
 	return nil
 }
 
 func (m *ContextionaryModule) initVectorizer() error {
-	m.vectorizer = vectorizer.New(m.appState.Contextionary)
+	m.vectorizer = localvectorizer.New(m.appState.Contextionary)
 	rc, ok := m.appState.Contextionary.(localvectorizer.RemoteClient)
 	if !ok {
 		return errors.Errorf("invalid contextionary remote client")
@@ -110,13 +109,13 @@ func (m *ContextionaryModule) initVectorizer() error {
 
 	m.configValidator = localvectorizer.NewConfigValidator(rc)
 
-	m.searcher = text2vecgraphql.NewSearcher(m.vectorizer)
+	m.searcher = text2vecneartext.NewSearcher(m.vectorizer)
 
 	return nil
 }
 
 func (m *ContextionaryModule) initGraphqlProvider() error {
-	m.graphqlProvider = text2vecgraphql.New()
+	m.graphqlProvider = text2vecneartext.New()
 	return nil
 }
 

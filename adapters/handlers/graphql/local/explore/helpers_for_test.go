@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionarygraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
+	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -123,15 +123,15 @@ func (m *mockText2vecContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *mockText2vecContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return modcontextionarygraphql.New().GetArguments(classname)
+	return modcontextionaryneartext.New().GetArguments(classname)
 }
 
 func (m *mockText2vecContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return modcontextionarygraphql.New().ExploreArguments()
+	return modcontextionaryneartext.New().ExploreArguments()
 }
 
 func (m *mockText2vecContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return modcontextionarygraphql.New().ExtractFunctions()
+	return modcontextionaryneartext.New().ExtractFunctions()
 }
 
 func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
