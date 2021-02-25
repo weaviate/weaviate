@@ -1,0 +1,139 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+package modules
+
+import (
+	"context"
+	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestModulesWithSearchers(t *testing.T) {
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "MyClass",
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("get a vector for a class", func(t *testing.T) {
+		p := NewProvider()
+		p.SetSchemaGetter(&fakeSchemaGetter{
+			schema: sch,
+		})
+		p.Register(newSearcherModule("mod").
+			withArg("nearGrape").
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				findVectorFn modulecapabilities.FindVectorFn,
+				cfg moduletools.ClassConfig) ([]float32, error) {
+				// verify that the config tool is set, as this is a per-class search,
+				// so it must be set
+				assert.NotNil(t, cfg)
+
+				// take the findVectorFn and append one dimension. This doesn't make too
+				// much sense, but helps verify that the modules method was used in the
+				// decisions
+				initial, _ := findVectorFn(ctx, "123")
+				return append(initial, 4), nil
+			}),
+		)
+		p.Init(nil)
+
+		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
+			"nearGrape", nil, fakeFindVector)
+
+		require.Nil(t, err)
+		assert.Equal(t, []float32{1, 2, 3, 4}, res)
+	})
+
+	t.Run("get a vector across classes", func(t *testing.T) {
+		p := NewProvider()
+		p.SetSchemaGetter(&fakeSchemaGetter{
+			schema: sch,
+		})
+		p.Register(newSearcherModule("mod").
+			withArg("nearGrape").
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				findVectorFn modulecapabilities.FindVectorFn,
+				cfg moduletools.ClassConfig) ([]float32, error) {
+				// this is a cross-class search, such as is used for Explore{}, in this
+				// case we do not have class-based config, so the optional argument is
+				// nil! Modules must be able to deal with this situation!
+				assert.Nil(t, cfg)
+
+				// take the findVectorFn and append one dimension. This doesn't make too
+				// much sense, but helps verify that the modules method was used in the
+				// decisions
+				initial, _ := findVectorFn(ctx, "123")
+				return append(initial, 4), nil
+			}),
+		)
+		p.Init(nil)
+
+		res, err := p.CrossClassVectorFromSearchParam(context.Background(),
+			"nearGrape", nil, fakeFindVector)
+
+		require.Nil(t, err)
+		assert.Equal(t, []float32{1, 2, 3, 4}, res)
+	})
+}
+
+func fakeFindVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
+	return []float32{1, 2, 3}, nil
+}
+
+func newSearcherModule(name string) *dummySearcherModule {
+	return &dummySearcherModule{
+		dummyGraphQLModule: newGraphQLModule(name),
+		searchers:          map[string]modulecapabilities.VectorForParams{},
+	}
+}
+
+type dummySearcherModule struct {
+	*dummyGraphQLModule
+	searchers map[string]modulecapabilities.VectorForParams
+}
+
+func (m *dummySearcherModule) withArg(arg string) *dummySearcherModule {
+	// call the super's withArg
+	m.dummyGraphQLModule.withArg(arg)
+
+	// but don't return their return type but ours :)
+	return m
+}
+
+// a helper for our test
+func (m *dummySearcherModule) withSearcher(arg string,
+	impl modulecapabilities.VectorForParams) *dummySearcherModule {
+	m.searchers[arg] = impl
+	return m
+}
+
+// public method to implement the modulecapabilities.Searcher interface
+func (m *dummySearcherModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+	return m.searchers
+}

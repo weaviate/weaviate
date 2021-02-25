@@ -22,15 +22,15 @@ const (
 	DefaultPoolingStrategy       = "masked_mean"
 )
 
-type indexChecker struct {
+type classSettings struct {
 	cfg moduletools.ClassConfig
 }
 
-func NewIndexChecker(cfg moduletools.ClassConfig) *indexChecker {
-	return &indexChecker{cfg: cfg}
+func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
+	return &classSettings{cfg: cfg}
 }
 
-func (ic *indexChecker) PropertyIndexed(propName string) bool {
+func (ic *classSettings) PropertyIndexed(propName string) bool {
 	vcn, ok := ic.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
@@ -44,7 +44,7 @@ func (ic *indexChecker) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (ic *indexChecker) VectorizePropertyName(propName string) bool {
+func (ic *classSettings) VectorizePropertyName(propName string) bool {
 	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
@@ -58,7 +58,7 @@ func (ic *indexChecker) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (ic *indexChecker) VectorizeClassName() bool {
+func (ic *classSettings) VectorizeClassName() bool {
 	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
@@ -72,7 +72,7 @@ func (ic *indexChecker) VectorizeClassName() bool {
 	return asBool
 }
 
-func (ic *indexChecker) PoolingStrategy() string {
+func (ic *classSettings) PoolingStrategy() string {
 	vcn, ok := ic.cfg.Class()["poolingStrategy"]
 	if !ok {
 		return DefaultPoolingStrategy
