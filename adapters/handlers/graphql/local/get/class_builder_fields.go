@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
@@ -23,8 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -271,7 +268,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		}
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments)
+
+		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments, r.extractAdditional)
 		if err != nil {
 			return nil, err
 		}
@@ -319,6 +317,13 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
 	}
+}
+
+func (r *resolver) extractAdditional(name string, params []*ast.Argument) interface{} {
+	if r.modulesProvider != nil {
+		return r.modulesProvider.ExtractAdditionalField(name, params)
+	}
+	return nil
 }
 
 func extractGroup(args map[string]interface{}) *traverser.GroupParams {
@@ -388,7 +393,10 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, traverser.AdditionalProperties, error) {
+func extractProperties(selections *ast.SelectionSet,
+	fragments map[string]ast.Definition,
+	extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+) ([]traverser.SelectProperty, traverser.AdditionalProperties, error) {
 	var properties []traverser.SelectProperty
 	var additionalProps traverser.AdditionalProperties
 
@@ -414,11 +422,18 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 						case "interpretation":
 							additionalProps.Interpretation = true
 						case "nearestNeighbors":
-							additionalProps.NearestNeighbors = true
+							// TODO: gh-1482
+							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
+							additionalProps.ModuleParams["nearestNeighbors"] = extractModuleAdditional("nearestNeighbors", nil)
+							// additionalProps.NearestNeighbors = true
 						case "semanticPath":
-							additionalProps.SemanticPath = &sempath.Params{}
+							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
+							additionalProps.ModuleParams["semanticPath"] = extractModuleAdditional("semanticPath", nil)
+							// additionalProps.SemanticPath = &sempath.Params{}
 						case "featureProjection":
-							additionalProps.FeatureProjection = parseFeatureProjectionArguments(s.Arguments)
+							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
+							additionalProps.ModuleParams["featureProjection"] = extractModuleAdditional("featureProjection", s.Arguments)
+							// additionalProps.FeatureProjection = parseFeatureProjectionArguments(s.Arguments)
 						case "certainty":
 							additionalProps.Certainty = true
 						case "id":
@@ -430,7 +445,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 					}
 
 				case *ast.FragmentSpread:
-					ref, err := extractFragmentSpread(s, fragments)
+					ref, err := extractFragmentSpread(s, fragments, extractModuleAdditional)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -438,7 +453,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 					property.Refs = append(property.Refs, ref)
 
 				case *ast.InlineFragment:
-					ref, err := extractInlineFragment(s, fragments)
+					ref, err := extractInlineFragment(s, fragments, extractModuleAdditional)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -461,7 +476,16 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 	return properties, additionalProps, nil
 }
 
-func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (traverser.SelectClass, error) {
+func getModuleParams(moduleParams map[string]interface{}) map[string]interface{} {
+	if moduleParams == nil {
+		return map[string]interface{}{}
+	}
+	return moduleParams
+}
+
+func extractInlineFragment(fragment *ast.InlineFragment,
+	fragments map[string]ast.Definition, extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+) (traverser.SelectClass, error) {
 	var className schema.ClassName
 	var err error
 	var result traverser.SelectClass
@@ -481,7 +505,7 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments)
+	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments, extractModuleAdditional)
 	if err != nil {
 		return result, err
 	}
@@ -492,7 +516,10 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 	return result, nil
 }
 
-func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (traverser.SelectClass, error) {
+func extractFragmentSpread(spread *ast.FragmentSpread,
+	fragments map[string]ast.Definition,
+	extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+) (traverser.SelectClass, error) {
 	var result traverser.SelectClass
 	name := spread.Name.Value
 
@@ -506,7 +533,7 @@ func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.
 		return result, err
 	}
 
-	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments)
+	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments, extractModuleAdditional)
 	if err != nil {
 		return result, err
 	}
@@ -529,40 +556,4 @@ func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string,
 	}
 
 	return string(matches[1]), nil
-}
-
-func parseFeatureProjectionArguments(args []*ast.Argument) *projector.Params {
-	out := &projector.Params{Enabled: true}
-
-	for _, arg := range args {
-		switch arg.Name.Value {
-		case "dimensions":
-			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
-			out.Dimensions = ptInt(asInt)
-		case "iterations":
-			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
-			out.Iterations = ptInt(asInt)
-		case "learningRate":
-			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
-			out.LearningRate = ptInt(asInt)
-		case "perplexity":
-			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
-			out.Perplexity = ptInt(asInt)
-		case "algorithm":
-			out.Algorithm = ptString(arg.Value.GetValue().(string))
-
-		default:
-			// ignore what we don't recognize
-		}
-	}
-
-	return out
-}
-
-func ptString(in string) *string {
-	return &in
-}
-
-func ptInt(in int) *int {
-	return &in
 }
