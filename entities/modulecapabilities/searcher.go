@@ -22,7 +22,11 @@ import (
 type FindVectorFn = func(ctx context.Context, id strfmt.UUID) ([]float32, error)
 
 // VectorForParams defines method for passing a raw searcher content to the module
-// and exchanging it for a vector
+// and exchanging it for a vector. Warning: Argument "cfg"
+// (moduletools.ClassConfig) is not guaranteed to be non-nil. Implementations
+// have to provide a nil check before using it. It is generally present on
+// class-based action, but is not present on Cross-Class requests, such as
+// Explore {}
 type VectorForParams = func(ctx context.Context, params interface{}, findVectorFn FindVectorFn,
 	cfg moduletools.ClassConfig) ([]float32, error)
 

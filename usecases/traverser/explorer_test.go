@@ -1920,6 +1920,14 @@ func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, classNa
 	return vectorForParams(ctx, params, findVectorFn, nil)
 }
 
+func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,
+	param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	txt2vec := &fakeText2vecContextionaryModule{}
+	vectorForParams := txt2vec.VectorSearches()["nearText"]
+	return vectorForParams(ctx, params, findVectorFn, nil)
+}
+
 func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	validateFn := txt2vec.ValidateFunctions()["nearText"]
