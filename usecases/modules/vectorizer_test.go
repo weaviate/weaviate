@@ -72,6 +72,10 @@ func TestVectorizer(t *testing.T) {
 	})
 }
 
+func newDummyModuleWithName(name string) dummyModuleNoCapabilities {
+	return dummyModuleNoCapabilities{name: name}
+}
+
 type dummyModuleNoCapabilities struct {
 	name string
 }

@@ -187,7 +187,8 @@ func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
 	panic("ValidateParam was called without any known params present")
 }
 
-// VectorFromSearchParam gets a vector for a given argument
+// VectorFromSearchParam gets a vector for a given argument. This is used in
+// Get { Class() } for example
 func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
@@ -203,6 +204,29 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
 					cfg := NewClassBasedModuleConfig(class, mod.Name())
 					vector, err := searchVectorFn(ctx, params, findVectorFn, cfg)
+					if err != nil {
+						return nil, errors.Errorf("vectorize params: %v", err)
+					}
+					return vector, nil
+				}
+			}
+		}
+	}
+
+	panic("VectorFromParams was called without any known params present")
+}
+
+// CrossClassVectorFromSearchParam gets a vector for a given argument without
+// being specific to any one class and it's configuration. This is used in
+// Explore() { } for example
+func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
+	param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	for _, mod := range m.GetAll() {
+		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
+				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
+					vector, err := searchVectorFn(ctx, params, findVectorFn, nil)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
 					}
