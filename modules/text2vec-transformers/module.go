@@ -86,7 +86,7 @@ func (m *TransformersModule) RootHandler() http.Handler {
 
 func (m *TransformersModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig) error {
-	icheck := vectorizer.NewIndexChecker(cfg)
+	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
