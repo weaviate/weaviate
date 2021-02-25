@@ -11,13 +11,17 @@
 
 package vectorizer
 
-import "context"
+import (
+	"context"
+
+	"github.com/semi-technologies/weaviate/entities/models"
+)
 
 type fakeClient struct {
 	lastInput []string
 }
 
-func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []InputElement, error) {
+func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []models.InterpretationSource, error) {
 	c.lastInput = corpi
 	return []float32{0, 1, 2, 3}, nil, nil
 }
