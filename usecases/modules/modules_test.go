@@ -12,13 +12,11 @@
 package modules
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +37,7 @@ func TestModulesProvider(t *testing.T) {
 		arguments["nearArgument"] = params
 
 		// when
-		modulesProvider.Register(&mockMod1Module{})
+		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
 		err := modulesProvider.Init(nil)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
@@ -60,8 +58,8 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 
 		// when
-		modulesProvider.Register(&mockMod1Module{})
-		modulesProvider.Register(&mockMod2Module{})
+		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
+		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
 		err := modulesProvider.Init(nil)
 
 		// then
@@ -74,8 +72,14 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 
 		// when
-		modulesProvider.Register(&mockMod1Module{})
-		modulesProvider.Register(&mockMod3Module{})
+		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
+		modulesProvider.Register(newGraphQLModule("mod3").
+			withExtractFn("limit").
+			withExtractFn("where").
+			withExtractFn("nearVector").
+			withExtractFn("nearObject").
+			withExtractFn("group"),
+		)
 		err := modulesProvider.Init(nil)
 
 		// then
@@ -92,9 +96,15 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 
 		// when
-		modulesProvider.Register(&mockMod1Module{})
-		modulesProvider.Register(&mockMod2Module{})
-		modulesProvider.Register(&mockMod3Module{})
+		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
+		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
+		modulesProvider.Register(newGraphQLModule("mod3").
+			withExtractFn("limit").
+			withExtractFn("where").
+			withExtractFn("nearVector").
+			withExtractFn("nearObject").
+			withExtractFn("group"),
+		)
 		err := modulesProvider.Init(nil)
 
 		// then
@@ -118,108 +128,49 @@ func fakeValidateFn(param interface{}) error {
 	return nil
 }
 
-type mockMod1Module struct{}
-
-func (m *mockMod1Module) Name() string {
-	return "mod1"
+func newGraphQLModule(name string) *dummyGraphQLModule {
+	return &dummyGraphQLModule{
+		dummyModuleNoCapabilities: newDummyModuleWithName(name),
+		getArguments:              map[string]*graphql.ArgumentConfig{},
+		exploreArguments:          map[string]*graphql.ArgumentConfig{},
+		extractFunctions:          map[string]modulecapabilities.ExtractFn{},
+		validateFunctions:         map[string]modulecapabilities.ValidateFn{},
+	}
 }
 
-func (m *mockMod1Module) Init(params moduletools.ModuleInitParams) error {
-	return nil
+type dummyGraphQLModule struct {
+	dummyModuleNoCapabilities
+	getArguments      map[string]*graphql.ArgumentConfig
+	exploreArguments  map[string]*graphql.ArgumentConfig
+	extractFunctions  map[string]modulecapabilities.ExtractFn
+	validateFunctions map[string]modulecapabilities.ValidateFn
 }
 
-func (m *mockMod1Module) RootHandler() http.Handler {
-	return nil
+func (m *dummyGraphQLModule) withArg(argName string) *dummyGraphQLModule {
+	m.getArguments[argName] = &graphql.ArgumentConfig{}
+	m.exploreArguments[argName] = &graphql.ArgumentConfig{}
+	m.extractFunctions[argName] = fakeExtractFn
+	m.validateFunctions[argName] = fakeValidateFn
+	return m
 }
 
-func (m *mockMod1Module) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	arguments := map[string]*graphql.ArgumentConfig{}
-	arguments["nearArgument"] = &graphql.ArgumentConfig{}
-	return arguments
+func (m *dummyGraphQLModule) withExtractFn(argName string) *dummyGraphQLModule {
+	m.extractFunctions[argName] = fakeExtractFn
+	return m
 }
 
-func (m *mockMod1Module) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	arguments := map[string]*graphql.ArgumentConfig{}
-	arguments["nearArgument"] = &graphql.ArgumentConfig{}
-	return arguments
+func (m *dummyGraphQLModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
+	return m.getArguments
 }
 
-func (m *mockMod1Module) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	extractFns := map[string]modulecapabilities.ExtractFn{}
-	extractFns["nearArgument"] = fakeExtractFn
-	return extractFns
+func (m *dummyGraphQLModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
+	return m.exploreArguments
 }
 
-func (m *mockMod1Module) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	validateFns := map[string]modulecapabilities.ValidateFn{}
-	validateFns["nearArgument"] = fakeValidateFn
-	return validateFns
+func (m *dummyGraphQLModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
+	return m.extractFunctions
 }
 
-type mockMod2Module struct{}
-
-func (m *mockMod2Module) Name() string {
-	return "mod2"
-}
-
-func (m *mockMod2Module) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *mockMod2Module) RootHandler() http.Handler {
-	return nil
-}
-
-func (m *mockMod2Module) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return nil
-}
-
-func (m *mockMod2Module) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return nil
-}
-
-func (m *mockMod2Module) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	extractFns := map[string]modulecapabilities.ExtractFn{}
-	extractFns["nearArgument"] = fakeExtractFn
-	return extractFns
-}
-
-func (m *mockMod2Module) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return nil
-}
-
-type mockMod3Module struct{}
-
-func (m *mockMod3Module) Name() string {
-	return "mod3"
-}
-
-func (m *mockMod3Module) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *mockMod3Module) RootHandler() http.Handler {
-	return nil
-}
-
-func (m *mockMod3Module) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return nil
-}
-
-func (m *mockMod3Module) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return nil
-}
-
-func (m *mockMod3Module) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	extractFns := map[string]modulecapabilities.ExtractFn{}
-	extractFns["nearObject"] = fakeExtractFn
-	extractFns["nearVector"] = fakeExtractFn
-	extractFns["where"] = fakeExtractFn
-	extractFns["group"] = fakeExtractFn
-	extractFns["limit"] = fakeExtractFn
-	return extractFns
-}
-
-func (m *mockMod3Module) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return nil
+func (m *dummyGraphQLModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
+	return m.validateFunctions
 }

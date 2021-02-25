@@ -45,8 +45,8 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	icheck ClassSettings) error {
-	vec, err := v.object(ctx, object.Class, object.Properties, icheck)
+	settings ClassSettings) error {
+	vec, err := v.object(ctx, object.Class, object.Properties, settings)
 	if err != nil {
 		return err
 	}
