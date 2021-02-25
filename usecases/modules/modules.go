@@ -189,13 +189,20 @@ func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
 
 // VectorFromSearchParam gets a vector for a given argument
 func (m *Provider) VectorFromSearchParam(ctx context.Context,
-	param string, params interface{},
+	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	sch := m.schemaGetter.GetSchemaSkipAuth()
+	class := sch.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, errors.Errorf("class %q not found in schema", className)
+	}
+
 	for _, mod := range m.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					vector, err := searchVectorFn(ctx, params, findVectorFn)
+					cfg := NewClassBasedModuleConfig(class, mod.Name())
+					vector, err := searchVectorFn(ctx, params, findVectorFn, cfg)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
 					}

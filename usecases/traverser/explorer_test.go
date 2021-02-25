@@ -1912,11 +1912,12 @@ func ptFloat32(in float32) *float32 {
 
 type fakeModulesProvider struct{}
 
-func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, param string, params interface{},
+func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
+	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	vectorForParams := txt2vec.VectorSearches()["nearText"]
-	return vectorForParams(ctx, params, findVectorFn)
+	return vectorForParams(ctx, params, findVectorFn, nil)
 }
 
 func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {

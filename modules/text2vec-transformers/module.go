@@ -25,9 +25,10 @@ type TransformersModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object,
-		icheck vectorizer.ClassSettings) error
+		settings vectorizer.ClassSettings) error
 
-	Texts(ctx context.Context, input []string) ([]float32, error)
+	Texts(ctx context.Context, input []string,
+		settings vectorizer.ClassSettings) ([]float32, error)
 	// TODO all of these should be moved out of here, gh-1470
 
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
