@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
@@ -62,7 +63,7 @@ func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 	m.schemaGetter = sg
 }
 
-func (m *Provider) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *Provider) Init(params moduletools.ModuleInitParams) error {
 	for i, mod := range m.GetAll() {
 		if err := mod.Init(params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())

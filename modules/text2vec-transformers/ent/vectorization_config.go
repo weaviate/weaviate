@@ -9,16 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modulecapabilities
+package ent
 
-import (
-	"net/http"
-
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-)
-
-type Module interface {
-	Name() string
-	Init(params moduletools.ModuleInitParams) error
-	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
+type VectorizationConfig struct {
+	PoolingStrategy string
 }

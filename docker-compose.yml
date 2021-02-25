@@ -23,3 +23,7 @@ services:
       - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
     ports:
       - "9090:8080"
+  t2v-transformers:
+    image: t2vt
+    ports: 
+      - "8000:8080"

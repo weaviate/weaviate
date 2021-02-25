@@ -9,16 +9,16 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modulecapabilities
+package moduletools
 
-import (
-	"net/http"
+type StorageProvider interface {
+	Storage(name string) (Storage, error)
+}
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-)
+type ScanFn func(k, v []byte) (bool, error)
 
-type Module interface {
-	Name() string
-	Init(params moduletools.ModuleInitParams) error
-	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
+type Storage interface {
+	Get(key []byte) ([]byte, error)
+	Scan(scan ScanFn) error
+	Put(key, value []byte) error
 }

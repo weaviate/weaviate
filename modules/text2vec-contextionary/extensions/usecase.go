@@ -15,15 +15,15 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 )
 
 // UseCase handles all business logic regarding extensions
 type UseCase struct {
-	storage modulecapabilities.Storage
+	storage moduletools.Storage
 }
 
-func NewUseCase(storage modulecapabilities.Storage) *UseCase {
+func NewUseCase(storage moduletools.Storage) *UseCase {
 	return &UseCase{
 		storage: storage,
 	}

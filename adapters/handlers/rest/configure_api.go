@@ -13,11 +13,8 @@ package rest
 
 import (
 	"context"
-	"io/ioutil"
 	"net/http"
 	"os"
-	"path/filepath"
-	"plugin"
 	"strings"
 	"time"
 
@@ -33,9 +30,10 @@ import (
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
@@ -83,6 +81,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't load")
+	}
+
+	// now that modules are loaded we can run the remaining config validation
+	// which is module dependent
+	if err := appState.ServerConfig.Config.Validate(appState.Modules); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid config")
 	}
 
 	validateContextionaryVersion(appState)
@@ -344,36 +350,13 @@ func registerModules(appState *state.State) error {
 		}
 	}
 
-	modulesDir := appState.ServerConfig.Config.ModulesPath
-	if len(modulesDir) == 0 {
-		modulesDir = "./modules"
-	}
-	files, err := ioutil.ReadDir(modulesDir)
-	if err != nil {
-		return errors.Wrapf(err, "cannot read modules from directory: %s", modulesDir)
+	if _, ok := enabledModules["text2vec-contextionary"]; ok {
+		appState.Modules.Register(modcontextionary.New())
 	}
 
-	for i := range files {
-		if files[i].IsDir() {
-			continue
-		}
-
-		filename := files[i].Name()
-		moduleName := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-		if !enabledModules[moduleName] {
-			continue
-		}
-
-		fullPath := filepath.Join(modulesDir, filename)
-		module, err := loadModulePlugin(fullPath)
-		if err != nil {
-			return err
-		}
-
-		appState.Modules.Register(module)
+	if _, ok := enabledModules["text2vec-transformers"]; ok {
+		appState.Modules.Register(modtransformers.New())
 	}
-
-	appState.Modules.Register(modcontextionary.New())
 
 	return nil
 }
@@ -387,29 +370,11 @@ func initModules(appState *state.State) error {
 
 	// TODO: don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := modulecapabilities.NewInitParams(storageProvider, appState)
+	moduleParams := moduletools.NewInitParams(storageProvider, appState)
 
 	if err := appState.Modules.Init(moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 
 	return nil
-}
-
-func loadModulePlugin(filename string) (modulecapabilities.Module, error) {
-	plug, err := plugin.Open(filename)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot open module: %s", filename)
-	}
-
-	moduleImpl, err := plug.Lookup("Module")
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot load module: %s", filename)
-	}
-
-	module, ok := moduleImpl.(modulecapabilities.Module)
-	if !ok {
-		return nil, errors.Errorf("not a module: %s", filename)
-	}
-	return module, nil
 }
