@@ -20,6 +20,7 @@ import (
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -40,7 +41,7 @@ func (m *mockText2vecContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *mockText2vecContextionaryModule) Init(params modulecapabilities.ModuleInitParams) error {
+func (m *mockText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 

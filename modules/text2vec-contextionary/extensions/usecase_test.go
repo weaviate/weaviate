@@ -17,7 +17,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,7 +80,7 @@ func (f *fakeStorage) Put(k, v []byte) error {
 	return f.putError
 }
 
-func (f *fakeStorage) Scan(scan modulecapabilities.ScanFn) error {
+func (f *fakeStorage) Scan(scan moduletools.ScanFn) error {
 	var keys [][]byte
 	for key := range f.store {
 		keys = append(keys, []byte(key))
