@@ -46,10 +46,8 @@ func Test_ReferencesAdd(t *testing.T) {
 		authorizer = &fakeAuthorizer{}
 		vectorizer = &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
 		manager = NewManager(locks, schemaManager,
-			cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
+			cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {

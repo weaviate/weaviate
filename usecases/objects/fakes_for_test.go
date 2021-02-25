@@ -15,11 +15,13 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/projector"
+	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/mock"
 )
@@ -146,22 +148,78 @@ func (f *fakeVectorRepo) AddReference(ctx context.Context,
 }
 
 type fakeExtender struct {
-	single *search.Result
-	multi  []search.Result
+	multi []search.Result
 }
 
-func (f *fakeExtender) Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error) {
-	return f.single, nil
-}
-
-func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return f.multi, nil
+}
+
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
 }
 
 type fakeProjector struct {
 	multi []search.Result
 }
 
-func (f *fakeProjector) Reduce(in []search.Result, params *projector.Params) ([]search.Result, error) {
+func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return f.multi, nil
+}
+
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
+}
+
+type fakePathBuilder struct {
+	multi []search.Result
+}
+
+func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return f.multi, nil
+}
+
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
+}
+
+type fakeModulesProvider struct {
+	customExtender  *fakeExtender
+	customProjector *fakeProjector
+}
+
+func (p *fakeModulesProvider) AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn {
+	fns := modcontextionaryadditional.New(p.getExtender(), p.getProjector(), &fakePathBuilder{}).AdditionalPropetiesFunctions()
+	if fns != nil {
+		return fns[name]
+	}
+	return nil
+}
+
+func (p *fakeModulesProvider) getExtender() *fakeExtender {
+	if p.customExtender != nil {
+		return p.customExtender
+	}
+	return &fakeExtender{}
+}
+
+func (p *fakeModulesProvider) getProjector() *fakeProjector {
+	if p.customProjector != nil {
+		return p.customProjector
+	}
+	return &fakeProjector{}
+}
+
+func getFakeModulesProvider() *fakeModulesProvider {
+	return &fakeModulesProvider{}
+}
+
+func getFakeModulesProviderWithCustomExtenders(
+	customExtender *fakeExtender,
+	customProjector *fakeProjector,
+) *fakeModulesProvider {
+	return &fakeModulesProvider{customExtender, customProjector}
 }

@@ -126,13 +126,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := &authDenier{}
-				extender := &fakeExtender{}
-				projector := &fakeProjector{}
 				vectorizer := &fakeVectorizer{}
 				vecProvider := &fakeVectorizerProvider{vectorizer}
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
-					cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
+					cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)

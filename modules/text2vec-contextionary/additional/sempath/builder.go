@@ -17,10 +17,10 @@ import (
 	"math"
 	"math/rand"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -41,6 +41,18 @@ type PathBuilder struct {
 
 type c11y interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
+}
+
+func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	if parameters, ok := params.(*Params); ok {
+		return f.CalculatePath(in, parameters)
+	}
+	return nil, errors.New("unknown params")
+}
+
+func (f *PathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return &Params{}
 }
 
 func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]search.Result, error) {
@@ -203,52 +215,6 @@ func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*models.Ne
 	}
 
 	return out[:i]
-}
-
-type Params struct {
-	SearchVector []float32
-}
-
-func (p *Params) SetDefaultsAndValidate(inputSize, dims int) error {
-	return p.validate(inputSize, dims)
-}
-
-func (p *Params) validate(inputSize, dims int) error {
-	ec := &errorCompounder{}
-	if inputSize > 25 {
-		ec.addf("result length %d is larger than 25 items: semantic path calculation is only suported up to 25 items, set a limit to <= 25", inputSize)
-	}
-
-	if p.SearchVector == nil || len(p.SearchVector) == 0 {
-		ec.addf("no valid search vector present, got: %v", p.SearchVector)
-	}
-
-	return ec.toError()
-}
-
-type errorCompounder struct {
-	errors []error
-}
-
-func (ec *errorCompounder) addf(msg string, args ...interface{}) {
-	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
-}
-
-func (ec *errorCompounder) toError() error {
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
 }
 
 func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVector []float32,

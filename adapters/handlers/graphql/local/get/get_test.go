@@ -20,8 +20,8 @@ import (
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -402,7 +402,9 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
-					NearestNeighbors: true,
+					ModuleParams: map[string]interface{}{
+						"nearestNeighbors": true,
+					},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -446,8 +448,11 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
-					FeatureProjection: &projector.Params{
-						Enabled: true,
+					ModuleParams: map[string]interface{}{
+						// TODO: gh-1482
+						"featureProjection": &projector.Params{
+							Enabled: true,
+						},
 					},
 				},
 			},
@@ -474,13 +479,16 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
-					FeatureProjection: &projector.Params{
-						Enabled:      true,
-						Algorithm:    ptString("tsne"),
-						Dimensions:   ptInt(3),
-						Iterations:   ptInt(100),
-						LearningRate: ptInt(15),
-						Perplexity:   ptInt(10),
+					ModuleParams: map[string]interface{}{
+						// TODO: gh-1482
+						"featureProjection": &projector.Params{
+							Enabled:      true,
+							Algorithm:    ptString("tsne"),
+							Dimensions:   ptInt(3),
+							Iterations:   ptInt(100),
+							LearningRate: ptInt(15),
+							Perplexity:   ptInt(10),
+						},
 					},
 				},
 			},
@@ -507,7 +515,10 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
-					SemanticPath: &sempath.Params{},
+					ModuleParams: map[string]interface{}{
+						// TODO: gh-1482
+						"semanticPath": &sempath.Params{},
+					},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -1163,6 +1174,14 @@ func TestNearVectorNoModules(t *testing.T) {
 }
 
 func ptFloat32(in float32) *float32 {
+	return &in
+}
+
+func ptString(in string) *string {
+	return &in
+}
+
+func ptInt(in int) *int {
 	return &in
 }
 

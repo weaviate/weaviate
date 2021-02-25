@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -24,6 +25,8 @@ import (
 type ModulesProvider interface {
 	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
 	ExtractSearchParams(arguments map[string]interface{}) map[string]interface{}
+	GetAdditionalFields(class *models.Class) map[string]*graphql.Field
+	ExtractAdditionalField(name string, params []*ast.Argument) interface{}
 }
 
 // Build the Local.Get part of the graphql tree
