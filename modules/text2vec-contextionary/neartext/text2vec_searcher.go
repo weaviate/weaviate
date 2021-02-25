@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package graphql
+package neartext
 
 import (
 	"context"
@@ -21,11 +21,17 @@ import (
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
-type Searcher struct {
-	vectorizer libvectorizer.VectorizerDef
+type Vectorizer interface {
+	Corpi(ctx context.Context, corpi []string) ([]float32, error)
+	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
+	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
 }
 
-func NewSearcher(vectorizer libvectorizer.VectorizerDef) *Searcher {
+type Searcher struct {
+	vectorizer Vectorizer
+}
+
+func NewSearcher(vectorizer Vectorizer) *Searcher {
 	return &Searcher{vectorizer}
 }
 

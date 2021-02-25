@@ -28,16 +28,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{}
 
 		_, err := traverser.Explore(context.Background(), nil, params)
@@ -48,16 +47,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			NearVector: &NearVectorParams{},
 			ModuleParams: map[string]interface{}{
@@ -72,16 +70,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
@@ -126,16 +123,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			NearVector: &NearVectorParams{
 				Vector: []float32{7.8, 9},
@@ -178,16 +174,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			NearObject: &NearObjectParams{
 				ID: "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
@@ -236,16 +231,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			NearObject: &NearObjectParams{
 				Beacon: "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
@@ -294,16 +288,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &NearVectorParams{
@@ -335,16 +328,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
@@ -376,16 +368,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Limit: 100,
 			ModuleParams: map[string]interface{}{
@@ -441,16 +432,15 @@ func Test_ExploreConcepts(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, extender, projector, pathBuilder, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorizer, vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter)
 
 		params := ExploreParams{
 			Limit: 100,

@@ -38,16 +38,9 @@ type Traverser struct {
 	locks          locks
 	logger         logrus.FieldLogger
 	authorizer     authorizer
-	vectorizer     CorpiVectorizer
 	vectorSearcher VectorSearcher
 	explorer       explorer
 	schemaGetter   schema.SchemaGetter
-}
-
-type CorpiVectorizer interface {
-	Corpi(ctx context.Context, corpi []string) ([]float32, error)
-	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
 }
 
 type VectorSearcher interface {
@@ -64,14 +57,13 @@ type explorer interface {
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(config *config.WeaviateConfig, locks locks,
 	logger logrus.FieldLogger, authorizer authorizer,
-	vectorizer CorpiVectorizer, vectorSearcher VectorSearcher,
+	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter) *Traverser {
 	return &Traverser{
 		config:         config,
 		locks:          locks,
 		logger:         logger,
 		authorizer:     authorizer,
-		vectorizer:     vectorizer,
 		vectorSearcher: vectorSearcher,
 		explorer:       explorer,
 		schemaGetter:   schemaGetter,

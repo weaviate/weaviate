@@ -24,10 +24,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionarygraphql "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/graphql"
+	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
+	modcontextionaryvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -41,39 +41,9 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-type fakeVectorizer struct{}
-
-func (f *fakeVectorizer) Object(ctx context.Context, object *models.Object) ([]float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
-	return []float32{1, 2, 3}, nil
-}
-
-func (f *fakeVectorizer) MoveTo(source []float32, target []float32, weight float32) ([]float32, error) {
-	res := make([]float32, len(source))
-	for i, v := range source {
-		res[i] = v + 1
-	}
-	return res, nil
-}
-
-func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error) {
-	res := make([]float32, len(source))
-	for i, v := range source {
-		res[i] = v - 0.5
-	}
-	return res, nil
-}
-
-func (f *fakeVectorizer) NormalizedDistance(source, target []float32) (float32, error) {
-	return 0.5, nil
-}
-
 type fakeTxt2VecVectorizer struct{}
 
-func (f *fakeTxt2VecVectorizer) Object(ctx context.Context, object *models.Object, icheck vectorizer.ClassIndexCheck) error {
+func (f *fakeTxt2VecVectorizer) Object(ctx context.Context, object *models.Object, icheck modcontextionaryvectorizer.ClassIndexCheck) error {
 	panic("not implemented")
 }
 
@@ -225,21 +195,21 @@ func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *fakeText2vecContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return modcontextionarygraphql.New().GetArguments(classname)
+	return modcontextionaryneartext.New().GetArguments(classname)
 }
 
 func (m *fakeText2vecContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return modcontextionarygraphql.New().ExploreArguments()
+	return modcontextionaryneartext.New().ExploreArguments()
 }
 
 func (m *fakeText2vecContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return modcontextionarygraphql.New().ExtractFunctions()
+	return modcontextionaryneartext.New().ExtractFunctions()
 }
 
 func (m *fakeText2vecContextionaryModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return modcontextionarygraphql.New().ValidateFunctions()
+	return modcontextionaryneartext.New().ValidateFunctions()
 }
 
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	return modcontextionarygraphql.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
+	return modcontextionaryneartext.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package graphql
+package neartext
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
