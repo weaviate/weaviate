@@ -154,7 +154,7 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeIndexCheck{
+			ic := &fakeSettings{
 				excludedProperty:   test.excludedProperty,
 				skippedProperty:    test.noindex,
 				vectorizeClassName: test.excludedClass != "Car",
