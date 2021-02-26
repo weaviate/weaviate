@@ -178,10 +178,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
-
 	setupSchemaHandlers(api, schemaManager)
 	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
 	setupKindBatchHandlers(api, batchKindsManager)
@@ -200,6 +196,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't initialize")
 	}
+
+	// manually update schema once
+	schema := schemaManager.GetSchemaSkipAuth()
+	updateSchemaCallback(schema)
+
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
