@@ -74,7 +74,12 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState := startupRoutine()
+	ctx := context.Background()
+	// abort startup if it does not complete within 120s
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	appState := startupRoutine(ctx)
 
 	err := registerModules(appState)
 	if err != nil {
@@ -190,7 +195,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	err = initModules(appState)
+	err = initModules(ctx, appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -205,17 +210,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() *state.State {
+func startupRoutine(ctx context.Context) *state.State {
 	appState := &state.State{}
-	// context for the startup procedure. (So far the only subcommand respecting
-	// the context is the schema initialization. Nevertheless it would make sense
-	// to have everything that goes on in here pay attention to the context, so
-	// we can have a "startup in x seconds or fail")
-	ctx := context.Background()
-	// The timeout is arbitrary we have to adjust it as we go along, if we
-	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
 
 	logger := logger()
 	appState.Logger = logger
@@ -362,7 +358,7 @@ func registerModules(appState *state.State) error {
 	return nil
 }
 
-func initModules(appState *state.State) error {
+func initModules(ctx context.Context, appState *state.State) error {
 	storageProvider, err := modulestorage.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
@@ -373,7 +369,7 @@ func initModules(appState *state.State) error {
 	// config?
 	moduleParams := moduletools.NewInitParams(storageProvider, appState)
 
-	if err := appState.Modules.Init(moduleParams); err != nil {
+	if err := appState.Modules.Init(ctx, moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 

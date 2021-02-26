@@ -63,9 +63,10 @@ func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 	m.schemaGetter = sg
 }
 
-func (m *Provider) Init(params moduletools.ModuleInitParams) error {
+func (m *Provider) Init(ctx context.Context,
+	params moduletools.ModuleInitParams) error {
 	for i, mod := range m.GetAll() {
-		if err := mod.Init(params); err != nil {
+		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
 		}
 	}
