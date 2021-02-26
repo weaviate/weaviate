@@ -31,6 +31,9 @@ func (c *vectorizer) WaitForStartup(initCtx context.Context,
 			if lastErr == nil {
 				return nil
 			}
+			c.logger.
+				WithField("action", "transformer_remote_wait_for_startup").
+				WithError(lastErr).Warnf("transformer remote inference service not ready")
 		case <-expired:
 			return errors.Wrapf(lastErr, "init context expired before remote was ready")
 		}
