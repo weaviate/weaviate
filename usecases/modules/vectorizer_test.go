@@ -84,7 +84,8 @@ func (m dummyModuleNoCapabilities) Name() string {
 	return m.name
 }
 
-func (m dummyModuleNoCapabilities) Init(params moduletools.ModuleInitParams) error {
+func (m dummyModuleNoCapabilities) Init(ctx context.Context,
+	params moduletools.ModuleInitParams) error {
 	return nil
 }
 

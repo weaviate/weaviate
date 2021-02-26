@@ -61,7 +61,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				return append(initial, 4), nil
 			}),
 		)
-		p.Init(nil)
+		p.Init(context.Background(), nil)
 
 		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
 			"nearGrape", nil, fakeFindVector)
@@ -92,7 +92,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				return append(initial, 4), nil
 			}),
 		)
-		p.Init(nil)
+		p.Init(context.Background(), nil)
 
 		res, err := p.CrossClassVectorFromSearchParam(context.Background(),
 			"nearGrape", nil, fakeFindVector)

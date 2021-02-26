@@ -54,7 +54,8 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *ContextionaryModule) Init(params moduletools.ModuleInitParams) error {
+func (m *ContextionaryModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
