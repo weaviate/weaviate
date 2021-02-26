@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,19 +28,19 @@ func TestWaitForStartup(t *testing.T) {
 	t.Run("when the server is immediately ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{t: t})
 		defer server.Close()
-		c := New(server.URL)
+		c := New(server.URL, nullLogger())
 		err := c.WaitForStartup(context.Background(), 50*time.Millisecond)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("when the server is down", func(t *testing.T) {
-		c := New("http://nothing-running-at-this-url")
+		c := New("http://nothing-running-at-this-url", nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		err := c.WaitForStartup(ctx, 50*time.Millisecond)
 
-		require.NotNil(t, err)
+		require.NotNil(t, err, nullLogger())
 		assert.Contains(t, err.Error(), "expired before remote was ready")
 	})
 
@@ -47,7 +49,7 @@ func TestWaitForStartup(t *testing.T) {
 			t:         t,
 			readyTime: time.Now().Add(1 * time.Minute),
 		})
-		c := New(server.URL)
+		c := New(server.URL, nullLogger())
 		defer server.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
@@ -63,7 +65,7 @@ func TestWaitForStartup(t *testing.T) {
 				t:         t,
 				readyTime: time.Now().Add(100 * time.Millisecond),
 			})
-			c := New(server.URL)
+			c := New(server.URL, nullLogger())
 			defer server.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
@@ -88,4 +90,9 @@ func (f *testReadyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func nullLogger() logrus.FieldLogger {
+	l, _ := test.NewNullLogger()
+	return l
 }

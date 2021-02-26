@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 func New() *TransformersModule {
@@ -53,7 +54,7 @@ func (m *TransformersModule) Name() string {
 
 func (m *TransformersModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
-	if err := m.initVectorizer(); err != nil {
+	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -64,13 +65,9 @@ func (m *TransformersModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *TransformersModule) initVectorizer() error {
-	// TODO: Get discovery information from config
-	// TODO: this should be coming from the init method
-	ctx, cancel := context.WithTimeout(context.TODO(), 1*time.Minute)
-	defer cancel()
-
-	client := clients.New("http://localhost:8000")
+func (m *TransformersModule) initVectorizer(ctx context.Context,
+	logger logrus.FieldLogger) error {
+	client := clients.New("http://localhost:8000", logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}

@@ -365,9 +365,10 @@ func initModules(ctx context.Context, appState *state.State) error {
 		return errors.Wrap(err, "init storage provider")
 	}
 
-	// TODO: don't pass entire appState in, but only what's needed. Probably only
+	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := moduletools.NewInitParams(storageProvider, appState)
+	moduleParams := moduletools.NewInitParams(storageProvider, appState,
+		appState.Logger)
 
 	if err := appState.Modules.Init(ctx, moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
