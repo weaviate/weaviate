@@ -52,11 +52,9 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -172,12 +170,10 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, extender, projector)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
 	}
 
 	t.Run("without an id set", func(t *testing.T) {

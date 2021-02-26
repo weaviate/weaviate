@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -31,6 +32,15 @@ type Extender struct {
 
 type contextionary interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
+}
+
+func (e *Extender) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return e.Multi(ctx, in, limit)
+}
+
+func (e *Extender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return true
 }
 
 func (e *Extender) Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error) {
