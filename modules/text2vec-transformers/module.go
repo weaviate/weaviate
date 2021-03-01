@@ -14,6 +14,7 @@ package modtransformers
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -67,7 +68,13 @@ func (m *TransformersModule) Init(ctx context.Context,
 
 func (m *TransformersModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
-	client := clients.New("http://localhost:8000", logger)
+	// TODO: gh-1486 proper config management
+	uri := os.Getenv("TRANSFORMERS_INFERENCE_API")
+	if uri == "" {
+		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API is not set")
+	}
+
+	client := clients.New(uri, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}
