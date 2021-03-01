@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 var (
@@ -83,27 +84,23 @@ func (m *Provider) Init(ctx context.Context,
 
 func (m *Provider) validate() error {
 	searchers := map[string][]string{}
-	additionalProps := map[string][]string{}
+	additionalGraphQLProps := map[string][]string{}
+	additionalRestAPIProps := map[string][]string{}
 	for _, mod := range m.GetAll() {
 		if module, ok := mod.(modulecapabilities.GraphQLArguments); ok {
+			allArguments := []string{}
 			for argument := range module.ExtractFunctions() {
-				if searchers[argument] == nil {
-					searchers[argument] = []string{}
-				}
-				modules := searchers[argument]
-				modules = append(modules, mod.Name())
-				searchers[argument] = modules
+				allArguments = append(allArguments, argument)
 			}
+			searchers = m.scanProperties(searchers, allArguments, mod.Name())
 		}
 		if module, ok := mod.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			for additionalProperty := range module.GetAdditionalFields("") {
-				if additionalProps[additionalProperty] == nil {
-					additionalProps[additionalProperty] = []string{}
-				}
-				modules := additionalProps[additionalProperty]
-				modules = append(modules, mod.Name())
-				searchers[additionalProperty] = modules
-			}
+			allAdditionalGrapQLProps := m.getAdditionalProps(module.GraphQLAdditionalProperties())
+			allAdditionalRestAPIProps := m.getAdditionalProps(module.RestApiAdditionalProperties())
+			additionalGraphQLProps = m.scanProperties(additionalGraphQLProps,
+				allAdditionalGrapQLProps, mod.Name())
+			additionalRestAPIProps = m.scanProperties(additionalRestAPIProps,
+				allAdditionalRestAPIProps, mod.Name())
 		}
 	}
 
@@ -111,12 +108,36 @@ func (m *Provider) validate() error {
 	errorMessages = append(errorMessages,
 		m.validateModules("searcher", searchers, internalSearchers)...)
 	errorMessages = append(errorMessages,
-		m.validateModules("additional property", additionalProps, internalAdditionalProperties)...)
+		m.validateModules("graphql additional property", additionalGraphQLProps, internalAdditionalProperties)...)
+	errorMessages = append(errorMessages,
+		m.validateModules("rest api additional property", additionalRestAPIProps, internalAdditionalProperties)...)
 	if len(errorMessages) > 0 {
 		return errors.Errorf("%v", errorMessages)
 	}
 
 	return nil
+}
+
+func (m *Provider) scanProperties(result map[string][]string, properties []string, module string) map[string][]string {
+	for i := range properties {
+		if result[properties[i]] == nil {
+			result[properties[i]] = []string{}
+		}
+		modules := result[properties[i]]
+		modules = append(modules, module)
+		result[properties[i]] = modules
+	}
+	return result
+}
+
+func (m *Provider) getAdditionalProps(additionalProps map[string][]string) []string {
+	result := []string{}
+	for _, props := range additionalProps {
+		for i := range props {
+			result = append(result, props[i])
+		}
+	}
+	return result
 }
 
 func (m *Provider) validateModules(name string, properties map[string][]string, internalProperties []string) []string {
@@ -193,6 +214,7 @@ func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 	return additionalProperties
 }
 
+// ExtractAdditionalField extracts additional properties from given graphql arguments
 func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
 	for _, module := range m.GetAll() {
 		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
@@ -206,18 +228,128 @@ func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) i
 	return nil
 }
 
-func (m *Provider) AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn {
+// GetObjectAdditionalExtend extends rest api get queries with additional properties
+func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
+	in *search.Result, moduleParams map[string]interface{}) (*search.Result, error) {
+	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet")
+	if err != nil {
+		return nil, err
+	}
+	return &resArray[0], nil
+}
+
+// ListObjectsAdditionalExtend extends rest api list queries with additional properties
+func (m *Provider) ListObjectsAdditionalExtend(ctx context.Context,
+	in search.Results, moduleParams map[string]interface{}) (search.Results, error) {
+	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList")
+}
+
+// GetExploreAdditionalExtend extends graphql api get queries with additional properties
+func (m *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
+	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+}
+
+// ListExploreAdditionalExtend extends graphql api list queries with additional properties
+func (m *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}) ([]search.Result, error) {
+	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
+}
+
+func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}, searchVector []float32, capability string) ([]search.Result, error) {
+	toBeExtended := in
 	for _, module := range m.GetAll() {
 		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			if len(arg.AdditionalPropetiesFunctions()) > 0 {
-				if additionalPropertyFn, ok := arg.AdditionalPropetiesFunctions()[name]; ok {
-					return additionalPropertyFn
+			if fns := arg.SearchAdditionalFunctions(); fns != nil {
+				if err := m.checkCapabilities(fns, moduleParams, capability); err != nil {
+					return nil, err
+				}
+				for name, value := range moduleParams {
+					additionalPropertyFn := m.getAdditionalPropertyFn(fns[name], capability)
+					if additionalPropertyFn != nil && value != nil {
+						searchValue := value
+						if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+							searchVectorValue.SetSearchVector(searchVector)
+							searchValue = searchVectorValue
+						}
+						resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil)
+						if err != nil {
+							return nil, errors.Errorf("extend %s: %v", name, err)
+						}
+						toBeExtended = resArray
+					} else {
+						return nil, errors.Errorf("unknown capability: %s", name)
+					}
 				}
 			}
 		}
 	}
+	return toBeExtended, nil
+}
 
-	panic("AdditionalPropertyFunction was called without any known params present")
+func (m *Provider) checkCapabilities(fns map[string]modulecapabilities.AdditionalSearch,
+	moduleParams map[string]interface{}, capability string) error {
+	for name := range moduleParams {
+		additionalPropertyFn := m.getAdditionalPropertyFn(fns[name], capability)
+		if additionalPropertyFn == nil {
+			return errors.Errorf("unknown capability: %s", name)
+		}
+	}
+	return nil
+}
+
+func (m *Provider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilities.AdditionalSearch,
+	capability string) modulecapabilities.AdditionalPropertyFn {
+	switch capability {
+	case "ObjectGet":
+		return searchAdditionalFns.ObjectGet
+	case "ObjectList":
+		return searchAdditionalFns.ObjectList
+	case "ExploreGet":
+		return searchAdditionalFns.ExploreGet
+	case "ExploreList":
+		return searchAdditionalFns.ExploreList
+	default:
+		return nil
+	}
+}
+
+// GraphQLAdditionalFieldNames get's all additional field names used in graphql
+func (m *Provider) GraphQLAdditionalFieldNames() []string {
+	additionalPropertiesNames := []string{}
+	for _, module := range m.GetAll() {
+		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			for _, names := range arg.GraphQLAdditionalProperties() {
+				for i := range names {
+					additionalPropertiesNames = append(additionalPropertiesNames, names[i])
+				}
+			}
+		}
+	}
+	return additionalPropertiesNames
+}
+
+// RestApiAdditionalProperties get's all rest specific additional properties with their
+// default values
+func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]interface{} {
+	moduleParams := map[string]interface{}{}
+	for _, module := range m.GetAll() {
+		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			if defaultValueFns := arg.AdditionalPropertiesDefaultValues(); defaultValueFns != nil {
+				for name, includeProps := range arg.RestApiAdditionalProperties() {
+					for _, includePropName := range includeProps {
+						if includePropName == includeProp {
+							if defaultValueFn, ok := defaultValueFns[name]; ok {
+								moduleParams[name] = defaultValueFn()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return moduleParams
 }
 
 // ExtractSearchParams extracts GraphQL arguments

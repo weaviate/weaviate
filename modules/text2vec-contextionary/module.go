@@ -206,8 +206,20 @@ func (m *ContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapa
 	return m.graphqlAdditionalPropertiesProvider.ExtractAdditionalFunctions()
 }
 
-func (m *ContextionaryModule) AdditionalPropetiesFunctions() map[string]modulecapabilities.AdditionalPropertyFn {
-	return m.graphqlAdditionalPropertiesProvider.AdditionalPropetiesFunctions()
+func (m *ContextionaryModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
+	return m.graphqlAdditionalPropertiesProvider.AdditionalPropertiesDefaultValues()
+}
+
+func (m *ContextionaryModule) RestApiAdditionalProperties() map[string][]string {
+	return m.graphqlAdditionalPropertiesProvider.RestApiAdditionalProperties()
+}
+
+func (m *ContextionaryModule) GraphQLAdditionalProperties() map[string][]string {
+	return m.graphqlAdditionalPropertiesProvider.GraphQLAdditionalProperties()
+}
+
+func (m *ContextionaryModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
+	return m.graphqlAdditionalPropertiesProvider.SearchAdditionalFunctions()
 }
 
 // verify we implement the modules.Module interface
