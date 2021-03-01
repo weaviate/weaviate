@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -31,8 +30,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	if additional.FeatureProjection != nil {
-		return nil, fmt.Errorf("feature projection is not possible on a non-list request")
+	if m.modulesProvider != nil {
+		if additional.ModuleParams["featureProjection"] != nil {
+			return nil, fmt.Errorf("feature projection is not possible on a non-list request")
+		}
 	}
 
 	unlock, err := m.locks.LockConnector()
@@ -77,10 +78,17 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no object with id '%s'", id)
 	}
 
-	if additional.NearestNeighbors {
-		res, err = m.nnExtender.Single(ctx, res, nil)
-		if err != nil {
-			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+	if m.modulesProvider != nil {
+		if additional.ModuleParams["nearestNeighbors"] != nil {
+			if nnParam, ok := additional.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
+				// TODO: gh-1482 this implementation needs revisiting
+				additionalFn := m.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
+				resArray, err := additionalFn(ctx, search.Results{*res}, nil, nil)
+				if err != nil {
+					return nil, NewErrInternal("extend nearest neighbors: %v", err)
+				}
+				res = &resArray[0]
+			}
 		}
 	}
 
@@ -96,17 +104,27 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
 		return nil, NewErrInternal("list objects: %v", err)
 	}
 
-	if additional.NearestNeighbors {
-		res, err = m.nnExtender.Multi(ctx, res, nil)
-		if err != nil {
-			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+	if m.modulesProvider != nil {
+		if additional.ModuleParams["nearestNeighbors"] != nil {
+			if nnParam, ok := additional.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
+				// TODO: gh-1482 this check if this is a true value
+				additionalFn := m.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
+				res, err = additionalFn(ctx, res, nil, nil)
+				if err != nil {
+					return nil, NewErrInternal("extend nearest neighbors: %v", err)
+				}
+			} else {
+				// TODO: gh-1482 this should be handled is some other way
+				return nil, NewErrInternal("extend nearest neighbors not a bool param")
+			}
 		}
-	}
 
-	if additional.FeatureProjection != nil {
-		res, err = m.projector.Reduce(res, &projector.Params{Enabled: true})
-		if err != nil {
-			return nil, NewErrInternal("perform feature projection: %v", err)
+		if additional.ModuleParams["featureProjection"] != nil {
+			additionalFn := m.modulesProvider.AdditionalPropertyFunction("featureProjection")
+			res, err = additionalFn(ctx, res, nil, nil)
+			if err != nil {
+				return nil, NewErrInternal("perform feature projection: %v", err)
+			}
 		}
 	}
 

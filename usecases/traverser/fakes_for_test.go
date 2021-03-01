@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -24,10 +25,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
 	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	modcontextionaryvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -160,27 +160,54 @@ type fakeExtender struct {
 	returnArgs []search.Result
 }
 
-func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return f.returnArgs, nil
+}
+
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
 }
 
 type fakeProjector struct {
 	returnArgs []search.Result
 }
 
-func (f *fakeProjector) Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error) {
+func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return f.returnArgs, nil
+}
+
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
 }
 
 type fakePathBuilder struct {
 	returnArgs []search.Result
 }
 
-func (f *fakePathBuilder) CalculatePath(in []search.Result, params *sempath.Params) ([]search.Result, error) {
+func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
-type fakeText2vecContextionaryModule struct{}
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return nil
+}
+
+type fakeText2vecContextionaryModule struct {
+	customExtender    *fakeExtender
+	customProjector   *fakeProjector
+	customPathBuilder *fakePathBuilder
+}
+
+func newFakeText2vecContextionaryModuleWithCustomExtender(
+	customExtender *fakeExtender,
+	customProjector *fakeProjector,
+	customPathBuilder *fakePathBuilder,
+) *fakeText2vecContextionaryModule {
+	return &fakeText2vecContextionaryModule{customExtender, customProjector, customPathBuilder}
+}
 
 func (m *fakeText2vecContextionaryModule) Name() string {
 	return "text2vec-contextionary"
@@ -212,4 +239,37 @@ func (m *fakeText2vecContextionaryModule) ValidateFunctions() map[string]modulec
 
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return modcontextionaryneartext.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
+}
+
+func (m *fakeText2vecContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).GetAdditionalFields(classname)
+}
+
+func (m *fakeText2vecContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).ExtractAdditionalFunctions()
+}
+
+func (m *fakeText2vecContextionaryModule) AdditionalPropetiesFunctions() map[string]modulecapabilities.AdditionalPropertyFn {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalPropetiesFunctions()
+}
+
+func (m *fakeText2vecContextionaryModule) getExtender() *fakeExtender {
+	if m.customExtender != nil {
+		return m.customExtender
+	}
+	return &fakeExtender{}
+}
+
+func (m *fakeText2vecContextionaryModule) getProjector() *fakeProjector {
+	if m.customProjector != nil {
+		return m.customProjector
+	}
+	return &fakeProjector{}
+}
+
+func (m *fakeText2vecContextionaryModule) getPathBuilder() *fakePathBuilder {
+	if m.customPathBuilder != nil {
+		return m.customPathBuilder
+	}
+	return &fakePathBuilder{}
 }

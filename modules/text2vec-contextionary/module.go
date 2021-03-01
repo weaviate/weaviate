@@ -21,6 +21,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	text2vecadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
+	text2vecnn "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
+	text2vecprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
+	text2vecsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
@@ -35,14 +39,15 @@ func New() *ContextionaryModule {
 // but with making Weaviate more modular, this should contain anything related
 // to the module
 type ContextionaryModule struct {
-	storageProvider moduletools.StorageProvider
-	extensions      *extensions.RESTHandlers
-	concepts        *concepts.RESTHandlers
-	appState        *state.State
-	vectorizer      *localvectorizer.Vectorizer
-	configValidator configValidator
-	graphqlProvider modulecapabilities.GraphQLArguments
-	searcher        modulecapabilities.Searcher
+	storageProvider                     moduletools.StorageProvider
+	extensions                          *extensions.RESTHandlers
+	concepts                            *concepts.RESTHandlers
+	appState                            *state.State
+	vectorizer                          *localvectorizer.Vectorizer
+	configValidator                     configValidator
+	graphqlProvider                     modulecapabilities.GraphQLArguments
+	graphqlAdditionalPropertiesProvider modulecapabilities.GraphQLAdditionalProperties
+	searcher                            modulecapabilities.Searcher
 }
 
 type configValidator interface {
@@ -76,6 +81,10 @@ func (m *ContextionaryModule) Init(params moduletools.ModuleInitParams) error {
 
 	if err := m.initGraphqlProvider(); err != nil {
 		return errors.Wrap(err, "init graphql provider")
+	}
+
+	if err := m.initGraphqlAdditionalPropertiesProvider(); err != nil {
+		return errors.Wrap(err, "init graphql additional properties provider")
 	}
 
 	return nil
@@ -119,6 +128,14 @@ func (m *ContextionaryModule) initGraphqlProvider() error {
 	return nil
 }
 
+func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
+	nnExtender := text2vecnn.NewExtender(m.appState.Contextionary)
+	featureProjector := text2vecprojector.New()
+	pathBuilder := text2vecsempath.New(m.appState.Contextionary)
+	m.graphqlAdditionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder)
+	return nil
+}
+
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -155,6 +172,18 @@ func (m *ContextionaryModule) ValidateFunctions() map[string]modulecapabilities.
 
 func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return m.searcher.VectorSearches()
+}
+
+func (m *ContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
+	return m.graphqlAdditionalPropertiesProvider.GetAdditionalFields(classname)
+}
+
+func (m *ContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
+	return m.graphqlAdditionalPropertiesProvider.ExtractAdditionalFunctions()
+}
+
+func (m *ContextionaryModule) AdditionalPropetiesFunctions() map[string]modulecapabilities.AdditionalPropertyFn {
+	return m.graphqlAdditionalPropertiesProvider.AdditionalPropetiesFunctions()
 }
 
 // verify we implement the modules.Module interface

@@ -37,12 +37,9 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
-	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/projector"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -109,9 +106,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
 	var explorer explorer
-	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
-	featureProjector := projector.New()
-	pathBuilder := sempath.New(appState.Contextionary)
 	var schemaRepo schemaUC.Repo
 	var classifierRepo classification.Repo
 
@@ -122,7 +116,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorRepo = repo
 	migrator = vectorMigrator
 	explorer = traverser.NewExplorer(repo, libvectorizer.NormalizedDistance,
-		appState.Logger, nnExtender, featureProjector, pathBuilder, appState.Modules)
+		appState.Logger, appState.Modules)
 	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -164,7 +158,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	kindsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, nnExtender, featureProjector)
+		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
 	batchKindsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
