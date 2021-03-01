@@ -17,10 +17,15 @@ import (
 	"net/http"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/search"
+	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
+	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
+	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -33,6 +38,57 @@ func (m *mockRequestsLog) Register(first string, second string) {
 
 type mockResolver struct {
 	test_helper.MockResolver
+}
+
+type fakeExtender struct {
+	returnArgs []search.Result
+}
+
+func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return f.returnArgs, nil
+}
+
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return true
+}
+
+type fakeProjector struct {
+	returnArgs []search.Result
+}
+
+func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return f.returnArgs, nil
+}
+
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	if len(param) > 0 {
+		return &modcontextionaryadditionalprojector.Params{
+			Enabled:      true,
+			Algorithm:    ptString("tsne"),
+			Dimensions:   ptInt(3),
+			Iterations:   ptInt(100),
+			LearningRate: ptInt(15),
+			Perplexity:   ptInt(10),
+		}
+	}
+	return &modcontextionaryadditionalprojector.Params{
+		Enabled: true,
+	}
+}
+
+type fakePathBuilder struct {
+	returnArgs []search.Result
+}
+
+func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return f.returnArgs, nil
+}
+
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return &modcontextionaryadditionalsempath.Params{}
 }
 
 type mockText2vecContextionaryModule struct{}
@@ -65,6 +121,14 @@ func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 	return map[string]modulecapabilities.VectorForParams{}
 }
 
+func (m *mockText2vecContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).GetAdditionalFields(classname)
+}
+
+func (m *mockText2vecContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).ExtractAdditionalFunctions()
+}
+
 type fakeModulesProvider struct{}
 
 func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
@@ -81,6 +145,19 @@ func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface
 		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
 	return exractedParams
+}
+
+func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
+	txt2vec := &mockText2vecContextionaryModule{}
+	return txt2vec.GetAdditionalFields(class.Class)
+}
+
+func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+	txt2vec := &mockText2vecContextionaryModule{}
+	if fns := txt2vec.ExtractAdditionalFunctions(); fns != nil {
+		return fns[name](params)
+	}
+	return nil
 }
 
 func extractNearTextParam(param map[string]interface{}) interface{} {

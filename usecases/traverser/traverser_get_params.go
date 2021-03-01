@@ -17,8 +17,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 )
 
 type GetParams struct {
@@ -140,13 +138,11 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 }
 
 type AdditionalProperties struct {
-	Classification    bool
-	RefMeta           bool
-	Vector            bool
-	Interpretation    bool
-	NearestNeighbors  bool
-	SemanticPath      *sempath.Params
-	FeatureProjection *libprojector.Params
-	Certainty         bool
-	ID                bool
+	Classification bool
+	RefMeta        bool
+	Vector         bool
+	Interpretation bool
+	Certainty      bool
+	ID             bool
+	ModuleParams   map[string]interface{}
 }

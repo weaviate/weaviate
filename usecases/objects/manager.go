@@ -24,9 +24,9 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -42,17 +42,7 @@ type Manager struct {
 	vectorizerProvider VectorizerProvider
 	vectorRepo         VectorRepo
 	timeSource         timeSource
-	nnExtender         nnExtender
-	projector          featureProjector
-}
-
-type nnExtender interface {
-	Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error)
-	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
-}
-
-type featureProjector interface {
-	Reduce(in []search.Result, params *projector.Params) ([]search.Result, error)
+	modulesProvider    ModulesProvider
 }
 
 type timeSource interface {
@@ -92,11 +82,15 @@ type VectorRepo interface {
 	Merge(ctx context.Context, merge MergeDocument) error
 }
 
+type ModulesProvider interface {
+	AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn
+}
+
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer VectorizerProvider, vectorRepo VectorRepo,
-	nnExtender nnExtender, projector featureProjector) *Manager {
+	modulesProvider ModulesProvider) *Manager {
 	return &Manager{
 		config:             config,
 		locks:              locks,
@@ -105,9 +99,8 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorizerProvider: vectorizer,
 		authorizer:         authorizer,
 		vectorRepo:         vectorRepo,
-		nnExtender:         nnExtender,
 		timeSource:         defaultTimeSource{},
-		projector:          projector,
+		modulesProvider:    modulesProvider,
 	}
 }
 
