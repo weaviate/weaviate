@@ -96,8 +96,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("invalid config")
 	}
 
-	validateContextionaryVersion(appState)
-
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -114,9 +112,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
 	var explorer explorer
-	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
+	nnExtender := nearestneighbors.NewExtender(nil)
 	featureProjector := projector.New()
-	pathBuilder := sempath.New(appState.Contextionary)
+	pathBuilder := sempath.New(nil)
 	var schemaRepo schemaUC.Repo
 	var classifierRepo classification.Repo
 
@@ -250,7 +248,11 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
+	// TODO: remove
+	// We though we might be able to remove this as part of gh-1473 already, but
+	// have found out that the classifier as well as the misc handlers still
+	// depend on this
+	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL, appState.Logger)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Fatal("cannot create c11y client")
@@ -292,47 +294,6 @@ func (d *dummyLock) LockConnector() (func() error, error) {
 
 func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
-}
-
-// TODO: This should move into the text2vec-contextionary code once we deal
-// with modularization
-func validateContextionaryVersion(appState *state.State) {
-	for {
-		time.Sleep(1 * time.Second)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		v, err := appState.Contextionary.Version(ctx)
-		if err != nil {
-			appState.Logger.WithField("action", "startup_check_contextionary").WithError(err).
-				Warnf("could not connect to contextionary at startup, trying again in 1 sec")
-			continue
-		}
-
-		ok, err := extractVersionAndCompare(v, MinimumRequiredContextionaryVersion)
-		if err != nil {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				WithError(err).
-				Warnf("cannot determine if contextionary version is compatible. This is fine in development, but probelematic if you see this production")
-			break
-		}
-
-		if ok {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				Infof("found a valid contextionary version")
-			break
-		} else {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				Fatalf("insufficient contextionary version, cannot start up")
-			break
-		}
-	}
 }
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
