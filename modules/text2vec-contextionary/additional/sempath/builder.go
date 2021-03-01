@@ -43,6 +43,10 @@ type Remote interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
 }
 
+func (e *PathBuilder) DefaultValueFn() interface{} {
+	return &Params{}
+}
+
 func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {

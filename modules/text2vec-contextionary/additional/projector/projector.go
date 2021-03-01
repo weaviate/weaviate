@@ -35,14 +35,14 @@ type FeatureProjector struct {
 	fixedSeed int64
 }
 
+func (f *FeatureProjector) DefaultValueFn() interface{} {
+	return &Params{}
+}
+
 func (f *FeatureProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return f.Reduce(in, parameters)
-	}
-	if params == nil {
-		// TODO: gh-1482 temporary solution
-		return f.Reduce(in, &Params{Enabled: true})
 	}
 	return nil, errors.New("unknown params")
 }
