@@ -39,12 +39,10 @@ func Test_Delete_Action(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			vectorRepo, extender, projector)
+			vectorRepo, getFakeModulesProvider())
 	}
 
 	reset()
@@ -77,12 +75,10 @@ func Test_Delete_Thing(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		extender := &fakeExtender{}
-		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			vectorRepo, extender, projector)
+			vectorRepo, getFakeModulesProvider())
 	}
 
 	reset()

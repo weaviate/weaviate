@@ -22,8 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
-	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -35,9 +33,6 @@ type Explorer struct {
 	search          vectorClassSearch
 	distancer       distancer
 	logger          logrus.FieldLogger
-	nnExtender      nnExtender
-	projector       projector
-	pathBuilder     pathBuilder
 	modulesProvider ModulesProvider
 }
 
@@ -47,6 +42,7 @@ type ModulesProvider interface {
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+	AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -60,23 +56,11 @@ type vectorClassSearch interface {
 		props SelectProperties, additional AdditionalProperties) (*search.Result, error)
 }
 
-type nnExtender interface {
-	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
-}
-
-type projector interface {
-	Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error)
-}
-
-type pathBuilder interface {
-	CalculatePath(in []search.Result, params *sempath.Params) ([]search.Result, error)
-}
-
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch,
-	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
-	projector projector, pathBuilder pathBuilder, modulesProvider ModulesProvider) *Explorer {
-	return &Explorer{search, distancer, logger, nnExtender, projector, pathBuilder, modulesProvider}
+	distancer distancer, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider) *Explorer {
+	return &Explorer{search, distancer, logger, modulesProvider}
 }
 
 // GetClass from search and connector repo
@@ -118,33 +102,45 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = grouped
 	}
 
-	if params.AdditionalProperties.NearestNeighbors {
-		withNN, err := e.nnExtender.Multi(ctx, res, nil)
-		if err != nil {
-			return nil, errors.Errorf("extend with nearest neighbors: %v", err)
+	if e.modulesProvider != nil {
+		if params.AdditionalProperties.ModuleParams["nearestNeighbors"] != nil {
+			if nnParam, ok := params.AdditionalProperties.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
+				additionalFn := e.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
+				withNN, err := additionalFn(ctx, res, nil, nil)
+				if err != nil {
+					return nil, errors.Errorf("extend with nearest neighbors: %v", err)
+				}
+
+				res = withNN
+			}
 		}
 
-		res = withNN
-	}
+		if params.AdditionalProperties.ModuleParams["featureProjection"] != nil {
+			additionalFn := e.modulesProvider.AdditionalPropertyFunction("featureProjection")
+			withFP, err := additionalFn(ctx, res, params.AdditionalProperties.ModuleParams["featureProjection"], nil)
+			if err != nil {
+				return nil, errors.Errorf("extend with feature projections: %v", err)
+			}
 
-	if params.AdditionalProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
-		if err != nil {
-			return nil, errors.Errorf("extend with feature projections: %v", err)
+			res = withFP
 		}
 
-		res = withFP
-	}
+		if params.AdditionalProperties.ModuleParams["semanticPath"] != nil {
+			additionalFn := e.modulesProvider.AdditionalPropertyFunction("semanticPath")
+			p := params.AdditionalProperties.ModuleParams["semanticPath"]
+			if sempathParam, ok := p.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+				// TODO: gh-1482
+				sempathParam.SetSearchVector(searchVector)
+				withPath, err := additionalFn(ctx, res, sempathParam, nil)
+				if err != nil {
+					return nil, errors.Errorf("extend with semantic path: %v", err)
+				}
 
-	if params.AdditionalProperties.SemanticPath != nil {
-		p := params.AdditionalProperties.SemanticPath
-		p.SearchVector = searchVector
-		withPath, err := e.pathBuilder.CalculatePath(res, p)
-		if err != nil {
-			return nil, errors.Errorf("extend with semantic path: %v", err)
+				res = withPath
+			} else {
+				return nil, errors.New("extend with semantic path: not a semantic path param")
+			}
 		}
-
-		res = withPath
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
@@ -166,26 +162,32 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
-	if params.AdditionalProperties.NearestNeighbors {
-		withNN, err := e.nnExtender.Multi(ctx, res, nil)
-		if err != nil {
-			return nil, errors.Errorf("extend with nearest neighbors: %v", err)
+	if e.modulesProvider != nil {
+		if params.AdditionalProperties.ModuleParams["nearestNeighbors"] != nil {
+			if nnParam, ok := params.AdditionalProperties.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
+				additionalFn := e.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
+				withNN, err := additionalFn(ctx, res, nil, nil)
+				if err != nil {
+					return nil, errors.Errorf("extend with nearest neighbors: %v", err)
+				}
+
+				res = withNN
+			}
 		}
 
-		res = withNN
-	}
+		if params.AdditionalProperties.ModuleParams["featureProjection"] != nil {
+			additionalFn := e.modulesProvider.AdditionalPropertyFunction("featureProjection")
+			withFP, err := additionalFn(ctx, res, params.AdditionalProperties.ModuleParams["featureProjection"], nil)
+			if err != nil {
+				return nil, errors.Errorf("extend with feature projections: %v", err)
+			}
 
-	if params.AdditionalProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res, params.AdditionalProperties.FeatureProjection)
-		if err != nil {
-			return nil, errors.Errorf("extend with feature projections: %v", err)
+			res = withFP
 		}
 
-		res = withFP
-	}
-
-	if params.AdditionalProperties.SemanticPath != nil {
-		return nil, errors.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
+		if params.AdditionalProperties.ModuleParams["semanticPath"] != nil {
+			return nil, errors.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
+		}
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, nil, params)

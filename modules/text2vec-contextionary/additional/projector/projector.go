@@ -12,12 +12,13 @@
 package projector
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -32,6 +33,22 @@ func New() *FeatureProjector {
 
 type FeatureProjector struct {
 	fixedSeed int64
+}
+
+func (f *FeatureProjector) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	if parameters, ok := params.(*Params); ok {
+		return f.Reduce(in, parameters)
+	}
+	if params == nil {
+		// TODO: gh-1482 temporary solution
+		return f.Reduce(in, &Params{Enabled: true})
+	}
+	return nil, errors.New("unknown params")
+}
+
+func (f *FeatureProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return parseFeatureProjectionArguments(param)
 }
 
 func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.Result, error) {
@@ -147,105 +164,4 @@ func (f *FeatureProjector) removeDuplicateNeighbors(in []*models.NearestNeighbor
 	}
 
 	return out[:i]
-}
-
-type Params struct {
-	Enabled          bool
-	Algorithm        *string // optional parameter
-	Dimensions       *int    // optional parameter
-	Perplexity       *int    // optional parameter
-	Iterations       *int    // optional parameter
-	LearningRate     *int    // optional parameter
-	IncludeNeighbors bool
-}
-
-func (p *Params) SetDefaultsAndValidate(inputSize, dims int) error {
-	p.setDefaults(inputSize, dims)
-	return p.validate(inputSize, dims)
-}
-
-func (p *Params) setDefaults(inputSize, dims int) {
-	perplexity := min(inputSize-1, 5)
-	p.Algorithm = p.optionalString(p.Algorithm, "tsne")
-	p.Dimensions = p.optionalInt(p.Dimensions, 2)
-	p.Perplexity = p.optionalInt(p.Perplexity, perplexity)
-	p.Iterations = p.optionalInt(p.Iterations, 100)
-	p.LearningRate = p.optionalInt(p.LearningRate, 25)
-}
-
-func (p *Params) validate(inputSize, dims int) error {
-	ec := &errorCompounder{}
-	if *p.Algorithm != "tsne" {
-		ec.addf("algorithm %s is not supported: must be one of: tsne", *p.Algorithm)
-	}
-
-	if *p.Perplexity >= inputSize {
-		ec.addf("perplexity must be smaller than amount of items: %d >= %d", *p.Perplexity, inputSize)
-	}
-
-	if *p.Iterations < 1 {
-		ec.addf("iterations must be at least 1, got: %d", *p.Iterations)
-	}
-
-	if *p.LearningRate < 1 {
-		ec.addf("learningRate must be at least 1, got: %d", *p.LearningRate)
-	}
-
-	if *p.Dimensions < 1 {
-		ec.addf("dimensions must be at least 1, got: %d", *p.Dimensions)
-	}
-
-	if *p.Dimensions >= dims {
-		ec.addf("dimensions must be smaller than source dimensions: %d >= %d", *p.Dimensions, dims)
-	}
-
-	return ec.toError()
-}
-
-func (p Params) optionalString(in *string, defaultValue string) *string {
-	if in == nil {
-		return &defaultValue
-	}
-
-	return in
-}
-
-func (p Params) optionalInt(in *int, defaultValue int) *int {
-	if in == nil {
-		return &defaultValue
-	}
-
-	return in
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-type errorCompounder struct {
-	errors []error
-}
-
-func (ec *errorCompounder) addf(msg string, args ...interface{}) {
-	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
-}
-
-func (ec *errorCompounder) toError() error {
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
 }

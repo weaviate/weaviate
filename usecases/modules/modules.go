@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -23,7 +24,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-var internalSearchers = []string{"nearObject", "nearVector", "where", "group", "limit"}
+var (
+	internalSearchers            = []string{"nearObject", "nearVector", "where", "group", "limit"}
+	internalAdditionalProperties = []string{"classification", "interpretation", "certainty", "id"}
+)
 
 type Provider struct {
 	registered   map[string]modulecapabilities.Module
@@ -79,6 +83,7 @@ func (m *Provider) Init(ctx context.Context,
 
 func (m *Provider) validate() error {
 	searchers := map[string][]string{}
+	additionalProps := map[string][]string{}
 	for _, mod := range m.GetAll() {
 		if module, ok := mod.(modulecapabilities.GraphQLArguments); ok {
 			for argument := range module.ExtractFunctions() {
@@ -90,28 +95,46 @@ func (m *Provider) validate() error {
 				searchers[argument] = modules
 			}
 		}
+		if module, ok := mod.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			for additionalProperty := range module.GetAdditionalFields("") {
+				if additionalProps[additionalProperty] == nil {
+					additionalProps[additionalProperty] = []string{}
+				}
+				modules := additionalProps[additionalProperty]
+				modules = append(modules, mod.Name())
+				searchers[additionalProperty] = modules
+			}
+		}
 	}
 
 	var errorMessages []string
-	for searcher, modules := range searchers {
-		for i := range internalSearchers {
-			if internalSearchers[i] == searcher {
-				errorMessages = append(errorMessages,
-					fmt.Sprintf("searcher: %s conflicts with weaviate's internal searcher in modules: %v",
-						searcher, modules))
-			}
-		}
-		if len(modules) > 1 {
-			errorMessages = append(errorMessages,
-				fmt.Sprintf("searcher: %s defined in more than one module: %v", searcher, modules))
-		}
-	}
-
+	errorMessages = append(errorMessages,
+		m.validateModules("searcher", searchers, internalSearchers)...)
+	errorMessages = append(errorMessages,
+		m.validateModules("additional property", additionalProps, internalAdditionalProperties)...)
 	if len(errorMessages) > 0 {
 		return errors.Errorf("%v", errorMessages)
 	}
 
 	return nil
+}
+
+func (m *Provider) validateModules(name string, properties map[string][]string, internalProperties []string) []string {
+	errorMessages := []string{}
+	for propertyName, modules := range properties {
+		for i := range internalProperties {
+			if internalProperties[i] == propertyName {
+				errorMessages = append(errorMessages,
+					fmt.Sprintf("%s: %s conflicts with weaviate's internal searcher in modules: %v",
+						name, propertyName, modules))
+			}
+		}
+		if len(modules) > 1 {
+			errorMessages = append(errorMessages,
+				fmt.Sprintf("%s: %s defined in more than one module: %v", name, propertyName, modules))
+		}
+	}
+	return errorMessages
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, vectorizer string) bool {
@@ -155,6 +178,46 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 		}
 	}
 	return arguments
+}
+
+// GetAdditionalFields provides GraphQL Get additional fields
+func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
+	additionalProperties := map[string]*graphql.Field{}
+	for _, module := range m.GetAll() {
+		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			for name, field := range arg.GetAdditionalFields(class.Class) {
+				additionalProperties[name] = field
+			}
+		}
+	}
+	return additionalProperties
+}
+
+func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+	for _, module := range m.GetAll() {
+		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			if len(arg.ExtractAdditionalFunctions()) > 0 {
+				if extractFn, ok := arg.ExtractAdditionalFunctions()[name]; ok {
+					return extractFn(params)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Provider) AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn {
+	for _, module := range m.GetAll() {
+		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
+			if len(arg.AdditionalPropetiesFunctions()) > 0 {
+				if additionalPropertyFn, ok := arg.AdditionalPropetiesFunctions()[name]; ok {
+					return additionalPropertyFn
+				}
+			}
+		}
+	}
+
+	panic("AdditionalPropertyFunction was called without any known params present")
 }
 
 // ExtractSearchParams extracts GraphQL arguments

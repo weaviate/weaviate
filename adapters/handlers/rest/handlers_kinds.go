@@ -22,10 +22,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	modtxt2veccontextionaryprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	usecasesObjects "github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -361,9 +361,14 @@ func parseIncludeParam(in *string) (traverser.AdditionalProperties, error) {
 		case "interpretation":
 			out.Interpretation = true
 		case "nearestNeighbors", "nearestneighbors", "nearest-neighbors", "nearest_neighbors":
-			out.NearestNeighbors = true
+			out.ModuleParams = getModuleParams(out.ModuleParams)
+			out.ModuleParams["nearestNeighbors"] = true
+			// out.NearestNeighbors = true
 		case "featureProjection", "featureprojection", "feature-projection", "feature_projection":
-			out.FeatureProjection = &projector.Params{}
+			// TODO: gh-1482
+			out.ModuleParams = getModuleParams(out.ModuleParams)
+			out.ModuleParams["featureProjection"] = &modtxt2veccontextionaryprojector.Params{}
+			// out.FeatureProjection = &projector.Params{}
 		case "vector":
 			out.Vector = true
 
@@ -373,4 +378,11 @@ func parseIncludeParam(in *string) (traverser.AdditionalProperties, error) {
 	}
 
 	return out, nil
+}
+
+func getModuleParams(moduleParams map[string]interface{}) map[string]interface{} {
+	if moduleParams == nil {
+		return map[string]interface{}{}
+	}
+	return moduleParams
 }

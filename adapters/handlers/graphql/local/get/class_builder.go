@@ -124,11 +124,14 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties := graphql.Fields{}
 	additionalProperties["classification"] = b.additionalClassificationField(class)
 	additionalProperties["interpretation"] = b.additionalInterpretationField(class)
-	additionalProperties["nearestNeighbors"] = b.additionalNNField(class)
-	additionalProperties["featureProjection"] = b.additionalFeatureProjectionField(class)
-	additionalProperties["semanticPath"] = b.additionalSemanticPathField(class)
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["id"] = b.additionalIDField()
+	// module specific additional properties
+	if b.modulesProvider != nil {
+		for name, field := range b.modulesProvider.GetAdditionalFields(class) {
+			additionalProperties[name] = field
+		}
+	}
 	classProperties["_additional"] = &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:   fmt.Sprintf("%sAdditional", class.Class),
@@ -170,76 +173,6 @@ func (b *classBuilder) additionalInterpretationField(class *models.Class) *graph
 						"concept":    &graphql.Field{Type: graphql.String},
 						"weight":     &graphql.Field{Type: graphql.Float},
 						"occurrence": &graphql.Field{Type: graphql.Int},
-					},
-				}))},
-			},
-		}),
-	}
-}
-
-func (b *classBuilder) additionalNNField(class *models.Class) *graphql.Field {
-	return &graphql.Field{
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sAdditionalNearestNeighbors", class.Class),
-			Fields: graphql.Fields{
-				"neighbors": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sAdditionalNearestNeighborsNeighbor", class.Class),
-					Fields: graphql.Fields{
-						"concept":  &graphql.Field{Type: graphql.String},
-						"distance": &graphql.Field{Type: graphql.Float},
-					},
-				}))},
-			},
-		}),
-	}
-}
-
-func (b *classBuilder) additionalFeatureProjectionField(class *models.Class) *graphql.Field {
-	return &graphql.Field{
-		Args: graphql.FieldConfigArgument{
-			"algorithm": &graphql.ArgumentConfig{
-				Type:         graphql.String,
-				DefaultValue: nil,
-			},
-			"dimensions": &graphql.ArgumentConfig{
-				Type:         graphql.Int,
-				DefaultValue: nil,
-			},
-			"learningRate": &graphql.ArgumentConfig{
-				Type:         graphql.Int,
-				DefaultValue: nil,
-			},
-			"iterations": &graphql.ArgumentConfig{
-				Type:         graphql.Int,
-				DefaultValue: nil,
-			},
-			"perplexity": &graphql.ArgumentConfig{
-				Type:         graphql.Int,
-				DefaultValue: nil,
-			},
-		},
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sAdditionalFeatureProjection", class.Class),
-			Fields: graphql.Fields{
-				"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
-			},
-		}),
-	}
-}
-
-func (b *classBuilder) additionalSemanticPathField(class *models.Class) *graphql.Field {
-	return &graphql.Field{
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sAdditionalSemanticPath", class.Class),
-			Fields: graphql.Fields{
-				"path": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sAdditionalSemanticPathElement", class.Class),
-					Fields: graphql.Fields{
-						"concept":            &graphql.Field{Type: graphql.String},
-						"distanceToQuery":    &graphql.Field{Type: graphql.Float},
-						"distanceToResult":   &graphql.Field{Type: graphql.Float},
-						"distanceToNext":     &graphql.Field{Type: graphql.Float},
-						"distanceToPrevious": &graphql.Field{Type: graphql.Float},
 					},
 				}))},
 			},
