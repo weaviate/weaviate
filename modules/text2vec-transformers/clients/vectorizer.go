@@ -21,17 +21,20 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/ent"
+	"github.com/sirupsen/logrus"
 )
 
 type vectorizer struct {
 	origin     string
 	httpClient *http.Client
+	logger     logrus.FieldLogger
 }
 
-func New(origin string) *vectorizer {
+func New(origin string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		origin:     origin,
 		httpClient: &http.Client{},
+		logger:     logger,
 	}
 }
 

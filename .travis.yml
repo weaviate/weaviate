@@ -79,7 +79,7 @@ after_success:
 before_script: ~
 dist: xenial
 go: 
-  - "1.13.4"
+  - "1.15.2"
 env:
   matrix:
   # Force using modules.

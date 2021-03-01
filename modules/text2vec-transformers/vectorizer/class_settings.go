@@ -31,6 +31,11 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) PropertyIndexed(propName string) bool {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return DefaultPropertyIndexed
+	}
+
 	vcn, ok := ic.cfg.Property(propName)["skip"]
 	if !ok {
 		return DefaultPropertyIndexed
@@ -45,6 +50,10 @@ func (ic *classSettings) PropertyIndexed(propName string) bool {
 }
 
 func (ic *classSettings) VectorizePropertyName(propName string) bool {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return DefaultVectorizePropertyName
+	}
 	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
 	if !ok {
 		return DefaultVectorizePropertyName
@@ -59,6 +68,11 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 }
 
 func (ic *classSettings) VectorizeClassName() bool {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return DefaultVectorizeClassName
+	}
+
 	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
@@ -73,6 +87,11 @@ func (ic *classSettings) VectorizeClassName() bool {
 }
 
 func (ic *classSettings) PoolingStrategy() string {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return DefaultPoolingStrategy
+	}
+
 	vcn, ok := ic.cfg.Class()["poolingStrategy"]
 	if !ok {
 		return DefaultPoolingStrategy

@@ -27,7 +27,7 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func New(c11y c11y) *PathBuilder {
+func New(c11y Remote) *PathBuilder {
 	return &PathBuilder{
 		fixedSeed: time.Now().UnixNano(),
 		c11y:      c11y,
@@ -36,10 +36,10 @@ func New(c11y c11y) *PathBuilder {
 
 type PathBuilder struct {
 	fixedSeed int64
-	c11y      c11y
+	c11y      Remote
 }
 
-type c11y interface {
+type Remote interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
 }
 

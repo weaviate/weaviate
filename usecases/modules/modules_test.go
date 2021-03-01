@@ -12,6 +12,7 @@
 package modules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/graphql-go/graphql"
@@ -38,7 +39,7 @@ func TestModulesProvider(t *testing.T) {
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
-		err := modulesProvider.Init(nil)
+		err := modulesProvider.Init(context.Background(), nil)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
@@ -60,7 +61,7 @@ func TestModulesProvider(t *testing.T) {
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
 		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
-		err := modulesProvider.Init(nil)
+		err := modulesProvider.Init(context.Background(), nil)
 
 		// then
 		assert.NotNil(t, err)
@@ -80,7 +81,7 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(nil)
+		err := modulesProvider.Init(context.Background(), nil)
 
 		// then
 		assert.NotNil(t, err)
@@ -105,7 +106,7 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(nil)
+		err := modulesProvider.Init(context.Background(), nil)
 
 		// then
 		assert.NotNil(t, err)

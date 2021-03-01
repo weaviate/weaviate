@@ -53,6 +53,9 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig) ([]float32, error) {
+	// it is safe to call NewClassSettings even knowing that cfg can be nil, it
+	// is to built to work with all defaults in the case of a nil-config, see
+	// vectorizer/class_settings_test.go for details.
 	settings := localvectorizer.NewClassSettings(cfg)
 	vector, err := s.vectorizer.Texts(ctx, params.Values, settings)
 	if err != nil {
