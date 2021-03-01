@@ -33,6 +33,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       PERSISTENCE_DATA_PATH="./data" \
+      TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
       ENABLE_MODULES="text2vec-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
