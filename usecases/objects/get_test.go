@@ -20,8 +20,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -61,7 +61,7 @@ func Test_GetAction(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, extender, projectorFake)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -138,7 +138,10 @@ func Test_GetAction(t *testing.T) {
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
-						FeatureProjection: &projector.Params{},
+						ModuleParams: map[string]interface{}{
+							// TODO: gh-1482
+							"featureProjection": &projector.Params{},
+						},
 					})
 				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
 			})
@@ -153,16 +156,18 @@ func Test_GetAction(t *testing.T) {
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-				extender.single = &search.Result{
-					ID:        id,
-					ClassName: "ActionClass",
-					Schema:    map[string]interface{}{"foo": "bar"},
-					AdditionalProperties: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "foo",
-									Distance: 0.3,
+				extender.multi = []search.Result{
+					search.Result{
+						ID:        id,
+						ClassName: "ActionClass",
+						Schema:    map[string]interface{}{"foo": "bar"},
+						AdditionalProperties: &models.AdditionalProperties{
+							NearestNeighbors: &models.NearestNeighbors{
+								Neighbors: []*models.NearestNeighbor{
+									&models.NearestNeighbor{
+										Concept:  "foo",
+										Distance: 0.3,
+									},
 								},
 							},
 						},
@@ -188,7 +193,9 @@ func Test_GetAction(t *testing.T) {
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
-						NearestNeighbors: true,
+						ModuleParams: map[string]interface{}{
+							"nearestNeighbors": true,
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
@@ -247,7 +254,9 @@ func Test_GetAction(t *testing.T) {
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
-						NearestNeighbors: true,
+						ModuleParams: map[string]interface{}{
+							"nearestNeighbors": true,
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
@@ -294,7 +303,10 @@ func Test_GetAction(t *testing.T) {
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
-						FeatureProjection: &projector.Params{},
+						ModuleParams: map[string]interface{}{
+							// TODO: gh-1482
+							"featureProjection": &projector.Params{},
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
@@ -335,7 +347,7 @@ func Test_GetThing(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, extender, projectorFake)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -412,7 +424,10 @@ func Test_GetThing(t *testing.T) {
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
-						FeatureProjection: &projector.Params{},
+						ModuleParams: map[string]interface{}{
+							// TODO: gh-1482
+							"featureProjection": &projector.Params{},
+						},
 					})
 				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
 			})
@@ -427,16 +442,18 @@ func Test_GetThing(t *testing.T) {
 					Schema:    map[string]interface{}{"foo": "bar"},
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-				extender.single = &search.Result{
-					ID:        id,
-					ClassName: "ThingClass",
-					Schema:    map[string]interface{}{"foo": "bar"},
-					AdditionalProperties: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "foo",
-									Distance: 0.3,
+				extender.multi = []search.Result{
+					search.Result{
+						ID:        id,
+						ClassName: "ThingClass",
+						Schema:    map[string]interface{}{"foo": "bar"},
+						AdditionalProperties: &models.AdditionalProperties{
+							NearestNeighbors: &models.NearestNeighbors{
+								Neighbors: []*models.NearestNeighbor{
+									&models.NearestNeighbor{
+										Concept:  "foo",
+										Distance: 0.3,
+									},
 								},
 							},
 						},
@@ -462,7 +479,9 @@ func Test_GetThing(t *testing.T) {
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
-						NearestNeighbors: true,
+						ModuleParams: map[string]interface{}{
+							"nearestNeighbors": true,
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
@@ -521,7 +540,9 @@ func Test_GetThing(t *testing.T) {
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
-						NearestNeighbors: true,
+						ModuleParams: map[string]interface{}{
+							"nearestNeighbors": true,
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
@@ -568,7 +589,10 @@ func Test_GetThing(t *testing.T) {
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
-						FeatureProjection: &projector.Params{},
+						ModuleParams: map[string]interface{}{
+							// TODO: gh-1482
+							"featureProjection": &projector.Params{},
+						},
 					})
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
