@@ -14,9 +14,11 @@ package modcontextionary
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/graphql-go/graphql"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -28,8 +30,13 @@ import (
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 )
+
+// MinimumRequiredRemoteVersion describes the minimal semver version
+// (independent of the model version) of the remote model inference API
+const MinimumRequiredRemoteVersion = "1.0.0"
 
 func New() *ContextionaryModule {
 	return &ContextionaryModule{}
@@ -42,12 +49,21 @@ type ContextionaryModule struct {
 	storageProvider                     moduletools.StorageProvider
 	extensions                          *extensions.RESTHandlers
 	concepts                            *concepts.RESTHandlers
-	appState                            *state.State
 	vectorizer                          *localvectorizer.Vectorizer
 	configValidator                     configValidator
 	graphqlProvider                     modulecapabilities.GraphQLArguments
 	graphqlAdditionalPropertiesProvider modulecapabilities.GraphQLAdditionalProperties
 	searcher                            modulecapabilities.Searcher
+	remote                              remoteClient
+}
+
+type remoteClient interface {
+	localvectorizer.RemoteClient
+	extensions.Proxy
+	vectorizer.InspectorClient
+	text2vecsempath.Remote
+	WaitForStartupAndValidateVersion(ctx context.Context, version string,
+		interval time.Duration) error
 }
 
 type configValidator interface {
@@ -59,13 +75,26 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
-func (m *ContextionaryModule) Init(params moduletools.ModuleInitParams) error {
+func (m *ContextionaryModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
 		return errors.Errorf("appState is not a *state.State")
 	}
-	m.appState = appState
+
+	url := appState.ServerConfig.Config.Contextionary.URL
+	// TODO: move client into module
+	remote, err := contextionary.NewClient(url, appState.Logger)
+	if err != nil {
+		return errors.Wrap(err, "init remote client")
+	}
+	m.remote = remote
+
+	if err := m.remote.WaitForStartupAndValidateVersion(ctx,
+		MinimumRequiredRemoteVersion, 1*time.Second); err != nil {
+		return errors.Wrap(err, "validate remote inference api")
+	}
 
 	if err := m.initExtensions(); err != nil {
 		return errors.Wrap(err, "init extensions")
@@ -97,26 +126,21 @@ func (m *ContextionaryModule) initExtensions() error {
 	}
 
 	uc := extensions.NewUseCase(storage)
-	m.extensions = extensions.NewRESTHandlers(uc, m.appState.Contextionary)
+	m.extensions = extensions.NewRESTHandlers(uc, m.remote)
 
 	return nil
 }
 
 func (m *ContextionaryModule) initConcepts() error {
-	uc := localvectorizer.NewInspector(m.appState.Contextionary)
+	uc := localvectorizer.NewInspector(m.remote)
 	m.concepts = concepts.NewRESTHandlers(uc)
 
 	return nil
 }
 
 func (m *ContextionaryModule) initVectorizer() error {
-	m.vectorizer = localvectorizer.New(m.appState.Contextionary)
-	rc, ok := m.appState.Contextionary.(localvectorizer.RemoteClient)
-	if !ok {
-		return errors.Errorf("invalid contextionary remote client")
-	}
-
-	m.configValidator = localvectorizer.NewConfigValidator(rc)
+	m.vectorizer = localvectorizer.New(m.remote)
+	m.configValidator = localvectorizer.NewConfigValidator(m.remote)
 
 	m.searcher = text2vecneartext.NewSearcher(m.vectorizer)
 
@@ -129,9 +153,9 @@ func (m *ContextionaryModule) initGraphqlProvider() error {
 }
 
 func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
-	nnExtender := text2vecnn.NewExtender(m.appState.Contextionary)
+	nnExtender := text2vecnn.NewExtender(m.remote)
 	featureProjector := text2vecprojector.New()
-	pathBuilder := text2vecsempath.New(m.appState.Contextionary)
+	pathBuilder := text2vecsempath.New(m.remote)
 	m.graphqlAdditionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder)
 	return nil
 }

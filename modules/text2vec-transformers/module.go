@@ -14,6 +14,7 @@ package modtransformers
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 func New() *TransformersModule {
@@ -51,8 +53,9 @@ func (m *TransformersModule) Name() string {
 	return "text2vec-transformers"
 }
 
-func (m *TransformersModule) Init(params moduletools.ModuleInitParams) error {
-	if err := m.initVectorizer(); err != nil {
+func (m *TransformersModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams) error {
+	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -63,13 +66,15 @@ func (m *TransformersModule) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
-func (m *TransformersModule) initVectorizer() error {
-	// TODO: Get discovery information from config
-	// TODO: this should be coming from the init method
-	ctx, cancel := context.WithTimeout(context.TODO(), 1*time.Minute)
-	defer cancel()
+func (m *TransformersModule) initVectorizer(ctx context.Context,
+	logger logrus.FieldLogger) error {
+	// TODO: gh-1486 proper config management
+	uri := os.Getenv("TRANSFORMERS_INFERENCE_API")
+	if uri == "" {
+		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API is not set")
+	}
 
-	client := clients.New("http://localhost:8000")
+	client := clients.New(uri, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}
