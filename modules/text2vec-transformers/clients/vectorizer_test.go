@@ -31,7 +31,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL)
+		c := New(server.URL, nullLogger())
 		expected := &ent.VectorizationResult{
 			Text:       "This is my text",
 			Vector:     []float32{0.1, 0.2, 0.3},
@@ -49,7 +49,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL)
+		c := New(server.URL, nullLogger())
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -65,7 +65,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New(server.URL)
+		c := New(server.URL, nullLogger())
 		_, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{})
 

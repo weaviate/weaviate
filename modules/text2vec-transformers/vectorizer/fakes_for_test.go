@@ -33,25 +33,25 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	}, nil
 }
 
-type fakeIndexCheck struct {
+type fakeSettings struct {
 	skippedProperty    string
 	vectorizeClassName bool
 	excludedProperty   string
 	poolingStrategy    string
 }
 
-func (f *fakeIndexCheck) PropertyIndexed(propName string) bool {
+func (f *fakeSettings) PropertyIndexed(propName string) bool {
 	return f.skippedProperty != propName
 }
 
-func (f *fakeIndexCheck) VectorizePropertyName(propName string) bool {
+func (f *fakeSettings) VectorizePropertyName(propName string) bool {
 	return f.excludedProperty != propName
 }
 
-func (f *fakeIndexCheck) VectorizeClassName() bool {
+func (f *fakeSettings) VectorizeClassName() bool {
 	return f.vectorizeClassName
 }
 
-func (f *fakeIndexCheck) PoolingStrategy() string {
+func (f *fakeSettings) PoolingStrategy() string {
 	return f.poolingStrategy
 }

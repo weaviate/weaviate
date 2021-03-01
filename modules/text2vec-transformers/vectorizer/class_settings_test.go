@@ -37,6 +37,19 @@ func TestClassSettings(t *testing.T) {
 		assert.Equal(t, ic.PoolingStrategy(), "masked_mean")
 	})
 
+	t.Run("with a nil config", func(t *testing.T) {
+		// this is the case if we were runnning in a situation such as a
+		// cross-class vectorization of search time, as is the case with Explore
+		// {}, we then expect all default values
+
+		ic := NewClassSettings(nil)
+
+		assert.True(t, ic.PropertyIndexed("someProp"))
+		assert.False(t, ic.VectorizePropertyName("someProp"))
+		assert.True(t, ic.VectorizeClassName())
+		assert.Equal(t, ic.PoolingStrategy(), "masked_mean")
+	})
+
 	t.Run("with all explicit config matching the defaults", func(t *testing.T) {
 		class := &models.Class{
 			Class: "MyClass",
