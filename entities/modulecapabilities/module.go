@@ -12,6 +12,7 @@
 package modulecapabilities
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -19,6 +20,6 @@ import (
 
 type Module interface {
 	Name() string
-	Init(params moduletools.ModuleInitParams) error
+	Init(ctx context.Context, params moduletools.ModuleInitParams) error
 	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
 }

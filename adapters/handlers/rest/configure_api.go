@@ -71,7 +71,12 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState := startupRoutine()
+	ctx := context.Background()
+	// abort startup if it does not complete within 120s
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	appState := startupRoutine(ctx)
 
 	err := registerModules(appState)
 	if err != nil {
@@ -87,8 +92,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			WithField("action", "startup").WithError(err).
 			Fatal("invalid config")
 	}
-
-	validateContextionaryVersion(appState)
 
 	api.ServeError = openapierrors.ServeError
 
@@ -172,10 +175,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
-
 	setupSchemaHandlers(api, schemaManager)
 	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
 	setupKindBatchHandlers(api, batchKindsManager)
@@ -188,27 +187,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	err = initModules(appState)
+	err = initModules(ctx, appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't initialize")
 	}
+
+	// manually update schema once
+	schema := schemaManager.GetSchemaSkipAuth()
+	updateSchemaCallback(schema)
+
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() *state.State {
+func startupRoutine(ctx context.Context) *state.State {
 	appState := &state.State{}
-	// context for the startup procedure. (So far the only subcommand respecting
-	// the context is the schema initialization. Nevertheless it would make sense
-	// to have everything that goes on in here pay attention to the context, so
-	// we can have a "startup in x seconds or fail")
-	ctx := context.Background()
-	// The timeout is arbitrary we have to adjust it as we go along, if we
-	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
 
 	logger := logger()
 	appState.Logger = logger
@@ -247,7 +242,11 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
+	// TODO: remove
+	// We though we might be able to remove this as part of gh-1473 already, but
+	// have found out that the classifier as well as the misc handlers still
+	// depend on this
+	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL, appState.Logger)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Fatal("cannot create c11y client")
@@ -291,47 +290,6 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-// TODO: This should move into the text2vec-contextionary code once we deal
-// with modularization
-func validateContextionaryVersion(appState *state.State) {
-	for {
-		time.Sleep(1 * time.Second)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		v, err := appState.Contextionary.Version(ctx)
-		if err != nil {
-			appState.Logger.WithField("action", "startup_check_contextionary").WithError(err).
-				Warnf("could not connect to contextionary at startup, trying again in 1 sec")
-			continue
-		}
-
-		ok, err := extractVersionAndCompare(v, MinimumRequiredContextionaryVersion)
-		if err != nil {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				WithError(err).
-				Warnf("cannot determine if contextionary version is compatible. This is fine in development, but probelematic if you see this production")
-			break
-		}
-
-		if ok {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				Infof("found a valid contextionary version")
-			break
-		} else {
-			appState.Logger.WithField("action", "startup_check_contextionary").
-				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
-				WithField("contextionaryVersion", v).
-				Fatalf("insufficient contextionary version, cannot start up")
-			break
-		}
-	}
-}
-
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
 	appState.Modules = modules.NewProvider()
@@ -355,18 +313,19 @@ func registerModules(appState *state.State) error {
 	return nil
 }
 
-func initModules(appState *state.State) error {
+func initModules(ctx context.Context, appState *state.State) error {
 	storageProvider, err := modulestorage.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		return errors.Wrap(err, "init storage provider")
 	}
 
-	// TODO: don't pass entire appState in, but only what's needed. Probably only
+	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := moduletools.NewInitParams(storageProvider, appState)
+	moduleParams := moduletools.NewInitParams(storageProvider, appState,
+		appState.Logger)
 
-	if err := appState.Modules.Init(moduleParams); err != nil {
+	if err := appState.Modules.Init(ctx, moduleParams); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 

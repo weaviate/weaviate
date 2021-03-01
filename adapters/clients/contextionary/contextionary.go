@@ -15,11 +15,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/pkg/errors"
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,10 +31,11 @@ import (
 // Client establishes a gRPC connection to a remote contextionary service
 type Client struct {
 	grpcClient pb.ContextionaryClient
+	logger     logrus.FieldLogger
 }
 
 // NewClient from gRPC discovery url to connect to a remote contextionary service
-func NewClient(uri string) (*Client, error) {
+func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
 	conn, err := grpc.Dial(uri, grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
@@ -40,6 +44,7 @@ func NewClient(uri string) (*Client, error) {
 	client := pb.NewContextionaryClient(conn)
 	return &Client{
 		grpcClient: client,
+		logger:     logger,
 	}, nil
 }
 
@@ -291,6 +296,44 @@ func vectorToProto(in []float32) *pb.Vector {
 	}
 
 	return &pb.Vector{Entries: output}
+}
+
+func (c *Client) WaitForStartupAndValidateVersion(startupCtx context.Context,
+	requiredMinimumVersion string, interval time.Duration) error {
+	for {
+		time.Sleep(interval)
+
+		ctx, cancel := context.WithTimeout(startupCtx, 2*time.Second)
+		defer cancel()
+		v, err := c.Version(ctx)
+		if err != nil {
+			c.logger.WithField("action", "startup_check_contextionary").WithError(err).
+				Warnf("could not connect to contextionary at startup, trying again in 1 sec")
+			continue
+		}
+
+		ok, err := extractVersionAndCompare(v, requiredMinimumVersion)
+		if err != nil {
+			c.logger.WithField("action", "startup_check_contextionary").
+				WithField("requiredMinimumContextionaryVersion", requiredMinimumVersion).
+				WithField("contextionaryVersion", v).
+				WithError(err).
+				Warnf("cannot determine if contextionary version is compatible. " +
+					"This is fine in development, but probelematic if you see this production")
+			return nil
+		}
+
+		if ok {
+			c.logger.WithField("action", "startup_check_contextionary").
+				WithField("requiredMinimumContextionaryVersion", requiredMinimumVersion).
+				WithField("contextionaryVersion", v).
+				Infof("found a valid contextionary version")
+			return nil
+		} else {
+			return errors.Errorf("insuffcient contextionary version: need at least %s, got %s",
+				requiredMinimumVersion, v)
+		}
+	}
 }
 
 func overridesFromMap(in map[string]string) []*pb.Override {
