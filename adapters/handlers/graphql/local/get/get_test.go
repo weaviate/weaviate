@@ -17,11 +17,10 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql/language/ast"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -449,10 +448,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					ModuleParams: map[string]interface{}{
-						// TODO: gh-1482
-						"featureProjection": &projector.Params{
-							Enabled: true,
-						},
+						"featureProjection": extractAdditionalParam("featureProjection", nil),
 					},
 				},
 			},
@@ -480,15 +476,15 @@ func TestExtractAdditionalFields(t *testing.T) {
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					ModuleParams: map[string]interface{}{
-						// TODO: gh-1482
-						"featureProjection": &projector.Params{
-							Enabled:      true,
-							Algorithm:    ptString("tsne"),
-							Dimensions:   ptInt(3),
-							Iterations:   ptInt(100),
-							LearningRate: ptInt(15),
-							Perplexity:   ptInt(10),
-						},
+						"featureProjection": extractAdditionalParam("featureProjection",
+							[]*ast.Argument{
+								createArg("algorithm", "tsne"),
+								createArg("dimensions", "3"),
+								createArg("iterations", "100"),
+								createArg("learningRate", "15"),
+								createArg("perplexity", "10"),
+							},
+						),
 					},
 				},
 			},
@@ -516,8 +512,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
 					ModuleParams: map[string]interface{}{
-						// TODO: gh-1482
-						"semanticPath": &sempath.Params{},
+						"semanticPath": extractAdditionalParam("semanticPath", nil),
 					},
 				},
 			},

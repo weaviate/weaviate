@@ -30,12 +30,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	if m.modulesProvider != nil {
-		if additional.ModuleParams["featureProjection"] != nil {
-			return nil, fmt.Errorf("feature projection is not possible on a non-list request")
-		}
-	}
-
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)
@@ -79,16 +73,9 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 	}
 
 	if m.modulesProvider != nil {
-		if additional.ModuleParams["nearestNeighbors"] != nil {
-			if nnParam, ok := additional.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
-				// TODO: gh-1482 this implementation needs revisiting
-				additionalFn := m.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
-				resArray, err := additionalFn(ctx, search.Results{*res}, nil, nil)
-				if err != nil {
-					return nil, NewErrInternal("extend nearest neighbors: %v", err)
-				}
-				res = &resArray[0]
-			}
+		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, additional.ModuleParams)
+		if err != nil {
+			return nil, fmt.Errorf("get extend: %v", err)
 		}
 	}
 
@@ -105,26 +92,9 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
 	}
 
 	if m.modulesProvider != nil {
-		if additional.ModuleParams["nearestNeighbors"] != nil {
-			if nnParam, ok := additional.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
-				// TODO: gh-1482 this check if this is a true value
-				additionalFn := m.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
-				res, err = additionalFn(ctx, res, nil, nil)
-				if err != nil {
-					return nil, NewErrInternal("extend nearest neighbors: %v", err)
-				}
-			} else {
-				// TODO: gh-1482 this should be handled is some other way
-				return nil, NewErrInternal("extend nearest neighbors not a bool param")
-			}
-		}
-
-		if additional.ModuleParams["featureProjection"] != nil {
-			additionalFn := m.modulesProvider.AdditionalPropertyFunction("featureProjection")
-			res, err = additionalFn(ctx, res, nil, nil)
-			if err != nil {
-				return nil, NewErrInternal("perform feature projection: %v", err)
-			}
+		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams)
+		if err != nil {
+			return nil, NewErrInternal("list extend: %v", err)
 		}
 	}
 

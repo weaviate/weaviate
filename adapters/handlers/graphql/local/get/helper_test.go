@@ -53,6 +53,10 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return true
 }
 
+func (f *fakeExtender) DefaultValueFn() interface{} {
+	return true
+}
+
 type fakeProjector struct {
 	returnArgs []search.Result
 }
@@ -78,6 +82,10 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	}
 }
 
+func (f *fakeProjector) DefaultValueFn() interface{} {
+	return &modcontextionaryadditionalprojector.Params{}
+}
+
 type fakePathBuilder struct {
 	returnArgs []search.Result
 }
@@ -88,6 +96,10 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 }
 
 func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return &modcontextionaryadditionalsempath.Params{}
+}
+
+func (f *fakePathBuilder) DefaultValueFn() interface{} {
 	return &modcontextionaryadditionalsempath.Params{}
 }
 
@@ -121,12 +133,29 @@ func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 	return map[string]modulecapabilities.VectorForParams{}
 }
 
+// additional properties
 func (m *mockText2vecContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
 	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).GetAdditionalFields(classname)
 }
 
 func (m *mockText2vecContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
 	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).ExtractAdditionalFunctions()
+}
+
+func (m *mockText2vecContextionaryModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).AdditionalPropertiesDefaultValues()
+}
+
+func (m *mockText2vecContextionaryModule) RestApiAdditionalProperties() map[string][]string {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).RestApiAdditionalProperties()
+}
+
+func (m *mockText2vecContextionaryModule) GraphQLAdditionalProperties() map[string][]string {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).GraphQLAdditionalProperties()
+}
+
+func (m *mockText2vecContextionaryModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
+	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).SearchAdditionalFunctions()
 }
 
 type fakeModulesProvider struct{}
@@ -160,9 +189,90 @@ func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.
 	return nil
 }
 
+func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+}
+
+func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
+	in search.Results, moduleParams map[string]interface{},
+	searchVector []float32, capability string) (search.Results, error) {
+	txt2vec := &mockText2vecContextionaryModule{}
+	fns := txt2vec.SearchAdditionalFunctions()
+	for name, value := range moduleParams {
+		additionalPropertyFn := p.getAdditionalPropertyFn(fns[name], capability)
+		if additionalPropertyFn != nil && value != nil {
+			searchValue := value
+			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+				searchVectorValue.SetSearchVector(searchVector)
+				searchValue = searchVectorValue
+			}
+			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+			if err != nil {
+				return nil, err
+			}
+			in = resArray
+		}
+	}
+	return in, nil
+}
+
+func (p *fakeModulesProvider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilities.AdditionalSearch,
+	capability string) modulecapabilities.AdditionalPropertyFn {
+	switch capability {
+	case "ObjectGet":
+		return searchAdditionalFns.ObjectGet
+	case "ObjectList":
+		return searchAdditionalFns.ObjectList
+	case "ExploreGet":
+		return searchAdditionalFns.ExploreGet
+	case "ExploreList":
+		return searchAdditionalFns.ExploreList
+	default:
+		return nil
+	}
+}
+
+func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
+	txt2vec := &mockText2vecContextionaryModule{}
+	additionalPropertiesNames := []string{}
+	for _, names := range txt2vec.GraphQLAdditionalProperties() {
+		for i := range names {
+			additionalPropertiesNames = append(additionalPropertiesNames, names[i])
+		}
+	}
+	return additionalPropertiesNames
+}
+
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &mockText2vecContextionaryModule{}
 	return txt2vec.ExtractFunctions()["nearText"](param)
+}
+
+func createArg(name string, value string) *ast.Argument {
+	val := ast.StringValue{
+		Kind:  "Kind",
+		Value: value,
+	}
+	arg := ast.Argument{
+		Kind:  "Kind",
+		Value: ast.NewStringValue(&val),
+	}
+	return &arg
+}
+
+func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
+	txt2vec := &mockText2vecContextionaryModule{}
+	fns := txt2vec.ExtractAdditionalFunctions()
+	switch name {
+	case "semanticPath", "featureProjection":
+		if fn, ok := fns[name]; ok {
+			return fn(args)
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 func getFakeModulesProvider() ModulesProvider {

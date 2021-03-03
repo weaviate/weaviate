@@ -34,6 +34,10 @@ type contextionary interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
 }
 
+func (e *Extender) DefaultValueFn() interface{} {
+	return true
+}
+
 func (e *Extender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
 	return e.Multi(ctx, in, limit)
