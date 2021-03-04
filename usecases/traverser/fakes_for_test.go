@@ -26,6 +26,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
+	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
+	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	modcontextionaryvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/stretchr/testify/mock"
@@ -169,6 +171,10 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
+func (f *fakeExtender) DefaultValueFn() interface{} {
+	return true
+}
+
 type fakeProjector struct {
 	returnArgs []search.Result
 }
@@ -182,6 +188,10 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
+func (f *fakeProjector) DefaultValueFn() interface{} {
+	return &modcontextionaryadditionalprojector.Params{}
+}
+
 type fakePathBuilder struct {
 	returnArgs []search.Result
 }
@@ -193,6 +203,10 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 
 func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
+}
+
+func (f *fakePathBuilder) DefaultValueFn() interface{} {
+	return &modcontextionaryadditionalsempath.Params{}
 }
 
 type fakeText2vecContextionaryModule struct {
@@ -241,6 +255,7 @@ func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 	return modcontextionaryneartext.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
 }
 
+// additional properties
 func (m *fakeText2vecContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
 	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).GetAdditionalFields(classname)
 }
@@ -249,8 +264,20 @@ func (m *fakeText2vecContextionaryModule) ExtractAdditionalFunctions() map[strin
 	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).ExtractAdditionalFunctions()
 }
 
-func (m *fakeText2vecContextionaryModule) AdditionalPropetiesFunctions() map[string]modulecapabilities.AdditionalPropertyFn {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalPropetiesFunctions()
+func (m *fakeText2vecContextionaryModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalPropertiesDefaultValues()
+}
+
+func (m *fakeText2vecContextionaryModule) RestApiAdditionalProperties() map[string][]string {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).RestApiAdditionalProperties()
+}
+
+func (m *fakeText2vecContextionaryModule) GraphQLAdditionalProperties() map[string][]string {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).GraphQLAdditionalProperties()
+}
+
+func (m *fakeText2vecContextionaryModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).SearchAdditionalFunctions()
 }
 
 func (m *fakeText2vecContextionaryModule) getExtender() *fakeExtender {
