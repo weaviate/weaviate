@@ -250,15 +250,20 @@ func extractNearTextParam(param map[string]interface{}) interface{} {
 }
 
 func createArg(name string, value string) *ast.Argument {
+	n := ast.Name{
+		Value: name,
+	}
 	val := ast.StringValue{
 		Kind:  "Kind",
 		Value: value,
 	}
 	arg := ast.Argument{
+		Name:  ast.NewName(&n),
 		Kind:  "Kind",
 		Value: ast.NewStringValue(&val),
 	}
-	return &arg
+	a := ast.NewArgument(&arg)
+	return a
 }
 
 func extractAdditionalParam(name string, args []*ast.Argument) interface{} {

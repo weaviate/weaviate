@@ -364,7 +364,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			AdditionalProperties: AdditionalProperties{
 				ModuleParams: map[string]interface{}{
 					"semanticPath": getDefaultParam("semanticPath"),
-					"dupa":         "dupa",
 				},
 			},
 		}
