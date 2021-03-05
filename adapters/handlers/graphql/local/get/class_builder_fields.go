@@ -269,7 +269,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments, r.extractAdditional)
+		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -319,13 +319,6 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 	}
 }
 
-func (r *resolver) extractAdditional(name string, params []*ast.Argument) interface{} {
-	if r.modulesProvider != nil {
-		return r.modulesProvider.ExtractAdditionalField(name, params)
-	}
-	return nil
-}
-
 func extractGroup(args map[string]interface{}) *traverser.GroupParams {
 	group, ok := args["group"]
 	if !ok {
@@ -369,14 +362,31 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
-func isAdditional(name string) bool {
-	switch name {
-	case "classification", "interpretation", "nearestNeighbors",
-		"featureProjection", "semanticPath", "certainty", "id":
+type additionalCheck struct {
+	modulesProvider ModulesProvider
+}
+
+func (ac *additionalCheck) isAdditional(name string) bool {
+	if name == "classification" || name == "interpretation" || name == "certainty" || name == "id" {
 		return true
-	default:
-		return false
 	}
+	if ac.isModuleAdditional(name) {
+		return true
+	}
+	return false
+}
+
+func (ac *additionalCheck) isModuleAdditional(name string) bool {
+	if ac.modulesProvider != nil {
+		if len(ac.modulesProvider.GraphQLAdditionalFieldNames()) > 0 {
+			for _, moduleAdditionalProperty := range ac.modulesProvider.GraphQLAdditionalFieldNames() {
+				if name == moduleAdditionalProperty {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func fieldNameIsOfObjectButNonReferenceType(field string) bool {
@@ -395,10 +405,11 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 
 func extractProperties(selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
-	extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+	modulesProvider ModulesProvider,
 ) ([]traverser.SelectProperty, traverser.AdditionalProperties, error) {
 	var properties []traverser.SelectProperty
 	var additionalProps traverser.AdditionalProperties
+	additionalCheck := &additionalCheck{modulesProvider}
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -415,37 +426,37 @@ func extractProperties(selections *ast.SelectionSet,
 					if s.Name.Value == "__typename" {
 						property.IncludeTypeName = true
 						continue
-					} else if isAdditional(s.Name.Value) {
-						switch s.Name.Value {
-						case "classification":
+					} else if additionalCheck.isAdditional(s.Name.Value) {
+						additionalProperty := s.Name.Value
+						if additionalProperty == "classification" {
 							additionalProps.Classification = true
-						case "interpretation":
-							additionalProps.Interpretation = true
-						case "nearestNeighbors":
-							// TODO: gh-1482
-							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-							additionalProps.ModuleParams["nearestNeighbors"] = extractModuleAdditional("nearestNeighbors", nil)
-							// additionalProps.NearestNeighbors = true
-						case "semanticPath":
-							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-							additionalProps.ModuleParams["semanticPath"] = extractModuleAdditional("semanticPath", nil)
-							// additionalProps.SemanticPath = &sempath.Params{}
-						case "featureProjection":
-							additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-							additionalProps.ModuleParams["featureProjection"] = extractModuleAdditional("featureProjection", s.Arguments)
-							// additionalProps.FeatureProjection = parseFeatureProjectionArguments(s.Arguments)
-						case "certainty":
-							additionalProps.Certainty = true
-						case "id":
-							additionalProps.ID = true
+							continue
 						}
-						continue
+						if additionalProperty == "interpretation" {
+							additionalProps.Interpretation = true
+							continue
+						}
+						if additionalProperty == "certainty" {
+							additionalProps.Certainty = true
+							continue
+						}
+						if additionalProperty == "id" {
+							additionalProps.ID = true
+							continue
+						}
+						if modulesProvider != nil {
+							if additionalCheck.isModuleAdditional(additionalProperty) {
+								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
+								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(additionalProperty, s.Arguments)
+								continue
+							}
+						}
 					} else {
 						return nil, additionalProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
 					}
 
 				case *ast.FragmentSpread:
-					ref, err := extractFragmentSpread(s, fragments, extractModuleAdditional)
+					ref, err := extractFragmentSpread(s, fragments, modulesProvider)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -453,7 +464,7 @@ func extractProperties(selections *ast.SelectionSet,
 					property.Refs = append(property.Refs, ref)
 
 				case *ast.InlineFragment:
-					ref, err := extractInlineFragment(s, fragments, extractModuleAdditional)
+					ref, err := extractInlineFragment(s, fragments, modulesProvider)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -484,7 +495,8 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 }
 
 func extractInlineFragment(fragment *ast.InlineFragment,
-	fragments map[string]ast.Definition, extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+	fragments map[string]ast.Definition,
+	modulesProvider ModulesProvider,
 ) (traverser.SelectClass, error) {
 	var className schema.ClassName
 	var err error
@@ -505,7 +517,7 @@ func extractInlineFragment(fragment *ast.InlineFragment,
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments, extractModuleAdditional)
+	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}
@@ -518,7 +530,7 @@ func extractInlineFragment(fragment *ast.InlineFragment,
 
 func extractFragmentSpread(spread *ast.FragmentSpread,
 	fragments map[string]ast.Definition,
-	extractModuleAdditional func(name string, params []*ast.Argument) interface{},
+	modulesProvider ModulesProvider,
 ) (traverser.SelectClass, error) {
 	var result traverser.SelectClass
 	name := spread.Name.Value
@@ -533,7 +545,7 @@ func extractFragmentSpread(spread *ast.FragmentSpread,
 		return result, err
 	}
 
-	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments, extractModuleAdditional)
+	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}

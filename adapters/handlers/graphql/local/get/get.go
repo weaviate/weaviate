@@ -27,6 +27,7 @@ type ModulesProvider interface {
 	ExtractSearchParams(arguments map[string]interface{}) map[string]interface{}
 	GetAdditionalFields(class *models.Class) map[string]*graphql.Field
 	ExtractAdditionalField(name string, params []*ast.Argument) interface{}
+	GraphQLAdditionalFieldNames() []string
 }
 
 // Build the Local.Get part of the graphql tree

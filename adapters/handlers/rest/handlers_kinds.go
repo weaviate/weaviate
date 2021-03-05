@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	modtxt2veccontextionaryprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	usecasesObjects "github.com/semi-technologies/weaviate/usecases/objects"
@@ -31,9 +30,14 @@ import (
 )
 
 type kindHandlers struct {
-	manager kindsManager
-	logger  logrus.FieldLogger
-	config  config.Config
+	manager         kindsManager
+	logger          logrus.FieldLogger
+	config          config.Config
+	modulesProvider ModulesProvider
+}
+
+type ModulesProvider interface {
+	RestApiAdditionalProperties(includeProp string) map[string]interface{}
 }
 
 type kindsManager interface {
@@ -96,7 +100,7 @@ func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 
 func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
-	additional, err := parseIncludeParam(params.Include)
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider)
 	if err != nil {
 		return objects.NewObjectsGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -126,7 +130,7 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 
 func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal) middleware.Responder {
-	additional, err := parseIncludeParam(params.Include)
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -285,8 +289,9 @@ func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDel
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI,
-	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger) {
-	h := &kindHandlers{manager, logger, config}
+	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider) {
+	h := &kindHandlers{manager, logger, config, modulesProvider}
 
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
@@ -345,7 +350,7 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 	return ref
 }
 
-func parseIncludeParam(in *string) (traverser.AdditionalProperties, error) {
+func parseIncludeParam(in *string, modulesProvider ModulesProvider) (traverser.AdditionalProperties, error) {
 	out := traverser.AdditionalProperties{}
 	if in == nil {
 		return out, nil
@@ -354,27 +359,30 @@ func parseIncludeParam(in *string) (traverser.AdditionalProperties, error) {
 	parts := strings.Split(*in, ",")
 
 	for _, prop := range parts {
-		switch prop {
-		case "classification":
+		if prop == "classification" {
 			out.Classification = true
 			out.RefMeta = true
-		case "interpretation":
-			out.Interpretation = true
-		case "nearestNeighbors", "nearestneighbors", "nearest-neighbors", "nearest_neighbors":
-			out.ModuleParams = getModuleParams(out.ModuleParams)
-			out.ModuleParams["nearestNeighbors"] = true
-			// out.NearestNeighbors = true
-		case "featureProjection", "featureprojection", "feature-projection", "feature_projection":
-			// TODO: gh-1482
-			out.ModuleParams = getModuleParams(out.ModuleParams)
-			out.ModuleParams["featureProjection"] = &modtxt2veccontextionaryprojector.Params{}
-			// out.FeatureProjection = &projector.Params{}
-		case "vector":
-			out.Vector = true
-
-		default:
-			return out, fmt.Errorf("unrecognized property '%s' in ?include list", prop)
+			continue
 		}
+		if prop == "interpretation" {
+			out.Interpretation = true
+			continue
+		}
+		if prop == "vector" {
+			out.Vector = true
+			continue
+		}
+		if modulesProvider != nil {
+			moduleParams := modulesProvider.RestApiAdditionalProperties(prop)
+			if len(moduleParams) > 0 {
+				out.ModuleParams = getModuleParams(out.ModuleParams)
+				for param, value := range moduleParams {
+					out.ModuleParams[param] = value
+				}
+				continue
+			}
+		}
+		return out, fmt.Errorf("unrecognized property '%s' in ?include list", prop)
 	}
 
 	return out, nil

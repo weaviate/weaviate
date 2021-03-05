@@ -42,7 +42,10 @@ type ModulesProvider interface {
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
-	AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn
+	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+		moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error)
+	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
+		moduleParams map[string]interface{}) ([]search.Result, error)
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -103,43 +106,10 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	}
 
 	if e.modulesProvider != nil {
-		if params.AdditionalProperties.ModuleParams["nearestNeighbors"] != nil {
-			if nnParam, ok := params.AdditionalProperties.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
-				additionalFn := e.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
-				withNN, err := additionalFn(ctx, res, nil, nil)
-				if err != nil {
-					return nil, errors.Errorf("extend with nearest neighbors: %v", err)
-				}
-
-				res = withNN
-			}
-		}
-
-		if params.AdditionalProperties.ModuleParams["featureProjection"] != nil {
-			additionalFn := e.modulesProvider.AdditionalPropertyFunction("featureProjection")
-			withFP, err := additionalFn(ctx, res, params.AdditionalProperties.ModuleParams["featureProjection"], nil)
-			if err != nil {
-				return nil, errors.Errorf("extend with feature projections: %v", err)
-			}
-
-			res = withFP
-		}
-
-		if params.AdditionalProperties.ModuleParams["semanticPath"] != nil {
-			additionalFn := e.modulesProvider.AdditionalPropertyFunction("semanticPath")
-			p := params.AdditionalProperties.ModuleParams["semanticPath"]
-			if sempathParam, ok := p.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				// TODO: gh-1482
-				sempathParam.SetSearchVector(searchVector)
-				withPath, err := additionalFn(ctx, res, sempathParam, nil)
-				if err != nil {
-					return nil, errors.Errorf("extend with semantic path: %v", err)
-				}
-
-				res = withPath
-			} else {
-				return nil, errors.New("extend with semantic path: not a semantic path param")
-			}
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
+			params.AdditionalProperties.ModuleParams, searchVector)
+		if err != nil {
+			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 
@@ -150,7 +120,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class: search: %v", err)
+		return nil, errors.Errorf("explorer: list class: search: %v", err)
 	}
 
 	if params.Group != nil {
@@ -163,30 +133,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if e.modulesProvider != nil {
-		if params.AdditionalProperties.ModuleParams["nearestNeighbors"] != nil {
-			if nnParam, ok := params.AdditionalProperties.ModuleParams["nearestNeighbors"].(bool); ok && nnParam {
-				additionalFn := e.modulesProvider.AdditionalPropertyFunction("nearestNeighbors")
-				withNN, err := additionalFn(ctx, res, nil, nil)
-				if err != nil {
-					return nil, errors.Errorf("extend with nearest neighbors: %v", err)
-				}
-
-				res = withNN
-			}
-		}
-
-		if params.AdditionalProperties.ModuleParams["featureProjection"] != nil {
-			additionalFn := e.modulesProvider.AdditionalPropertyFunction("featureProjection")
-			withFP, err := additionalFn(ctx, res, params.AdditionalProperties.ModuleParams["featureProjection"], nil)
-			if err != nil {
-				return nil, errors.Errorf("extend with feature projections: %v", err)
-			}
-
-			res = withFP
-		}
-
-		if params.AdditionalProperties.ModuleParams["semanticPath"] != nil {
-			return nil, errors.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
+		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
+			params.AdditionalProperties.ModuleParams)
+		if err != nil {
+			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
 	}
 

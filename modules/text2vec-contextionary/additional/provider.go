@@ -14,7 +14,6 @@ package additional
 import (
 	"context"
 
-	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -24,6 +23,7 @@ type AdditionalProperty interface {
 	AdditionalPropertyFn(ctx context.Context,
 		in []search.Result, params interface{}, limit *int) ([]search.Result, error)
 	ExtractAdditionalFn(param []*ast.Argument) interface{}
+	AdditonalPropertyDefaultValue() interface{}
 }
 
 type GraphQLAdditionalArgumentsProvider struct {
@@ -36,26 +36,63 @@ func New(nnExtender, projector, sempath AdditionalProperty) *GraphQLAdditionalAr
 	return &GraphQLAdditionalArgumentsProvider{nnExtender, projector, sempath}
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) GetAdditionalFields(classname string) map[string]*graphql.Field {
-	additionalProperties := map[string]*graphql.Field{}
-	additionalProperties["nearestNeighbors"] = additionalNearestNeighborsField(classname)
-	additionalProperties["featureProjection"] = additionalFeatureProjectionField(classname)
-	additionalProperties["semanticPath"] = additionalSemanticPathField(classname)
+func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
+	additionalProperties["nearestNeighbors"] = p.getNearestNeighbors()
+	additionalProperties["featureProjection"] = p.getFeatureProjection()
+	additionalProperties["semanticPath"] = p.getSemanticPath()
 	return additionalProperties
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
-	extractFns := map[string]modulecapabilities.ExtractAdditionalFn{}
-	extractFns["nearestNeighbors"] = p.nnExtender.ExtractAdditionalFn
-	extractFns["featureProjection"] = p.projector.ExtractAdditionalFn
-	extractFns["semanticPath"] = p.sempathBuilder.ExtractAdditionalFn
-	return extractFns
+func (p *GraphQLAdditionalArgumentsProvider) getNearestNeighbors() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		RestNames: []string{
+			"nearestNeighbors",
+			"nearestneighbors",
+			"nearest-neighbors",
+			"nearest_neighbors",
+		},
+		DefaultValue:           p.nnExtender.AdditonalPropertyDefaultValue(),
+		GraphQLNames:           []string{"nearestNeighbors"},
+		GraphQLFieldFunction:   additionalNearestNeighborsField,
+		GraphQLExtractFunction: p.nnExtender.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectGet:   p.nnExtender.AdditionalPropertyFn,
+			ObjectList:  p.nnExtender.AdditionalPropertyFn,
+			ExploreGet:  p.nnExtender.AdditionalPropertyFn,
+			ExploreList: p.nnExtender.AdditionalPropertyFn,
+		},
+	}
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) AdditionalPropetiesFunctions() map[string]modulecapabilities.AdditionalPropertyFn {
-	additionalPropertiesFns := map[string]modulecapabilities.AdditionalPropertyFn{}
-	additionalPropertiesFns["nearestNeighbors"] = p.nnExtender.AdditionalPropertyFn
-	additionalPropertiesFns["featureProjection"] = p.projector.AdditionalPropertyFn
-	additionalPropertiesFns["semanticPath"] = p.sempathBuilder.AdditionalPropertyFn
-	return additionalPropertiesFns
+func (p *GraphQLAdditionalArgumentsProvider) getFeatureProjection() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		RestNames: []string{
+			"featureProjection",
+			"featureprojection",
+			"feature-projection",
+			"feature_projection",
+		},
+		DefaultValue:           p.projector.AdditonalPropertyDefaultValue(),
+		GraphQLNames:           []string{"featureProjection"},
+		GraphQLFieldFunction:   additionalFeatureProjectionField,
+		GraphQLExtractFunction: p.projector.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectList:  p.projector.AdditionalPropertyFn,
+			ExploreGet:  p.projector.AdditionalPropertyFn,
+			ExploreList: p.projector.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (p *GraphQLAdditionalArgumentsProvider) getSemanticPath() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue:           p.sempathBuilder.AdditonalPropertyDefaultValue(),
+		GraphQLNames:           []string{"semanticPath"},
+		GraphQLFieldFunction:   additionalSemanticPathField,
+		GraphQLExtractFunction: p.sempathBuilder.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ExploreGet: p.sempathBuilder.AdditionalPropertyFn,
+		},
+	}
 }
