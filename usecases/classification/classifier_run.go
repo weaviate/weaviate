@@ -96,7 +96,17 @@ func (c *Classifier) prepareRun(params models.Classification, filters filters,
 	switch params.Type {
 	case "knn":
 		classifyItem = c.classifyItemUsingKNN
+
+	// TODO: gh-1485 this should come from the module
 	case "text2vec-contextionary-contextual":
+
+		// temporary workaround until gh-1485
+		if c.vectorizer == nil {
+			// we know the vectorizer is nil, if the contextionary module is not enabled
+			return nil, errors.Errorf("cannot use text2vec-contextionary-contextual " +
+				"without the respective module")
+		}
+
 		// 1. do preparation here once
 		preparedContext, err := c.prepareContextualClassification(params, filters, unclassifiedItems)
 		if err != nil {
