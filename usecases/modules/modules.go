@@ -89,8 +89,10 @@ func (m *Provider) validate() error {
 	for _, mod := range m.GetAll() {
 		if module, ok := mod.(modulecapabilities.GraphQLArguments); ok {
 			allArguments := []string{}
-			for argument := range module.ExtractFunctions() {
-				allArguments = append(allArguments, argument)
+			for paraName, argument := range module.Arguments() {
+				if argument.ExtractFunction != nil {
+					allArguments = append(allArguments, paraName)
+				}
 			}
 			searchers = m.scanProperties(searchers, allArguments, mod.Name())
 		}
@@ -181,8 +183,10 @@ func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 	for _, module := range m.GetAll() {
 		if m.shouldIncludeClassArgument(class, module.Name()) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
-				for name, argument := range arg.GetArguments(class.Class) {
-					arguments[name] = argument
+				for name, argument := range arg.Arguments() {
+					if argument.GetArgumentsFunction != nil {
+						arguments[name] = argument.GetArgumentsFunction(class.Class)
+					}
 				}
 			}
 		}
@@ -196,13 +200,46 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 	for _, module := range m.GetAll() {
 		if m.shouldIncludeArgument(schema, module.Name()) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
-				for name, argument := range arg.ExploreArguments() {
-					arguments[name] = argument
+				for name, argument := range arg.Arguments() {
+					if argument.ExploreArgumentsFunction != nil {
+						arguments[name] = argument.ExploreArgumentsFunction()
+					}
 				}
 			}
 		}
 	}
 	return arguments
+}
+
+// ExtractSearchParams extracts GraphQL arguments
+func (m *Provider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+	exractedParams := map[string]interface{}{}
+	for _, module := range m.GetAll() {
+		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+			for paramName, argument := range args.Arguments() {
+				if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
+					extracted := argument.ExtractFunction(param.(map[string]interface{}))
+					exractedParams[paramName] = extracted
+				}
+			}
+		}
+	}
+	return exractedParams
+}
+
+// ValidateSearchParam validates module parameters
+func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
+	for _, module := range m.GetAll() {
+		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+			for paramName, argument := range args.Arguments() {
+				if paramName == name && argument.ValidateFunction != nil {
+					return argument.ValidateFunction(value)
+				}
+			}
+		}
+	}
+
+	panic("ValidateParam was called without any known params present")
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
@@ -356,37 +393,6 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]in
 		}
 	}
 	return moduleParams
-}
-
-// ExtractSearchParams extracts GraphQL arguments
-func (m *Provider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
-	exractedParams := map[string]interface{}{}
-	for _, module := range m.GetAll() {
-		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			for paramName, extractFn := range args.ExtractFunctions() {
-				if param, ok := arguments[paramName]; ok {
-					extracted := extractFn(param.(map[string]interface{}))
-					exractedParams[paramName] = extracted
-				}
-			}
-		}
-	}
-	return exractedParams
-}
-
-// ValidateSearchParam validates module parameters
-func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
-	for _, module := range m.GetAll() {
-		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			if validateFns := args.ValidateFunctions(); validateFns != nil {
-				if validateFn, ok := validateFns[name]; ok {
-					return validateFn(value)
-				}
-			}
-		}
-	}
-
-	panic("ValidateParam was called without any known params present")
 }
 
 // VectorFromSearchParam gets a vector for a given argument. This is used in

@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/graphql-go/graphql"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
@@ -178,20 +177,8 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
-func (m *ContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return m.graphqlProvider.GetArguments(classname)
-}
-
-func (m *ContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return m.graphqlProvider.ExploreArguments()
-}
-
-func (m *ContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return m.graphqlProvider.ExtractFunctions()
-}
-
-func (m *ContextionaryModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return m.graphqlProvider.ValidateFunctions()
+func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return m.graphqlProvider.Arguments()
 }
 
 func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
