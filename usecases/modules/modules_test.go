@@ -340,24 +340,14 @@ func (m *dummyGraphQLModule) ValidateFunctions() map[string]modulecapabilities.V
 
 func newGraphQLAdditionalModule(name string) *dummyAdditionalModule {
 	return &dummyAdditionalModule{
-		dummyGraphQLModule:                *newGraphQLModule(name),
-		additionalFields:                  map[string]*graphql.Field{},
-		extractAdditionalFunctions:        map[string]modulecapabilities.ExtractAdditionalFn{},
-		additionalPropertiesDefaultValues: map[string]modulecapabilities.DefaultValueFn{},
-		restApiAdditionalProperties:       map[string][]string{},
-		graphQLAdditionalProperties:       map[string][]string{},
-		searchAdditionalFunctions:         map[string]modulecapabilities.AdditionalSearch{},
+		dummyGraphQLModule:   *newGraphQLModule(name),
+		additionalProperties: map[string]modulecapabilities.AdditionalProperty{},
 	}
 }
 
 type dummyAdditionalModule struct {
 	dummyGraphQLModule
-	additionalFields                  map[string]*graphql.Field
-	extractAdditionalFunctions        map[string]modulecapabilities.ExtractAdditionalFn
-	additionalPropertiesDefaultValues map[string]modulecapabilities.DefaultValueFn
-	restApiAdditionalProperties       map[string][]string
-	graphQLAdditionalProperties       map[string][]string
-	searchAdditionalFunctions         map[string]modulecapabilities.AdditionalSearch
+	additionalProperties map[string]modulecapabilities.AdditionalProperty
 }
 
 func (m *dummyAdditionalModule) withArg(argName string) *dummyAdditionalModule {
@@ -371,46 +361,28 @@ func (m *dummyAdditionalModule) withExtractFn(argName string) *dummyAdditionalMo
 }
 
 func (m *dummyAdditionalModule) withGraphQLArg(argName string, values []string) *dummyAdditionalModule {
-	vals := m.graphQLAdditionalProperties[argName]
-	if vals == nil {
-		vals = []string{}
+	prop := m.additionalProperties[argName]
+	if prop.GraphQLNames == nil {
+		prop.GraphQLNames = []string{}
 	}
-	vals = append(vals, values...)
-	m.graphQLAdditionalProperties[argName] = vals
+	prop.GraphQLNames = append(prop.GraphQLNames, values...)
+
+	m.additionalProperties[argName] = prop
 	return m
 }
 
 func (m *dummyAdditionalModule) withRestApiArg(argName string, values []string) *dummyAdditionalModule {
-	vals := m.restApiAdditionalProperties[argName]
-	if vals == nil {
-		vals = []string{}
+	prop := m.additionalProperties[argName]
+	if prop.RestNames == nil {
+		prop.RestNames = []string{}
 	}
-	vals = append(vals, values...)
-	m.restApiAdditionalProperties[argName] = vals
-	m.additionalPropertiesDefaultValues[argName] = func() interface{} { return 100 }
+	prop.RestNames = append(prop.RestNames, values...)
+	prop.DefaultValue = 100
+
+	m.additionalProperties[argName] = prop
 	return m
 }
 
-func (m *dummyAdditionalModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
-	return m.additionalFields
-}
-
-func (m *dummyAdditionalModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
-	return m.extractAdditionalFunctions
-}
-
-func (m *dummyAdditionalModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
-	return m.additionalPropertiesDefaultValues
-}
-
-func (m *dummyAdditionalModule) RestApiAdditionalProperties() map[string][]string {
-	return m.restApiAdditionalProperties
-}
-
-func (m *dummyAdditionalModule) GraphQLAdditionalProperties() map[string][]string {
-	return m.graphQLAdditionalProperties
-}
-
-func (m *dummyAdditionalModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
-	return m.searchAdditionalFunctions
+func (m *dummyAdditionalModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return m.additionalProperties
 }

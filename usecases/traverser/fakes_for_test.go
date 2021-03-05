@@ -171,7 +171,7 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeExtender) DefaultValueFn() interface{} {
+func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
 	return true
 }
 
@@ -188,7 +188,7 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeProjector) DefaultValueFn() interface{} {
+func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
 	return &modcontextionaryadditionalprojector.Params{}
 }
 
@@ -205,7 +205,7 @@ func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{}
 	return nil
 }
 
-func (f *fakePathBuilder) DefaultValueFn() interface{} {
+func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 	return &modcontextionaryadditionalsempath.Params{}
 }
 
@@ -255,29 +255,8 @@ func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 	return modcontextionaryneartext.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
 }
 
-// additional properties
-func (m *fakeText2vecContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).GetAdditionalFields(classname)
-}
-
-func (m *fakeText2vecContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).ExtractAdditionalFunctions()
-}
-
-func (m *fakeText2vecContextionaryModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalPropertiesDefaultValues()
-}
-
-func (m *fakeText2vecContextionaryModule) RestApiAdditionalProperties() map[string][]string {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).RestApiAdditionalProperties()
-}
-
-func (m *fakeText2vecContextionaryModule) GraphQLAdditionalProperties() map[string][]string {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).GraphQLAdditionalProperties()
-}
-
-func (m *fakeText2vecContextionaryModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).SearchAdditionalFunctions()
+func (m *fakeText2vecContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalProperties()
 }
 
 func (m *fakeText2vecContextionaryModule) getExtender() *fakeExtender {

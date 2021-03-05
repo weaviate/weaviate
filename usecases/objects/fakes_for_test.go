@@ -163,7 +163,7 @@ func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeExtender) DefaultValueFn() interface{} {
+func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
 	return getDefaultParam("nearestNeighbors")
 }
 
@@ -180,7 +180,7 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	return nil
 }
 
-func (f *fakeProjector) DefaultValueFn() interface{} {
+func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
 	return getDefaultParam("featureProjection")
 }
 
@@ -197,21 +197,13 @@ func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{}
 	return nil
 }
 
-func (f *fakePathBuilder) DefaultValueFn() interface{} {
+func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 	return getDefaultParam("semanticPath")
 }
 
 type fakeModulesProvider struct {
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
-}
-
-func (p *fakeModulesProvider) AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn {
-	fns := modcontextionaryadditional.New(p.getExtender(), p.getProjector(), &fakePathBuilder{}).AdditionalPropertiesFunctions()
-	if fns != nil {
-		return fns[name]
-	}
-	return nil
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -231,12 +223,12 @@ func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, capability string) (search.Results, error) {
 	txt2vec := modcontextionaryadditional.New(p.getExtender(), p.getProjector(), &fakePathBuilder{})
-	fns := txt2vec.SearchAdditionalFunctions()
-	if err := p.checkCapabilities(fns, moduleParams, capability); err != nil {
+	additionalProperties := txt2vec.AdditionalProperties()
+	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
 		return nil, err
 	}
 	for name, value := range moduleParams {
-		additionalPropertyFn := p.getAdditionalPropertyFn(fns[name], capability)
+		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
 			resArray, err := additionalPropertyFn(ctx, in, nil, nil)
 			if err != nil {
@@ -248,10 +240,10 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	return in, nil
 }
 
-func (p *fakeModulesProvider) checkCapabilities(fns map[string]modulecapabilities.AdditionalSearch,
+func (p *fakeModulesProvider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
 	moduleParams map[string]interface{}, capability string) error {
 	for name := range moduleParams {
-		additionalPropertyFn := p.getAdditionalPropertyFn(fns[name], capability)
+		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
 			return errors.Errorf("unknown capability: %s", name)
 		}
@@ -259,17 +251,17 @@ func (p *fakeModulesProvider) checkCapabilities(fns map[string]modulecapabilitie
 	return nil
 }
 
-func (p *fakeModulesProvider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilities.AdditionalSearch,
+func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
 	capability string) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
-		return searchAdditionalFns.ObjectGet
+		return additionalProperty.SearchFunctions.ObjectGet
 	case "ObjectList":
-		return searchAdditionalFns.ObjectList
+		return additionalProperty.SearchFunctions.ObjectList
 	case "ExploreGet":
-		return searchAdditionalFns.ExploreGet
+		return additionalProperty.SearchFunctions.ExploreGet
 	case "ExploreList":
-		return searchAdditionalFns.ExploreList
+		return additionalProperty.SearchFunctions.ExploreList
 	default:
 		return nil
 	}

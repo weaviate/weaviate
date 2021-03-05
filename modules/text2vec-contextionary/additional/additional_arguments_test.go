@@ -75,6 +75,7 @@ func TestFeatureProjectionField(t *testing.T) {
 		assert.NotNil(t, featureProjection)
 		assert.Equal(t, "ClassAdditionalFeatureProjection", featureProjection.Type.Name())
 		assert.NotNil(t, featureProjection.Args)
+		assert.Equal(t, 5, len(featureProjection.Args))
 		assert.NotNil(t, featureProjection.Args["algorithm"])
 		assert.NotNil(t, featureProjection.Args["dimensions"])
 		assert.NotNil(t, featureProjection.Args["learningRate"])
