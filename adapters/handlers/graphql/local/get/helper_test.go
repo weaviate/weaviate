@@ -117,16 +117,8 @@ func (m *mockText2vecContextionaryModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *mockText2vecContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return modcontextionaryneartext.New().GetArguments(classname)
-}
-
-func (m *mockText2vecContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return modcontextionaryneartext.New().ExploreArguments()
-}
-
-func (m *mockText2vecContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return modcontextionaryneartext.New().ExtractFunctions()
+func (m *mockText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return modcontextionaryneartext.New().Arguments()
 }
 
 func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
@@ -141,11 +133,14 @@ func (m *mockText2vecContextionaryModule) AdditionalProperties() map[string]modu
 type fakeModulesProvider struct{}
 
 func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+	args := map[string]*graphql.ArgumentConfig{}
 	txt2vec := &mockText2vecContextionaryModule{}
 	if class.Vectorizer == txt2vec.Name() {
-		return txt2vec.GetArguments(class.Class)
+		for name, argument := range txt2vec.Arguments() {
+			args[name] = argument.GetArgumentsFunction(class.Class)
+		}
 	}
-	return map[string]*graphql.ArgumentConfig{}
+	return args
 }
 
 func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
@@ -236,7 +231,8 @@ func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &mockText2vecContextionaryModule{}
-	return txt2vec.ExtractFunctions()["nearText"](param)
+	argument := txt2vec.Arguments()["nearText"]
+	return argument.ExtractFunction(param)
 }
 
 func createArg(name string, value string) *ast.Argument {

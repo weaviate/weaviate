@@ -294,48 +294,35 @@ func fakeValidateFn(param interface{}) error {
 func newGraphQLModule(name string) *dummyGraphQLModule {
 	return &dummyGraphQLModule{
 		dummyModuleNoCapabilities: newDummyModuleWithName(name),
-		getArguments:              map[string]*graphql.ArgumentConfig{},
-		exploreArguments:          map[string]*graphql.ArgumentConfig{},
-		extractFunctions:          map[string]modulecapabilities.ExtractFn{},
-		validateFunctions:         map[string]modulecapabilities.ValidateFn{},
+		arguments:                 map[string]modulecapabilities.GraphQLArgument{},
 	}
 }
 
 type dummyGraphQLModule struct {
 	dummyModuleNoCapabilities
-	getArguments      map[string]*graphql.ArgumentConfig
-	exploreArguments  map[string]*graphql.ArgumentConfig
-	extractFunctions  map[string]modulecapabilities.ExtractFn
-	validateFunctions map[string]modulecapabilities.ValidateFn
+	arguments map[string]modulecapabilities.GraphQLArgument
 }
 
 func (m *dummyGraphQLModule) withArg(argName string) *dummyGraphQLModule {
-	m.getArguments[argName] = &graphql.ArgumentConfig{}
-	m.exploreArguments[argName] = &graphql.ArgumentConfig{}
-	m.extractFunctions[argName] = fakeExtractFn
-	m.validateFunctions[argName] = fakeValidateFn
+	arg := modulecapabilities.GraphQLArgument{
+		GetArgumentsFunction:     func(classname string) *graphql.ArgumentConfig { return &graphql.ArgumentConfig{} },
+		ExploreArgumentsFunction: func() *graphql.ArgumentConfig { return &graphql.ArgumentConfig{} },
+		ExtractFunction:          fakeExtractFn,
+		ValidateFunction:         fakeValidateFn,
+	}
+	m.arguments[argName] = arg
 	return m
 }
 
 func (m *dummyGraphQLModule) withExtractFn(argName string) *dummyGraphQLModule {
-	m.extractFunctions[argName] = fakeExtractFn
+	arg := m.arguments[argName]
+	arg.ExtractFunction = fakeExtractFn
+	m.arguments[argName] = arg
 	return m
 }
 
-func (m *dummyGraphQLModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return m.getArguments
-}
-
-func (m *dummyGraphQLModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return m.exploreArguments
-}
-
-func (m *dummyGraphQLModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return m.extractFunctions
-}
-
-func (m *dummyGraphQLModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return m.validateFunctions
+func (m *dummyGraphQLModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return m.arguments
 }
 
 func newGraphQLAdditionalModule(name string) *dummyAdditionalModule {
@@ -356,7 +343,9 @@ func (m *dummyAdditionalModule) withArg(argName string) *dummyAdditionalModule {
 }
 
 func (m *dummyAdditionalModule) withExtractFn(argName string) *dummyAdditionalModule {
-	m.dummyGraphQLModule.extractFunctions[argName] = fakeExtractFn
+	arg := m.dummyGraphQLModule.arguments[argName]
+	arg.ExtractFunction = fakeExtractFn
+	m.dummyGraphQLModule.arguments[argName] = arg
 	return m
 }
 
