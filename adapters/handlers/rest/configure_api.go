@@ -242,18 +242,6 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	// TODO: remove
-	// We though we might be able to remove this as part of gh-1473 already, but
-	// have found out that the classifier as well as the misc handlers still
-	// depend on this
-	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL, appState.Logger)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Fatal("cannot create c11y client")
-	}
-
-	appState.Contextionary = c11y
-
 	return appState
 }
 
@@ -304,6 +292,18 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
+
+		// TODO: remove, this should be happening inside the module!
+		// We though we might be able to remove this as part of gh-1473 already, but
+		// have found out that the classifier as well as the misc handlers still
+		// depend on this
+		c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL, appState.Logger)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").
+				WithError(err).Fatal("cannot create c11y client")
+		}
+
+		appState.Contextionary = c11y
 	}
 
 	if _, ok := enabledModules["text2vec-transformers"]; ok {
