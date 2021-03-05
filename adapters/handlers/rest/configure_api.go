@@ -176,7 +176,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	setupSchemaHandlers(api, schemaManager)
-	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
+	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupKindBatchHandlers(api, batchKindsManager)
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Contextionary)
