@@ -1916,8 +1916,8 @@ func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Contex
 
 func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
 	txt2vec := p.getFakeT2Vec()
-	validateFn := txt2vec.ValidateFunctions()["nearText"]
-	return validateFn(value)
+	arg := txt2vec.Arguments()["nearText"]
+	return arg.ValidateFunction(value)
 }
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
@@ -1981,7 +1981,8 @@ func (p *fakeModulesProvider) getFakeT2Vec() *fakeText2vecContextionaryModule {
 
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &fakeText2vecContextionaryModule{}
-	return txt2vec.ExtractFunctions()["nearText"](param)
+	argument := txt2vec.Arguments()["nearText"]
+	return argument.ExtractFunction(param)
 }
 
 func getDefaultParam(name string) interface{} {

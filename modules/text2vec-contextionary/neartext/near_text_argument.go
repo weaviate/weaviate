@@ -18,6 +18,14 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
+func getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return nearTextArgument("GetObjects", classname)
+}
+
+func exploreNearTextArgumentFn() *graphql.ArgumentConfig {
+	return nearTextArgument("Explore", "")
+}
+
 func nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("Txt2VecC11y%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
