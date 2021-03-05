@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -139,11 +138,29 @@ func Test_GetAction(t *testing.T) {
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
 						ModuleParams: map[string]interface{}{
-							// TODO: gh-1482
-							"featureProjection": &projector.Params{},
+							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					})
-				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
+			})
+
+			t.Run("semantic path", func(t *testing.T) {
+				reset()
+				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+				result := &search.Result{
+					ID:        id,
+					ClassName: "ActionClass",
+					Schema:    map[string]interface{}{"foo": "bar"},
+				}
+				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
+					traverser.AdditionalProperties{
+						ModuleParams: map[string]interface{}{
+							"semanticPath": getDefaultParam("semanticPath"),
+						},
+					})
+				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath"), err)
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {
@@ -304,8 +321,7 @@ func Test_GetAction(t *testing.T) {
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
 						ModuleParams: map[string]interface{}{
-							// TODO: gh-1482
-							"featureProjection": &projector.Params{},
+							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					})
 				require.Nil(t, err)
@@ -425,11 +441,10 @@ func Test_GetThing(t *testing.T) {
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
 					traverser.AdditionalProperties{
 						ModuleParams: map[string]interface{}{
-							// TODO: gh-1482
-							"featureProjection": &projector.Params{},
+							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					})
-				assert.Equal(t, errors.New("feature projection is not possible on a non-list request"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {
@@ -590,8 +605,7 @@ func Test_GetThing(t *testing.T) {
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
 					traverser.AdditionalProperties{
 						ModuleParams: map[string]interface{}{
-							// TODO: gh-1482
-							"featureProjection": &projector.Params{},
+							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					})
 				require.Nil(t, err)

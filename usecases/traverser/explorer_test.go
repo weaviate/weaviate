@@ -16,12 +16,13 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
-	libprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
+	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
+	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -355,6 +356,51 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
+	t.Run("when the semanticPath prop is set but cannot be", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: AdditionalProperties{
+				ModuleParams: map[string]interface{}{
+					"semanticPath": getDefaultParam("semanticPath"),
+				},
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		search.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("error can't be nil", func(t *testing.T) {
+			assert.NotNil(t, err)
+			assert.Nil(t, res)
+			assert.Contains(t, err.Error(), "unknown capability: semanticPath")
+		})
+	})
+
 	t.Run("when the classification prop is set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
@@ -619,10 +665,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			AdditionalProperties: AdditionalProperties{
-				// TODO: gh-1482
-				// this one shouldn't be nil
 				ModuleParams: map[string]interface{}{
-					"featureProjection": &libprojector.Params{},
+					"featureProjection": getDefaultParam("featureProjection"),
 				},
 			},
 		}
@@ -1681,9 +1725,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			AdditionalProperties: AdditionalProperties{
-				// TODO: gh-1482
 				ModuleParams: map[string]interface{}{
-					"semanticPath": &sempath.Params{},
+					"semanticPath": getDefaultParam("semanticPath"),
 				},
 			},
 			ModuleParams: map[string]interface{}{
@@ -1877,12 +1920,56 @@ func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}
 	return validateFn(value)
 }
 
-func (p *fakeModulesProvider) AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn {
+func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+}
+
+func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
+	moduleParams map[string]interface{}) ([]search.Result, error) {
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
+}
+
+func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
+	in search.Results, moduleParams map[string]interface{},
+	searchVector []float32, capability string) (search.Results, error) {
 	txt2vec := p.getFakeT2Vec()
-	if fns := txt2vec.AdditionalPropetiesFunctions(); fns != nil {
-		return fns[name]
+	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
+		for name, value := range moduleParams {
+			additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
+			if additionalPropertyFn != nil && value != nil {
+				searchValue := value
+				if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+					searchVectorValue.SetSearchVector(searchVector)
+					searchValue = searchVectorValue
+				}
+				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+				if err != nil {
+					return nil, err
+				}
+				in = resArray
+			} else {
+				return nil, errors.Errorf("unknown capability: %s", name)
+			}
+		}
 	}
-	return nil
+	return in, nil
+}
+
+func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
+	capability string) modulecapabilities.AdditionalPropertyFn {
+	switch capability {
+	case "ObjectGet":
+		return additionalProperty.SearchFunctions.ObjectGet
+	case "ObjectList":
+		return additionalProperty.SearchFunctions.ObjectList
+	case "ExploreGet":
+		return additionalProperty.SearchFunctions.ExploreGet
+	case "ExploreList":
+		return additionalProperty.SearchFunctions.ExploreList
+	default:
+		return nil
+	}
 }
 
 func (p *fakeModulesProvider) getFakeT2Vec() *fakeText2vecContextionaryModule {
@@ -1895,6 +1982,19 @@ func (p *fakeModulesProvider) getFakeT2Vec() *fakeText2vecContextionaryModule {
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	return txt2vec.ExtractFunctions()["nearText"](param)
+}
+
+func getDefaultParam(name string) interface{} {
+	switch name {
+	case "featureProjection":
+		return &modcontextionaryadditionalprojector.Params{}
+	case "semanticPath":
+		return &modcontextionaryadditionalsempath.Params{}
+	case "nearestNeighbors":
+		return true
+	default:
+		return nil
+	}
 }
 
 func getFakeModulesProviderWithCustomExtenders(

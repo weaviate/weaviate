@@ -24,7 +24,6 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -83,7 +82,8 @@ type VectorRepo interface {
 }
 
 type ModulesProvider interface {
-	AdditionalPropertyFunction(name string) modulecapabilities.AdditionalPropertyFn
+	GetObjectAdditionalExtend(ctx context.Context, in *search.Result, moduleParams map[string]interface{}) (*search.Result, error)
+	ListObjectsAdditionalExtend(ctx context.Context, in search.Results, moduleParams map[string]interface{}) (search.Results, error)
 }
 
 // NewManager creates a new manager
