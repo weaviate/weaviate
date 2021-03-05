@@ -12,13 +12,15 @@ if [[ "$*" == *--keycloak* ]]; then
 fi
 if [[ "$*" == *--transformers* ]]; then
   ADDITIONAL_SERVICES+=('t2v-transformers')
+else 
+  ADDITIONAL_SERVICES+=('contextionary')
 fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
 rm -rf data connector_state.json schema_state.json
 
-docker-compose -f $DOCKER_COMPOSE_FILE up -d contextionary "${ADDITIONAL_SERVICES[@]}"
+docker-compose -f $DOCKER_COMPOSE_FILE up -d "${ADDITIONAL_SERVICES[@]}"
 
 if [[ "$*" == *--keycloak* ]]; then
   echo "Since you have specified the --keycloak option, we must now wait for"
