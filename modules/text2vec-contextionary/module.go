@@ -46,15 +46,15 @@ func New() *ContextionaryModule {
 // but with making Weaviate more modular, this should contain anything related
 // to the module
 type ContextionaryModule struct {
-	storageProvider                     moduletools.StorageProvider
-	extensions                          *extensions.RESTHandlers
-	concepts                            *concepts.RESTHandlers
-	vectorizer                          *localvectorizer.Vectorizer
-	configValidator                     configValidator
-	graphqlProvider                     modulecapabilities.GraphQLArguments
-	graphqlAdditionalPropertiesProvider modulecapabilities.GraphQLAdditionalProperties
-	searcher                            modulecapabilities.Searcher
-	remote                              remoteClient
+	storageProvider              moduletools.StorageProvider
+	extensions                   *extensions.RESTHandlers
+	concepts                     *concepts.RESTHandlers
+	vectorizer                   *localvectorizer.Vectorizer
+	configValidator              configValidator
+	graphqlProvider              modulecapabilities.GraphQLArguments
+	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	searcher                     modulecapabilities.Searcher
+	remote                       remoteClient
 }
 
 type remoteClient interface {
@@ -156,7 +156,7 @@ func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
 	nnExtender := text2vecnn.NewExtender(m.remote)
 	featureProjector := text2vecprojector.New()
 	pathBuilder := text2vecsempath.New(m.remote)
-	m.graphqlAdditionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder)
+	m.additionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder)
 	return nil
 }
 
@@ -198,28 +198,8 @@ func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.Vec
 	return m.searcher.VectorSearches()
 }
 
-func (m *ContextionaryModule) GetAdditionalFields(classname string) map[string]*graphql.Field {
-	return m.graphqlAdditionalPropertiesProvider.GetAdditionalFields(classname)
-}
-
-func (m *ContextionaryModule) ExtractAdditionalFunctions() map[string]modulecapabilities.ExtractAdditionalFn {
-	return m.graphqlAdditionalPropertiesProvider.ExtractAdditionalFunctions()
-}
-
-func (m *ContextionaryModule) AdditionalPropertiesDefaultValues() map[string]modulecapabilities.DefaultValueFn {
-	return m.graphqlAdditionalPropertiesProvider.AdditionalPropertiesDefaultValues()
-}
-
-func (m *ContextionaryModule) RestApiAdditionalProperties() map[string][]string {
-	return m.graphqlAdditionalPropertiesProvider.RestApiAdditionalProperties()
-}
-
-func (m *ContextionaryModule) GraphQLAdditionalProperties() map[string][]string {
-	return m.graphqlAdditionalPropertiesProvider.GraphQLAdditionalProperties()
-}
-
-func (m *ContextionaryModule) SearchAdditionalFunctions() map[string]modulecapabilities.AdditionalSearch {
-	return m.graphqlAdditionalPropertiesProvider.SearchAdditionalFunctions()
+func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
 // verify we implement the modules.Module interface

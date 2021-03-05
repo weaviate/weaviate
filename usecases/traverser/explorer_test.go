@@ -1934,38 +1934,39 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
 	searchVector []float32, capability string) (search.Results, error) {
 	txt2vec := p.getFakeT2Vec()
-	fns := txt2vec.SearchAdditionalFunctions()
-	for name, value := range moduleParams {
-		additionalPropertyFn := p.getAdditionalPropertyFn(fns[name], capability)
-		if additionalPropertyFn != nil && value != nil {
-			searchValue := value
-			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				searchVectorValue.SetSearchVector(searchVector)
-				searchValue = searchVectorValue
+	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
+		for name, value := range moduleParams {
+			additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
+			if additionalPropertyFn != nil && value != nil {
+				searchValue := value
+				if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+					searchVectorValue.SetSearchVector(searchVector)
+					searchValue = searchVectorValue
+				}
+				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+				if err != nil {
+					return nil, err
+				}
+				in = resArray
+			} else {
+				return nil, errors.Errorf("unknown capability: %s", name)
 			}
-			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
-			if err != nil {
-				return nil, err
-			}
-			in = resArray
-		} else {
-			return nil, errors.Errorf("unknown capability: %s", name)
 		}
 	}
 	return in, nil
 }
 
-func (p *fakeModulesProvider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilities.AdditionalSearch,
+func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
 	capability string) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
-		return searchAdditionalFns.ObjectGet
+		return additionalProperty.SearchFunctions.ObjectGet
 	case "ObjectList":
-		return searchAdditionalFns.ObjectList
+		return additionalProperty.SearchFunctions.ObjectList
 	case "ExploreGet":
-		return searchAdditionalFns.ExploreGet
+		return additionalProperty.SearchFunctions.ExploreGet
 	case "ExploreList":
-		return searchAdditionalFns.ExploreList
+		return additionalProperty.SearchFunctions.ExploreList
 	default:
 		return nil
 	}

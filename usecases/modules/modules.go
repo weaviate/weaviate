@@ -94,9 +94,8 @@ func (m *Provider) validate() error {
 			}
 			searchers = m.scanProperties(searchers, allArguments, mod.Name())
 		}
-		if module, ok := mod.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			allAdditionalGrapQLProps := m.getAdditionalProps(module.GraphQLAdditionalProperties())
-			allAdditionalRestAPIProps := m.getAdditionalProps(module.RestApiAdditionalProperties())
+		if module, ok := mod.(modulecapabilities.AdditionalProperties); ok {
+			allAdditionalRestAPIProps, allAdditionalGrapQLProps := m.getAdditionalProps(module.AdditionalProperties())
 			additionalGraphQLProps = m.scanProperties(additionalGraphQLProps,
 				allAdditionalGrapQLProps, mod.Name())
 			additionalRestAPIProps = m.scanProperties(additionalRestAPIProps,
@@ -130,14 +129,19 @@ func (m *Provider) scanProperties(result map[string][]string, properties []strin
 	return result
 }
 
-func (m *Provider) getAdditionalProps(additionalProps map[string][]string) []string {
-	result := []string{}
-	for _, props := range additionalProps {
-		for i := range props {
-			result = append(result, props[i])
+func (m *Provider) getAdditionalProps(additionalProps map[string]modulecapabilities.AdditionalProperty) ([]string, []string) {
+	restProps := []string{}
+	graphQLProps := []string{}
+
+	for _, additionalProperty := range additionalProps {
+		if additionalProperty.RestNames != nil {
+			restProps = append(restProps, additionalProperty.RestNames...)
+		}
+		if additionalProperty.GraphQLNames != nil {
+			graphQLProps = append(graphQLProps, additionalProperty.GraphQLNames...)
 		}
 	}
-	return result
+	return restProps, graphQLProps
 }
 
 func (m *Provider) validateModules(name string, properties map[string][]string, internalProperties []string) []string {
@@ -205,9 +209,11 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			for name, field := range arg.GetAdditionalFields(class.Class) {
-				additionalProperties[name] = field
+		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+			for name, additionalProperty := range arg.AdditionalProperties() {
+				if additionalProperty.GraphQLFieldFunction != nil {
+					additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+				}
 			}
 		}
 	}
@@ -217,10 +223,12 @@ func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 // ExtractAdditionalField extracts additional properties from given graphql arguments
 func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			if len(arg.ExtractAdditionalFunctions()) > 0 {
-				if extractFn, ok := arg.ExtractAdditionalFunctions()[name]; ok {
-					return extractFn(params)
+		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+			if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
+				if additionalProperty, ok := additionalProperties[name]; ok {
+					if additionalProperty.GraphQLExtractFunction != nil {
+						return additionalProperty.GraphQLExtractFunction(params)
+					}
 				}
 			}
 		}
@@ -260,13 +268,13 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32, capability string) ([]search.Result, error) {
 	toBeExtended := in
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			if fns := arg.SearchAdditionalFunctions(); fns != nil {
-				if err := m.checkCapabilities(fns, moduleParams, capability); err != nil {
+		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+			if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
+				if err := m.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
 					return nil, err
 				}
 				for name, value := range moduleParams {
-					additionalPropertyFn := m.getAdditionalPropertyFn(fns[name], capability)
+					additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
 					if additionalPropertyFn != nil && value != nil {
 						searchValue := value
 						if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
@@ -288,10 +296,10 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	return toBeExtended, nil
 }
 
-func (m *Provider) checkCapabilities(fns map[string]modulecapabilities.AdditionalSearch,
+func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
 	moduleParams map[string]interface{}, capability string) error {
 	for name := range moduleParams {
-		additionalPropertyFn := m.getAdditionalPropertyFn(fns[name], capability)
+		additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
 			return errors.Errorf("unknown capability: %s", name)
 		}
@@ -299,17 +307,19 @@ func (m *Provider) checkCapabilities(fns map[string]modulecapabilities.Additiona
 	return nil
 }
 
-func (m *Provider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilities.AdditionalSearch,
-	capability string) modulecapabilities.AdditionalPropertyFn {
+func (m *Provider) getAdditionalPropertyFn(
+	additionalProperty modulecapabilities.AdditionalProperty,
+	capability string,
+) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
-		return searchAdditionalFns.ObjectGet
+		return additionalProperty.SearchFunctions.ObjectGet
 	case "ObjectList":
-		return searchAdditionalFns.ObjectList
+		return additionalProperty.SearchFunctions.ObjectList
 	case "ExploreGet":
-		return searchAdditionalFns.ExploreGet
+		return additionalProperty.SearchFunctions.ExploreGet
 	case "ExploreList":
-		return searchAdditionalFns.ExploreList
+		return additionalProperty.SearchFunctions.ExploreList
 	default:
 		return nil
 	}
@@ -319,10 +329,10 @@ func (m *Provider) getAdditionalPropertyFn(searchAdditionalFns modulecapabilitie
 func (m *Provider) GraphQLAdditionalFieldNames() []string {
 	additionalPropertiesNames := []string{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			for _, names := range arg.GraphQLAdditionalProperties() {
-				for i := range names {
-					additionalPropertiesNames = append(additionalPropertiesNames, names[i])
+		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+			for _, additionalProperty := range arg.AdditionalProperties() {
+				if additionalProperty.GraphQLNames != nil {
+					additionalPropertiesNames = append(additionalPropertiesNames, additionalProperty.GraphQLNames...)
 				}
 			}
 		}
@@ -335,15 +345,11 @@ func (m *Provider) GraphQLAdditionalFieldNames() []string {
 func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]interface{} {
 	moduleParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.GraphQLAdditionalProperties); ok {
-			if defaultValueFns := arg.AdditionalPropertiesDefaultValues(); defaultValueFns != nil {
-				for name, includeProps := range arg.RestApiAdditionalProperties() {
-					for _, includePropName := range includeProps {
-						if includePropName == includeProp {
-							if defaultValueFn, ok := defaultValueFns[name]; ok {
-								moduleParams[name] = defaultValueFn()
-							}
-						}
+		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+			for name, additionalProperty := range arg.AdditionalProperties() {
+				for _, includePropName := range additionalProperty.RestNames {
+					if includePropName == includeProp {
+						moduleParams[name] = additionalProperty.DefaultValue
 					}
 				}
 			}

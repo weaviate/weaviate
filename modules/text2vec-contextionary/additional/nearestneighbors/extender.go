@@ -34,7 +34,7 @@ type contextionary interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
 }
 
-func (e *Extender) DefaultValueFn() interface{} {
+func (e *Extender) AdditonalPropertyDefaultValue() interface{} {
 	return true
 }
 
