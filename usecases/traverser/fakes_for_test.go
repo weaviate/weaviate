@@ -16,7 +16,6 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -235,20 +234,8 @@ func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *fakeText2vecContextionaryModule) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	return modcontextionaryneartext.New().GetArguments(classname)
-}
-
-func (m *fakeText2vecContextionaryModule) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	return modcontextionaryneartext.New().ExploreArguments()
-}
-
-func (m *fakeText2vecContextionaryModule) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	return modcontextionaryneartext.New().ExtractFunctions()
-}
-
-func (m *fakeText2vecContextionaryModule) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	return modcontextionaryneartext.New().ValidateFunctions()
+func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return modcontextionaryneartext.New().Arguments()
 }
 
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {

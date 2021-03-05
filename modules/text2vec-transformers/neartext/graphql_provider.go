@@ -12,7 +12,6 @@
 package neartext
 
 import (
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 )
 
@@ -22,26 +21,17 @@ func New() *GraphQLArgumentsProvider {
 	return &GraphQLArgumentsProvider{}
 }
 
-func (g *GraphQLArgumentsProvider) GetArguments(classname string) map[string]*graphql.ArgumentConfig {
-	arguments := map[string]*graphql.ArgumentConfig{}
-	arguments["nearText"] = nearTextArgument("GetObjects", classname)
+func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	arguments := map[string]modulecapabilities.GraphQLArgument{}
+	arguments["nearText"] = g.getNearText()
 	return arguments
 }
 
-func (g *GraphQLArgumentsProvider) ExploreArguments() map[string]*graphql.ArgumentConfig {
-	arguments := map[string]*graphql.ArgumentConfig{}
-	arguments["nearText"] = nearTextArgument("Explore", "")
-	return arguments
-}
-
-func (g *GraphQLArgumentsProvider) ExtractFunctions() map[string]modulecapabilities.ExtractFn {
-	extractedFns := map[string]modulecapabilities.ExtractFn{}
-	extractedFns["nearText"] = extractNearTextFn
-	return extractedFns
-}
-
-func (g *GraphQLArgumentsProvider) ValidateFunctions() map[string]modulecapabilities.ValidateFn {
-	validateFns := map[string]modulecapabilities.ValidateFn{}
-	validateFns["nearText"] = validateNearText
-	return validateFns
+func (g *GraphQLArgumentsProvider) getNearText() modulecapabilities.GraphQLArgument {
+	return modulecapabilities.GraphQLArgument{
+		GetArgumentsFunction:     getNearTextArgumentFn,
+		ExploreArgumentsFunction: exploreNearTextArgumentFn,
+		ExtractFunction:          extractNearTextFn,
+		ValidateFunction:         validateNearTextFn,
+	}
 }

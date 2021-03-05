@@ -40,7 +40,7 @@ type ObjectMove struct {
 	Beacon string
 }
 
-func validateNearText(param interface{}) error {
+func validateNearTextFn(param interface{}) error {
 	nearText, ok := param.(*NearTextParams)
 	if !ok {
 		return errors.New("'nearText' invalid parameter")

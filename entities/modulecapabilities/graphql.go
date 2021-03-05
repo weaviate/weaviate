@@ -15,9 +15,16 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+// GetArgumentsFn generates get graphql config for a given classname
+type GetArgumentsFn = func(classname string) *graphql.ArgumentConfig
+
+// ExploreArgumentsFn generates explore graphql config
+type ExploreArgumentsFn = func() *graphql.ArgumentConfig
+
 // ExtractFn extracts graphql params to given struct implementation
 type ExtractFn = func(param map[string]interface{}) interface{}
 
+// NearParam defines params with certainty information
 type NearParam interface {
 	GetCertainty() float64
 }
@@ -25,11 +32,17 @@ type NearParam interface {
 // ValidateFn validates a given module param
 type ValidateFn = func(param interface{}) error
 
+// GraphQLArgument defines all the needed settings / methods
+// to add a module specific graphql argument
+type GraphQLArgument struct {
+	GetArgumentsFunction     GetArgumentsFn
+	ExploreArgumentsFunction ExploreArgumentsFn
+	ExtractFunction          ExtractFn
+	ValidateFunction         ValidateFn
+}
+
 // GraphQLArguments defines the capabilities of modules to add their
 // arguments to graphql API
 type GraphQLArguments interface {
-	GetArguments(classname string) map[string]*graphql.ArgumentConfig
-	ExploreArguments() map[string]*graphql.ArgumentConfig
-	ExtractFunctions() map[string]ExtractFn
-	ValidateFunctions() map[string]ValidateFn
+	Arguments() map[string]GraphQLArgument
 }
