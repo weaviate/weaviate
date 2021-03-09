@@ -1,6 +1,7 @@
 module github.com/semi-technologies/weaviate
 
 require (
+	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
