@@ -24,6 +24,6 @@ services:
     ports:
       - "9090:8080"
   t2v-transformers:
-    image: t2vt
+    image: semitechnologies/transformers-inference:distilbert-base-uncased
     ports: 
       - "8000:8080"
