@@ -566,7 +566,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver()
+		resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
 
 		resolver.On("GetClass", test.expectedParams).
 			Return(test.resolverReturn, nil).Once()
@@ -575,20 +575,20 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 }
 
-func TestNearTextRanker(t *testing.T) {
+func TestNearCustomTextRanker(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
 
 	t.Run("for actions", func(t *testing.T) {
-		query := `{ Get { SomeAction(nearText: {
+		query := `{ Get { SomeAction(nearCustomText: {
                 concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
-								},
+								}
 								moveAwayFrom: {
-									concepts:["epic"],
+									concepts:["epic"]
 									force: 0.25
 								}
 							}) { intField } } }`
@@ -597,7 +597,7 @@ func TestNearTextRanker(t *testing.T) {
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts": []interface{}{"c1", "c2", "c3"},
 					"moveTo": map[string]interface{}{
 						"concepts": []interface{}{"positive"},
@@ -618,33 +618,33 @@ func TestNearTextRanker(t *testing.T) {
 	})
 
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
-		query := `{ Get { CustomVectorClass(nearText: {
+		query := `{ Get { CustomVectorClass(nearCustomText: {
                 concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
-								},
+								}
 								moveAwayFrom: {
-									concepts:["epic"],
+									concepts:["epic"]
 									force: 0.25
 								}
         			}) { intField } } }`
 
 		res := resolver.Resolve(query)
 		require.Len(t, res.Errors, 1)
-		assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"CustomVectorClass\"")
+		assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearCustomText\" on field \"CustomVectorClass\"")
 	})
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
-		query := `{ Get { SomeThing(nearText: {
+		query := `{ Get { SomeThing(nearCustomText: {
                 concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
-								},
+								}
 								moveAwayFrom: {
-									concepts:["epic"],
+									concepts:["epic"]
 									force: 0.25
 								}
         			}) { intField } } }`
@@ -653,7 +653,7 @@ func TestNearTextRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
 					"certainty": float64(0.4),
 					"moveTo": map[string]interface{}{
@@ -674,7 +674,7 @@ func TestNearTextRanker(t *testing.T) {
 	})
 
 	t.Run("for things with optional certainty and objects set", func(t *testing.T) {
-		query := `{ Get { SomeThing(nearText: {
+		query := `{ Get { SomeThing(nearCustomText: {
 								concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
@@ -682,16 +682,16 @@ func TestNearTextRanker(t *testing.T) {
 									force: 0.5
 									objects: [
 										{ id: "moveTo-uuid1" }
-										{ beacon: "weaviate://localhost/moveTo-uuid3" }
+										{ beacon: "weaviate://localhost/moveTo-uuid1" },
+										{ beacon: "weaviate://localhost/moveTo-uuid2" }
 									]
-								},
+								}
 								moveAwayFrom: {
-									concepts:["epic"],
+									concepts:["epic"]
 									force: 0.25
 									objects: [
 										{ id: "moveAway-uuid1" }
 										{ beacon: "weaviate://localhost/moveAway-uuid2" }
-										{ beacon: "weaviate://localhost/moveAway-uuid3" }
 									]
 								}
 							}) { intField } } }`
@@ -700,7 +700,7 @@ func TestNearTextRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
 					"certainty": float64(0.4),
 					"moveTo": map[string]interface{}{
@@ -711,7 +711,10 @@ func TestNearTextRanker(t *testing.T) {
 								"id": "moveTo-uuid1",
 							},
 							map[string]interface{}{
-								"beacon": "weaviate://localhost/moveTo-uuid3",
+								"beacon": "weaviate://localhost/moveTo-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid2",
 							},
 						},
 					},
@@ -724,9 +727,6 @@ func TestNearTextRanker(t *testing.T) {
 							},
 							map[string]interface{}{
 								"beacon": "weaviate://localhost/moveAway-uuid2",
-							},
-							map[string]interface{}{
-								"beacon": "weaviate://localhost/moveAway-uuid3",
 							},
 						},
 					},
@@ -1169,14 +1169,6 @@ func TestNearVectorNoModules(t *testing.T) {
 }
 
 func ptFloat32(in float32) *float32 {
-	return &in
-}
-
-func ptString(in string) *string {
-	return &in
-}
-
-func ptInt(in int) *int {
 	return &in
 }
 
