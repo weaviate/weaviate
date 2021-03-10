@@ -31,7 +31,7 @@ type Result struct {
 	Schema               models.PropertySchema
 	Created              int64
 	Updated              int64
-	AdditionalProperties *models.AdditionalProperties
+	AdditionalProperties models.AdditionalProperties
 	VectorWeights        map[string]string
 }
 

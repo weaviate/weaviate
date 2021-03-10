@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
@@ -28,12 +29,12 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Additional: &models.AdditionalProperties{
-				Classification: &models.AdditionalPropertiesClassification{
+			Additional: models.AdditionalProperties{
+				"classification": &additional.AdditionalPropertiesClassification{
 					BasedOn: []string{"some", "fields"},
 				},
-				Interpretation: &models.Interpretation{
-					Source: []*models.InterpretationSource{
+				"interpretation": &additional.Interpretation{
+					Source: []*additional.InterpretationSource{
 						{
 							Concept:    "foo",
 							Occurrence: 7,

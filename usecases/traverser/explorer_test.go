@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -415,8 +416,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: nil,
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": nil,
 				},
 			},
 			{
@@ -424,8 +425,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
 				},
@@ -458,7 +459,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"age": 200,
 					"_additional": map[string]interface{}{
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
 					},
@@ -482,8 +483,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Interpretation: nil,
+				AdditionalProperties: models.AdditionalProperties{
+					"interpretation": nil,
 				},
 			},
 			{
@@ -491,10 +492,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Interpretation: &models.Interpretation{
-						Source: []*models.InterpretationSource{
-							&models.InterpretationSource{
+				AdditionalProperties: models.AdditionalProperties{
+					"interpretation": &additional.Interpretation{
+						Source: []*additional.InterpretationSource{
+							&additional.InterpretationSource{
 								Concept:    "foo",
 								Weight:     0.123,
 								Occurrence: 123,
@@ -531,9 +532,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"age": 200,
 					"_additional": map[string]interface{}{
-						"interpretation": &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -581,10 +582,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+					AdditionalProperties: models.AdditionalProperties{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -597,10 +598,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+					AdditionalProperties: models.AdditionalProperties{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -630,9 +631,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
-						"nearestNeighbors": &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -644,9 +645,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
-						"nearestNeighbors": &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -693,8 +694,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						FeatureProjection: &models.FeatureProjection{
+					AdditionalProperties: models.AdditionalProperties{
+						"featureProjection": &FeatureProjection{
 							Vector: []float32{0, 1},
 						},
 					},
@@ -704,8 +705,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						FeatureProjection: &models.FeatureProjection{
+					AdditionalProperties: models.AdditionalProperties{
+						"featureProjection": &FeatureProjection{
 							Vector: []float32{1, 0},
 						},
 					},
@@ -732,7 +733,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
-						"featureProjection": &models.FeatureProjection{
+						"featureProjection": &FeatureProjection{
 							Vector: []float32{0, 1},
 						},
 					},
@@ -741,7 +742,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
-						"featureProjection": &models.FeatureProjection{
+						"featureProjection": &FeatureProjection{
 							Vector: []float32{1, 0},
 						},
 					},
@@ -783,8 +784,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: nil,
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": nil,
 				},
 			},
 			{
@@ -800,8 +801,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
 				},
@@ -856,7 +857,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
 					},
@@ -919,8 +920,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: nil,
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": nil,
 				},
 			},
 			{
@@ -944,8 +945,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
 				},
@@ -1022,7 +1023,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
 					},
@@ -1106,8 +1107,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: nil,
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": nil,
 				},
 			},
 			{
@@ -1139,8 +1140,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
 				},
@@ -1239,7 +1240,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
 					},
@@ -1268,13 +1269,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "1234",
 					},
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
+					"nearestNeighbors": &NearestNeighbors{
+						Neighbors: []*NearestNeighbor{
+							&NearestNeighbor{
 								Concept:  "foo",
 								Distance: 0.1,
 							},
@@ -1287,13 +1288,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Bar",
 				},
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{
+				AdditionalProperties: models.AdditionalProperties{
+					"classification": &additional.AdditionalPropertiesClassification{
 						ID: "5678",
 					},
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
+					"nearestNeighbors": &NearestNeighbors{
+						Neighbors: []*NearestNeighbor{
+							&NearestNeighbor{
 								Concept:  "bar",
 								Distance: 0.1,
 							},
@@ -1312,24 +1313,24 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						Classification: &models.AdditionalPropertiesClassification{
+					AdditionalProperties: models.AdditionalProperties{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "foo",
-									Distance: 0.1,
-								},
-							},
-						},
-						Interpretation: &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
+								},
+							},
+						},
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.1,
 								},
 							},
 						},
@@ -1340,24 +1341,24 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						Classification: &models.AdditionalPropertiesClassification{
+					AdditionalProperties: models.AdditionalProperties{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "5678",
 						},
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
-									Concept:  "bar",
-									Distance: 0.1,
-								},
-							},
-						},
-						Interpretation: &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,
+								},
+							},
+						},
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
+									Concept:  "bar",
+									Distance: 0.1,
 								},
 							},
 						},
@@ -1386,20 +1387,20 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Foo",
 					"_additional": map[string]interface{}{
 						"id": strfmt.UUID("id1"),
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "1234",
 						},
-						"nearestNeighbors": &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
 							},
 						},
-						"interpretation": &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1413,20 +1414,20 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Bar",
 					"_additional": map[string]interface{}{
 						"id": strfmt.UUID("id2"),
-						"classification": &models.AdditionalPropertiesClassification{
+						"classification": &additional.AdditionalPropertiesClassification{
 							ID: "5678",
 						},
-						"nearestNeighbors": &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
 							},
 						},
-						"interpretation": &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,
@@ -1758,17 +1759,17 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						SemanticPath: &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
+					AdditionalProperties: models.AdditionalProperties{
+						"semanticPath": &SemanticPath{
+							Path: []*SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&models.SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -1784,17 +1785,17 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
-					AdditionalProperties: &models.AdditionalProperties{
-						SemanticPath: &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
+					AdditionalProperties: models.AdditionalProperties{
+						"semanticPath": &SemanticPath{
+							Path: []*SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&models.SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -1827,16 +1828,16 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
-						"semanticPath": &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
+						"semanticPath": &SemanticPath{
+							Path: []*SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&models.SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -1851,16 +1852,16 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
-						"semanticPath": &models.SemanticPath{
-							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
+						"semanticPath": &SemanticPath{
+							Path: []*SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&models.SemanticPathElement{
+								&SemanticPathElement{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,

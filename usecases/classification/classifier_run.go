@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -169,10 +170,10 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 	params models.Classification, classified []string) {
 	// don't overwrite existing non-classification meta info
 	if item.AdditionalProperties == nil {
-		item.AdditionalProperties = &models.AdditionalProperties{}
+		item.AdditionalProperties = models.AdditionalProperties{}
 	}
 
-	item.AdditionalProperties.Classification = &models.AdditionalPropertiesClassification{
+	item.AdditionalProperties["classification"] = additional.AdditionalPropertiesClassification{
 		ID:               params.ID,
 		Scope:            params.ClassifyProperties,
 		ClassifiedFields: classified,

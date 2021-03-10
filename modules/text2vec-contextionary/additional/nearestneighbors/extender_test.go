@@ -16,8 +16,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,8 +40,8 @@ func TestExtender(t *testing.T) {
 		testData := &search.Result{
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
-			AdditionalProperties: &models.AdditionalProperties{
-				Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+			AdditionalProperties: map[string]interface{}{
+				"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
 			},
@@ -49,21 +50,21 @@ func TestExtender(t *testing.T) {
 		expectedResult := &search.Result{
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
-			AdditionalProperties: &models.AdditionalProperties{
-				Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+			AdditionalProperties: map[string]interface{}{
+				"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
-				NearestNeighbors: &models.NearestNeighbors{
-					Neighbors: []*models.NearestNeighbor{
-						&models.NearestNeighbor{
+				"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
+					Neighbors: []*txt2vecmodels.NearestNeighbor{
+						&txt2vecmodels.NearestNeighbor{
 							Concept:  "word1",
 							Distance: 1,
 						},
-						&models.NearestNeighbor{
+						&txt2vecmodels.NearestNeighbor{
 							Concept:  "word2",
 							Distance: 2,
 						},
-						&models.NearestNeighbor{
+						&txt2vecmodels.NearestNeighbor{
 							Concept:  "word3",
 							Distance: 3,
 						},
@@ -96,8 +97,8 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+				AdditionalProperties: map[string]interface{}{
+					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -108,18 +109,18 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item1"},
 				Vector: vectors[0],
-				AdditionalProperties: &models.AdditionalProperties{
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
+				AdditionalProperties: map[string]interface{}{
+					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
+						Neighbors: []*txt2vecmodels.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word1",
 								Distance: 1,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word2",
 								Distance: 2,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word3",
 								Distance: 3,
 							},
@@ -130,18 +131,18 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item2"},
 				Vector: vectors[1],
-				AdditionalProperties: &models.AdditionalProperties{
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
+				AdditionalProperties: map[string]interface{}{
+					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
+						Neighbors: []*txt2vecmodels.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word4",
 								Distance: 0.1,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word5",
 								Distance: 0.2,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word6",
 								Distance: 0.3,
 							},
@@ -152,21 +153,21 @@ func TestExtender(t *testing.T) {
 			search.Result{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+				AdditionalProperties: map[string]interface{}{
+					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
-					NearestNeighbors: &models.NearestNeighbors{
-						Neighbors: []*models.NearestNeighbor{
-							&models.NearestNeighbor{
+					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
+						Neighbors: []*txt2vecmodels.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word7",
 								Distance: 1.1,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word8",
 								Distance: 2.2,
 							},
-							&models.NearestNeighbor{
+							&txt2vecmodels.NearestNeighbor{
 								Concept:  "word9",
 								Distance: 3.3,
 							},
@@ -187,27 +188,27 @@ type fakeContextionary struct {
 	calledWithVectors [][]float32
 }
 
-func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
+func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error) {
 	f.calledWithVectors = vectors
-	out := []*models.NearestNeighbors{
-		&models.NearestNeighbors{
-			Neighbors: []*models.NearestNeighbor{
-				&models.NearestNeighbor{
+	out := []*txt2vecmodels.NearestNeighbors{
+		&txt2vecmodels.NearestNeighbors{
+			Neighbors: []*txt2vecmodels.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word1",
 					Distance: 1.0,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word2",
 					Distance: 2.0,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "$THING[abc]",
 					Distance: 9.99,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word3",
 					Distance: 3.0,
 					Vector:   nil,
@@ -215,19 +216,19 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 			},
 		},
 
-		&models.NearestNeighbors{
-			Neighbors: []*models.NearestNeighbor{
-				&models.NearestNeighbor{
+		&txt2vecmodels.NearestNeighbors{
+			Neighbors: []*txt2vecmodels.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word4",
 					Distance: 0.1,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word5",
 					Distance: 0.2,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word6",
 					Distance: 0.3,
 					Vector:   nil,
@@ -235,19 +236,19 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 			},
 		},
 
-		&models.NearestNeighbors{
-			Neighbors: []*models.NearestNeighbor{
-				&models.NearestNeighbor{
+		&txt2vecmodels.NearestNeighbors{
+			Neighbors: []*txt2vecmodels.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word7",
 					Distance: 1.1,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word8",
 					Distance: 2.2,
 					Vector:   nil,
 				},
-				&models.NearestNeighbor{
+				&txt2vecmodels.NearestNeighbor{
 					Concept:  "word9",
 					Distance: 3.3,
 					Vector:   nil,
