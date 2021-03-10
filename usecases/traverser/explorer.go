@@ -152,24 +152,24 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		additionalProperties := make(map[string]interface{})
 
 		if res.AdditionalProperties != nil {
-			if res.AdditionalProperties.Classification != nil {
-				additionalProperties["classification"] = res.AdditionalProperties.Classification
+			if res.AdditionalProperties["classification"] != nil {
+				additionalProperties["classification"] = res.AdditionalProperties["classification"]
 			}
 
-			if res.AdditionalProperties.Interpretation != nil {
-				additionalProperties["interpretation"] = res.AdditionalProperties.Interpretation
+			if res.AdditionalProperties["interpretation"] != nil {
+				additionalProperties["interpretation"] = res.AdditionalProperties["interpretation"]
 			}
 
-			if res.AdditionalProperties.NearestNeighbors != nil {
-				additionalProperties["nearestNeighbors"] = res.AdditionalProperties.NearestNeighbors
+			if res.AdditionalProperties["nearestNeighbors"] != nil {
+				additionalProperties["nearestNeighbors"] = res.AdditionalProperties["nearestNeighbors"]
 			}
 
-			if res.AdditionalProperties.FeatureProjection != nil {
-				additionalProperties["featureProjection"] = res.AdditionalProperties.FeatureProjection
+			if res.AdditionalProperties["featureProjection"] != nil {
+				additionalProperties["featureProjection"] = res.AdditionalProperties["featureProjection"]
 			}
 
-			if res.AdditionalProperties.SemanticPath != nil {
-				additionalProperties["semanticPath"] = res.AdditionalProperties.SemanticPath
+			if res.AdditionalProperties["semanticPath"] != nil {
+				additionalProperties["semanticPath"] = res.AdditionalProperties["semanticPath"]
 			}
 		}
 

@@ -29,7 +29,7 @@ import (
 type Object struct {
 
 	// additional
-	Additional *AdditionalProperties `json:"additional,omitempty"`
+	Additional AdditionalProperties `json:"additional,omitempty"`
 
 	// Class of the Object, defined in the schema.
 	Class string `json:"class,omitempty"`
@@ -82,13 +82,11 @@ func (m *Object) validateAdditional(formats strfmt.Registry) error {
 		return nil
 	}
 
-	if m.Additional != nil {
-		if err := m.Additional.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("additional")
-			}
-			return err
+	if err := m.Additional.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("additional")
 		}
+		return err
 	}
 
 	return nil

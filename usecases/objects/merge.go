@@ -62,7 +62,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	if objWithVec.Additional != nil {
-		mergeDoc.AdditionalProperties = *objWithVec.Additional
+		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
 	err = m.vectorRepo.Merge(ctx, mergeDoc)

@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 const (
@@ -31,7 +32,7 @@ type Extender struct {
 }
 
 type contextionary interface {
-	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
+	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error)
 }
 
 func (e *Extender) AdditonalPropertyDefaultValue() interface{} {
@@ -85,10 +86,10 @@ func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([
 	for i, res := range in {
 		up := res.AdditionalProperties
 		if up == nil {
-			up = &models.AdditionalProperties{}
+			up = models.AdditionalProperties{}
 		}
 
-		up.NearestNeighbors = removeDollarElements(neighbors[i])
+		up["nearestNeighbors"] = removeDollarElements(neighbors[i])
 		in[i].AdditionalProperties = up
 	}
 
@@ -107,8 +108,8 @@ func limitOrDefault(user *int) int {
 	return *user
 }
 
-func removeDollarElements(in *models.NearestNeighbors) *models.NearestNeighbors {
-	neighbors := make([]*models.NearestNeighbor, len(in.Neighbors))
+func removeDollarElements(in *txt2vecmodels.NearestNeighbors) *txt2vecmodels.NearestNeighbors {
+	neighbors := make([]*txt2vecmodels.NearestNeighbor, len(in.Neighbors))
 	i := 0
 	for _, elem := range in.Neighbors {
 		if elem.Concept[0] == '$' {
@@ -119,7 +120,7 @@ func removeDollarElements(in *models.NearestNeighbors) *models.NearestNeighbors 
 		i++
 	}
 
-	return &models.NearestNeighbors{
+	return &txt2vecmodels.NearestNeighbors{
 		Neighbors: neighbors[:i],
 	}
 }
