@@ -57,8 +57,8 @@ func TestRecallGeo(t *testing.T) {
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
 		index, err := New(Config{
-			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:       "recallbenchmark",
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewGeoProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
