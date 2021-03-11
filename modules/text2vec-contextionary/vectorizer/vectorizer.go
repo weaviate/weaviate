@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -43,7 +44,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
-		overrides map[string]string) ([]float32, []models.InterpretationSource, error)
+		overrides map[string]string) ([]float32, []additional.InterpretationSource, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -75,10 +76,10 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	object.Vector = vec
 
 	if object.Additional == nil {
-		object.Additional = &models.AdditionalProperties{}
+		object.Additional = models.AdditionalProperties{}
 	}
 
-	object.Additional.Interpretation = &models.Interpretation{
+	object.Additional["interpretation"] = &additional.Interpretation{
 		Source: sourceFromInputElements(sources),
 	}
 
@@ -87,7 +88,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string,
-	icheck ClassIndexCheck) ([]float32, []models.InterpretationSource, error) {
+	icheck ClassIndexCheck) ([]float32, []additional.InterpretationSource, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {
@@ -185,10 +186,10 @@ func camelCaseToLower(in string) string {
 	return sb.String()
 }
 
-func sourceFromInputElements(in []models.InterpretationSource) []*models.InterpretationSource {
-	out := make([]*models.InterpretationSource, len(in))
+func sourceFromInputElements(in []additional.InterpretationSource) []*additional.InterpretationSource {
+	out := make([]*additional.InterpretationSource, len(in))
 	for i, elem := range in {
-		out[i] = &models.InterpretationSource{
+		out[i] = &additional.InterpretationSource{
 			Concept:    elem.Concept,
 			Occurrence: elem.Occurrence,
 			Weight:     float64(elem.Weight),

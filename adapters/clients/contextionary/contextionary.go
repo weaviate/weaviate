@@ -19,7 +19,9 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/semi-technologies/contextionary/contextionary"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -175,8 +177,8 @@ func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]fl
 	return out, nil
 }
 
-func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
-	out := make([]*models.NearestNeighbors, len(vectors))
+func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error) {
+	out := make([]*txt2vecmodels.NearestNeighbors, len(vectors))
 	searchParams := make([]*pb.VectorNNParams, len(vectors))
 
 	for i, vector := range vectors {
@@ -193,7 +195,7 @@ func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]floa
 	}
 
 	for i, elem := range res.Words {
-		out[i] = &models.NearestNeighbors{
+		out[i] = &txt2vecmodels.NearestNeighbors{
 			Neighbors: c.extractNeighbors(elem),
 		}
 	}
@@ -201,12 +203,12 @@ func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]floa
 	return out, nil
 }
 
-func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighbor {
-	out := make([]*models.NearestNeighbor, len(elem.Words))
+func (c *Client) extractNeighbors(elem *pb.NearestWords) []*txt2vecmodels.NearestNeighbor {
+	out := make([]*txt2vecmodels.NearestNeighbor, len(elem.Words))
 
 	for i := range out {
 		vec, _, _ := vectorFromProto(elem.Vectors.Vectors[i])
-		out[i] = &models.NearestNeighbor{
+		out[i] = &txt2vecmodels.NearestNeighbor{
 			Concept:  elem.Words[i],
 			Distance: elem.Distances[i],
 			Vector:   vec,
@@ -215,13 +217,13 @@ func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighb
 	return out
 }
 
-func vectorFromProto(in *pb.Vector) ([]float32, []models.InterpretationSource, error) {
+func vectorFromProto(in *pb.Vector) ([]float32, []additional.InterpretationSource, error) {
 	output := make([]float32, len(in.Entries))
 	for i, entry := range in.Entries {
 		output[i] = entry.Entry
 	}
 
-	source := make([]models.InterpretationSource, len(in.Source))
+	source := make([]additional.InterpretationSource, len(in.Source))
 	for i, s := range in.Source {
 		source[i].Concept = s.Concept
 		source[i].Weight = float64(s.Weight)
@@ -231,7 +233,7 @@ func vectorFromProto(in *pb.Vector) ([]float32, []models.InterpretationSource, e
 	return output, source, nil
 }
 
-func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []models.InterpretationSource, error) {
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []additional.InterpretationSource, error) {
 	overrides := overridesFromMap(overridesMap)
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {

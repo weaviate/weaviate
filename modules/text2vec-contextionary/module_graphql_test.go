@@ -15,8 +15,9 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql/language/ast"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,14 +86,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"interpretation": &models.Interpretation{
-							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+						"interpretation": &additional.Interpretation{
+							Source: []*additional.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.6,
 									Occurrence: 1200,
 								},
-								&models.InterpretationSource{
+								&additional.InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.9,
 									Occurrence: 800,
@@ -180,8 +181,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
-					"_additional": &models.AdditionalProperties{
-						FeatureProjection: &models.FeatureProjection{
+					"_additional": map[string]interface{}{
+						"featureProjection": &models.FeatureProjection{
 							Vector: []float32{0.0, 1.1, 2.2},
 						},
 					},
@@ -244,8 +245,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
-					"_additional": &models.AdditionalProperties{
-						SemanticPath: &models.SemanticPath{
+					"_additional": map[string]interface{}{
+						"semanticPath": &models.SemanticPath{
 							Path: []*models.SemanticPathElement{
 								&models.SemanticPathElement{
 									Concept:            "foo",
