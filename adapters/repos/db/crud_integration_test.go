@@ -381,7 +381,7 @@ func TestCRUD(t *testing.T) {
 				},
 			},
 			Additional: models.AdditionalProperties{
-				"classification": &additional.AdditionalPropertiesClassification{
+				"classification": &additional.Classification{
 					ID:               "foo",
 					Scope:            []string{"scope1", "scope2"},
 					ClassifiedFields: []string{"field1", "field2"},
@@ -635,7 +635,7 @@ func TestCRUD(t *testing.T) {
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, models.AdditionalProperties{
-			"classification": &additional.AdditionalPropertiesClassification{
+			"classification": &additional.Classification{
 				ID:               "foo",
 				Scope:            []string{"scope1", "scope2"},
 				ClassifiedFields: []string{"field1", "field2"},

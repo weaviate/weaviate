@@ -41,7 +41,7 @@ func TestExtender(t *testing.T) {
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
 			AdditionalProperties: map[string]interface{}{
-				"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+				"classification": &additional.Classification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
 			},
@@ -51,7 +51,7 @@ func TestExtender(t *testing.T) {
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
 			AdditionalProperties: map[string]interface{}{
-				"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+				"classification": &additional.Classification{ // verify it doesn't remove existing additional props
 					ID: strfmt.UUID("123"),
 				},
 				"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
@@ -98,7 +98,7 @@ func TestExtender(t *testing.T) {
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
 				AdditionalProperties: map[string]interface{}{
-					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+					"classification": &additional.Classification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -154,7 +154,7 @@ func TestExtender(t *testing.T) {
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
 				AdditionalProperties: map[string]interface{}{
-					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+					"classification": &additional.Classification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{

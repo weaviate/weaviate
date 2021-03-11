@@ -426,7 +426,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"age": 200,
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "1234",
 					},
 				},
@@ -459,7 +459,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"age": 200,
 					"_additional": map[string]interface{}{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 					},
@@ -802,7 +802,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "1234",
 					},
 				},
@@ -857,7 +857,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 					},
@@ -946,7 +946,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "1234",
 					},
 				},
@@ -1023,7 +1023,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 					},
@@ -1141,7 +1141,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "1234",
 					},
 				},
@@ -1240,7 +1240,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 					},
 					"_additional": map[string]interface{}{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 					},
@@ -1270,7 +1270,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Foo",
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "1234",
 					},
 					"nearestNeighbors": &NearestNeighbors{
@@ -1289,7 +1289,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Bar",
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"classification": &additional.AdditionalPropertiesClassification{
+					"classification": &additional.Classification{
 						ID: "5678",
 					},
 					"nearestNeighbors": &NearestNeighbors{
@@ -1314,7 +1314,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						"name": "Foo",
 					},
 					AdditionalProperties: models.AdditionalProperties{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 						"interpretation": &additional.Interpretation{
@@ -1342,7 +1342,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						"name": "Bar",
 					},
 					AdditionalProperties: models.AdditionalProperties{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "5678",
 						},
 						"interpretation": &additional.Interpretation{
@@ -1387,7 +1387,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Foo",
 					"_additional": map[string]interface{}{
 						"id": strfmt.UUID("id1"),
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "1234",
 						},
 						"nearestNeighbors": &NearestNeighbors{
@@ -1414,7 +1414,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Bar",
 					"_additional": map[string]interface{}{
 						"id": strfmt.UUID("id2"),
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID: "5678",
 						},
 						"nearestNeighbors": &NearestNeighbors{

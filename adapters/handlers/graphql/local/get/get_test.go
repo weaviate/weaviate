@@ -326,7 +326,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"_additional": models.AdditionalProperties{
-						"classification": &additional.AdditionalPropertiesClassification{
+						"classification": &additional.Classification{
 							ID:               "12345",
 							BasedOn:          []string{"primitiveProp"},
 							Scope:            []string{"refprop1", "refprop2", "refprop3"},

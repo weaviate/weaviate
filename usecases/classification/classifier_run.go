@@ -173,7 +173,7 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 		item.AdditionalProperties = models.AdditionalProperties{}
 	}
 
-	item.AdditionalProperties["classification"] = additional.AdditionalPropertiesClassification{
+	item.AdditionalProperties["classification"] = additional.Classification{
 		ID:               params.ID,
 		Scope:            params.ClassifyProperties,
 		ClassifiedFields: classified,

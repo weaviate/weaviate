@@ -45,7 +45,7 @@ func TestProjector(t *testing.T) {
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
 				AdditionalProperties: map[string]interface{}{
-					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+					"classification": &additional.Classification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -57,7 +57,7 @@ func TestProjector(t *testing.T) {
 		assert.Len(t, res, len(testData))
 		classification, classificationOK := res[2].AdditionalProperties["classification"]
 		assert.True(t, classificationOK)
-		classificationElement, classificationElementOK := classification.(*additional.AdditionalPropertiesClassification)
+		classificationElement, classificationElementOK := classification.(*additional.Classification)
 		assert.True(t, classificationElementOK)
 		assert.Equal(t, classificationElement.ID, strfmt.UUID("123"),
 			"existing additionals should not be removed")
