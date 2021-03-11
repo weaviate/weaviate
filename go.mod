@@ -28,6 +28,7 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	go.etcd.io/bbolt v1.3.3
+	go.mongodb.org/mongo-driver v1.5.0 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0

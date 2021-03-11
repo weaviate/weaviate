@@ -17,57 +17,61 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
-var SimpleSchema = schema.Schema{
-	Objects: &models.Schema{
-		Classes: []*models.Class{
-			&models.Class{
-				Class:      "SomeThing",
-				Vectorizer: config.VectorizerModuleText2VecContextionary,
-				Properties: []*models.Property{
-					&models.Property{
-						Name:     "intField",
-						DataType: []string{"int"},
+var SimpleSchema = CreateSimpleSchema(config.VectorizerModuleText2VecContextionary)
+
+func CreateSimpleSchema(vectorizer string) schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
+					Class:      "SomeThing",
+					Vectorizer: vectorizer,
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "intField",
+							DataType: []string{"int"},
+						},
 					},
 				},
-			},
-			&models.Class{
-				Class:      "CustomVectorClass",
-				Vectorizer: config.VectorizerModuleNone,
-				Properties: []*models.Property{
-					&models.Property{
-						Name:     "intField",
-						DataType: []string{"int"},
+				&models.Class{
+					Class:      "CustomVectorClass",
+					Vectorizer: config.VectorizerModuleNone,
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "intField",
+							DataType: []string{"int"},
+						},
 					},
 				},
-			},
-			&models.Class{
-				Vectorizer: config.VectorizerModuleText2VecContextionary,
-				Class:      "SomeAction",
-				Properties: []*models.Property{
-					&models.Property{
-						Name:     "intField",
-						DataType: []string{"int"},
-					},
-					&models.Property{
-						Name:     "location",
-						DataType: []string{"geoCoordinates"},
-					},
-					&models.Property{
-						Name:     "phone",
-						DataType: []string{"phoneNumber"},
-					},
-					&models.Property{
-						Name:     "hasAction",
-						DataType: []string{"SomeAction"},
-					},
-					&models.Property{
-						Name:     "hasActions",
-						DataType: []string{"SomeAction"},
+				&models.Class{
+					Vectorizer: vectorizer,
+					Class:      "SomeAction",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "intField",
+							DataType: []string{"int"},
+						},
+						&models.Property{
+							Name:     "location",
+							DataType: []string{"geoCoordinates"},
+						},
+						&models.Property{
+							Name:     "phone",
+							DataType: []string{"phoneNumber"},
+						},
+						&models.Property{
+							Name:     "hasAction",
+							DataType: []string{"SomeAction"},
+						},
+						&models.Property{
+							Name:     "hasActions",
+							DataType: []string{"SomeAction"},
+						},
 					},
 				},
 			},
 		},
-	},
+	}
 }
 
 // CarSchema contains a car which has every primtive field and a ref field there is

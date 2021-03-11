@@ -53,14 +53,14 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			NearVector: &NearVectorParams{},
 			ModuleParams: map[string]interface{}{
-				"nearText": nil,
+				"nearCustomText": nil,
 			},
 		}
 
 		_, err := traverser.Explore(context.Background(), nil, params)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
-	t.Run("nearText with no movements set", func(t *testing.T) {
+	t.Run("nearCustomText with no movements set", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -72,7 +72,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"a search term", "another"},
 				}),
 			},
@@ -110,7 +110,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
-	t.Run("nearText without optional params", func(t *testing.T) {
+	t.Run("nearCustomText without optional params", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -266,7 +266,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
-	t.Run("nearText with limit and certainty set", func(t *testing.T) {
+	t.Run("nearCustomText with limit and certainty set", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -303,7 +303,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
-	t.Run("nearText with minimum certainty set to 0.6", func(t *testing.T) {
+	t.Run("nearCustomText with minimum certainty set to 0.6", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -315,7 +315,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"a search term", "another"},
 					"certainty": float64(0.6),
 				}),
@@ -353,7 +353,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"a search term", "another"},
 					"moveTo": map[string]interface{}{
 						"concepts": []interface{}{"foo"},
@@ -415,7 +415,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"a search term", "another"},
 					"moveTo": map[string]interface{}{
 						"concepts": []interface{}{"foo"},
