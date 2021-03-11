@@ -178,10 +178,10 @@ func Test_GetAction(t *testing.T) {
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						AdditionalProperties: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -196,10 +196,10 @@ func Test_GetAction(t *testing.T) {
 					Class:         "ActionClass",
 					Properties:    map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
-					Additional: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+					Additional: models.AdditionalProperties{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -237,10 +237,10 @@ func Test_GetAction(t *testing.T) {
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						AdditionalProperties: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -256,10 +256,10 @@ func Test_GetAction(t *testing.T) {
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						Additional: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						Additional: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -296,8 +296,8 @@ func Test_GetAction(t *testing.T) {
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							FeatureProjection: &models.FeatureProjection{
+						AdditionalProperties: models.AdditionalProperties{
+							"featureProjection": &FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
 						},
@@ -310,8 +310,8 @@ func Test_GetAction(t *testing.T) {
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						Additional: &models.AdditionalProperties{
-							FeatureProjection: &models.FeatureProjection{
+						Additional: models.AdditionalProperties{
+							"featureProjection": &FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
 						},
@@ -462,10 +462,10 @@ func Test_GetThing(t *testing.T) {
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						AdditionalProperties: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -480,10 +480,10 @@ func Test_GetThing(t *testing.T) {
 					Class:         "ThingClass",
 					Properties:    map[string]interface{}{"foo": "bar"},
 					VectorWeights: (map[string]string)(nil),
-					Additional: &models.AdditionalProperties{
-						NearestNeighbors: &models.NearestNeighbors{
-							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+					Additional: models.AdditionalProperties{
+						"nearestNeighbors": &NearestNeighbors{
+							Neighbors: []*NearestNeighbor{
+								&NearestNeighbor{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -521,10 +521,10 @@ func Test_GetThing(t *testing.T) {
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						AdditionalProperties: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -540,10 +540,10 @@ func Test_GetThing(t *testing.T) {
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						Additional: &models.AdditionalProperties{
-							NearestNeighbors: &models.NearestNeighbors{
-								Neighbors: []*models.NearestNeighbor{
-									&models.NearestNeighbor{
+						Additional: models.AdditionalProperties{
+							"nearestNeighbors": &NearestNeighbors{
+								Neighbors: []*NearestNeighbor{
+									&NearestNeighbor{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -580,8 +580,8 @@ func Test_GetThing(t *testing.T) {
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
-						AdditionalProperties: &models.AdditionalProperties{
-							FeatureProjection: &models.FeatureProjection{
+						AdditionalProperties: models.AdditionalProperties{
+							"featureProjection": &FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
 						},
@@ -594,8 +594,8 @@ func Test_GetThing(t *testing.T) {
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
 						VectorWeights: (map[string]string)(nil),
-						Additional: &models.AdditionalProperties{
-							FeatureProjection: &models.FeatureProjection{
+						Additional: models.AdditionalProperties{
+							"featureProjection": &FeatureProjection{
 								Vector: []float32{1, 2, 3},
 							},
 						},

@@ -15,8 +15,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,25 +27,25 @@ func TestProjector(t *testing.T) {
 
 	t.Run("with multiple results", func(t *testing.T) {
 		vectors := [][]float32{
-			[]float32{1, 0, 0, 0, 0},
-			[]float32{0, 0, 1, 0, 0},
-			[]float32{1, 1, 1, 0, 0},
+			{1, 0, 0, 0, 0},
+			{0, 0, 1, 0, 0},
+			{1, 1, 1, 0, 0},
 		}
 
 		testData := []search.Result{
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item1"},
 				Vector: vectors[0],
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item2"},
 				Vector: vectors[1],
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
-				AdditionalProperties: &models.AdditionalProperties{
-					Classification: &models.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
+				AdditionalProperties: map[string]interface{}{
+					"classification": &additional.AdditionalPropertiesClassification{ // verify it doesn't remove existing additional props
 						ID: strfmt.UUID("123"),
 					},
 				},
@@ -54,11 +55,18 @@ func TestProjector(t *testing.T) {
 		res, err := p.Reduce(testData, &Params{})
 		require.Nil(t, err)
 		assert.Len(t, res, len(testData))
-		assert.Equal(t, res[2].AdditionalProperties.Classification.ID, strfmt.UUID("123"),
+		classification, classificationOK := res[2].AdditionalProperties["classification"]
+		assert.True(t, classificationOK)
+		classificationElement, classificationElementOK := classification.(*additional.AdditionalPropertiesClassification)
+		assert.True(t, classificationElementOK)
+		assert.Equal(t, classificationElement.ID, strfmt.UUID("123"),
 			"existing additionals should not be removed")
-
-		assert.Len(t, res[0].AdditionalProperties.FeatureProjection.Vector, 2)
-		assert.Len(t, res[1].AdditionalProperties.FeatureProjection.Vector, 2)
-		assert.Len(t, res[2].AdditionalProperties.FeatureProjection.Vector, 2)
+		for i := 0; i < 3; i++ {
+			featureProjection, featureProjectionOK := res[i].AdditionalProperties["featureProjection"]
+			assert.True(t, featureProjectionOK)
+			fpElement, fpElementOK := featureProjection.(*txt2vecmodels.FeatureProjection)
+			assert.True(t, fpElementOK)
+			assert.Len(t, fpElement.Vector, 2)
+		}
 	})
 }

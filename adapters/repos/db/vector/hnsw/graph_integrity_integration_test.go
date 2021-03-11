@@ -53,8 +53,8 @@ func TestGraphIntegrity(t *testing.T) {
 			return cl, nil
 		}
 		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "graphintegrity",
+			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:       "graphintegrity",
 			MakeCommitLoggerThunk: makeCL,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil

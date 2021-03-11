@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -40,7 +41,7 @@ type PathBuilder struct {
 }
 
 type Remote interface {
-	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
+	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error)
 }
 
 func (e *PathBuilder) AdditonalPropertyDefaultValue() interface{} {
@@ -85,17 +86,17 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 		}
 
 		if in[i].AdditionalProperties == nil {
-			in[i].AdditionalProperties = &models.AdditionalProperties{}
+			in[i].AdditionalProperties = models.AdditionalProperties{}
 		}
 
-		in[i].AdditionalProperties.SemanticPath = path
+		in[i].AdditionalProperties["semanticPath"] = path
 	}
 
 	return in, nil
 }
 
 func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []search.Result, params *Params,
-	searchNeighbors []*models.NearestNeighbor) (*models.SemanticPath, error) {
+	searchNeighbors []*txt2vecmodels.NearestNeighbor) (*txt2vecmodels.SemanticPath, error) {
 	dims := len(obj.Vector)
 	matrix, neighbors, err := f.vectorsToMatrix(obj, allObjects, dims, params, searchNeighbors)
 	if err != nil {
@@ -136,7 +137,7 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 	return f.addDistancesToPath(path, neighbors, params.SearchVector, obj.Vector)
 }
 
-func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeighbor, error) {
+func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*txt2vecmodels.NearestNeighbor, error) {
 	nn, err := f.c11y.MultiNearestWordsByVector(context.TODO(), [][]float32{params.SearchVector}, 36, 50)
 	if err != nil {
 		return nil, err
@@ -147,9 +148,9 @@ func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeigh
 
 // TODO: document behavior if it actually stays like this
 func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
-	params *Params, searchNeighbors []*models.NearestNeighbor) (*mat.Dense, []*models.NearestNeighbor, error) {
+	params *Params, searchNeighbors []*txt2vecmodels.NearestNeighbor) (*mat.Dense, []*txt2vecmodels.NearestNeighbor, error) {
 	items := 1 // the initial object
-	var neighbors []*models.NearestNeighbor
+	var neighbors []*txt2vecmodels.NearestNeighbor
 	neighbors = f.extractNeighbors(allObjects)
 	neighbors = append(neighbors, searchNeighbors...)
 	neighbors = f.removeDuplicateNeighborsAndDollarNeighbors(neighbors)
@@ -185,23 +186,27 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 	return mat.NewDense(items, dims, mergedVectors), neighbors, nil
 }
 
-func (f *PathBuilder) extractNeighbors(in []search.Result) []*models.NearestNeighbor {
-	var out []*models.NearestNeighbor
+func (f *PathBuilder) extractNeighbors(in []search.Result) []*txt2vecmodels.NearestNeighbor {
+	var out []*txt2vecmodels.NearestNeighbor
 
 	for _, obj := range in {
-		if obj.AdditionalProperties == nil || obj.AdditionalProperties.NearestNeighbors == nil {
+		if obj.AdditionalProperties == nil || obj.AdditionalProperties["nearestNeighbors"] == nil {
 			continue
 		}
 
-		out = append(out, obj.AdditionalProperties.NearestNeighbors.Neighbors...)
+		if neighbors, ok := obj.AdditionalProperties["nearestNeighbors"]; ok {
+			if nearestNeighbors, ok := neighbors.(*txt2vecmodels.NearestNeighbors); ok {
+				out = append(out, nearestNeighbors.Neighbors...)
+			}
+		}
 	}
 
 	return out
 }
 
-func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
+func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
 	seen := map[string]struct{}{}
-	out := make([]*models.NearestNeighbor, len(in))
+	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 
 	i := 0
 	for _, candidate := range in {
@@ -221,9 +226,9 @@ func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*models.Ne
 	return out[:i]
 }
 
-func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVector []float32,
-	target []float32) *models.SemanticPath {
-	var path []*models.SemanticPathElement
+func (f *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, searchVector []float32,
+	target []float32) *txt2vecmodels.SemanticPath {
+	var path []*txt2vecmodels.SemanticPathElement
 
 	minDist := float32(math.MaxFloat32)
 
@@ -239,17 +244,17 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 		current = nn[0].Vector
 		minDist = f.distance(current, target)
 
-		path = append(path, &models.SemanticPathElement{
+		path = append(path, &txt2vecmodels.SemanticPathElement{
 			Concept: nn[0].Concept,
 		})
 	}
 
-	return &models.SemanticPath{
+	return &txt2vecmodels.SemanticPath{
 		Path: path,
 	}
 }
 
-func (f *PathBuilder) nearestNeighbors(search []float32, candidates []*models.NearestNeighbor, length int) []*models.NearestNeighbor {
+func (f *PathBuilder) nearestNeighbors(search []float32, candidates []*txt2vecmodels.NearestNeighbor, length int) []*txt2vecmodels.NearestNeighbor {
 	sort.Slice(candidates, func(a, b int) bool {
 		return f.distance(candidates[a].Vector, search) < f.distance(candidates[b].Vector, search)
 	})
@@ -265,8 +270,8 @@ func (f *PathBuilder) distance(a, b []float32) float32 {
 	return float32(math.Sqrt(float64(sums)))
 }
 
-func (f *PathBuilder) discardFurtherThan(candidates []*models.NearestNeighbor, threshold float32, target []float32) []*models.NearestNeighbor {
-	out := make([]*models.NearestNeighbor, len(candidates))
+func (f *PathBuilder) discardFurtherThan(candidates []*txt2vecmodels.NearestNeighbor, threshold float32, target []float32) []*txt2vecmodels.NearestNeighbor {
+	out := make([]*txt2vecmodels.NearestNeighbor, len(candidates))
 	i := 0
 	for _, c := range candidates {
 		if f.distance(c.Vector, target) >= threshold {
@@ -281,10 +286,10 @@ func (f *PathBuilder) discardFurtherThan(candidates []*models.NearestNeighbor, t
 }
 
 // craete an explicit deep copy that does not keep any references
-func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
-	out := make([]*models.NearestNeighbor, len(in))
+func copyNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
+	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 	for i, n := range in {
-		out[i] = &models.NearestNeighbor{
+		out[i] = &txt2vecmodels.NearestNeighbor{
 			Concept:  n.Concept,
 			Distance: n.Distance,
 			Vector:   n.Vector,
@@ -294,8 +299,8 @@ func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
 	return out
 }
 
-func (f *PathBuilder) addDistancesToPath(path *models.SemanticPath, neighbors []*models.NearestNeighbor,
-	searchVector, targetVector []float32) (*models.SemanticPath, error) {
+func (f *PathBuilder) addDistancesToPath(path *txt2vecmodels.SemanticPath, neighbors []*txt2vecmodels.NearestNeighbor,
+	searchVector, targetVector []float32) (*txt2vecmodels.SemanticPath, error) {
 	for i, elem := range path.Path {
 		vec, ok := neighborVecByConcept(neighbors, elem.Concept)
 		if !ok {
@@ -350,7 +355,7 @@ func (f *PathBuilder) addDistancesToPath(path *models.SemanticPath, neighbors []
 	return path, nil
 }
 
-func neighborVecByConcept(neighbors []*models.NearestNeighbor, concept string) ([]float32, bool) {
+func neighborVecByConcept(neighbors []*txt2vecmodels.NearestNeighbor, concept string) ([]float32, bool) {
 	for _, n := range neighbors {
 		if n.Concept == concept {
 			return n.Vector, true
