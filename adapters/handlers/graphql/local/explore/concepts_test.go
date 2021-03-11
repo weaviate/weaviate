@@ -40,16 +40,16 @@ func Test_ResolveExplore(t *testing.T) {
 
 	testsNearText := testCases{
 		testCase{
-			name: "Resolve Explore with nearText",
+			name: "Resolve Explore with nearCustomText",
 			query: `
 			{
-					Explore(nearText: {concepts: ["car", "best brand"]}) {
+					Explore(nearCustomText: {concepts: ["car", "best brand"]}) {
 							beacon className certainty
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
 					}),
 				},
@@ -74,18 +74,18 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 
 		testCase{
-			name: "with nearText with optional limit and certainty set",
+			name: "with nearCustomText with optional limit and certainty set",
 			query: `
 			{
 					Explore(
-						nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+						nearCustomText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17
 						){
 							beacon className
 				}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts":  []interface{}{"car", "best brand"},
 						"certainty": float64(0.6),
 					}),
@@ -115,7 +115,7 @@ func Test_ResolveExplore(t *testing.T) {
 			{
 					Explore(
 							limit: 17
-							nearText: {
+							nearCustomText: {
 								concepts: ["car", "best brand"]
 								moveTo: {
 									concepts: ["mercedes"]
@@ -129,7 +129,7 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
 						"moveTo": map[string]interface{}{
 							"concepts": []interface{}{"mercedes"},
@@ -161,7 +161,7 @@ func Test_ResolveExplore(t *testing.T) {
 			{
 					Explore(
 							limit: 17
-							nearText: {
+							nearCustomText: {
 								concepts: ["car", "best brand"]
 								moveTo: {
 									concepts: ["mercedes"]
@@ -179,7 +179,7 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
 						"moveTo": map[string]interface{}{
 							"concepts": []interface{}{"mercedes"},
@@ -215,7 +215,7 @@ func Test_ResolveExplore(t *testing.T) {
 			{
 					Explore(
 							limit: 17
-							nearText: {
+							nearCustomText: {
 								concepts: ["car", "best brand"]
 								moveTo: {
 									concepts: ["mercedes"]
@@ -233,7 +233,7 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
 						"moveTo": map[string]interface{}{
 							"concepts": []interface{}{"mercedes"},
@@ -268,12 +268,12 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 
 		testCase{
-			name: "with moveTo and moveAwayFrom and objects set",
+			name: "with moveTo and objects set",
 			query: `
 			{
 					Explore(
 							limit: 17
-							nearText: {
+							nearCustomText: {
 								concepts: ["car", "best brand"]
 								moveTo: {
 									concepts: ["mercedes"]
@@ -301,7 +301,7 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
 						"moveTo": map[string]interface{}{
 							"concepts": []interface{}{"mercedes"},
@@ -506,14 +506,14 @@ func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 	query := `
 	{
 			Explore(
-				nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+				nearCustomText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17
 				){
 					beacon className
 		}
 	}`
 	res := resolver.Resolve(query)
 	require.Len(t, res.Errors, 1)
-	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"Explore\"")
+	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearCustomText\" on field \"Explore\"")
 }
 
 func Test_ExploreWithNoModules(t *testing.T) {
@@ -521,14 +521,14 @@ func Test_ExploreWithNoModules(t *testing.T) {
 	query := `
 	{
 			Explore(
-				nearText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17 
+				nearCustomText: {concepts: ["car", "best brand"], certainty: 0.6}, limit: 17
 				){
 					beacon className
 		}
 	}`
 	res := resolver.Resolve(query)
 	require.Len(t, res.Errors, 1)
-	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearText\" on field \"Explore\"")
+	assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearCustomText\" on field \"Explore\"")
 }
 
 func (tests testCases) AssertExtraction(t *testing.T, resolver *mockResolver) {
