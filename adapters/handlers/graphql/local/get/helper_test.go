@@ -18,15 +18,13 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
-	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
-	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 )
@@ -57,6 +55,16 @@ func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
 	return true
 }
 
+type fakeProjectorParams struct {
+	Enabled          bool
+	Algorithm        string
+	Dimensions       int
+	Perplexity       int
+	Iterations       int
+	LearningRate     int
+	IncludeNeighbors bool
+}
+
 type fakeProjector struct {
 	returnArgs []search.Result
 }
@@ -68,23 +76,25 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 
 func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 	if len(param) > 0 {
-		return &modcontextionaryadditionalprojector.Params{
+		return &fakeProjectorParams{
 			Enabled:      true,
-			Algorithm:    ptString("tsne"),
-			Dimensions:   ptInt(3),
-			Iterations:   ptInt(100),
-			LearningRate: ptInt(15),
-			Perplexity:   ptInt(10),
+			Algorithm:    "tsne",
+			Dimensions:   3,
+			Iterations:   100,
+			LearningRate: 15,
+			Perplexity:   10,
 		}
 	}
-	return &modcontextionaryadditionalprojector.Params{
+	return &fakeProjectorParams{
 		Enabled: true,
 	}
 }
 
 func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
-	return &modcontextionaryadditionalprojector.Params{}
+	return &fakeProjectorParams{}
 }
+
+type pathBuilderParams struct{}
 
 type fakePathBuilder struct {
 	returnArgs []search.Result
@@ -96,47 +106,341 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 }
 
 func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
-	return &modcontextionaryadditionalsempath.Params{}
+	return &pathBuilderParams{}
 }
 
 func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
-	return &modcontextionaryadditionalsempath.Params{}
+	return &pathBuilderParams{}
 }
 
-type mockText2vecContextionaryModule struct{}
-
-func (m *mockText2vecContextionaryModule) Name() string {
-	return "text2vec-contextionary"
+type nearCustomTextParams struct {
+	Values       []string
+	MoveTo       nearExploreMove
+	MoveAwayFrom nearExploreMove
+	Certainty    float64
 }
 
-func (m *mockText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
+type nearExploreMove struct {
+	Values  []string
+	Force   float32
+	Objects []nearObjectMove
+}
+
+type nearObjectMove struct {
+	ID     string
+	Beacon string
+}
+
+type nearCustomTextModule struct {
+	fakePathBuilder *fakePathBuilder
+	fakeProjector   *fakeProjector
+	fakeExtender    *fakeExtender
+}
+
+func newNearCustomTextModule() *nearCustomTextModule {
+	return &nearCustomTextModule{
+		fakePathBuilder: &fakePathBuilder{},
+		fakeProjector:   &fakeProjector{},
+		fakeExtender:    &fakeExtender{},
+	}
+}
+
+func (m *nearCustomTextModule) Name() string {
+	return "mock-custom-near-text-module"
+}
+
+func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
 	return nil
 }
 
-func (m *mockText2vecContextionaryModule) RootHandler() http.Handler {
+func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *mockText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	return modcontextionaryneartext.New().Arguments()
+func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *graphql.ArgumentConfig {
+	prefix := classname
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name: fmt.Sprintf("%sNearCustomTextInpObj", prefix),
+				Fields: graphql.InputObjectConfigFieldMap{
+					"concepts": &graphql.InputObjectFieldConfig{
+						Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+					},
+					"moveTo": &graphql.InputObjectFieldConfig{
+						Description: descriptions.VectorMovement,
+						Type: graphql.NewInputObject(
+							graphql.InputObjectConfig{
+								Name: fmt.Sprintf("%sMoveTo", prefix),
+								Fields: graphql.InputObjectConfigFieldMap{
+									"concepts": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Keywords,
+										Type:        graphql.NewList(graphql.String),
+									},
+									"objects": &graphql.InputObjectFieldConfig{
+										Description: "objects",
+										Type: graphql.NewList(graphql.NewInputObject(
+											graphql.InputObjectConfig{
+												Name: fmt.Sprintf("%sMovementObjectsToInpObj", prefix),
+												Fields: graphql.InputObjectConfigFieldMap{
+													"id": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: "id of an object",
+													},
+													"beacon": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: descriptions.Beacon,
+													},
+												},
+												Description: "Movement Object",
+											},
+										)),
+									},
+									"force": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Force,
+										Type:        graphql.NewNonNull(graphql.Float),
+									},
+								},
+							}),
+					},
+					"moveAwayFrom": &graphql.InputObjectFieldConfig{
+						Description: descriptions.VectorMovement,
+						Type: graphql.NewInputObject(
+							graphql.InputObjectConfig{
+								Name: fmt.Sprintf("%sMoveAway", prefix),
+								Fields: graphql.InputObjectConfigFieldMap{
+									"concepts": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Keywords,
+										Type:        graphql.NewList(graphql.String),
+									},
+									"objects": &graphql.InputObjectFieldConfig{
+										Description: "objects",
+										Type: graphql.NewList(graphql.NewInputObject(
+											graphql.InputObjectConfig{
+												Name: fmt.Sprintf("%sMovementObjectsAwayInpObj", prefix),
+												Fields: graphql.InputObjectConfigFieldMap{
+													"id": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: "id of an object",
+													},
+													"beacon": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: descriptions.Beacon,
+													},
+												},
+												Description: "Movement Object",
+											},
+										)),
+									},
+									"force": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Force,
+										Type:        graphql.NewNonNull(graphql.Float),
+									},
+								},
+							}),
+					},
+					"certainty": &graphql.InputObjectFieldConfig{
+						Description: descriptions.Certainty,
+						Type:        graphql.Float,
+					},
+				},
+				Description: descriptions.GetWhereInpObj,
+			},
+		),
+	}
 }
 
-func (m *mockText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	return map[string]modulecapabilities.VectorForParams{}
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+	var args nearCustomTextParams
+
+	concepts := source["concepts"].([]interface{})
+	args.Values = make([]string, len(concepts))
+	for i, value := range concepts {
+		args.Values[i] = value.(string)
+	}
+
+	certainty, ok := source["certainty"]
+	if ok {
+		args.Certainty = certainty.(float64)
+	}
+
+	// moveTo is an optional arg, so it could be nil
+	moveTo, ok := source["moveTo"]
+	if ok {
+		moveToMap := moveTo.(map[string]interface{})
+		args.MoveTo = m.parseMoveParam(moveToMap)
+	}
+
+	moveAwayFrom, ok := source["moveAwayFrom"]
+	if ok {
+		moveAwayFromMap := moveAwayFrom.(map[string]interface{})
+		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
+	}
+
+	return &args
+}
+
+func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {
+	res := nearExploreMove{}
+	res.Force = float32(source["force"].(float64))
+
+	concepts, ok := source["concepts"].([]interface{})
+	if ok {
+		res.Values = make([]string, len(concepts))
+		for i, value := range concepts {
+			res.Values[i] = value.(string)
+		}
+	}
+
+	objects, ok := source["objects"].([]interface{})
+	if ok {
+		res.Objects = make([]nearObjectMove, len(objects))
+		for i, value := range objects {
+			v, ok := value.(map[string]interface{})
+			if ok {
+				if v["id"] != nil {
+					res.Objects[i].ID = v["id"].(string)
+				}
+				if v["beacon"] != nil {
+					res.Objects[i].Beacon = v["beacon"].(string)
+				}
+			}
+		}
+	}
+
+	return res
+}
+
+func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	arguments := map[string]modulecapabilities.GraphQLArgument{}
+	// define nearCustomText argument
+	arguments["nearCustomText"] = modulecapabilities.GraphQLArgument{
+		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
+			return m.getNearCustomTextArgument(classname)
+		},
+		ExtractFunction: func(source map[string]interface{}) interface{} {
+			return m.extractNearCustomTextArgument(source)
+		},
+		ValidateFunction: func(param interface{}) error {
+			// all is valid
+			return nil
+		},
+	}
+	return arguments
 }
 
 // additional properties
-func (m *mockText2vecContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return modcontextionaryadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).AdditionalProperties()
+func (m *nearCustomTextModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
+	additionalProperties["featureProjection"] = m.getFeatureProjection()
+	additionalProperties["nearestNeighbors"] = m.getNearestNeighbors()
+	additionalProperties["semanticPath"] = m.getSemanticPath()
+	return additionalProperties
 }
 
-type fakeModulesProvider struct{}
+func (m *nearCustomTextModule) getFeatureProjection() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeProjector.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"featureProjection"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Args: graphql.FieldConfigArgument{
+					"algorithm": &graphql.ArgumentConfig{
+						Type:         graphql.String,
+						DefaultValue: nil,
+					},
+					"dimensions": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"learningRate": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"iterations": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"perplexity": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+				},
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalFeatureProjection", classname),
+					Fields: graphql.Fields{
+						"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeProjector.ExtractAdditionalFn,
+	}
+}
+
+func (m *nearCustomTextModule) getNearestNeighbors() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeExtender.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"nearestNeighbors"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalNearestNeighbors", classname),
+					Fields: graphql.Fields{
+						"neighbors": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalNearestNeighborsNeighbors", classname),
+							Fields: graphql.Fields{
+								"concept":  &graphql.Field{Type: graphql.String},
+								"distance": &graphql.Field{Type: graphql.Float},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeExtender.ExtractAdditionalFn,
+	}
+}
+
+func (m *nearCustomTextModule) getSemanticPath() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakePathBuilder.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"semanticPath"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalSemanticPath", classname),
+					Fields: graphql.Fields{
+						"path": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalSemanticPathElement", classname),
+							Fields: graphql.Fields{
+								"concept":            &graphql.Field{Type: graphql.String},
+								"distanceToQuery":    &graphql.Field{Type: graphql.Float},
+								"distanceToResult":   &graphql.Field{Type: graphql.Float},
+								"distanceToNext":     &graphql.Field{Type: graphql.Float},
+								"distanceToPrevious": &graphql.Field{Type: graphql.Float},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakePathBuilder.ExtractAdditionalFn,
+	}
+}
+
+type fakeModulesProvider struct {
+	nearCustomTextModule *nearCustomTextModule
+}
+
+func newFakeModulesProvider() *fakeModulesProvider {
+	return &fakeModulesProvider{newNearCustomTextModule()}
+}
 
 func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	args := map[string]*graphql.ArgumentConfig{}
-	txt2vec := &mockText2vecContextionaryModule{}
-	if class.Vectorizer == txt2vec.Name() {
-		for name, argument := range txt2vec.Arguments() {
+	if class.Vectorizer == p.nearCustomTextModule.Name() {
+		for name, argument := range p.nearCustomTextModule.Arguments() {
 			args[name] = argument.GetArgumentsFunction(class.Class)
 		}
 	}
@@ -145,16 +449,15 @@ func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*grap
 
 func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
-	if param, ok := arguments["nearText"]; ok {
-		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))
+	if param, ok := arguments["nearCustomText"]; ok {
+		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
 	return exractedParams
 }
 
 func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
-	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := map[string]*graphql.Field{}
-	for name, additionalProperty := range txt2vec.AdditionalProperties() {
+	for name, additionalProperty := range p.nearCustomTextModule.AdditionalProperties() {
 		if additionalProperty.GraphQLFieldFunction != nil {
 			additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
 		}
@@ -163,8 +466,7 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 }
 
 func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
-	txt2vec := &mockText2vecContextionaryModule{}
-	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
+	if additionalProperties := p.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {
 				return additionalProperty.GraphQLExtractFunction(params)
@@ -182,8 +484,7 @@ func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
 	searchVector []float32, capability string) (search.Results, error) {
-	txt2vec := &mockText2vecContextionaryModule{}
-	additionalProperties := txt2vec.AdditionalProperties()
+	additionalProperties := p.nearCustomTextModule.AdditionalProperties()
 	for name, value := range moduleParams {
 		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
@@ -219,9 +520,8 @@ func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulec
 }
 
 func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
-	txt2vec := &mockText2vecContextionaryModule{}
 	additionalPropertiesNames := []string{}
-	for _, additionalProperty := range txt2vec.AdditionalProperties() {
+	for _, additionalProperty := range p.nearCustomTextModule.AdditionalProperties() {
 		if additionalProperty.GraphQLNames != nil {
 			additionalPropertiesNames = append(additionalPropertiesNames, additionalProperty.GraphQLNames...)
 		}
@@ -230,8 +530,8 @@ func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 }
 
 func extractNearTextParam(param map[string]interface{}) interface{} {
-	txt2vec := &mockText2vecContextionaryModule{}
-	argument := txt2vec.Arguments()["nearText"]
+	nearCustomTextModule := newNearCustomTextModule()
+	argument := nearCustomTextModule.Arguments()["nearCustomText"]
 	return argument.ExtractFunction(param)
 }
 
@@ -253,8 +553,8 @@ func createArg(name string, value string) *ast.Argument {
 }
 
 func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
-	txt2vec := &mockText2vecContextionaryModule{}
-	additionalProperties := txt2vec.AdditionalProperties()
+	nearCustomTextModule := newNearCustomTextModule()
+	additionalProperties := nearCustomTextModule.AdditionalProperties()
 	switch name {
 	case "semanticPath", "featureProjection":
 		if ap, ok := additionalProperties[name]; ok {
@@ -267,12 +567,17 @@ func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
 }
 
 func getFakeModulesProvider() ModulesProvider {
-	return &fakeModulesProvider{}
+	return newFakeModulesProvider()
 }
 
 func newMockResolver() *mockResolver {
+	return newMockResolverWithVectorizer(config.VectorizerModuleText2VecContextionary)
+}
+
+func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider())
+	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
