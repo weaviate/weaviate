@@ -30,7 +30,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			Additional: models.AdditionalProperties{
-				"classification": &additional.AdditionalPropertiesClassification{
+				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
 				},
 				"interpretation": &additional.Interpretation{

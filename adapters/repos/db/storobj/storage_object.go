@@ -388,7 +388,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 			if err != nil {
 				return err
 			}
-			var classification additional.AdditionalPropertiesClassification
+			var classification additional.Classification
 			err = json.Unmarshal(marshalled, &classification)
 			if err != nil {
 				return err

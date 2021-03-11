@@ -11,12 +11,12 @@
 
 package additional
 
-type Interpretation struct {
-	Source []*InterpretationSource `json:"source"`
-}
+import "github.com/go-openapi/strfmt"
 
-type InterpretationSource struct {
-	Concept    string  `json:"concept,omitempty"`
-	Occurrence uint64  `json:"occurrence,omitempty"`
-	Weight     float64 `json:"weight,omitempty"`
+type Classification struct {
+	BasedOn          []string        `json:"basedOn"`
+	ClassifiedFields []string        `json:"classifiedFields"`
+	Completed        strfmt.DateTime `json:"completed,omitempty"`
+	ID               strfmt.UUID     `json:"id,omitempty"`
+	Scope            []string        `json:"scope"`
 }
