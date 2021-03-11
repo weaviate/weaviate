@@ -13,10 +13,14 @@ package traverser
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -24,11 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionaryadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
-	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
-	modcontextionaryneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
-	modcontextionaryvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -42,9 +41,15 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+type ClassIndexCheck interface {
+	PropertyIndexed(property string) bool
+	VectorizeClassName() bool
+	VectorizePropertyName(propertyName string) bool
+}
+
 type fakeTxt2VecVectorizer struct{}
 
-func (f *fakeTxt2VecVectorizer) Object(ctx context.Context, object *models.Object, icheck modcontextionaryvectorizer.ClassIndexCheck) error {
+func (f *fakeTxt2VecVectorizer) Object(ctx context.Context, object *models.Object, icheck ClassIndexCheck) error {
 	panic("not implemented")
 }
 
@@ -174,6 +179,16 @@ func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
 	return true
 }
 
+type fakeProjectorParams struct {
+	Enabled          bool
+	Algorithm        string
+	Dimensions       int
+	Perplexity       int
+	Iterations       int
+	LearningRate     int
+	IncludeNeighbors bool
+}
+
 type fakeProjector struct {
 	returnArgs []search.Result
 }
@@ -188,8 +203,10 @@ func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
 }
 
 func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
-	return &modcontextionaryadditionalprojector.Params{}
+	return &fakeProjectorParams{}
 }
+
+type pathBuilderParams struct{}
 
 type fakePathBuilder struct {
 	returnArgs []search.Result
@@ -205,7 +222,7 @@ func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{}
 }
 
 func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
-	return &modcontextionaryadditionalsempath.Params{}
+	return &pathBuilderParams{}
 }
 
 type fakeText2vecContextionaryModule struct {
@@ -235,15 +252,16 @@ func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	return modcontextionaryneartext.New().Arguments()
+	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder()).Arguments()
 }
 
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	return modcontextionaryneartext.NewSearcher(&fakeTxt2VecVectorizer{}).VectorSearches()
+	searcher := &fakeSearcher{&fakeTxt2VecVectorizer{}}
+	return searcher.VectorSearches()
 }
 
 func (m *fakeText2vecContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return modcontextionaryadditional.New(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalProperties()
+	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalProperties()
 }
 
 func (m *fakeText2vecContextionaryModule) getExtender() *fakeExtender {
@@ -265,4 +283,396 @@ func (m *fakeText2vecContextionaryModule) getPathBuilder() *fakePathBuilder {
 		return m.customPathBuilder
 	}
 	return &fakePathBuilder{}
+}
+
+type nearCustomTextParams struct {
+	Values       []string
+	MoveTo       nearExploreMove
+	MoveAwayFrom nearExploreMove
+	Certainty    float64
+}
+
+func (p nearCustomTextParams) GetCertainty() float64 {
+	return p.Certainty
+}
+
+type nearExploreMove struct {
+	Values  []string
+	Force   float32
+	Objects []nearObjectMove
+}
+
+type nearObjectMove struct {
+	ID     string
+	Beacon string
+}
+
+type nearCustomTextModule struct {
+	fakeExtender    *fakeExtender
+	fakeProjector   *fakeProjector
+	fakePathBuilder *fakePathBuilder
+}
+
+func newNearCustomTextModule(
+	fakeExtender *fakeExtender,
+	fakeProjector *fakeProjector,
+	fakePathBuilder *fakePathBuilder,
+) *nearCustomTextModule {
+	return &nearCustomTextModule{fakeExtender, fakeProjector, fakePathBuilder}
+}
+
+func (m *nearCustomTextModule) Name() string {
+	return "mock-custom-near-text-module"
+}
+
+func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
+	return nil
+}
+
+func (m *nearCustomTextModule) RootHandler() http.Handler {
+	return nil
+}
+
+func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *graphql.ArgumentConfig {
+	prefix := classname
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name: fmt.Sprintf("%sNearCustomTextInpObj", prefix),
+				Fields: graphql.InputObjectConfigFieldMap{
+					"concepts": &graphql.InputObjectFieldConfig{
+						Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+					},
+					"moveTo": &graphql.InputObjectFieldConfig{
+						Description: descriptions.VectorMovement,
+						Type: graphql.NewInputObject(
+							graphql.InputObjectConfig{
+								Name: fmt.Sprintf("%sMoveTo", prefix),
+								Fields: graphql.InputObjectConfigFieldMap{
+									"concepts": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Keywords,
+										Type:        graphql.NewList(graphql.String),
+									},
+									"objects": &graphql.InputObjectFieldConfig{
+										Description: "objects",
+										Type: graphql.NewList(graphql.NewInputObject(
+											graphql.InputObjectConfig{
+												Name: fmt.Sprintf("%sMovementObjectsToInpObj", prefix),
+												Fields: graphql.InputObjectConfigFieldMap{
+													"id": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: "id of an object",
+													},
+													"beacon": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: descriptions.Beacon,
+													},
+												},
+												Description: "Movement Object",
+											},
+										)),
+									},
+									"force": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Force,
+										Type:        graphql.NewNonNull(graphql.Float),
+									},
+								},
+							}),
+					},
+					"moveAwayFrom": &graphql.InputObjectFieldConfig{
+						Description: descriptions.VectorMovement,
+						Type: graphql.NewInputObject(
+							graphql.InputObjectConfig{
+								Name: fmt.Sprintf("%sMoveAway", prefix),
+								Fields: graphql.InputObjectConfigFieldMap{
+									"concepts": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Keywords,
+										Type:        graphql.NewList(graphql.String),
+									},
+									"objects": &graphql.InputObjectFieldConfig{
+										Description: "objects",
+										Type: graphql.NewList(graphql.NewInputObject(
+											graphql.InputObjectConfig{
+												Name: fmt.Sprintf("%sMovementObjectsAwayInpObj", prefix),
+												Fields: graphql.InputObjectConfigFieldMap{
+													"id": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: "id of an object",
+													},
+													"beacon": &graphql.InputObjectFieldConfig{
+														Type:        graphql.String,
+														Description: descriptions.Beacon,
+													},
+												},
+												Description: "Movement Object",
+											},
+										)),
+									},
+									"force": &graphql.InputObjectFieldConfig{
+										Description: descriptions.Force,
+										Type:        graphql.NewNonNull(graphql.Float),
+									},
+								},
+							}),
+					},
+					"certainty": &graphql.InputObjectFieldConfig{
+						Description: descriptions.Certainty,
+						Type:        graphql.Float,
+					},
+				},
+				Description: descriptions.GetWhereInpObj,
+			},
+		),
+	}
+}
+
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+	var args nearCustomTextParams
+
+	concepts := source["concepts"].([]interface{})
+	args.Values = make([]string, len(concepts))
+	for i, value := range concepts {
+		args.Values[i] = value.(string)
+	}
+
+	certainty, ok := source["certainty"]
+	if ok {
+		args.Certainty = certainty.(float64)
+	}
+
+	// moveTo is an optional arg, so it could be nil
+	moveTo, ok := source["moveTo"]
+	if ok {
+		moveToMap := moveTo.(map[string]interface{})
+		args.MoveTo = m.parseMoveParam(moveToMap)
+	}
+
+	moveAwayFrom, ok := source["moveAwayFrom"]
+	if ok {
+		moveAwayFromMap := moveAwayFrom.(map[string]interface{})
+		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
+	}
+
+	return &args
+}
+
+func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {
+	res := nearExploreMove{}
+	res.Force = float32(source["force"].(float64))
+
+	concepts, ok := source["concepts"].([]interface{})
+	if ok {
+		res.Values = make([]string, len(concepts))
+		for i, value := range concepts {
+			res.Values[i] = value.(string)
+		}
+	}
+
+	objects, ok := source["objects"].([]interface{})
+	if ok {
+		res.Objects = make([]nearObjectMove, len(objects))
+		for i, value := range objects {
+			v, ok := value.(map[string]interface{})
+			if ok {
+				if v["id"] != nil {
+					res.Objects[i].ID = v["id"].(string)
+				}
+				if v["beacon"] != nil {
+					res.Objects[i].Beacon = v["beacon"].(string)
+				}
+			}
+		}
+	}
+
+	return res
+}
+
+func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	arguments := map[string]modulecapabilities.GraphQLArgument{}
+	// define nearCustomText argument
+	arguments["nearCustomText"] = modulecapabilities.GraphQLArgument{
+		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
+			return m.getNearCustomTextArgument(classname)
+		},
+		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
+			return m.getNearCustomTextArgument("")
+		},
+		ExtractFunction: func(source map[string]interface{}) interface{} {
+			return m.extractNearCustomTextArgument(source)
+		},
+		ValidateFunction: func(param interface{}) error {
+			nearText, ok := param.(*nearCustomTextParams)
+			if !ok {
+				return errors.New("'nearCustomText' invalid parameter")
+			}
+
+			if nearText.MoveTo.Force > 0 &&
+				nearText.MoveTo.Values == nil && nearText.MoveTo.Objects == nil {
+				return errors.Errorf("'nearCustomText.moveTo' parameter " +
+					"needs to have defined either 'concepts' or 'objects' fields")
+			}
+
+			if nearText.MoveAwayFrom.Force > 0 &&
+				nearText.MoveAwayFrom.Values == nil && nearText.MoveAwayFrom.Objects == nil {
+				return errors.Errorf("'nearCustomText.moveAwayFrom' parameter " +
+					"needs to have defined either 'concepts' or 'objects' fields")
+			}
+			return nil
+		},
+	}
+	return arguments
+}
+
+// additional properties
+func (m *nearCustomTextModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
+	additionalProperties["featureProjection"] = m.getFeatureProjection()
+	additionalProperties["nearestNeighbors"] = m.getNearestNeighbors()
+	additionalProperties["semanticPath"] = m.getSemanticPath()
+	return additionalProperties
+}
+
+func (m *nearCustomTextModule) getFeatureProjection() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeProjector.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"featureProjection"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Args: graphql.FieldConfigArgument{
+					"algorithm": &graphql.ArgumentConfig{
+						Type:         graphql.String,
+						DefaultValue: nil,
+					},
+					"dimensions": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"learningRate": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"iterations": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+					"perplexity": &graphql.ArgumentConfig{
+						Type:         graphql.Int,
+						DefaultValue: nil,
+					},
+				},
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalFeatureProjection", classname),
+					Fields: graphql.Fields{
+						"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeProjector.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectList:  m.fakeProjector.AdditionalPropertyFn,
+			ExploreGet:  m.fakeProjector.AdditionalPropertyFn,
+			ExploreList: m.fakeProjector.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (m *nearCustomTextModule) getNearestNeighbors() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeExtender.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"nearestNeighbors"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalNearestNeighbors", classname),
+					Fields: graphql.Fields{
+						"neighbors": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalNearestNeighborsNeighbors", classname),
+							Fields: graphql.Fields{
+								"concept":  &graphql.Field{Type: graphql.String},
+								"distance": &graphql.Field{Type: graphql.Float},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeExtender.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectGet:   m.fakeExtender.AdditionalPropertyFn,
+			ObjectList:  m.fakeExtender.AdditionalPropertyFn,
+			ExploreGet:  m.fakeExtender.AdditionalPropertyFn,
+			ExploreList: m.fakeExtender.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (m *nearCustomTextModule) getSemanticPath() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakePathBuilder.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"semanticPath"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalSemanticPath", classname),
+					Fields: graphql.Fields{
+						"path": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalSemanticPathElement", classname),
+							Fields: graphql.Fields{
+								"concept":            &graphql.Field{Type: graphql.String},
+								"distanceToQuery":    &graphql.Field{Type: graphql.Float},
+								"distanceToResult":   &graphql.Field{Type: graphql.Float},
+								"distanceToNext":     &graphql.Field{Type: graphql.Float},
+								"distanceToPrevious": &graphql.Field{Type: graphql.Float},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakePathBuilder.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ExploreGet: m.fakePathBuilder.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (m *nearCustomTextModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+	return vectorSearches
+}
+
+type fakeSearcher struct {
+	vectorizer *fakeTxt2VecVectorizer
+}
+
+func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
+	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+	vectorSearches["nearCustomText"] = s.vectorForNearTextParam
+	return vectorSearches
+}
+
+func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
+	vector, err := s.vectorizer.Corpi(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	p, ok := params.(*nearCustomTextParams)
+	if ok && p.MoveTo.Force > 0 {
+		afterMoveTo, err := s.vectorizer.MoveTo(vector, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		vector = afterMoveTo
+	}
+	if ok && p.MoveAwayFrom.Force > 0 {
+		afterMoveAway, err := s.vectorizer.MoveAwayFrom(vector, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		vector = afterMoveAway
+	}
+	return vector, nil
 }

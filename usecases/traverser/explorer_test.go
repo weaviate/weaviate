@@ -21,8 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionaryadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	modcontextionaryadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1442,11 +1440,11 @@ func Test_Explorer_GetClass(t *testing.T) {
 }
 
 func Test_Explorer_GetClass_With_Modules(t *testing.T) {
-	t.Run("when an explore param is set for nearText", func(t *testing.T) {
+	t.Run("when an explore param is set for nearCustomText", func(t *testing.T) {
 		params := GetParams{
 			ClassName: "BestClass",
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 				}),
 			},
@@ -1498,12 +1496,12 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		})
 	})
 
-	t.Run("when an explore param is set for nearText and the required certainty not met",
+	t.Run("when an explore param is set for nearCustomText and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
 				ClassName: "BestClass",
 				ModuleParams: map[string]interface{}{
-					"nearText": extractNearTextParam(map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts":  []interface{}{"foo"},
 						"certainty": float64(0.8),
 					}),
@@ -1542,7 +1540,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			})
 		})
 
-	t.Run("when two conflicting (nearVector, nearText) near searchers are set", func(t *testing.T) {
+	t.Run("when two conflicting (nearVector, nearCustomText) near searchers are set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -1551,7 +1549,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 				}),
 			},
@@ -1565,7 +1563,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 
-	t.Run("when two conflicting (nearText, nearObject) near searchers are set", func(t *testing.T) {
+	t.Run("when two conflicting (nearCustomText, nearObject) near searchers are set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -1574,7 +1572,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 				}),
 			},
@@ -1588,7 +1586,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 
-	t.Run("when three conflicting (nearText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
+	t.Run("when three conflicting (nearCustomText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -1600,7 +1598,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 				}),
 			},
@@ -1614,13 +1612,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 
-	t.Run("when nearText.moveTo has no concepts and objects defined", func(t *testing.T) {
+	t.Run("when nearCustomText.moveTo has no concepts and objects defined", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 					"moveTo": map[string]interface{}{
 						"force": float64(0.1),
@@ -1637,13 +1635,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
 	})
 
-	t.Run("when nearText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
+	t.Run("when nearCustomText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foo"},
 					"moveAwayFrom": map[string]interface{}{
 						"force": float64(0.1),
@@ -1670,7 +1668,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				Certainty: true,
 			},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"foobar"},
 					"limit":     100,
 					"certainty": float64(0.0),
@@ -1730,7 +1728,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				},
 			},
 			ModuleParams: map[string]interface{}{
-				"nearText": extractNearTextParam(map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foobar"},
 				}),
 			},
@@ -1902,7 +1900,7 @@ func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, classNa
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
-	vectorForParams := txt2vec.VectorSearches()["nearText"]
+	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	return vectorForParams(ctx, params, findVectorFn, nil)
 }
 
@@ -1910,13 +1908,13 @@ func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Contex
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
-	vectorForParams := txt2vec.VectorSearches()["nearText"]
+	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	return vectorForParams(ctx, params, findVectorFn, nil)
 }
 
 func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
 	txt2vec := p.getFakeT2Vec()
-	arg := txt2vec.Arguments()["nearText"]
+	arg := txt2vec.Arguments()["nearCustomText"]
 	return arg.ValidateFunction(value)
 }
 
@@ -1979,18 +1977,18 @@ func (p *fakeModulesProvider) getFakeT2Vec() *fakeText2vecContextionaryModule {
 	return &fakeText2vecContextionaryModule{}
 }
 
-func extractNearTextParam(param map[string]interface{}) interface{} {
+func extractNearCustomTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &fakeText2vecContextionaryModule{}
-	argument := txt2vec.Arguments()["nearText"]
+	argument := txt2vec.Arguments()["nearCustomText"]
 	return argument.ExtractFunction(param)
 }
 
 func getDefaultParam(name string) interface{} {
 	switch name {
 	case "featureProjection":
-		return &modcontextionaryadditionalprojector.Params{}
+		return &fakeProjectorParams{}
 	case "semanticPath":
-		return &modcontextionaryadditionalsempath.Params{}
+		return &pathBuilderParams{}
 	case "nearestNeighbors":
 		return true
 	default:
