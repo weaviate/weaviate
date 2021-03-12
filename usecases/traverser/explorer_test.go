@@ -493,9 +493,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"age": 200,
 				},
 				AdditionalProperties: models.AdditionalProperties{
-					"interpretation": &additional.Interpretation{
-						Source: []*additional.InterpretationSource{
-							&additional.InterpretationSource{
+					"interpretation": &Interpretation{
+						Source: []*InterpretationSource{
+							&InterpretationSource{
 								Concept:    "foo",
 								Weight:     0.123,
 								Occurrence: 123,
@@ -532,9 +532,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				map[string]interface{}{
 					"age": 200,
 					"_additional": map[string]interface{}{
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1317,9 +1317,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 						"classification": &additional.Classification{
 							ID: "1234",
 						},
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1345,9 +1345,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 						"classification": &additional.Classification{
 							ID: "5678",
 						},
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,
@@ -1398,9 +1398,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 								},
 							},
 						},
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1425,9 +1425,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 								},
 							},
 						},
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,

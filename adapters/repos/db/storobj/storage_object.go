@@ -397,21 +397,6 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		}
 	}
 
-	if prop, ok := additionalProperties["interpretation"]; ok {
-		if interpretationMap, ok := prop.(map[string]interface{}); ok {
-			marshalled, err := json.Marshal(interpretationMap)
-			if err != nil {
-				return err
-			}
-			var interpretation additional.Interpretation
-			err = json.Unmarshal(marshalled, &interpretation)
-			if err != nil {
-				return err
-			}
-			additionalProperties["interpretation"] = &interpretation
-		}
-	}
-
 	var vectorWeights interface{}
 	if err := json.Unmarshal(vectorWeightsB, &vectorWeights); err != nil {
 		return err

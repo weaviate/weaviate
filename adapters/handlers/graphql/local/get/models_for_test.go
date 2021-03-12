@@ -36,3 +36,13 @@ type SemanticPathElement struct {
 	DistanceToQuery    float32  `json:"distanceToQuery,omitempty"`
 	DistanceToResult   float32  `json:"distanceToResult,omitempty"`
 }
+
+type Interpretation struct {
+	Source []*InterpretationSource `json:"source"`
+}
+
+type InterpretationSource struct {
+	Concept    string  `json:"concept,omitempty"`
+	Occurrence uint64  `json:"occurrence,omitempty"`
+	Weight     float64 `json:"weight,omitempty"`
+}

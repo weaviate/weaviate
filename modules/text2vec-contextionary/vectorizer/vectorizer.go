@@ -21,8 +21,8 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 // Vectorizer turns objects into vectors
@@ -44,7 +44,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
-		overrides map[string]string) ([]float32, []additional.InterpretationSource, error)
+		overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -79,7 +79,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		object.Additional = models.AdditionalProperties{}
 	}
 
-	object.Additional["interpretation"] = &additional.Interpretation{
+	object.Additional["interpretation"] = &txt2vecmodels.Interpretation{
 		Source: sourceFromInputElements(sources),
 	}
 
@@ -88,7 +88,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string,
-	icheck ClassIndexCheck) ([]float32, []additional.InterpretationSource, error) {
+	icheck ClassIndexCheck) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {
@@ -186,10 +186,10 @@ func camelCaseToLower(in string) string {
 	return sb.String()
 }
 
-func sourceFromInputElements(in []additional.InterpretationSource) []*additional.InterpretationSource {
-	out := make([]*additional.InterpretationSource, len(in))
+func sourceFromInputElements(in []txt2vecmodels.InterpretationSource) []*txt2vecmodels.InterpretationSource {
+	out := make([]*txt2vecmodels.InterpretationSource, len(in))
 	for i, elem := range in {
-		out[i] = &additional.InterpretationSource{
+		out[i] = &txt2vecmodels.InterpretationSource{
 			Concept:    elem.Concept,
 			Occurrence: elem.Occurrence,
 			Weight:     float64(elem.Weight),
