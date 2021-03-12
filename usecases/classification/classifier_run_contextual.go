@@ -143,7 +143,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 
 	ctx, cancel = contextWithTimeout(10 * time.Second)
 	defer cancel()
-	vector, _, err := c.vectorizer.VectorForCorpi(ctx, []string{corpus}, boosts)
+	vector, err := c.vectorizer.VectorOnlyForCorpi(ctx, []string{corpus}, boosts)
 	if err != nil {
 		return "", fmt.Errorf("vectorize corpus: %v", err)
 	}

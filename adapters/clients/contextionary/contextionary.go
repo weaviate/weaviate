@@ -19,7 +19,6 @@ import (
 
 	"github.com/pkg/errors"
 	pb "github.com/semi-technologies/contextionary/contextionary"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
@@ -217,13 +216,13 @@ func (c *Client) extractNeighbors(elem *pb.NearestWords) []*txt2vecmodels.Neares
 	return out
 }
 
-func vectorFromProto(in *pb.Vector) ([]float32, []additional.InterpretationSource, error) {
+func vectorFromProto(in *pb.Vector) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	output := make([]float32, len(in.Entries))
 	for i, entry := range in.Entries {
 		output[i] = entry.Entry
 	}
 
-	source := make([]additional.InterpretationSource, len(in.Source))
+	source := make([]txt2vecmodels.InterpretationSource, len(in.Source))
 	for i, s := range in.Source {
 		source[i].Concept = s.Concept
 		source[i].Weight = float64(s.Weight)
@@ -233,7 +232,7 @@ func vectorFromProto(in *pb.Vector) ([]float32, []additional.InterpretationSourc
 	return output, source, nil
 }
 
-func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []additional.InterpretationSource, error) {
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	overrides := overridesFromMap(overridesMap)
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
@@ -246,6 +245,11 @@ func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMa
 	}
 
 	return vectorFromProto(res)
+}
+
+func (c *Client) VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error) {
+	vec, _, err := c.VectorForCorpi(ctx, corpi, overrides)
+	return vec, err
 }
 
 func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error) {

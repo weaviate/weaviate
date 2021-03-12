@@ -360,14 +360,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &Interpretation{
+							Source: []*InterpretationSource{
+								&InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.6,
 									Occurrence: 1200,
 								},
-								&additional.InterpretationSource{
+								&InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.9,
 									Occurrence: 800,

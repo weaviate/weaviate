@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
@@ -62,7 +61,8 @@ type contextionary interface {
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, n int, k int) ([]*txt2vecmodels.NearestNeighbors, error)
-	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []additional.InterpretationSource, error)
+	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
+	VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 	Version(ctx context.Context) (string, error)
 	WordCount(ctx context.Context) (int64, error)
 	AddExtension(ctx context.Context, extension *models.C11yExtension) error
