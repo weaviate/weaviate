@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -86,10 +87,10 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 		}
 		up := in[i].AdditionalProperties
 		if up == nil {
-			up = &models.AdditionalProperties{}
+			up = models.AdditionalProperties{}
 		}
 
-		up.FeatureProjection = &models.FeatureProjection{
+		up["featureProjection"] = &txt2vecmodels.FeatureProjection{
 			Vector: vector,
 		}
 
@@ -101,7 +102,7 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 
 func (f *FeatureProjector) vectorsToMatrix(in []search.Result, dims int, params *Params) (*mat.Dense, error) {
 	items := len(in)
-	var neighbors []*models.NearestNeighbor
+	var neighbors []*txt2vecmodels.NearestNeighbor
 	if params.IncludeNeighbors {
 		neighbors = f.extractNeighborsAndRemoveDuplicates(in)
 		items += len(neighbors)
@@ -134,23 +135,27 @@ func (f *FeatureProjector) vectorsToMatrix(in []search.Result, dims int, params 
 	return mat.NewDense(len(in), dims, mergedVectors), nil
 }
 
-func (f *FeatureProjector) extractNeighborsAndRemoveDuplicates(in []search.Result) []*models.NearestNeighbor {
-	var out []*models.NearestNeighbor
+func (f *FeatureProjector) extractNeighborsAndRemoveDuplicates(in []search.Result) []*txt2vecmodels.NearestNeighbor {
+	var out []*txt2vecmodels.NearestNeighbor
 
 	for _, obj := range in {
-		if obj.AdditionalProperties == nil || obj.AdditionalProperties.NearestNeighbors == nil {
+		if obj.AdditionalProperties == nil || obj.AdditionalProperties["nearestNeighbors"] == nil {
 			continue
 		}
 
-		out = append(out, obj.AdditionalProperties.NearestNeighbors.Neighbors...)
+		if neighbors, ok := obj.AdditionalProperties["nearestNeighbors"]; ok {
+			if nearestNeighbors, ok := neighbors.(*txt2vecmodels.NearestNeighbors); ok {
+				out = append(out, nearestNeighbors.Neighbors...)
+			}
+		}
 	}
 
 	return f.removeDuplicateNeighbors(out)
 }
 
-func (f *FeatureProjector) removeDuplicateNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
+func (f *FeatureProjector) removeDuplicateNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
 	seen := map[string]struct{}{}
-	out := make([]*models.NearestNeighbor, len(in))
+	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 
 	i := 0
 	for _, candidate := range in {

@@ -1306,63 +1306,9 @@ func init() {
   "definitions": {
     "AdditionalProperties": {
       "description": "Additional Meta information about a single object object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/AdditionalPropertiesClassification"
-        },
-        "featureProjection": {
-          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "interpretation": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "nearestNeighbors": {
-          "description": "Neighboring concepts of your search results",
-          "$ref": "#/definitions/NearestNeighbors"
-        },
-        "semanticPath": {
-          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
-          "$ref": "#/definitions/SemanticPath"
-        }
-      }
-    },
-    "AdditionalPropertiesClassification": {
-      "description": "This additional property contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
       }
     },
     "BatchReference": {
@@ -1778,18 +1724,6 @@ func init() {
         }
       }
     },
-    "FeatureProjection": {
-      "description": "A lower-dimensional representation of the objects vector",
-      "properties": {
-        "vector": {
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -1887,34 +1821,6 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
-    "Interpretation": {
-      "description": "This additional property contains additional info about the how the class was vectorized",
-      "properties": {
-        "source": {
-          "description": "The input that was used to vectorize this object",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/InterpretationSource"
-          }
-        }
-      }
-    },
-    "InterpretationSource": {
-      "description": "This additional property contains additional info about the how the class was vectorized",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "occurrence": {
-          "type": "number",
-          "format": "uint64"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float32"
-        }
-      }
-    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
@@ -1975,42 +1881,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "NearestNeighbor": {
-      "description": "A group of neighboring concepts",
-      "type": "object",
-      "properties": {
-        "concept": {
-          "description": "The neighboring concept",
-          "type": "string"
-        },
-        "distance": {
-          "description": "The distance between the result and this neighbor",
-          "type": "number",
-          "format": "float"
-        },
-        "vector": {
-          "description": "The neighbor's vector position",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
-    "NearestNeighbors": {
-      "description": "A group of neighboring concepts",
-      "type": "object",
-      "properties": {
-        "neighbors": {
-          "description": "The individual neighbor items",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/NearestNeighbor"
-          }
-        }
       }
     },
     "Object": {
@@ -2381,43 +2251,6 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "SemanticPath": {
-      "description": "A semantic path between two objects, e.g. a search query and a result",
-      "properties": {
-        "path": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticPathElement"
-          }
-        }
-      }
-    },
-    "SemanticPathElement": {
-      "description": "On link on the semantic path chain",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "distanceToNext": {
-          "type": "number",
-          "format": "float",
-          "x-nullable": true
-        },
-        "distanceToPrevious": {
-          "type": "number",
-          "format": "float",
-          "x-nullable": true
-        },
-        "distanceToQuery": {
-          "type": "number",
-          "format": "float"
-        },
-        "distanceToResult": {
-          "type": "number",
-          "format": "float"
-        }
-      }
     },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
@@ -3905,63 +3738,9 @@ func init() {
   "definitions": {
     "AdditionalProperties": {
       "description": "Additional Meta information about a single object object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/AdditionalPropertiesClassification"
-        },
-        "featureProjection": {
-          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
-          "$ref": "#/definitions/FeatureProjection"
-        },
-        "interpretation": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/Interpretation"
-        },
-        "nearestNeighbors": {
-          "description": "Neighboring concepts of your search results",
-          "$ref": "#/definitions/NearestNeighbors"
-        },
-        "semanticPath": {
-          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
-          "$ref": "#/definitions/SemanticPath"
-        }
-      }
-    },
-    "AdditionalPropertiesClassification": {
-      "description": "This additional property contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
       }
     },
     "BatchReference": {
@@ -4462,18 +4241,6 @@ func init() {
         }
       }
     },
-    "FeatureProjection": {
-      "description": "A lower-dimensional representation of the objects vector",
-      "properties": {
-        "vector": {
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -4574,34 +4341,6 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
-    "Interpretation": {
-      "description": "This additional property contains additional info about the how the class was vectorized",
-      "properties": {
-        "source": {
-          "description": "The input that was used to vectorize this object",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/InterpretationSource"
-          }
-        }
-      }
-    },
-    "InterpretationSource": {
-      "description": "This additional property contains additional info about the how the class was vectorized",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "occurrence": {
-          "type": "number",
-          "format": "uint64"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float32"
-        }
-      }
-    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
@@ -4662,42 +4401,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "NearestNeighbor": {
-      "description": "A group of neighboring concepts",
-      "type": "object",
-      "properties": {
-        "concept": {
-          "description": "The neighboring concept",
-          "type": "string"
-        },
-        "distance": {
-          "description": "The distance between the result and this neighbor",
-          "type": "number",
-          "format": "float"
-        },
-        "vector": {
-          "description": "The neighbor's vector position",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
-    "NearestNeighbors": {
-      "description": "A group of neighboring concepts",
-      "type": "object",
-      "properties": {
-        "neighbors": {
-          "description": "The individual neighbor items",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/NearestNeighbor"
-          }
-        }
       }
     },
     "Object": {
@@ -5086,43 +4789,6 @@ func init() {
     "SchemaHistory": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "SemanticPath": {
-      "description": "A semantic path between two objects, e.g. a search query and a result",
-      "properties": {
-        "path": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticPathElement"
-          }
-        }
-      }
-    },
-    "SemanticPathElement": {
-      "description": "On link on the semantic path chain",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "distanceToNext": {
-          "type": "number",
-          "format": "float",
-          "x-nullable": true
-        },
-        "distanceToPrevious": {
-          "type": "number",
-          "format": "float",
-          "x-nullable": true
-        },
-        "distanceToQuery": {
-          "type": "number",
-          "format": "float"
-        },
-        "distanceToResult": {
-          "type": "number",
-          "format": "float"
-        }
-      }
     },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",

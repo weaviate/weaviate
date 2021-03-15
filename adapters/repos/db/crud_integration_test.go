@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
@@ -133,9 +134,9 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Additional: &models.AdditionalProperties{
-				Interpretation: &models.Interpretation{
-					Source: []*models.InterpretationSource{
+			Additional: models.AdditionalProperties{
+				"interpretation": &additional.Interpretation{
+					Source: []*additional.InterpretationSource{
 						{Concept: "some", Occurrence: 1, Weight: 1},
 						{Concept: "value", Occurrence: 1, Weight: 1},
 					},
@@ -232,7 +233,7 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Additional: &models.AdditionalProperties{},
+			Additional: models.AdditionalProperties{},
 		}
 
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
@@ -379,8 +380,8 @@ func TestCRUD(t *testing.T) {
 					},
 				},
 			},
-			Additional: &models.AdditionalProperties{
-				Classification: &models.AdditionalPropertiesClassification{
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
 					ID:               "foo",
 					Scope:            []string{"scope1", "scope2"},
 					ClassifiedFields: []string{"field1", "field2"},
@@ -445,7 +446,7 @@ func TestCRUD(t *testing.T) {
 			National:               1234567,
 			NationalFormatted:      "0171 1234567",
 		}, schema["phone"], "has correct phone prop")
-		assert.Equal(t, &models.AdditionalProperties{}, res[0].AdditionalProperties, "no meta information should be included unless explicitly asked for")
+		assert.Equal(t, models.AdditionalProperties{}, res[0].AdditionalProperties, "no meta information should be included unless explicitly asked for")
 		assert.Equal(t, thingID, schema["id"], "has id in schema as uuid field")
 	})
 
@@ -490,9 +491,9 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Additional: &models.AdditionalProperties{
-				Interpretation: &models.Interpretation{
-					Source: []*models.InterpretationSource{
+			Additional: models.AdditionalProperties{
+				"interpretation": &additional.Interpretation{
+					Source: []*additional.InterpretationSource{
 						{Concept: "some", Occurrence: 1, Weight: 1},
 						{Concept: "value", Occurrence: 1, Weight: 1},
 					},
@@ -520,7 +521,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["id"], "has id in schema as uuid field")
-		assert.Equal(t, &models.AdditionalProperties{}, item.AdditionalProperties, "has no additional properties unless explicitly asked for")
+		assert.Equal(t, models.AdditionalProperties{}, item.AdditionalProperties, "has no additional properties unless explicitly asked for")
 	})
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
@@ -555,9 +556,9 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID, schema["id"], "has id in schema as uuid field")
 		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
-		assert.Equal(t, &models.AdditionalProperties{
-			Interpretation: &models.Interpretation{
-				Source: []*models.InterpretationSource{
+		assert.Equal(t, models.AdditionalProperties{
+			"interpretation": &additional.Interpretation{
+				Source: []*additional.InterpretationSource{
 					{Concept: "some", Occurrence: 1, Weight: 1},
 					{Concept: "value", Occurrence: 1, Weight: 1},
 				},
@@ -613,7 +614,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.AdditionalProperties{}, item.AdditionalProperties, "not meta information should be included unless explicitly asked for")
+		assert.Equal(t, models.AdditionalProperties{}, item.AdditionalProperties, "not meta information should be included unless explicitly asked for")
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Beacon: strfmt.URI(
@@ -633,8 +634,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.AdditionalProperties{
-			Classification: &models.AdditionalPropertiesClassification{
+		assert.Equal(t, models.AdditionalProperties{
+			"classification": &additional.Classification{
 				ID:               "foo",
 				Scope:            []string{"scope1", "scope2"},
 				ClassifiedFields: []string{"field1", "field2"},
