@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package contextionary
+package client
 
 import (
 	"fmt"

@@ -42,11 +42,16 @@ type c11yMetaProvider interface {
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	schemaManager schemaManager, c11y c11yMetaProvider) {
+	schemaManager schemaManager, modulesProvider ModulesProvider) {
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {
 		panic(err)
+	}
+
+	var c11y c11yMetaProvider
+	if modulesProvider != nil {
+		c11y = modulesProvider.GetMetaProvider()
 	}
 
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {

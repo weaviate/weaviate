@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -26,6 +25,7 @@ import (
 	text2vecnn "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
 	text2vecprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/client"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
@@ -61,6 +61,8 @@ type remoteClient interface {
 	extensions.Proxy
 	vectorizer.InspectorClient
 	text2vecsempath.Remote
+	modulecapabilities.MetaProvider
+	modulecapabilities.VectorizerClient
 	WaitForStartupAndValidateVersion(ctx context.Context, version string,
 		interval time.Duration) error
 }
@@ -83,8 +85,7 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 	}
 
 	url := appState.ServerConfig.Config.Contextionary.URL
-	// TODO: move client into module
-	remote, err := contextionary.NewClient(url, appState.Logger)
+	remote, err := client.NewClient(url, appState.Logger)
 	if err != nil {
 		return errors.Wrap(err, "init remote client")
 	}
@@ -187,6 +188,16 @@ func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.Vec
 
 func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+func (m *ContextionaryModule) Vectorizers() map[string]modulecapabilities.VectorizerClient {
+	vectorizers := map[string]modulecapabilities.VectorizerClient{}
+	vectorizers["text2vec-contextionary-contextual"] = m.remote
+	return vectorizers
+}
+
+func (m *ContextionaryModule) MetaProvider() modulecapabilities.MetaProvider {
+	return m.remote
 }
 
 // verify we implement the modules.Module interface

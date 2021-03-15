@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -34,13 +35,13 @@ import (
 type distancer func(a, b []float32) (float32, error)
 
 type Classifier struct {
-	schemaGetter schemaUC.SchemaGetter
-	repo         Repo
-	vectorRepo   vectorRepo
-	authorizer   authorizer
-	distancer    distancer
-	vectorizer   vectorizer
-	logger       logrus.FieldLogger
+	schemaGetter    schemaUC.SchemaGetter
+	repo            Repo
+	vectorRepo      vectorRepo
+	authorizer      authorizer
+	distancer       distancer
+	modulesProvider ModulesProvider
+	logger          logrus.FieldLogger
 }
 
 type vectorizer interface {
@@ -55,16 +56,20 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
+type ModulesProvider interface {
+	GetVectorizer(name string) modulecapabilities.VectorizerClient
+}
+
 func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
-	vectorizer vectorizer, logger logrus.FieldLogger) *Classifier {
+	logger logrus.FieldLogger, modulesProvider ModulesProvider) *Classifier {
 	return &Classifier{
-		logger:       logger,
-		schemaGetter: sg,
-		repo:         cr,
-		vectorRepo:   vr,
-		authorizer:   authorizer,
-		distancer:    libvectorizer.NormalizedDistance,
-		vectorizer:   vectorizer,
+		logger:          logger,
+		schemaGetter:    sg,
+		repo:            cr,
+		vectorRepo:      vr,
+		authorizer:      authorizer,
+		distancer:       libvectorizer.NormalizedDistance,
+		modulesProvider: modulesProvider,
 	}
 }
 
@@ -149,6 +154,13 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	go c.run(params, filters)
 
 	return &params, nil
+}
+
+func (c *Classifier) getVectorizer(name string) vectorizer {
+	if c.modulesProvider != nil {
+		return c.modulesProvider.GetVectorizer(name)
+	}
+	return nil
 }
 
 func extractFilters(params models.Classification) (filters, error) {

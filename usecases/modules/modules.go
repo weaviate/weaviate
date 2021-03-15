@@ -446,3 +446,25 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 
 	panic("VectorFromParams was called without any known params present")
 }
+
+// GetClient returns given module's client
+func (m *Provider) GetVectorizer(name string) modulecapabilities.VectorizerClient {
+	for _, module := range m.GetAll() {
+		if c, ok := module.(modulecapabilities.Client); ok && c.Vectorizers() != nil {
+			if vectorizer, ok := c.Vectorizers()[name]; ok {
+				return vectorizer
+			}
+		}
+	}
+	return nil
+}
+
+// GetMetaProvider returns meta provider
+func (m *Provider) GetMetaProvider() modulecapabilities.MetaProvider {
+	for _, module := range m.GetAll() {
+		if c, ok := module.(modulecapabilities.Client); ok {
+			return c.MetaProvider()
+		}
+	}
+	return nil
+}
