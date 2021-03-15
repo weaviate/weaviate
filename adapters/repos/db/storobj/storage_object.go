@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -92,7 +93,7 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 
 // AdditionalProperties groups all properties which are stored with the
 // object and not generated at runtime
-func (ko *Object) AdditionalProperties() *models.AdditionalProperties {
+func (ko *Object) AdditionalProperties() models.AdditionalProperties {
 	return ko.Object.Additional
 }
 
@@ -147,13 +148,13 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 	propertiesMap["id"] = ko.ID()
 	ko.SetProperties(propertiesMap)
 
-	additionalProperties := &models.AdditionalProperties{}
+	additionalProperties := models.AdditionalProperties{}
 	if ko.AdditionalProperties() != nil {
 		if additional.Interpretation {
-			additionalProperties.Interpretation = ko.AdditionalProperties().Interpretation
+			additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
 		}
 		if additional.Classification {
-			additionalProperties.Classification = ko.AdditionalProperties().Classification
+			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
 		}
 	}
 
@@ -376,9 +377,39 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
-	var additional *models.AdditionalProperties
-	if err := json.Unmarshal(additionalB, &additional); err != nil {
+	var additionalProperties models.AdditionalProperties
+	if err := json.Unmarshal(additionalB, &additionalProperties); err != nil {
 		return err
+	}
+
+	if prop, ok := additionalProperties["classification"]; ok {
+		if classificationMap, ok := prop.(map[string]interface{}); ok {
+			marshalled, err := json.Marshal(classificationMap)
+			if err != nil {
+				return err
+			}
+			var classification additional.Classification
+			err = json.Unmarshal(marshalled, &classification)
+			if err != nil {
+				return err
+			}
+			additionalProperties["classification"] = &classification
+		}
+	}
+
+	if prop, ok := additionalProperties["interpretation"]; ok {
+		if interpretationMap, ok := prop.(map[string]interface{}); ok {
+			marshalled, err := json.Marshal(interpretationMap)
+			if err != nil {
+				return err
+			}
+			var interpretation additional.Interpretation
+			err = json.Unmarshal(marshalled, &interpretation)
+			if err != nil {
+				return err
+			}
+			additionalProperties["interpretation"] = &interpretation
+		}
 	}
 
 	var vectorWeights interface{}
@@ -393,7 +424,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		ID:                 uuid,
 		Properties:         schema,
 		VectorWeights:      vectorWeights,
-		Additional:         additional,
+		Additional:         additionalProperties,
 	}
 
 	return nil
