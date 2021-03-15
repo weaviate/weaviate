@@ -13,12 +13,12 @@
 
 // Package rest Weaviate
 //
-//  Open Source Search Graph (GraphQL/RESTful/P2P)
+//  Cloud-native, modular vector search engine
 //  Schemes:
 //    https
 //  Host: localhost
 //  BasePath: /v1
-//  Version: 1.1.0
+//  Version: 1.2.0
 //  Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 //
 //  Consumes:

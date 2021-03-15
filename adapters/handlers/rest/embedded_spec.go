@@ -41,14 +41,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Open Source Search Graph (GraphQL/RESTful/P2P)",
+    "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -2463,14 +2463,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Open Source Search Graph (GraphQL/RESTful/P2P)",
+    "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "basePath": "/v1",
   "paths": {

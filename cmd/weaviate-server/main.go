@@ -39,7 +39,7 @@ func main() {
 
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate"
-	parser.LongDescription = "Open Source Search Graph (GraphQL/RESTful/P2P)"
+	parser.LongDescription = "Cloud-native, modular vector search engine"
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
 		_, err := parser.AddGroup(optsGroup.ShortDescription, optsGroup.LongDescription, optsGroup.Options)
