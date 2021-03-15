@@ -18,14 +18,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 type InspectorClient interface {
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	VectorForCorpi(ctx context.Context, words []string,
-		overrides map[string]string) ([]float32, []additional.InterpretationSource, error)
+		overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
 	IsWordPresent(ctx context.Context, word string) (bool, error)
 }

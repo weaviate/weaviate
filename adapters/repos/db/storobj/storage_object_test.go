@@ -33,12 +33,12 @@ func TestStorageObjectMarshalling(t *testing.T) {
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
 				},
-				"interpretation": &additional.Interpretation{
-					Source: []*additional.InterpretationSource{
-						{
-							Concept:    "foo",
-							Occurrence: 7,
-							Weight:     3,
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
 						},
 					},
 				},

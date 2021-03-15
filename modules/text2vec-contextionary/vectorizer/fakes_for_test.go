@@ -14,14 +14,14 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/additional"
+	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 type fakeClient struct {
 	lastInput []string
 }
 
-func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []additional.InterpretationSource, error) {
+func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	c.lastInput = corpi
 	return []float32{0, 1, 2, 3}, nil, nil
 }

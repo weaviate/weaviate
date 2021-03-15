@@ -135,10 +135,18 @@ func TestCRUD(t *testing.T) {
 				},
 			},
 			Additional: models.AdditionalProperties{
-				"interpretation": &additional.Interpretation{
-					Source: []*additional.InterpretationSource{
-						{Concept: "some", Occurrence: 1, Weight: 1},
-						{Concept: "value", Occurrence: 1, Weight: 1},
+				"interpretation": map[string]interface{}{
+					"source": []interface{}{
+						map[string]interface{}{
+							"concept":    "some",
+							"occurrence": float64(1),
+							"weight":     float64(1),
+						},
+						map[string]interface{}{
+							"concept":    "value",
+							"occurrence": float64(1),
+							"weight":     float64(1),
+						},
 					},
 				},
 			},
@@ -492,10 +500,18 @@ func TestCRUD(t *testing.T) {
 				},
 			},
 			Additional: models.AdditionalProperties{
-				"interpretation": &additional.Interpretation{
-					Source: []*additional.InterpretationSource{
-						{Concept: "some", Occurrence: 1, Weight: 1},
-						{Concept: "value", Occurrence: 1, Weight: 1},
+				"interpretation": map[string]interface{}{
+					"source": []interface{}{
+						map[string]interface{}{
+							"concept":    "some",
+							"occurrence": float64(1),
+							"weight":     float64(1),
+						},
+						map[string]interface{}{
+							"concept":    "value",
+							"occurrence": float64(1),
+							"weight":     float64(1),
+						},
 					},
 				},
 			},
@@ -557,10 +573,18 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, thingID, schema["id"], "has id in schema as uuid field")
 		assert.Equal(t, []float32{1, 3, 5, 0.4}, item.Vector, "has Vector property")
 		assert.Equal(t, models.AdditionalProperties{
-			"interpretation": &additional.Interpretation{
-				Source: []*additional.InterpretationSource{
-					{Concept: "some", Occurrence: 1, Weight: 1},
-					{Concept: "value", Occurrence: 1, Weight: 1},
+			"interpretation": map[string]interface{}{
+				"source": []interface{}{
+					map[string]interface{}{
+						"concept":    "some",
+						"occurrence": float64(1),
+						"weight":     float64(1),
+					},
+					map[string]interface{}{
+						"concept":    "value",
+						"occurrence": float64(1),
+						"weight":     float64(1),
+					},
 				},
 			},
 		}, item.AdditionalProperties, "has Vector and Interpretation additional property")
