@@ -147,7 +147,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Open Source Search Graph (GraphQL/RESTful/P2P) */
+/*WeaviateAPI Cloud-native, modular vector search engine */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
