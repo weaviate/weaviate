@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -49,7 +48,7 @@ type vectorizer interface {
 	// element should be explicit nil, not skipped
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
 
-	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []additional.InterpretationSource, error)
+	VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 }
 
 type authorizer interface {

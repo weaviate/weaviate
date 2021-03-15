@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql/language/ast"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -86,14 +85,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"interpretation": &additional.Interpretation{
-							Source: []*additional.InterpretationSource{
-								&additional.InterpretationSource{
+						"interpretation": &models.Interpretation{
+							Source: []*models.InterpretationSource{
+								&models.InterpretationSource{
 									Concept:    "foo",
 									Weight:     0.6,
 									Occurrence: 1200,
 								},
-								&additional.InterpretationSource{
+								&models.InterpretationSource{
 									Concept:    "bar",
 									Weight:     0.9,
 									Occurrence: 800,
