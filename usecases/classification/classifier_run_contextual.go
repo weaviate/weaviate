@@ -49,6 +49,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 	return func(item search.Result, itemIndex int, params models.Classification,
 		filters filters, writer writer) error {
 		schema := c.schemaGetter.GetSchemaSkipAuth()
+		vectorizer := c.getVectorizer("text2vec-contextionary-contextual")
 		run := &contextualItemClassifier{
 			item:        item,
 			itemIndex:   itemIndex,
@@ -59,7 +60,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 			schema:      schema,
 			filters:     filters,
 			context:     preparedContext,
-			vectorizer:  c.vectorizer,
+			vectorizer:  vectorizer,
 			rankedWords: map[string][]scoredWord{},
 		}
 

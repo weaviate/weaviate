@@ -110,7 +110,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
-		classifier := classification.New(sg, repo, vrepo, authorizer, nil, logger)
+		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
 
 		params := models.Classification{
 			Class:              "Article",
