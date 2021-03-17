@@ -37,7 +37,7 @@ func newNullLogger() *logrus.Logger {
 func Test_Classifier_KNN(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil, &fakeAuthorizer{}, nil, newNullLogger()).
+		_, err := New(sg, nil, nil, &fakeAuthorizer{}, newNullLogger(), nil).
 			Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
@@ -50,7 +50,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
+		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
 
 		params := models.Classification{
 			Class:              "Article",
@@ -125,7 +125,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
-		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
+		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
 
 		params := models.Classification{
 			Class:              "Article",
@@ -173,7 +173,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
+		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
 
 		params := models.Classification{
 			Class:              "Article",
@@ -218,7 +218,8 @@ func Test_Classifier_Contextual(t *testing.T) {
 		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{words: testDataVectors()}
-		classifier := New(sg, repo, vectorRepo, authorizer, vectorizer, logger)
+		modulesProvider := NewFakeModulesProvider(vectorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, logger, modulesProvider)
 
 		contextual := "text2vec-contextionary-contextual"
 		params := models.Classification{
@@ -292,7 +293,7 @@ func Test_Classifier_Contextual(t *testing.T) {
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
 		logger, _ := test.NewNullLogger()
-		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
+		classifier := New(sg, repo, vectorRepo, authorizer, logger, nil)
 
 		params := models.Classification{
 			Class:              "Article",
@@ -340,7 +341,7 @@ func Test_Classifier_Contextual(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
 		logger, _ := test.NewNullLogger()
-		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
+		classifier := New(sg, repo, vectorRepo, authorizer, logger, nil)
 
 		params := models.Classification{
 			Class:              "Article",
