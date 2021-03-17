@@ -102,7 +102,7 @@ func (c *Classifier) prepareRun(params models.Classification, filters filters,
 	case "text2vec-contextionary-contextual":
 
 		// temporary workaround until gh-1485
-		if c.vectorizer == nil {
+		if c.getVectorizer("text2vec-contextionary-contextual") == nil {
 			// we know the vectorizer is nil, if the contextionary module is not enabled
 			return nil, errors.Errorf("cannot use text2vec-contextionary-contextual " +
 				"without the respective module")

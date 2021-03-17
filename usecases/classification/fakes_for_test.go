@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -270,4 +271,16 @@ func matchClassName(in []search.Result, className string) []search.Result {
 	}
 
 	return out
+}
+
+type fakeModulesProvider struct {
+	fakeVectorizer *fakeVectorizer
+}
+
+func NewFakeModulesProvider(fakeVectorizer *fakeVectorizer) *fakeModulesProvider {
+	return &fakeModulesProvider{fakeVectorizer}
+}
+
+func (m *fakeModulesProvider) GetVectorizer(name string) modulecapabilities.VectorizerClient {
+	return m.fakeVectorizer
 }

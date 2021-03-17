@@ -21,7 +21,6 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
@@ -170,7 +169,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
-		appState.Contextionary, appState.Logger)
+		appState.Logger, appState.Modules)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
@@ -179,7 +178,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupKindBatchHandlers(api, batchKindsManager)
 	setupGraphQLHandlers(api, appState)
-	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Contextionary)
+	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 
 	api.ServerShutdown = func() {}
@@ -292,18 +291,6 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
-
-		// TODO: remove, this should be happening inside the module!
-		// We though we might be able to remove this as part of gh-1473 already, but
-		// have found out that the classifier as well as the misc handlers still
-		// depend on this
-		c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL, appState.Logger)
-		if err != nil {
-			appState.Logger.WithField("action", "startup").
-				WithError(err).Fatal("cannot create c11y client")
-		}
-
-		appState.Contextionary = c11y
 	}
 
 	if _, ok := enabledModules["text2vec-transformers"]; ok {
