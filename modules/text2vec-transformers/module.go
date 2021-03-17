@@ -95,6 +95,10 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
+func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{}, nil
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())

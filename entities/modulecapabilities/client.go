@@ -13,11 +13,6 @@ package modulecapabilities
 
 import "context"
 
-type MetaProvider interface {
-	Version(ctx context.Context) (string, error)
-	WordCount(ctx context.Context) (int64, error)
-}
-
 type VectorizerClient interface {
 	MultiVectorForWord(ctx context.Context,
 		words []string) ([][]float32, error)
@@ -25,7 +20,10 @@ type VectorizerClient interface {
 		overrides map[string]string) ([]float32, error)
 }
 
+type MetaProvider interface {
+	MetaInfo() (map[string]interface{}, error)
+}
+
 type Client interface {
 	Vectorizers() map[string]VectorizerClient
-	MetaProvider() MetaProvider
 }
