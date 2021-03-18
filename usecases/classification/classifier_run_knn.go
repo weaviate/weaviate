@@ -20,7 +20,7 @@ import (
 )
 
 func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
-	params models.Classification, filters filters, writer writer) error {
+	params models.Classification, filters Filters, writer Writer) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 
@@ -30,7 +30,7 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		item.ClassName,
-		params.ClassifyProperties, int(*settings.K), filters.trainingSet)
+		params.ClassifyProperties, int(*settings.K), filters.TrainingSet())
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
 	}

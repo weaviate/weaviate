@@ -26,10 +26,10 @@ type runWorker struct {
 	successCount *int64
 	errorCount   *int64
 	ec           *errorCompounder
-	classify     classifyItemFn
-	batchWriter  writer
+	classify     ClassifyItemFn
+	batchWriter  Writer
 	params       models.Classification
-	filters      filters
+	filters      Filters
 	id           int
 	workerCount  int
 }
@@ -79,14 +79,14 @@ type runWorkers struct {
 	successCount *int64
 	errorCount   *int64
 	ec           *errorCompounder
-	classify     classifyItemFn
+	classify     ClassifyItemFn
 	params       models.Classification
-	filters      filters
-	batchWriter  writer
+	filters      Filters
+	batchWriter  Writer
 }
 
-func newRunWorkers(amount int, classifyFn classifyItemFn,
-	params models.Classification, filters filters, vectorRepo vectorRepo) *runWorkers {
+func newRunWorkers(amount int, classifyFn ClassifyItemFn,
+	params models.Classification, filters Filters, vectorRepo vectorRepo) *runWorkers {
 	var successCount int64
 	var errorCount int64
 
@@ -127,12 +127,12 @@ func (ws *runWorkers) work(ctx context.Context) runWorkerResults {
 
 	res := ws.batchWriter.Stop()
 
-	if res.successCount != *ws.successCount || res.errorCount != *ws.errorCount {
+	if res.SuccessCount() != *ws.successCount || res.ErrorCount() != *ws.errorCount {
 		ws.ec.add(errors.New("data save error"))
 	}
 
-	if res.err != nil {
-		ws.ec.add(res.err)
+	if res.Err() != nil {
+		ws.ec.add(res.Err())
 	}
 
 	return runWorkerResults{

@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -207,21 +206,71 @@ func Test_Classifier_KNN(t *testing.T) {
 	})
 }
 
-func Test_Classifier_Contextual(t *testing.T) {
+func Test_Classifier_Custom_Classifier(t *testing.T) {
 	var id strfmt.UUID
 	// so we can reuse it for follow up requests, such as checking the status
+
+	t.Run("with unreconginzed custom module classifier name", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+
+		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
+		logger, _ := test.NewNullLogger()
+
+		// vectorizer := &fakeVectorizer{words: testDataVectors()}
+		modulesProvider := NewFakeModulesProvider()
+		classifier := New(sg, repo, vectorRepo, authorizer, logger, modulesProvider)
+
+		notRecoginzedContextual := "text2vec-contextionary-custom-not-recognized"
+		params := models.Classification{
+			Class:              "Article",
+			BasedOnProperties:  []string{"description"},
+			ClassifyProperties: []string{"exactCategory", "mainCategory"},
+			Type:               notRecoginzedContextual,
+		}
+
+		t.Run("scheduling an unregonized classification", func(t *testing.T) {
+			class, err := classifier.Schedule(context.Background(), nil, params)
+			require.Nil(t, err, "should not error")
+			require.NotNil(t, class)
+
+			assert.Len(t, class.ID, 36, "an id was assigned")
+			id = class.ID
+		})
+
+		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, id, class.ID)
+		})
+
+		// TODO: improve by polling instead
+		time.Sleep(500 * time.Millisecond)
+
+		t.Run("status is failed", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
+			assert.Equal(t, notRecoginzedContextual, class.Type)
+			assert.Contains(t, class.Error, "classifier "+notRecoginzedContextual+" not found")
+		})
+	})
 
 	t.Run("with valid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
+
 		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
 		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{words: testDataVectors()}
-		modulesProvider := NewFakeModulesProvider(vectorizer)
+
+		modulesProvider := NewFakeModulesProvider()
 		classifier := New(sg, repo, vectorRepo, authorizer, logger, modulesProvider)
 
-		contextual := "text2vec-contextionary-contextual"
+		contextual := "text2vec-contextionary-custom-contextual"
 		params := models.Classification{
 			Class:              "Article",
 			BasedOnProperties:  []string{"description"},
@@ -404,68 +453,4 @@ func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id s
 
 		return class.Status != models.ClassificationStatusRunning
 	}, 100*time.Millisecond, 20*time.Second, "wait until status in no longer running")
-}
-
-type fakeVectorizer struct {
-	words map[string][]float32
-}
-
-func (f *fakeVectorizer) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
-	out := make([][]float32, len(words))
-	for i, word := range words {
-		vector, ok := f.words[strings.ToLower(word)]
-		if !ok {
-			continue
-		}
-		out[i] = vector
-	}
-	return out, nil
-}
-
-func (f *fakeVectorizer) VectorOnlyForCorpi(ctx context.Context, corpi []string,
-	overrides map[string]string) ([]float32, error) {
-	words := strings.Split(corpi[0], " ")
-	if len(words) == 0 {
-		return nil, fmt.Errorf("vector for corpi called without words")
-	}
-
-	vectors, _ := f.MultiVectorForWord(ctx, words)
-
-	return f.centroid(vectors, words)
-}
-
-func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, error) {
-	withoutNilVectors := make([][]float32, len(in))
-	if len(in) == 0 {
-		return nil, fmt.Errorf("got nil vector list for words: %v", words)
-	}
-
-	i := 0
-	for _, vec := range in {
-		if vec == nil {
-			continue
-		}
-
-		withoutNilVectors[i] = vec
-		i++
-	}
-	withoutNilVectors = withoutNilVectors[:i]
-	if i == 0 {
-		return nil, fmt.Errorf("no usable words: %v", words)
-	}
-
-	// take the first vector assuming all have the same length
-	out := make([]float32, len(withoutNilVectors[0]))
-
-	for _, vec := range withoutNilVectors {
-		for i, dim := range vec {
-			out[i] = out[i] + dim
-		}
-	}
-
-	for i, sum := range out {
-		out[i] = sum / float32(len(withoutNilVectors))
-	}
-
-	return out, nil
 }
