@@ -447,16 +447,34 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
-// GetClient returns given module's client
-func (m *Provider) GetVectorizer(name string) modulecapabilities.VectorizerClient {
+// ParseClassifierSettings parses and adds classifier specific settings
+func (m *Provider) ParseClassifierSettings(name string,
+	params *models.Classification) error {
 	for _, module := range m.GetAll() {
-		if c, ok := module.(modulecapabilities.Client); ok && c.Vectorizers() != nil {
-			if vectorizer, ok := c.Vectorizers()[name]; ok {
-				return vectorizer
+		if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
+			for _, classifier := range c.Classifiers() {
+				if classifier != nil && classifier.Name() == name {
+					return classifier.ParseClassifierSettings(params)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// GetClassificationFn returns given module's classification
+func (m *Provider) GetClassificationFn(name string,
+	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	for _, module := range m.GetAll() {
+		if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
+			for _, classifier := range c.Classifiers() {
+				if classifier != nil && classifier.Name() == name {
+					return classifier.ClassifyFn(params)
+				}
+			}
+		}
+	}
+	return nil, errors.Errorf("classifier %s not found", name)
 }
 
 // GetMeta returns meta information about modules
