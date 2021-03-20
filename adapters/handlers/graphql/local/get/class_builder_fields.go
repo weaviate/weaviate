@@ -367,7 +367,7 @@ type additionalCheck struct {
 }
 
 func (ac *additionalCheck) isAdditional(name string) bool {
-	if name == "classification" || name == "interpretation" || name == "certainty" || name == "id" {
+	if name == "classification" || name == "certainty" || name == "id" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -430,10 +430,6 @@ func extractProperties(selections *ast.SelectionSet,
 						additionalProperty := s.Name.Value
 						if additionalProperty == "classification" {
 							additionalProps.Classification = true
-							continue
-						}
-						if additionalProperty == "interpretation" {
-							additionalProps.Interpretation = true
 							continue
 						}
 						if additionalProperty == "certainty" {

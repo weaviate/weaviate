@@ -365,10 +365,6 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider) (traverser.A
 			out.RefMeta = true
 			continue
 		}
-		if prop == "interpretation" {
-			out.Interpretation = true
-			continue
-		}
 		if prop == "vector" {
 			out.Vector = true
 			continue

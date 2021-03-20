@@ -136,7 +136,9 @@ func TestModulesProvider(t *testing.T) {
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").
 			withGraphQLArg("featureProjection", []string{"featureProjection"}).
+			withGraphQLArg("interpretation", []string{"interpretation"}).
 			withRestApiArg("featureProjection", []string{"featureProjection", "fp", "f-p"}).
+			withRestApiArg("interpretation", []string{"interpretation"}).
 			withArg("nearArgument"),
 		)
 		err := modulesProvider.Init(context.Background(), nil)
@@ -144,7 +146,8 @@ func TestModulesProvider(t *testing.T) {
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
 		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
-		restApiArgs := modulesProvider.RestApiAdditionalProperties("featureProjection")
+		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection")
+		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation")
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()
 
 		// then
@@ -154,8 +157,10 @@ func TestModulesProvider(t *testing.T) {
 		assert.NotNil(t, getArgs["nearArgument"])
 		assert.NotNil(t, exploreArgs["nearArgument"])
 		assert.NotNil(t, extractedArgs["nearArgument"])
-		assert.NotNil(t, restApiArgs["featureProjection"])
+		assert.NotNil(t, restApiFPArgs["featureProjection"])
+		assert.NotNil(t, restApiInterpretationArgs["interpretation"])
 		assert.Contains(t, graphQLArgs, "featureProjection")
+		assert.Contains(t, graphQLArgs, "interpretation")
 	})
 
 	t.Run("should not register additional property modules providing the same params", func(t *testing.T) {
@@ -198,8 +203,6 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("group").
 			withGraphQLArg("classification", []string{"classification"}).
 			withRestApiArg("classification", []string{"classification"}).
-			withGraphQLArg("interpretation", []string{"interpretation"}).
-			withRestApiArg("interpretation", []string{"interpretation"}).
 			withGraphQLArg("certainty", []string{"certainty"}).
 			withRestApiArg("certainty", []string{"certainty"}).
 			withGraphQLArg("id", []string{"id"}).
@@ -215,11 +218,9 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "searcher: group conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: limit conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: classification conflicts with weaviate's internal searcher in modules: [mod3]")
-		assert.Contains(t, err.Error(), "rest api additional property: interpretation conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: id conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: classification conflicts with weaviate's internal searcher in modules: [mod3]")
-		assert.Contains(t, err.Error(), "graphql additional property: interpretation conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod3]")
 	})
@@ -249,8 +250,6 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider.Register(newGraphQLAdditionalModule("mod4").
 			withGraphQLArg("classification", []string{"classification"}).
 			withRestApiArg("classification", []string{"classification"}).
-			withGraphQLArg("interpretation", []string{"interpretation"}).
-			withRestApiArg("interpretation", []string{"interpretation"}).
 			withGraphQLArg("certainty", []string{"certainty"}).
 			withRestApiArg("certainty", []string{"certainty"}).
 			withGraphQLArg("id", []string{"id"}).
@@ -267,11 +266,9 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "searcher: group conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: limit conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: classification conflicts with weaviate's internal searcher in modules: [mod4]")
-		assert.Contains(t, err.Error(), "rest api additional property: interpretation conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "rest api additional property: certainty conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "rest api additional property: id conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: classification conflicts with weaviate's internal searcher in modules: [mod4]")
-		assert.Contains(t, err.Error(), "graphql additional property: interpretation conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: semanticPath defined in more than one module")
