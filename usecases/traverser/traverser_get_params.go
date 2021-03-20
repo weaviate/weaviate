@@ -141,7 +141,6 @@ type AdditionalProperties struct {
 	Classification bool
 	RefMeta        bool
 	Vector         bool
-	Interpretation bool
 	Certainty      bool
 	ID             bool
 	ModuleParams   map[string]interface{}

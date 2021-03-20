@@ -162,6 +162,21 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+type fakeInterpretation struct{}
+
+func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return in, nil
+}
+
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return true
+}
+
+func (f *fakeInterpretation) AdditonalPropertyDefaultValue() interface{} {
+	return true
+}
+
 type fakeExtender struct {
 	returnArgs []search.Result
 }
@@ -226,9 +241,10 @@ func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 }
 
 type fakeText2vecContextionaryModule struct {
-	customExtender    *fakeExtender
-	customProjector   *fakeProjector
-	customPathBuilder *fakePathBuilder
+	customExtender       *fakeExtender
+	customProjector      *fakeProjector
+	customPathBuilder    *fakePathBuilder
+	customInterpretation *fakeInterpretation
 }
 
 func newFakeText2vecContextionaryModuleWithCustomExtender(
@@ -236,7 +252,7 @@ func newFakeText2vecContextionaryModuleWithCustomExtender(
 	customProjector *fakeProjector,
 	customPathBuilder *fakePathBuilder,
 ) *fakeText2vecContextionaryModule {
-	return &fakeText2vecContextionaryModule{customExtender, customProjector, customPathBuilder}
+	return &fakeText2vecContextionaryModule{customExtender, customProjector, customPathBuilder, &fakeInterpretation{}}
 }
 
 func (m *fakeText2vecContextionaryModule) Name() string {
@@ -252,7 +268,7 @@ func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder()).Arguments()
+	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).Arguments()
 }
 
 func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
@@ -261,7 +277,7 @@ func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapa
 }
 
 func (m *fakeText2vecContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder()).AdditionalProperties()
+	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).AdditionalProperties()
 }
 
 func (m *fakeText2vecContextionaryModule) getExtender() *fakeExtender {
@@ -283,6 +299,13 @@ func (m *fakeText2vecContextionaryModule) getPathBuilder() *fakePathBuilder {
 		return m.customPathBuilder
 	}
 	return &fakePathBuilder{}
+}
+
+func (m *fakeText2vecContextionaryModule) getInterpretation() *fakeInterpretation {
+	if m.customInterpretation != nil {
+		return m.customInterpretation
+	}
+	return &fakeInterpretation{}
 }
 
 type nearCustomTextParams struct {
@@ -308,17 +331,19 @@ type nearObjectMove struct {
 }
 
 type nearCustomTextModule struct {
-	fakeExtender    *fakeExtender
-	fakeProjector   *fakeProjector
-	fakePathBuilder *fakePathBuilder
+	fakeExtender       *fakeExtender
+	fakeProjector      *fakeProjector
+	fakePathBuilder    *fakePathBuilder
+	fakeInterpretation *fakeInterpretation
 }
 
 func newNearCustomTextModule(
 	fakeExtender *fakeExtender,
 	fakeProjector *fakeProjector,
 	fakePathBuilder *fakePathBuilder,
+	fakeInterpretation *fakeInterpretation,
 ) *nearCustomTextModule {
-	return &nearCustomTextModule{fakeExtender, fakeProjector, fakePathBuilder}
+	return &nearCustomTextModule{fakeExtender, fakeProjector, fakePathBuilder, fakeInterpretation}
 }
 
 func (m *nearCustomTextModule) Name() string {
@@ -529,6 +554,7 @@ func (m *nearCustomTextModule) AdditionalProperties() map[string]modulecapabilit
 	additionalProperties["featureProjection"] = m.getFeatureProjection()
 	additionalProperties["nearestNeighbors"] = m.getNearestNeighbors()
 	additionalProperties["semanticPath"] = m.getSemanticPath()
+	additionalProperties["interpretation"] = m.getInterpretation()
 	return additionalProperties
 }
 
@@ -633,6 +659,37 @@ func (m *nearCustomTextModule) getSemanticPath() modulecapabilities.AdditionalPr
 		GraphQLExtractFunction: m.fakePathBuilder.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{
 			ExploreGet: m.fakePathBuilder.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (m *nearCustomTextModule) getInterpretation() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeInterpretation.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"interpretation"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalInterpretation", classname),
+					Fields: graphql.Fields{
+						"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalInterpretationSource", classname),
+							Fields: graphql.Fields{
+								"concept":    &graphql.Field{Type: graphql.String},
+								"weight":     &graphql.Field{Type: graphql.Float},
+								"occurrence": &graphql.Field{Type: graphql.Int},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeInterpretation.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectGet:   m.fakeInterpretation.AdditionalPropertyFn,
+			ObjectList:  m.fakeInterpretation.AdditionalPropertyFn,
+			ExploreGet:  m.fakeInterpretation.AdditionalPropertyFn,
+			ExploreList: m.fakeInterpretation.AdditionalPropertyFn,
 		},
 	}
 }

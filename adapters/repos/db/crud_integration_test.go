@@ -559,7 +559,13 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector and Interpretation additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{Vector: true, Interpretation: true})
+		params := traverser.AdditionalProperties{
+			Vector: true,
+			ModuleParams: map[string]interface{}{
+				"interpretation": true,
+			},
+		}
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, params)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)

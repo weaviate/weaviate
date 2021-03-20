@@ -86,3 +86,21 @@ func additionalSemanticPathField(classname string) *graphql.Field {
 		}),
 	}
 }
+
+func additionalInterpretationField(classname string) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalInterpretation", classname),
+			Fields: graphql.Fields{
+				"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalInterpretationSource", classname),
+					Fields: graphql.Fields{
+						"concept":    &graphql.Field{Type: graphql.String},
+						"weight":     &graphql.Field{Type: graphql.Float},
+						"occurrence": &graphql.Field{Type: graphql.Int},
+					},
+				}))},
+			},
+		}),
+	}
+}

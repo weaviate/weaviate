@@ -473,7 +473,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			AdditionalProperties: AdditionalProperties{
-				Interpretation: true,
+				ModuleParams: map[string]interface{}{
+					"interpretation": true,
+				},
 			},
 		}
 
@@ -1256,8 +1258,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 			AdditionalProperties: AdditionalProperties{
 				ID:             true,
 				Classification: true,
-				Interpretation: true,
 				ModuleParams: map[string]interface{}{
+					"interpretation":   true,
 					"nearestNeighbors": true,
 				},
 			},
