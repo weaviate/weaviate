@@ -150,8 +150,10 @@ func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *searc
 
 	additionalProperties := models.AdditionalProperties{}
 	if ko.AdditionalProperties() != nil {
-		if additional.Interpretation {
-			additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
+		if interpretation, ok := additional.ModuleParams["interpretation"]; ok {
+			if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
+				additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
+			}
 		}
 		if additional.Classification {
 			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]

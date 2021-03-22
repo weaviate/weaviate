@@ -42,7 +42,9 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 		},
 		AdditionalProperties: traverser.AdditionalProperties{
 			Classification: true,
-			Interpretation: true,
+			ModuleParams: map[string]interface{}{
+				"interpretation": true,
+			},
 		},
 	})
 

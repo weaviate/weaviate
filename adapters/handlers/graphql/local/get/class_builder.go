@@ -123,7 +123,6 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *models.Class) {
 	additionalProperties := graphql.Fields{}
 	additionalProperties["classification"] = b.additionalClassificationField(class)
-	additionalProperties["interpretation"] = b.additionalInterpretationField(class)
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	// module specific additional properties
@@ -157,24 +156,6 @@ func (b *classBuilder) additionalClassificationField(class *models.Class) *graph
 				"scope":            &graphql.Field{Type: graphql.NewList(graphql.String)},
 				"classifiedFields": &graphql.Field{Type: graphql.NewList(graphql.String)},
 				"completed":        &graphql.Field{Type: graphql.String},
-			},
-		}),
-	}
-}
-
-func (b *classBuilder) additionalInterpretationField(class *models.Class) *graphql.Field {
-	return &graphql.Field{
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name: fmt.Sprintf("%sAdditionalInterpretation", class.Class),
-			Fields: graphql.Fields{
-				"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sAdditionalInterpretationSource", class.Class),
-					Fields: graphql.Fields{
-						"concept":    &graphql.Field{Type: graphql.String},
-						"weight":     &graphql.Field{Type: graphql.Float},
-						"occurrence": &graphql.Field{Type: graphql.Int},
-					},
-				}))},
 			},
 		}),
 	}

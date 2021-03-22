@@ -38,6 +38,23 @@ type mockResolver struct {
 	test_helper.MockResolver
 }
 
+type fakeInterpretation struct {
+	returnArgs []search.Result
+}
+
+func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return f.returnArgs, nil
+}
+
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return true
+}
+
+func (f *fakeInterpretation) AdditonalPropertyDefaultValue() interface{} {
+	return true
+}
+
 type fakeExtender struct {
 	returnArgs []search.Result
 }
@@ -132,16 +149,18 @@ type nearObjectMove struct {
 }
 
 type nearCustomTextModule struct {
-	fakePathBuilder *fakePathBuilder
-	fakeProjector   *fakeProjector
-	fakeExtender    *fakeExtender
+	fakePathBuilder    *fakePathBuilder
+	fakeProjector      *fakeProjector
+	fakeExtender       *fakeExtender
+	fakeInterpretation *fakeInterpretation
 }
 
 func newNearCustomTextModule() *nearCustomTextModule {
 	return &nearCustomTextModule{
-		fakePathBuilder: &fakePathBuilder{},
-		fakeProjector:   &fakeProjector{},
-		fakeExtender:    &fakeExtender{},
+		fakePathBuilder:    &fakePathBuilder{},
+		fakeProjector:      &fakeProjector{},
+		fakeExtender:       &fakeExtender{},
+		fakeInterpretation: &fakeInterpretation{},
 	}
 }
 
@@ -335,6 +354,7 @@ func (m *nearCustomTextModule) AdditionalProperties() map[string]modulecapabilit
 	additionalProperties["featureProjection"] = m.getFeatureProjection()
 	additionalProperties["nearestNeighbors"] = m.getNearestNeighbors()
 	additionalProperties["semanticPath"] = m.getSemanticPath()
+	additionalProperties["interpretation"] = m.getInterpretation()
 	return additionalProperties
 }
 
@@ -426,6 +446,31 @@ func (m *nearCustomTextModule) getSemanticPath() modulecapabilities.AdditionalPr
 			}
 		},
 		GraphQLExtractFunction: m.fakePathBuilder.ExtractAdditionalFn,
+	}
+}
+
+func (m *nearCustomTextModule) getInterpretation() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		DefaultValue: m.fakeInterpretation.AdditonalPropertyDefaultValue(),
+		GraphQLNames: []string{"interpretation"},
+		GraphQLFieldFunction: func(classname string) *graphql.Field {
+			return &graphql.Field{
+				Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalInterpretation", classname),
+					Fields: graphql.Fields{
+						"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalInterpretationSource", classname),
+							Fields: graphql.Fields{
+								"concept":    &graphql.Field{Type: graphql.String},
+								"weight":     &graphql.Field{Type: graphql.Float},
+								"occurrence": &graphql.Field{Type: graphql.Int},
+							},
+						}))},
+					},
+				}),
+			}
+		},
+		GraphQLExtractFunction: m.fakeInterpretation.ExtractAdditionalFn,
 	}
 }
 

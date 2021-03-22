@@ -30,10 +30,11 @@ type GraphQLAdditionalArgumentsProvider struct {
 	nnExtender     AdditionalProperty
 	projector      AdditionalProperty
 	sempathBuilder AdditionalProperty
+	interpretation AdditionalProperty
 }
 
-func New(nnExtender, projector, sempath AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
-	return &GraphQLAdditionalArgumentsProvider{nnExtender, projector, sempath}
+func New(nnExtender, projector, sempath, interpretation AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
+	return &GraphQLAdditionalArgumentsProvider{nnExtender, projector, sempath, interpretation}
 }
 
 func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
@@ -41,6 +42,7 @@ func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]m
 	additionalProperties["nearestNeighbors"] = p.getNearestNeighbors()
 	additionalProperties["featureProjection"] = p.getFeatureProjection()
 	additionalProperties["semanticPath"] = p.getSemanticPath()
+	additionalProperties["interpretation"] = p.getInterpretation()
 	return additionalProperties
 }
 
@@ -93,6 +95,24 @@ func (p *GraphQLAdditionalArgumentsProvider) getSemanticPath() modulecapabilitie
 		GraphQLExtractFunction: p.sempathBuilder.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{
 			ExploreGet: p.sempathBuilder.AdditionalPropertyFn,
+		},
+	}
+}
+
+func (p *GraphQLAdditionalArgumentsProvider) getInterpretation() modulecapabilities.AdditionalProperty {
+	return modulecapabilities.AdditionalProperty{
+		RestNames: []string{
+			"interpretation",
+		},
+		DefaultValue:           p.interpretation.AdditonalPropertyDefaultValue(),
+		GraphQLNames:           []string{"interpretation"},
+		GraphQLFieldFunction:   additionalInterpretationField,
+		GraphQLExtractFunction: p.interpretation.ExtractAdditionalFn,
+		SearchFunctions: modulecapabilities.AdditionalSearch{
+			ObjectGet:   p.interpretation.AdditionalPropertyFn,
+			ObjectList:  p.interpretation.AdditionalPropertyFn,
+			ExploreGet:  p.interpretation.AdditionalPropertyFn,
+			ExploreList: p.interpretation.AdditionalPropertyFn,
 		},
 	}
 }

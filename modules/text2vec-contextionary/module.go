@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	text2vecadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
+	text2vecinterpretation "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/interpretation"
 	text2vecnn "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
 	text2vecprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
@@ -156,7 +157,8 @@ func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
 	nnExtender := text2vecnn.NewExtender(m.remote)
 	featureProjector := text2vecprojector.New()
 	pathBuilder := text2vecsempath.New(m.remote)
-	m.additionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder)
+	interpretation := text2vecinterpretation.New()
+	m.additionalPropertiesProvider = text2vecadditional.New(nnExtender, featureProjector, pathBuilder, interpretation)
 	return nil
 }
 
