@@ -265,24 +265,6 @@ func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n i
 	return res.Words, res.Distances, nil
 }
 
-func (c *Client) Version(ctx context.Context) (string, error) {
-	m, err := c.grpcClient.Meta(ctx, &pb.MetaParams{})
-	if err != nil {
-		return "", err
-	}
-
-	return m.Version, nil
-}
-
-func (c *Client) WordCount(ctx context.Context) (int64, error) {
-	m, err := c.grpcClient.Meta(ctx, &pb.MetaParams{})
-	if err != nil {
-		return 0, err
-	}
-
-	return m.WordCount, nil
-}
-
 func (c *Client) AddExtension(ctx context.Context, extension *models.C11yExtension) error {
 	_, err := c.grpcClient.AddExtension(ctx, &pb.ExtensionInput{
 		Concept:    extension.Concept,
@@ -311,7 +293,7 @@ func (c *Client) WaitForStartupAndValidateVersion(startupCtx context.Context,
 
 		ctx, cancel := context.WithTimeout(startupCtx, 2*time.Second)
 		defer cancel()
-		v, err := c.Version(ctx)
+		v, err := c.version(ctx)
 		if err != nil {
 			c.logger.WithField("action", "startup_check_contextionary").WithError(err).
 				Warnf("could not connect to contextionary at startup, trying again in 1 sec")

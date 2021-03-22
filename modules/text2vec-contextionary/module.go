@@ -196,8 +196,8 @@ func (m *ContextionaryModule) Vectorizers() map[string]modulecapabilities.Vector
 	return vectorizers
 }
 
-func (m *ContextionaryModule) MetaProvider() modulecapabilities.MetaProvider {
-	return m.remote
+func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
+	return m.remote.MetaInfo()
 }
 
 // verify we implement the modules.Module interface

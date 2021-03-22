@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -36,11 +35,6 @@ type swaggerJSON struct {
 	} `json:"info"`
 }
 
-type c11yMetaProvider interface {
-	Version(ctx context.Context) (string, error)
-	WordCount(ctx context.Context) (int64, error)
-}
-
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
 	schemaManager schemaManager, modulesProvider ModulesProvider) {
 	var swj swaggerJSON
@@ -49,46 +43,21 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 		panic(err)
 	}
 
-	var c11y c11yMetaProvider
-	if modulesProvider != nil {
-		c11y = modulesProvider.GetMetaProvider()
-	}
-
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
-		// TODO: gh-1494 make this modular
+		metaInfos := map[string]interface{}{}
 
-		modules := map[string]interface{}{}
-
-		if c11y != nil {
-			// this is a slightly hacky way to check if we are running with the c11y
-			// module, since at startup we register the client only if the module is
-			// enabled
-			// Create response object
-			c11yVersion, err := c11y.Version(context.Background())
+		if modulesProvider != nil {
+			metaInfos, err = modulesProvider.GetMeta()
 			if err != nil {
 				return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-			}
-
-			c11yWordCount, err := c11y.WordCount(context.Background())
-			if err != nil {
-				return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-			}
-
-			// TODO: gh-1494 When doing actual modularization, don't hard-code the module
-			// value, but ask each module for the meta info they want to provide
-			// dynamically
-			modules["text2vec-contextionary"] = map[string]interface{}{
-				"version":   c11yVersion,
-				"wordCount": c11yWordCount,
 			}
 		}
 
 		res := &models.Meta{
 			Hostname: serverConfig.GetHostAddress(),
 			Version:  swj.Info.Version,
-			Modules:  modules,
+			Modules:  metaInfos,
 		}
-
 		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
