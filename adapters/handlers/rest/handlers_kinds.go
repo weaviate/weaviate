@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -39,7 +38,7 @@ type kindHandlers struct {
 
 type ModulesProvider interface {
 	RestApiAdditionalProperties(includeProp string) map[string]interface{}
-	GetMetaProvider() modulecapabilities.MetaProvider
+	GetMeta() (map[string]interface{}, error)
 }
 
 type kindsManager interface {

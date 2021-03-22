@@ -459,12 +459,17 @@ func (m *Provider) GetVectorizer(name string) modulecapabilities.VectorizerClien
 	return nil
 }
 
-// GetMetaProvider returns meta provider
-func (m *Provider) GetMetaProvider() modulecapabilities.MetaProvider {
+// GetMeta returns meta information about modules
+func (m *Provider) GetMeta() (map[string]interface{}, error) {
+	metaInfos := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if c, ok := module.(modulecapabilities.Client); ok {
-			return c.MetaProvider()
+		if c, ok := module.(modulecapabilities.MetaProvider); ok {
+			meta, err := c.MetaInfo()
+			if err != nil {
+				return nil, err
+			}
+			metaInfos[module.Name()] = meta
 		}
 	}
-	return nil
+	return metaInfos, nil
 }
