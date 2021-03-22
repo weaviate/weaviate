@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testParallelBatchWrite(batchWriter writer, items search.Results, resultChannel chan<- batchWriterResults) {
+func testParallelBatchWrite(batchWriter Writer, items search.Results, resultChannel chan<- WriterResults) {
 	batchWriter.Start()
 	for _, item := range items {
 		batchWriter.Store(item)
@@ -57,9 +57,9 @@ func TestWriter_SimpleWrite(t *testing.T) {
 	}
 	res := batchWriter.Stop()
 	// then
-	assert.Equal(t, int64(len(searchResultsToBeSaved)), res.successCount)
-	assert.Equal(t, int64(0), res.errorCount)
-	assert.Equal(t, nil, res.err)
+	assert.Equal(t, int64(len(searchResultsToBeSaved)), res.SuccessCount())
+	assert.Equal(t, int64(0), res.ErrorCount())
+	assert.Equal(t, nil, res.Err())
 }
 
 func TestWriter_LoadWrites(t *testing.T) {
@@ -75,9 +75,9 @@ func TestWriter_LoadWrites(t *testing.T) {
 	}
 	res := batchWriter.Stop()
 	// then
-	assert.Equal(t, int64(searchResultsCount), res.successCount)
-	assert.Equal(t, int64(0), res.errorCount)
-	assert.Equal(t, nil, res.err)
+	assert.Equal(t, int64(searchResultsCount), res.SuccessCount())
+	assert.Equal(t, int64(0), res.ErrorCount())
+	assert.Equal(t, nil, res.Err())
 }
 
 func TestWriter_ParallelLoadWrites(t *testing.T) {
@@ -88,20 +88,20 @@ func TestWriter_ParallelLoadWrites(t *testing.T) {
 	searchResultsToBeSaved2 := generateSearchResultsToSave(searchResultsToBeSavedCount2)
 	vectorRepo1 := newFakeVectorRepoKNN(searchResultsToBeSaved1, testDataAlreadyClassified())
 	batchWriter1 := newBatchWriter(vectorRepo1)
-	resChannel1 := make(chan batchWriterResults)
+	resChannel1 := make(chan WriterResults)
 	vectorRepo2 := newFakeVectorRepoKNN(searchResultsToBeSaved2, testDataAlreadyClassified())
 	batchWriter2 := newBatchWriter(vectorRepo2)
-	resChannel2 := make(chan batchWriterResults)
+	resChannel2 := make(chan WriterResults)
 	// when
 	go testParallelBatchWrite(batchWriter1, searchResultsToBeSaved1, resChannel1)
 	go testParallelBatchWrite(batchWriter2, searchResultsToBeSaved2, resChannel2)
 	res1 := <-resChannel1
 	res2 := <-resChannel2
 	// then
-	assert.Equal(t, int64(searchResultsToBeSavedCount1), res1.successCount)
-	assert.Equal(t, int64(0), res1.errorCount)
-	assert.Equal(t, nil, res1.err)
-	assert.Equal(t, int64(searchResultsToBeSavedCount2), res2.successCount)
-	assert.Equal(t, int64(0), res2.errorCount)
-	assert.Equal(t, nil, res2.err)
+	assert.Equal(t, int64(searchResultsToBeSavedCount1), res1.SuccessCount())
+	assert.Equal(t, int64(0), res1.ErrorCount())
+	assert.Equal(t, nil, res1.Err())
+	assert.Equal(t, int64(searchResultsToBeSavedCount2), res2.SuccessCount())
+	assert.Equal(t, int64(0), res2.ErrorCount())
+	assert.Equal(t, nil, res2.Err())
 }

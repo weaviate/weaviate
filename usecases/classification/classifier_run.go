@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus"
@@ -30,11 +31,8 @@ import (
 // which is generic, whereas the individual classify_item fns can be found in
 // the respective files such as classifier_run_knn.go
 
-type classifyItemFn func(item search.Result, itemIndex int,
-	params models.Classification, filters filters, writer writer) error
-
 func (c *Classifier) run(params models.Classification,
-	filters filters) {
+	filters Filters) {
 	ctx, cancel := contextWithTimeout(30 * time.Minute)
 	defer cancel()
 
@@ -42,7 +40,7 @@ func (c *Classifier) run(params models.Classification,
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
-		params.Class, params.ClassifyProperties, filters.source)
+		params.Class, params.ClassifyProperties, filters.Source())
 	if err != nil {
 		c.failRunWithError(params, errors.Wrap(err, "retrieve to-be-classifieds"))
 		return
@@ -88,45 +86,45 @@ func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context
 	}
 }
 
-func (c *Classifier) prepareRun(params models.Classification, filters filters,
-	unclassifiedItems []search.Result) (classifyItemFn, error) {
-	var classifyItem classifyItemFn
+func (c *Classifier) prepareRun(params models.Classification, filters Filters,
+	unclassifiedItems []search.Result) (ClassifyItemFn, error) {
 	c.logBeginPreparation(params)
-	// safe to deref as we have passed validation at this point and or setting of
-	// default values
-	switch params.Type {
-	case "knn":
-		classifyItem = c.classifyItemUsingKNN
+	defer c.logFinishPreparation(params)
 
-	// TODO: gh-1485 this should come from the module
-	case "text2vec-contextionary-contextual":
-
-		// temporary workaround until gh-1485
-		if c.getVectorizer("text2vec-contextionary-contextual") == nil {
-			// we know the vectorizer is nil, if the contextionary module is not enabled
-			return nil, errors.Errorf("cannot use text2vec-contextionary-contextual " +
-				"without the respective module")
-		}
-
-		// 1. do preparation here once
-		preparedContext, err := c.prepareContextualClassification(params, filters, unclassifiedItems)
-		if err != nil {
-			return nil, errors.Wrap(err, "prepare context for text2vec-contextionary-contextual classification")
-		}
-
-		// 2. use higher order function to inject preparation data so it is then present for each single run
-		classifyItem = c.makeClassifyItemContextual(preparedContext)
-	default:
-		return nil, fmt.Errorf("unsupported type '%s', have no classify item fn for this", params.Type)
+	if params.Type == "knn" {
+		return c.classifyItemUsingKNN, nil
 	}
 
-	c.logFinishPreparation(params)
-	return classifyItem, nil
+	if c.modulesProvider != nil {
+		classifyItemFn, err := c.modulesProvider.GetClassificationFn(params.Type,
+			c.getClassifyParams(params, filters, unclassifiedItems))
+		if err != nil {
+			return nil, errors.Wrapf(err, "cannot classify")
+		}
+		if classifyItemFn == nil {
+			return nil, errors.Errorf("cannot classify: empty classifier for %s", params.Type)
+		}
+		classification := &moduleClassification{classifyItemFn}
+		return classification.classifyFn, nil
+	}
+
+	return nil, errors.Errorf("unsupported type '%s', have no classify item fn for this", params.Type)
+}
+
+func (c *Classifier) getClassifyParams(params models.Classification,
+	filters Filters, unclassifiedItems []search.Result) modulecapabilities.ClassifyParams {
+	return modulecapabilities.ClassifyParams{
+		Schema:            c.schemaGetter.GetSchemaSkipAuth(),
+		Params:            params,
+		Filters:           filters,
+		UnclassifiedItems: unclassifiedItems,
+		VectorRepo:        c.vectorClassSearchRepo,
+	}
 }
 
 // runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
-func (c *Classifier) runItems(ctx context.Context, classifyItem classifyItemFn, params models.Classification, filters filters,
+func (c *Classifier) runItems(ctx context.Context, classifyItem ClassifyItemFn, params models.Classification, filters Filters,
 	items []search.Result) (models.Classification, error) {
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
@@ -193,7 +191,7 @@ func (c *Classifier) logBase(params models.Classification, event string) *logrus
 		WithField("classification_type", params.Type)
 }
 
-func (c *Classifier) logBegin(params models.Classification, filters filters) {
+func (c *Classifier) logBegin(params models.Classification, filters Filters) {
 	c.logBase(params, "classification_begin").
 		WithField("filters", filters).
 		Debug("classification started")

@@ -17,9 +17,10 @@ import (
 
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	libclassification "github.com/semi-technologies/weaviate/usecases/classification"
 )
 
 type tfidfScorer interface {
@@ -31,13 +32,13 @@ type contextualPreparationContext struct {
 	targets map[string]search.Results // map[classifyProp]targets
 }
 
-func (c *Classifier) prepareContextualClassification(params models.Classification,
-	filters filters, items search.Results) (contextualPreparationContext, error) {
-	schema := c.schemaGetter.GetSchemaSkipAuth()
+func (c *Classifier) prepareContextualClassification(schema schema.Schema,
+	vectorRepo modulecapabilities.VectorClassSearchRepo, params models.Classification,
+	filters libclassification.Filters, items search.Results) (contextualPreparationContext, error) {
 	p := &contextualPreparer{
 		inputItems: items,
 		params:     params,
-		repo:       c.vectorRepo,
+		repo:       vectorRepo,
 		filters:    filters,
 		schema:     schema,
 	}
@@ -48,8 +49,8 @@ func (c *Classifier) prepareContextualClassification(params models.Classificatio
 type contextualPreparer struct {
 	inputItems []search.Result
 	params     models.Classification
-	repo       vectorRepo
-	filters    filters
+	repo       modulecapabilities.VectorClassSearchRepo
+	filters    libclassification.Filters
 	schema     schema.Schema
 }
 
@@ -128,17 +129,13 @@ func (p *contextualPreparer) findTargetsForProps() (map[string]search.Results, e
 func (p *contextualPreparer) findTargets(class schema.ClassName) (search.Results, error) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	res, err := p.repo.VectorClassSearch(ctx, traverser.GetParams{
-		Filters: p.filters.target,
+	res, err := p.repo.VectorClassSearch(ctx, modulecapabilities.VectorClassSearchParams{
+		Filters: p.filters.Target(),
 		Pagination: &libfilters.Pagination{
 			Limit: 10000,
 		},
-		ClassName: string(class),
-		Properties: traverser.SelectProperties{
-			traverser.SelectProperty{
-				Name: "id",
-			},
-		},
+		ClassName:  string(class),
+		Properties: []string{"id"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search closest target: %v", err)

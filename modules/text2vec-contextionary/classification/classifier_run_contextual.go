@@ -19,7 +19,9 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -32,24 +34,38 @@ type contextualItemClassifier struct {
 	params      models.Classification
 	settings    *ParamsContextual
 	classifier  *Classifier
-	writer      writer
+	writer      modulecapabilities.Writer
 	schema      schema.Schema
-	filters     filters
+	filters     modulecapabilities.Filters
 	context     contextualPreparationContext
 	vectorizer  vectorizer
 	words       []string
 	rankedWords map[string][]scoredWord // map[targetProp]words as scoring/ranking is per target
 }
 
+func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
+	params models.Classification, classified []string) {
+	// don't overwrite existing non-classification meta info
+	if item.AdditionalProperties == nil {
+		item.AdditionalProperties = models.AdditionalProperties{}
+	}
+
+	item.AdditionalProperties["classification"] = additional.Classification{
+		ID:               params.ID,
+		Scope:            params.ClassifyProperties,
+		ClassifiedFields: classified,
+		Completed:        strfmt.DateTime(time.Now()),
+	}
+}
+
 // makeClassifyItemContextual is a higher-order function to produce the actual
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
-func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result,
-	int, models.Classification, filters, writer) error {
+func (c *Classifier) makeClassifyItemContextual(schema schema.Schema, preparedContext contextualPreparationContext) func(search.Result,
+	int, models.Classification, modulecapabilities.Filters, modulecapabilities.Writer) error {
 	return func(item search.Result, itemIndex int, params models.Classification,
-		filters filters, writer writer) error {
-		schema := c.schemaGetter.GetSchemaSkipAuth()
-		vectorizer := c.getVectorizer("text2vec-contextionary-contextual")
+		filters modulecapabilities.Filters, writer modulecapabilities.Writer) error {
+		vectorizer := c.vectorizer
 		run := &contextualItemClassifier{
 			item:        item,
 			itemIndex:   itemIndex,
