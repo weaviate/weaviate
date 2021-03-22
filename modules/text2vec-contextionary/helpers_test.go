@@ -42,6 +42,21 @@ type mockResolver struct {
 	test_helper.MockResolver
 }
 
+type fakeInterpretation struct{}
+
+func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
+	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	return in, nil
+}
+
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+	return true
+}
+
+func (f *fakeInterpretation) AdditonalPropertyDefaultValue() interface{} {
+	return true
+}
+
 type fakeExtender struct {
 	returnArgs []search.Result
 }
@@ -124,7 +139,7 @@ func (m *mockText2vecContextionaryModule) Arguments() map[string]modulecapabilit
 
 // additional properties
 func (m *mockText2vecContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return text2vecadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}).AdditionalProperties()
+	return text2vecadditional.New(&fakeExtender{}, &fakeProjector{}, &fakePathBuilder{}, &fakeInterpretation{}).AdditionalProperties()
 }
 
 type fakeModulesProvider struct{}

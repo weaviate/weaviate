@@ -354,7 +354,9 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: traverser.AdditionalProperties{
-					Interpretation: true,
+					ModuleParams: map[string]interface{}{
+						"interpretation": true,
+					},
 				},
 			},
 			resolverReturn: []interface{}{

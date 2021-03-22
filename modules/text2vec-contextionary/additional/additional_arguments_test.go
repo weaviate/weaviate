@@ -126,3 +126,38 @@ func TestSemanticPathField(t *testing.T) {
 		assert.NotNil(t, semanticPathObjectListObjects.Fields()["distanceToPrevious"])
 	})
 }
+
+func TestNearestInterpretationField(t *testing.T) {
+	t.Run("should generate interpretation argument properly", func(t *testing.T) {
+		// given
+		classname := "Class"
+
+		// when
+		interpretation := additionalInterpretationField(classname)
+
+		// then
+		// the built graphQL field needs to support this structure:
+		// Type: {
+		//   source: [
+		//     {
+		//       concept: "c1",
+		//       weight: 0.1,
+		//       occurrence: 0.2,
+		//     }
+		// }
+		assert.NotNil(t, interpretation)
+		assert.Equal(t, "ClassAdditionalInterpretation", interpretation.Type.Name())
+		interpretationObject, interpretationObjectOK := interpretation.Type.(*graphql.Object)
+		assert.True(t, interpretationObjectOK)
+		assert.Equal(t, 1, len(interpretationObject.Fields()))
+		assert.NotNil(t, interpretationObject.Fields()["source"])
+		interpretationObjectList, interpretationObjectListOK := interpretationObject.Fields()["source"].Type.(*graphql.List)
+		assert.True(t, interpretationObjectListOK)
+		interpretationObjectListObjects, interpretationObjectListObjectsOK := interpretationObjectList.OfType.(*graphql.Object)
+		assert.True(t, interpretationObjectListObjectsOK)
+		assert.Equal(t, 3, len(interpretationObjectListObjects.Fields()))
+		assert.NotNil(t, interpretationObjectListObjects.Fields()["concept"])
+		assert.NotNil(t, interpretationObjectListObjects.Fields()["weight"])
+		assert.NotNil(t, interpretationObjectListObjects.Fields()["occurrence"])
+	})
+}
