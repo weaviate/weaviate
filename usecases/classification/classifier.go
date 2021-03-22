@@ -32,24 +32,35 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type classificationFilters struct {
+	source      *libfilters.LocalFilter
+	target      *libfilters.LocalFilter
+	trainingSet *libfilters.LocalFilter
+}
+
+func (f classificationFilters) Source() *libfilters.LocalFilter {
+	return f.source
+}
+
+func (f classificationFilters) Target() *libfilters.LocalFilter {
+	return f.target
+}
+
+func (f classificationFilters) TrainingSet() *libfilters.LocalFilter {
+	return f.trainingSet
+}
+
 type distancer func(a, b []float32) (float32, error)
 
 type Classifier struct {
-	schemaGetter    schemaUC.SchemaGetter
-	repo            Repo
-	vectorRepo      vectorRepo
-	authorizer      authorizer
-	distancer       distancer
-	modulesProvider ModulesProvider
-	logger          logrus.FieldLogger
-}
-
-type vectorizer interface {
-	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
-	// element should be explicit nil, not skipped
-	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
-
-	VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
+	schemaGetter          schemaUC.SchemaGetter
+	repo                  Repo
+	vectorRepo            vectorRepo
+	vectorClassSearchRepo modulecapabilities.VectorClassSearchRepo
+	authorizer            authorizer
+	distancer             distancer
+	modulesProvider       ModulesProvider
+	logger                logrus.FieldLogger
 }
 
 type authorizer interface {
@@ -57,19 +68,23 @@ type authorizer interface {
 }
 
 type ModulesProvider interface {
-	GetVectorizer(name string) modulecapabilities.VectorizerClient
+	ParseClassifierSettings(name string,
+		params *models.Classification) error
+	GetClassificationFn(name string,
+		params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error)
 }
 
 func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
 	logger logrus.FieldLogger, modulesProvider ModulesProvider) *Classifier {
 	return &Classifier{
-		logger:          logger,
-		schemaGetter:    sg,
-		repo:            cr,
-		vectorRepo:      vr,
-		authorizer:      authorizer,
-		distancer:       libvectorizer.NormalizedDistance,
-		modulesProvider: modulesProvider,
+		logger:                logger,
+		schemaGetter:          sg,
+		repo:                  cr,
+		vectorRepo:            vr,
+		authorizer:            authorizer,
+		distancer:             libvectorizer.NormalizedDistance,
+		vectorClassSearchRepo: newVectorClassSearchRepo(vr),
+		modulesProvider:       modulesProvider,
 	}
 }
 
@@ -108,12 +123,6 @@ type NeighborRef struct {
 	LosingCount  int
 
 	Distances NeighborRefDistances
-}
-
-type filters struct {
-	source      *libfilters.LocalFilter
-	target      *libfilters.LocalFilter
-	trainingSet *libfilters.LocalFilter
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
@@ -156,34 +165,27 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	return &params, nil
 }
 
-func (c *Classifier) getVectorizer(name string) vectorizer {
-	if c.modulesProvider != nil {
-		return c.modulesProvider.GetVectorizer(name)
-	}
-	return nil
-}
-
-func extractFilters(params models.Classification) (filters, error) {
+func extractFilters(params models.Classification) (Filters, error) {
 	if params.Filters == nil {
-		return filters{}, nil
+		return classificationFilters{}, nil
 	}
 
 	source, err := filterext.Parse(params.Filters.SourceWhere)
 	if err != nil {
-		return filters{}, fmt.Errorf("field 'sourceWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %v", err)
 	}
 
 	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere)
 	if err != nil {
-		return filters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
 	}
 
 	target, err := filterext.Parse(params.Filters.TargetWhere)
 	if err != nil {
-		return filters{}, fmt.Errorf("field 'targetWhere': %v", err)
+		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %v", err)
 	}
 
-	return filters{
+	return classificationFilters{
 		source:      source,
 		trainingSet: trainingSet,
 		target:      target,
@@ -219,13 +221,14 @@ func (c *Classifier) parseAndSetDefaults(params *models.Classification) error {
 		if err := c.parseKNNSettings(params); err != nil {
 			return errors.Wrapf(err, "parse knn specific settings")
 		}
+		return nil
 	}
 
-	// TODO: This must be done as part of the module for full modularization
-	if params.Type == "text2vec-contextionary-contextual" {
-		if err := c.parseContextualSettings(params); err != nil {
-			return errors.Wrapf(err, "parse knn specific settings")
+	if c.modulesProvider != nil {
+		if err := c.modulesProvider.ParseClassifierSettings(params.Type, params); err != nil {
+			return errors.Wrapf(err, "parse %s specific settings", params.Type)
 		}
+		return nil
 	}
 
 	return nil
@@ -257,48 +260,15 @@ func (c *Classifier) parseKNNSettings(params *models.Classification) error {
 	return nil
 }
 
-func (c *Classifier) parseContextualSettings(params *models.Classification) error {
-	raw := params.Settings
-	settings := &ParamsContextual{}
-	if raw == nil {
-		settings.SetDefaults()
-		params.Settings = settings
-		return nil
+type ParamsKNN struct {
+	K *int32 `json:"k"`
+}
+
+func (params *ParamsKNN) SetDefaults() {
+	if params.K == nil {
+		defaultK := int32(3)
+		params.K = &defaultK
 	}
-
-	asMap, ok := raw.(map[string]interface{})
-	if !ok {
-		return errors.Errorf("settings must be an object got %T", raw)
-	}
-
-	v, err := extractNumberFromMap(asMap, "minimumUsableWords")
-	if err != nil {
-		return err
-	}
-	settings.MinimumUsableWords = v
-
-	v, err = extractNumberFromMap(asMap, "informationGainCutoffPercentile")
-	if err != nil {
-		return err
-	}
-	settings.InformationGainCutoffPercentile = v
-
-	v, err = extractNumberFromMap(asMap, "informationGainMaximumBoost")
-	if err != nil {
-		return err
-	}
-	settings.InformationGainMaximumBoost = v
-
-	v, err = extractNumberFromMap(asMap, "tfidfCutoffPercentile")
-	if err != nil {
-		return err
-	}
-	settings.TfidfCutoffPercentile = v
-
-	settings.SetDefaults()
-	params.Settings = settings
-
-	return nil
 }
 
 func extractNumberFromMap(in map[string]interface{}, field string) (*int32, error) {
@@ -320,45 +290,4 @@ func extractNumberFromMap(in map[string]interface{}, field string) (*int32, erro
 	}
 
 	return nil, nil
-}
-
-type ParamsKNN struct {
-	K *int32 `json:"k"`
-}
-
-func (params *ParamsKNN) SetDefaults() {
-	if params.K == nil {
-		defaultK := int32(3)
-		params.K = &defaultK
-	}
-}
-
-// TODO: this must be provided by the module when actual modularization occurs
-type ParamsContextual struct {
-	MinimumUsableWords              *int32 `json:"minimumUsableWords"`
-	InformationGainCutoffPercentile *int32 `json:"informationGainCutoffPercentile"`
-	InformationGainMaximumBoost     *int32 `json:"informationGainMaximumBoost"`
-	TfidfCutoffPercentile           *int32 `json:"tfidfCutoffPercentile"`
-}
-
-func (params *ParamsContextual) SetDefaults() {
-	if params.MinimumUsableWords == nil {
-		defaultParam := int32(3)
-		params.MinimumUsableWords = &defaultParam
-	}
-
-	if params.InformationGainCutoffPercentile == nil {
-		defaultParam := int32(50)
-		params.InformationGainCutoffPercentile = &defaultParam
-	}
-
-	if params.InformationGainMaximumBoost == nil {
-		defaultParam := int32(3)
-		params.InformationGainMaximumBoost = &defaultParam
-	}
-
-	if params.TfidfCutoffPercentile == nil {
-		defaultParam := int32(80)
-		params.TfidfCutoffPercentile = &defaultParam
-	}
 }

@@ -26,6 +26,7 @@ import (
 	text2vecnn "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
 	text2vecprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
+	text2vecclassification "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/classification"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/client"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
@@ -55,6 +56,7 @@ type ContextionaryModule struct {
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 	searcher                     modulecapabilities.Searcher
 	remote                       remoteClient
+	classifierContextual         modulecapabilities.Classifier
 }
 
 type remoteClient interface {
@@ -117,6 +119,10 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 		return errors.Wrap(err, "init graphql additional properties provider")
 	}
 
+	if err := m.initClassifiers(); err != nil {
+		return errors.Wrap(err, "init classifiers")
+	}
+
 	return nil
 }
 
@@ -162,6 +168,11 @@ func (m *ContextionaryModule) initGraphqlAdditionalPropertiesProvider() error {
 	return nil
 }
 
+func (m *ContextionaryModule) initClassifiers() error {
+	m.classifierContextual = text2vecclassification.New(m.remote)
+	return nil
+}
+
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -192,10 +203,8 @@ func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *ContextionaryModule) Vectorizers() map[string]modulecapabilities.VectorizerClient {
-	vectorizers := map[string]modulecapabilities.VectorizerClient{}
-	vectorizers["text2vec-contextionary-contextual"] = m.remote
-	return vectorizers
+func (m *ContextionaryModule) Classifiers() []modulecapabilities.Classifier {
+	return []modulecapabilities.Classifier{m.classifierContextual}
 }
 
 func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {

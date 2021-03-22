@@ -19,10 +19,22 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
-type writer interface {
-	Start()
-	Store(item search.Result) error
-	Stop() batchWriterResults
+type batchWriterResults struct {
+	successCount int64
+	errorCount   int64
+	err          error
+}
+
+func (w batchWriterResults) SuccessCount() int64 {
+	return w.successCount
+}
+
+func (w batchWriterResults) ErrorCount() int64 {
+	return w.errorCount
+}
+
+func (w batchWriterResults) Err() error {
+	return w.err
 }
 
 type batchWriter struct {
@@ -37,13 +49,7 @@ type batchWriter struct {
 	batchTreshold   int
 }
 
-type batchWriterResults struct {
-	successCount int64
-	errorCount   int64
-	err          error
-}
-
-func newBatchWriter(vectorRepo vectorRepo) writer {
+func newBatchWriter(vectorRepo vectorRepo) Writer {
 	return &batchWriter{
 		vectorRepo:      vectorRepo,
 		batchItemsCount: 0,
@@ -69,7 +75,7 @@ func (r *batchWriter) Start() {
 }
 
 // Stop stops the batch save goroutine and saves the last items
-func (r *batchWriter) Stop() batchWriterResults {
+func (r *batchWriter) Stop() WriterResults {
 	r.cancel <- struct{}{}
 	r.saveObjects(r.batchObjects)
 	return batchWriterResults{int64(r.batchItemsCount) - r.errorCount, r.errorCount, r.ec.toError()}
