@@ -46,7 +46,7 @@ import (
 	_ "net/http/pprof"
 )
 
-const MinimumRequiredContextionaryVersion = "1.0.1"
+const MinimumRequiredContextionaryVersion = "1.0.2"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
