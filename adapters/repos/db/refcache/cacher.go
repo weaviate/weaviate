@@ -107,7 +107,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 		// subpath to use in this place.
 		// tl;dr: On root level (root=base) take props from the outside, on a
 		// nested level lookup the SelectProps matching the current base element
-		properties, err = c.ReplaceInitialPropertiesWithSpecific(obj, properties)
+		propertiesReplaced, err := c.ReplaceInitialPropertiesWithSpecific(obj, properties)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 		}
 
 		for key, value := range schemaMap {
-			selectProp := properties.FindProperty(key)
+			selectProp := propertiesReplaced.FindProperty(key)
 			skip, unresolved := c.skipProperty(key, value, selectProp)
 			if skip {
 				continue
