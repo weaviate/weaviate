@@ -387,6 +387,219 @@ func TestCacher(t *testing.T) {
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookup queries")
 		assert.Equal(t, 2, repo.counter, "required the expected amount of objects on the lookup queries")
 	})
+
+	t.Run("with a nested lookup, and nested refs in nested refs", func(t *testing.T) {
+		repo := newFakeRepo()
+		idNested2ID := "132bdf92-ffec-4a52-9196-73ea7cbb5a00"
+		idNestedInNestedID := "132bdf92-ffec-4a52-9196-73ea7cbb5a01"
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+			ClassName: "SomeClass",
+			ID:        strfmt.UUID(id1),
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+				"nestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+					},
+				},
+				"nestedRef2": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNested2ID)),
+						Schema: map[string]interface{}{
+							"title": "nestedRef2Title",
+							"nestedRefInNestedRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNestedInNestedID)),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		repo.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+		repo.lookup[multi.Identifier{ID: idNested2ID, ClassName: "SomeNestedClass2"}] = search.Result{
+			ClassName: "SomeNestedClass2",
+			ID:        strfmt.UUID(idNested2ID),
+			Schema: map[string]interface{}{
+				"title": "nestedRef2Title",
+				"nestedRefInNestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNestedInNestedID)),
+					},
+				},
+			},
+		}
+		repo.lookup[multi.Identifier{ID: idNestedInNestedID, ClassName: "SomeNestedClassNested2"}] = search.Result{
+			ClassName: "SomeNestedClassNested2",
+			ID:        strfmt.UUID(idNestedInNestedID),
+			Schema: map[string]interface{}{
+				"titleNested": "Nested In Nested Title",
+			},
+		}
+		logger, _ := test.NewNullLogger()
+		cr := NewCacher(repo, logger)
+		input := []search.Result{
+			search.Result{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+						},
+					},
+				},
+			},
+		}
+		selectProps := traverser.SelectProperties{
+			traverser.SelectProperty{
+				Name: "refProp",
+				Refs: []traverser.SelectClass{
+					traverser.SelectClass{
+						ClassName: "SomeClass",
+						RefProperties: traverser.SelectProperties{
+							traverser.SelectProperty{
+								Name:        "primitive",
+								IsPrimitive: true,
+							},
+							traverser.SelectProperty{
+								Name: "nestedRef",
+								Refs: []traverser.SelectClass{
+									traverser.SelectClass{
+										ClassName: "SomeNestedClass",
+										RefProperties: []traverser.SelectProperty{
+											traverser.SelectProperty{
+												Name:        "name",
+												IsPrimitive: true,
+											},
+										},
+									},
+								},
+							},
+							traverser.SelectProperty{
+								Name: "nestedRef2",
+								Refs: []traverser.SelectClass{
+									traverser.SelectClass{
+										ClassName: "SomeNestedClass2",
+										RefProperties: []traverser.SelectProperty{
+											traverser.SelectProperty{
+												Name:        "title",
+												IsPrimitive: true,
+											},
+											traverser.SelectProperty{
+												Name: "nestedRefInNestedRef",
+												Refs: []traverser.SelectClass{
+													traverser.SelectClass{
+														ClassName: "SomeNestedClassNested2",
+														RefProperties: []traverser.SelectProperty{
+															traverser.SelectProperty{
+																Name:        "titleNested",
+																IsPrimitive: true,
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedOuter := search.Result{
+			ID:        strfmt.UUID(id1),
+			ClassName: "SomeClass",
+			Schema: map[string]interface{}{
+				"primitive": "foobar",
+				"nestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
+					},
+				},
+				"nestedRef2": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNested2ID)),
+						Schema: map[string]interface{}{
+							"title": "nestedRef2Title",
+							"nestedRefInNestedRef": models.MultipleRef{
+								&models.SingleRef{
+									Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNestedInNestedID)),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedInner := search.Result{
+			ClassName: "SomeNestedClass",
+			ID:        strfmt.UUID(id2),
+			Schema: map[string]interface{}{
+				"name": "John Doe",
+			},
+		}
+
+		expectedInner2 := search.Result{
+			ClassName: "SomeNestedClass2",
+			ID:        strfmt.UUID(idNested2ID),
+			Schema: map[string]interface{}{
+				"title": "nestedRef2Title",
+				"nestedRefInNestedRef": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", idNestedInNestedID)),
+					},
+				},
+			},
+		}
+
+		expectedInnerInner := search.Result{
+			ClassName: "SomeNestedClassNested2",
+			ID:        strfmt.UUID(idNestedInNestedID),
+			Schema: map[string]interface{}{
+				"titleNested": "Nested In Nested Title",
+			},
+		}
+
+		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		require.Nil(t, err)
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedOuter, res)
+		input2 := []search.Result{expectedInner, expectedInner2}
+		err = cr.Build(context.Background(), input2, nil, traverser.AdditionalProperties{})
+		require.Nil(t, err)
+		nested1, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInner, nested1)
+		nested2, ok := cr.Get(multi.Identifier{ID: idNested2ID, ClassName: "SomeNestedClass2"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInner2, nested2)
+		nestedSchema, ok := nested2.Schema.(map[string]interface{})
+		require.True(t, ok)
+		nestedRefInNestedRef, ok := nestedSchema["nestedRefInNestedRef"]
+		require.True(t, ok)
+		require.NotNil(t, nestedRefInNestedRef)
+		nestedRefInNestedMultiRef, ok := nestedRefInNestedRef.(models.MultipleRef)
+		require.True(t, ok)
+		require.NotNil(t, nestedRefInNestedMultiRef)
+		require.Nil(t, err)
+		res, ok = cr.Get(multi.Identifier{ID: idNestedInNestedID, ClassName: "SomeNestedClassNested2"})
+		require.True(t, ok)
+		assert.Equal(t, expectedInnerInner, res)
+		assert.Equal(t, 4, repo.counter, "required the expected amount of lookups")
+	})
 }
 
 type fakeRepo struct {
