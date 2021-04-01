@@ -12,7 +12,8 @@ import (
 
 const (
 	// StrategyReplace allows for idem-potent PUT where the latest takes presence
-	StrategyReplace = "replace"
+	StrategyReplace    = "replace"
+	StrategyCollection = "collection"
 )
 
 type Bucket struct {
@@ -82,8 +83,48 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	}
 }
 
+func (b *Bucket) GetList(key []byte) ([][]byte, error) {
+	// TODO: disk
+
+	v, err := b.active.getList(key)
+	if err != nil {
+		if err == NotFound {
+			return nil, nil
+		}
+	}
+
+	return b.decodeMultiValue(v), nil
+}
+
+func (b *Bucket) decodeMultiValue(in []value) [][]byte {
+	out := make([][]byte, len(in))
+
+	for i, value := range in {
+		// TODO: handle tombstones
+		out[i] = value.value
+	}
+
+	return out
+}
+
 func (b *Bucket) Put(key, value []byte) error {
 	return b.active.put(key, value)
+}
+
+func (b *Bucket) Append(key []byte, values [][]byte) error {
+	return b.active.append(key, b.encodeMultiValue(values))
+}
+
+func (b *Bucket) encodeMultiValue(in [][]byte) []value {
+	out := make([]value, len(in))
+	for i, v := range in {
+		out[i] = value{
+			tombstone: false,
+			value:     v,
+		}
+	}
+
+	return out
 }
 
 func (b *Bucket) Delete(key []byte) error {
@@ -94,7 +135,7 @@ func (b *Bucket) Delete(key []byte) error {
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
 	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())))
+		time.Now().UnixNano())), b.strategy)
 	if err != nil {
 		return err
 	}

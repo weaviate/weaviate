@@ -14,13 +14,15 @@ import (
 type Memtable struct {
 	sync.RWMutex
 	key          *binarySearchTree
+	keyMulti     *binarySearchTreeMulti
 	primaryIndex *binarySearchTree
 	commitlog    *commitLogger
 	size         uint64
 	path         string
+	strategy     string
 }
 
-func newMemtable(path string) (*Memtable, error) {
+func newMemtable(path string, strategy string) (*Memtable, error) {
 	cl, err := newCommitLogger(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")
@@ -28,9 +30,11 @@ func newMemtable(path string) (*Memtable, error) {
 
 	return &Memtable{
 		key:          &binarySearchTree{},
+		keyMulti:     &binarySearchTreeMulti{},
 		primaryIndex: &binarySearchTree{}, // todo, sort upfront
 		commitlog:    cl,
 		path:         path,
+		strategy:     strategy,
 	}, nil
 }
 
@@ -41,6 +45,10 @@ type keyIndex struct {
 }
 
 func (l *Memtable) get(key []byte) ([]byte, error) {
+	if l.strategy != "replace" {
+		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	}
+
 	l.RLock()
 	defer l.RUnlock()
 
@@ -53,6 +61,10 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 }
 
 func (l *Memtable) put(key, value []byte) error {
+	if l.strategy != "replace" {
+		return errors.Errorf("put only possible with strategy 'replace'")
+	}
+
 	l.Lock()
 	defer l.Unlock()
 	if err := l.commitlog.put(key, value); err != nil {
@@ -67,6 +79,10 @@ func (l *Memtable) put(key, value []byte) error {
 }
 
 func (l *Memtable) setTombstone(key []byte) error {
+	if l.strategy != "replace" {
+		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+	}
+
 	l.Lock()
 	defer l.Unlock()
 
@@ -75,6 +91,43 @@ func (l *Memtable) setTombstone(key []byte) error {
 	}
 
 	l.key.setTombstone(key)
+
+	return nil
+}
+
+func (l *Memtable) getList(key []byte) ([]value, error) {
+	if l.strategy != StrategyCollection {
+		return nil, errors.Errorf("getList only possible with strategy %q", StrategyCollection)
+	}
+
+	l.RLock()
+	defer l.RUnlock()
+
+	v, err := l.keyMulti.get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
+func (l *Memtable) append(key []byte, values []value) error {
+	if l.strategy != StrategyCollection {
+		return errors.Errorf("append only possible with strategy %q", StrategyCollection)
+	}
+
+	l.Lock()
+	defer l.Unlock()
+	// TODO: commit log
+	// if err := l.commitlog.put(key, value); err != nil {
+	// 	return errors.Wrap(err, "write into commit log")
+	// }
+
+	l.keyMulti.insert(key, values)
+	l.size += uint64(len(key))
+	for _, value := range values {
+		l.size += uint64(len(value.value))
+	}
 
 	return nil
 }
