@@ -37,9 +37,9 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 	l.RLock()
 	defer l.RUnlock()
 
-	v, ok := l.key.get(key)
-	if !ok {
-		return nil, NotFound
+	v, err := l.key.get(key)
+	if err != nil {
+		return nil, err
 	}
 
 	return v, nil
@@ -51,6 +51,15 @@ func (l *Memtable) put(key, value []byte) error {
 	l.key.insert(key, value)
 	l.size += uint64(len(key))
 	l.size += uint64(len(value))
+
+	return nil
+}
+
+func (l *Memtable) setTombstone(key []byte) error {
+	l.Lock()
+	defer l.Unlock()
+
+	l.key.setTombstone(key)
 
 	return nil
 }
