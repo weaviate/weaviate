@@ -48,13 +48,13 @@ func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {
 // 	t.root.setTombstone(key)
 // }
 
-// func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
-// 	if t.root == nil {
-// 		return nil
-// 	}
+func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
+	if t.root == nil {
+		return nil
+	}
 
-// 	return t.root.flattenInOrder()
-// }
+	return t.root.flattenInOrder()
+}
 
 type binarySearchNodeMulti struct {
 	key    []byte
@@ -147,18 +147,18 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 // 	}
 // }
 
-// func (n *binarySearchNodeMulti) flattenInOrder() []*binarySearchNodeMulti {
-// 	var left []*binarySearchNodeMulti
-// 	var right []*binarySearchNodeMulti
+func (n *binarySearchNodeMulti) flattenInOrder() []*binarySearchNodeMulti {
+	var left []*binarySearchNodeMulti
+	var right []*binarySearchNodeMulti
 
-// 	if n.left != nil {
-// 		left = n.left.flattenInOrder()
-// 	}
+	if n.left != nil {
+		left = n.left.flattenInOrder()
+	}
 
-// 	if n.right != nil {
-// 		right = n.right.flattenInOrder()
-// 	}
+	if n.right != nil {
+		right = n.right.flattenInOrder()
+	}
 
-// 	right = append([]*binarySearchNodeMulti{n}, right...)
-// 	return append(left, right...)
-// }
+	right = append([]*binarySearchNodeMulti{n}, right...)
+	return append(left, right...)
+}

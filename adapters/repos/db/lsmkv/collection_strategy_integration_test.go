@@ -70,77 +70,79 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 			res, err := b.GetCollection(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assert.Equal(t, orig1, res)
 			res, err = b.GetCollection(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, append(orig2, append2...))
+			assert.Equal(t, append(orig2, append2...), res)
 			res, err = b.GetCollection(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, append(orig3, append3...))
+			assert.Equal(t, append(orig3, append3...), res)
 		})
 	})
 
-	// t.Run("with single flush in between updates", func(t *testing.T) {
-	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 	require.Nil(t, err)
+	t.Run("with a single flush between updates", func(t *testing.T) {
+		b, err := NewBucketWithStrategy(dirName, StrategyCollection)
+		require.Nil(t, err)
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
 
-	// 	t.Run("set original values and verify", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		orig2 := []byte("original value for key2")
-	// 		orig3 := []byte("original value for key3")
+		t.Run("set original values and verify", func(t *testing.T) {
+			key1 := []byte("key-1")
+			key2 := []byte("key-2")
+			key3 := []byte("key-3")
+			orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
+			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
+			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-	// 		err = b.Put(key1, orig1)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key2, orig2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, orig3)
-	// 		require.Nil(t, err)
+			err = b.Append(key1, orig1)
+			require.Nil(t, err)
+			err = b.Append(key2, orig2)
+			require.Nil(t, err)
+			err = b.Append(key3, orig3)
+			require.Nil(t, err)
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig3)
-	// 	})
+			res, err := b.GetCollection(key1)
+			require.Nil(t, err)
+			assert.Equal(t, res, orig1)
+			res, err = b.GetCollection(key2)
+			require.Nil(t, err)
+			assert.Equal(t, res, orig2)
+			res, err = b.GetCollection(key3)
+			require.Nil(t, err)
+			assert.Equal(t, res, orig3)
+		})
 
-	// 	t.Run("flush memtable to disk", func(t *testing.T) {
-	// 		require.Nil(t, b.FlushAndSwitch())
-	// 	})
+		t.Run("flush to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 	t.Run("replace some, keep one", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+		t.Run("replace some, keep one", func(t *testing.T) {
+			key1 := []byte("key-1")
+			key2 := []byte("key-2")
+			key3 := []byte("key-3")
+			orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
+			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
+			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
+			append2 := [][]byte{[]byte("value 2.3")}
+			append3 := [][]byte{[]byte("value 3.3")}
 
-	// 		err = b.Put(key2, replaced2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, replaced3)
-	// 		require.Nil(t, err)
+			err = b.Append(key2, append2)
+			require.Nil(t, err)
+			err = b.Append(key3, append3)
+			require.Nil(t, err)
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, orig1, res)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced2, res)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced3, res)
-	// 	})
-	// })
+			res, err := b.GetCollection(key1)
+			require.Nil(t, err)
+			assert.Equal(t, orig1, res)
+			res, err = b.GetCollection(key2)
+			require.Nil(t, err)
+			assert.Equal(t, append(orig2, append2...), res)
+			res, err = b.GetCollection(key3)
+			require.Nil(t, err)
+			assert.Equal(t, append(orig3, append3...), res)
+		})
+	})
 
 	// t.Run("with a flush after the initial write and after the update", func(t *testing.T) {
 	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)

@@ -10,12 +10,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	// StrategyReplace allows for idem-potent PUT where the latest takes presence
-	StrategyReplace    = "replace"
-	StrategyCollection = "collection"
-)
-
 type Bucket struct {
 	dir      string
 	active   *Memtable
@@ -216,7 +210,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 
 	path := b.flushing.path
 	if err := b.disk.add(path + ".db"); err != nil {
-		return nil
+		return err
 	}
 	b.flushing = nil
 
