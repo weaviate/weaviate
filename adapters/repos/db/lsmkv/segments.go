@@ -188,8 +188,21 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Wrap(err, "mmap file")
 	}
 
+	var strategy SegmentStrategy
+	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
+		&strategy); err != nil {
+		return nil, err
+	}
+
+	if strategy != SegmentStrategyReplace {
+		return nil, errors.Errorf("unsupported strategy in segment")
+	}
+
 	var pos uint64
-	binary.Read(bytes.NewReader(content[2:10]), binary.LittleEndian, &pos)
+	if err := binary.Read(bytes.NewReader(content[4:12]), binary.LittleEndian,
+		&pos); err != nil {
+		return nil, err
+	}
 	segmentBytes := content[pos:]
 	if len(segmentBytes)%32 != 0 {
 		return nil, errors.Errorf("corrupt segment with len %d", len(segmentBytes))
