@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -15,80 +12,6 @@ import (
 	"github.com/spaolacci/murmur3"
 	"github.com/willf/bloom"
 )
-
-type SegmentGroup struct {
-	segments []*segment
-
-	// Lock() for changing the currently active segments, RLock() for normal
-	// operation
-	maintenanceLock sync.RWMutex
-}
-
-func newSegmentGroup(dir string) (*SegmentGroup, error) {
-	list, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	out := &SegmentGroup{
-		segments: make([]*segment, len(list)),
-	}
-
-	segmentIndex := 0
-	for _, fileInfo := range list {
-		fmt.Printf("%v\n", fileInfo.Name())
-		if filepath.Ext(fileInfo.Name()) != ".db" {
-			// skip, this could be commit log, etc.
-			continue
-		}
-
-		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()))
-		if err != nil {
-			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
-		}
-
-		out.segments[segmentIndex] = segment
-		segmentIndex++
-	}
-
-	out.segments = out.segments[:segmentIndex]
-	return out, nil
-}
-
-func (ig *SegmentGroup) add(path string) error {
-	ig.maintenanceLock.Lock()
-	defer ig.maintenanceLock.Unlock()
-
-	segment, err := newSegment(path)
-	if err != nil {
-		return errors.Wrapf(err, "init segment %s", path)
-	}
-
-	ig.segments = append(ig.segments, segment)
-	return nil
-}
-
-func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
-
-	// assumes "replace" strategy
-
-	// start with latest and exit as soon as something is found, thus making sure
-	// the latest takes presence
-	for i := len(ig.segments) - 1; i >= 0; i-- {
-		v, err := ig.segments[i].get(key)
-		if err != nil {
-			if err == NotFound {
-				continue
-			}
-		}
-
-		return v, nil
-	}
-
-	return nil, nil
-}
 
 type segment struct {
 	segmentStartPos uint64
@@ -98,9 +21,69 @@ type segment struct {
 	dataEndPos      uint64
 	contents        []byte // in mem for now, mmapped later
 	bloomFilter     *bloom.BloomFilter
+	strategy        SegmentStrategy
+}
+
+func newSegment(path string) (*segment, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.Wrap(err, "open file")
+	}
+
+	file_info, err := file.Stat()
+	if err != nil {
+		return nil, errors.Wrap(err, "stat file")
+	}
+
+	content, err := syscall.Mmap(int(file.Fd()), 0, int(file_info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return nil, errors.Wrap(err, "mmap file")
+	}
+
+	var strategy SegmentStrategy
+	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
+		&strategy); err != nil {
+		return nil, err
+	}
+
+	switch strategy {
+	case SegmentStrategyReplace, SegmentStrategyCollection:
+	default:
+		return nil, errors.Errorf("unsupported strategy in segment")
+	}
+
+	var pos uint64
+	if err := binary.Read(bytes.NewReader(content[4:12]), binary.LittleEndian,
+		&pos); err != nil {
+		return nil, err
+	}
+	segmentBytes := content[pos:]
+	if len(segmentBytes)%32 != 0 {
+		return nil, errors.Errorf("corrupt segment with len %d", len(segmentBytes))
+	}
+
+	elementCount := len(segmentBytes) / 32
+
+	ind := &segment{
+		contents:        content,
+		segmentStartPos: pos,
+		segmentEndPos:   uint64(len(content)),
+		segmentCount:    uint64(elementCount),
+		strategy:        strategy,
+		dataStartPos:    8,
+		dataEndPos:      pos,
+	}
+
+	ind.initBloomFilter()
+
+	return ind, nil
 }
 
 func (i *segment) get(key []byte) ([]byte, error) {
+	if i.strategy != SegmentStrategyReplace {
+		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
+	}
+
 	hasher := murmur3.New128()
 	hasher.Write(key)
 	keyHash := hasher.Sum(nil)
@@ -114,10 +97,10 @@ func (i *segment) get(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return i.parseData(i.contents[start:end])
+	return i.parseReplaceData(i.contents[start:end])
 }
 
-func (i *segment) parseData(in []byte) ([]byte, error) {
+func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
 		return nil, NotFound
 	}
@@ -128,6 +111,76 @@ func (i *segment) parseData(in []byte) ([]byte, error) {
 	}
 
 	return in[1:], nil
+}
+
+func (i *segment) getCollection(key []byte) ([]value, error) {
+	if i.strategy != SegmentStrategyCollection {
+		return nil, errors.Errorf("get only possible for strategy %q",
+			StrategyCollection)
+	}
+
+	hasher := murmur3.New128()
+	hasher.Write(key)
+	keyHash := hasher.Sum(nil)
+
+	if !i.bloomFilter.Test(keyHash) {
+		return nil, NotFound
+	}
+
+	start, end, err := i.segmentBinarySearch(keyHash)
+	if err != nil {
+		return nil, err
+	}
+
+	return i.parseCollectionData(i.contents[start:end])
+}
+
+func (i *segment) parseCollectionData(in []byte) ([]value, error) {
+	if len(in) == 0 {
+		return nil, NotFound
+	}
+
+	r := bytes.NewReader(in)
+
+	readSoFar := 0
+
+	var valuesLen uint64
+	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
+		return nil, errors.Wrap(err, "read values len")
+	}
+	readSoFar += 8
+
+	values := make([]value, valuesLen)
+	for i := range values {
+		if err := binary.Read(r, binary.LittleEndian, &values[i].tombstone); err != nil {
+			return nil, errors.Wrap(err, "read value tombstone")
+		}
+		readSoFar += 1
+
+		if values[i].tombstone {
+			continue
+		}
+
+		var valueLen uint64
+		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
+			return nil, errors.Wrap(err, "read value len")
+		}
+		readSoFar += 8
+
+		values[i].value = make([]byte, valueLen)
+		n, err := r.Read(values[i].value)
+		if err != nil {
+			return nil, errors.Wrap(err, "read value")
+		}
+		readSoFar += n
+	}
+
+	if len(in) != readSoFar {
+		return nil, errors.Errorf("corrupt collection segment: read %d bytes out of %d",
+			readSoFar, len(in))
+	}
+
+	return values, nil
 }
 
 var (
@@ -170,58 +223,6 @@ func (i *segment) decodeStartEnd(in []byte) (uint64, uint64, error) {
 	}
 
 	return tuple[0], tuple[1], nil
-}
-
-func newSegment(path string) (*segment, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, errors.Wrap(err, "open file")
-	}
-
-	file_info, err := file.Stat()
-	if err != nil {
-		return nil, errors.Wrap(err, "stat file")
-	}
-
-	content, err := syscall.Mmap(int(file.Fd()), 0, int(file_info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
-	if err != nil {
-		return nil, errors.Wrap(err, "mmap file")
-	}
-
-	var strategy SegmentStrategy
-	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
-		&strategy); err != nil {
-		return nil, err
-	}
-
-	if strategy != SegmentStrategyReplace {
-		return nil, errors.Errorf("unsupported strategy in segment")
-	}
-
-	var pos uint64
-	if err := binary.Read(bytes.NewReader(content[4:12]), binary.LittleEndian,
-		&pos); err != nil {
-		return nil, err
-	}
-	segmentBytes := content[pos:]
-	if len(segmentBytes)%32 != 0 {
-		return nil, errors.Errorf("corrupt segment with len %d", len(segmentBytes))
-	}
-
-	elementCount := len(segmentBytes) / 32
-
-	ind := &segment{
-		contents:        content,
-		segmentStartPos: pos,
-		segmentEndPos:   uint64(len(content)),
-		segmentCount:    uint64(elementCount),
-		dataStartPos:    8,
-		dataEndPos:      pos,
-	}
-
-	ind.initBloomFilter()
-
-	return ind, nil
 }
 
 func (ind *segment) initBloomFilter() {
