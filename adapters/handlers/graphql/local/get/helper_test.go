@@ -43,7 +43,8 @@ type fakeInterpretation struct {
 }
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -60,7 +61,8 @@ type fakeExtender struct {
 }
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -87,7 +89,8 @@ type fakeProjector struct {
 }
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -519,49 +522,6 @@ func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.
 		}
 	}
 	return nil
-}
-
-func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
-}
-
-func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string) (search.Results, error) {
-	additionalProperties := p.nearCustomTextModule.AdditionalProperties()
-	for name, value := range moduleParams {
-		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
-		if additionalPropertyFn != nil && value != nil {
-			searchValue := value
-			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				searchVectorValue.SetSearchVector(searchVector)
-				searchValue = searchVectorValue
-			}
-			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
-			if err != nil {
-				return nil, err
-			}
-			in = resArray
-		}
-	}
-	return in, nil
-}
-
-func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
-	capability string) modulecapabilities.AdditionalPropertyFn {
-	switch capability {
-	case "ObjectGet":
-		return additionalProperty.SearchFunctions.ObjectGet
-	case "ObjectList":
-		return additionalProperty.SearchFunctions.ObjectList
-	case "ExploreGet":
-		return additionalProperty.SearchFunctions.ExploreGet
-	case "ExploreList":
-		return additionalProperty.SearchFunctions.ExploreList
-	default:
-		return nil
-	}
 }
 
 func (p *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {

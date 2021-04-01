@@ -27,3 +27,7 @@ services:
     image: semitechnologies/transformers-inference:distilbert-base-uncased
     ports: 
       - "8000:8080"
+  qna-transformers:
+    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad-34d66b1
+    ports:
+      - "8001:8080"
