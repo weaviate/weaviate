@@ -27,8 +27,11 @@ require (
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
 	github.com/sirupsen/logrus v1.6.0
+	github.com/spaolacci/murmur3 v1.1.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
+	github.com/willf/bitset v1.1.11 // indirect
+	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.3
 	go.mongodb.org/mongo-driver v1.5.0 // indirect
 	golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb
