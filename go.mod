@@ -35,7 +35,7 @@ require (
 	go.etcd.io/bbolt v1.3.3
 	go.mongodb.org/mongo-driver v1.5.0 // indirect
 	golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb
-	golang.org/x/tools v0.1.0 // indirect
+	golang.org/x/sys v0.0.0-20210119212857-b64e53b001e4 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect

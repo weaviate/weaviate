@@ -1,6 +1,7 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -102,11 +103,31 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
-func (b *Bucket) Shutdown() error {
-	// TODO: Orderly shutdown, flush active until everything persisted and all
-	// commit logs are gone
+func (b *Bucket) Shutdown(ctx context.Context) error {
+	b.flushLock.Lock()
+	if err := b.active.flush(); err != nil {
+		return err
+	}
+	b.flushLock.Unlock()
 
-	return nil
+	if b.flushing == nil {
+		// active has flushing, no one else was currently flushing, it's safe to
+		// exit
+		return nil
+	}
+
+	// it seems we still need to wait for someone to finish flushing
+	t := time.Tick(50 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t:
+			if b.flushing == nil {
+				return nil
+			}
+		}
+	}
 }
 
 func (b *Bucket) initFlushCycle() {
