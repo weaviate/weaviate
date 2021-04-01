@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	size = 1e5
+	size = 1e6
 )
 
 const (
@@ -56,7 +56,6 @@ func do() error {
 	bucket.Put([]byte("key2"), []byte("other data"))
 	for _, obj := range data {
 		bucket.Put(obj.Key, obj.Value)
-		time.Sleep(50 * time.Microsecond)
 	}
 	bucket.Put([]byte("key3"), []byte("third data"))
 	bucket.Put([]byte("key4"), []byte("fourth data"))
