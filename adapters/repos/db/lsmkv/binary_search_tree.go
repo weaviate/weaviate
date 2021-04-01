@@ -21,15 +21,31 @@ func (t *binarySearchTree) insert(key, value []byte) {
 	t.root.insert(key, value)
 }
 
-func (t *binarySearchTree) get(key []byte) ([]byte, bool) {
+func (t *binarySearchTree) get(key []byte) ([]byte, error) {
 	// before := time.Now()
 	// defer m.addContains(before)
 
 	if t.root == nil {
-		return nil, false
+		return nil, NotFound
 	}
 
 	return t.root.get(key)
+}
+
+func (t *binarySearchTree) setTombstone(key []byte) {
+	if t.root == nil {
+		// we need to actively insert a node with a tombstone, even if this node is
+		// not present because we still need to propagate the delete into the disk
+		// segments. It could refer to an entity which was created in a previous
+		// segment and is thus unknown to this memtable
+		t.root = &binarySearchNode{
+			key:       key,
+			value:     nil,
+			tombstone: true,
+		}
+	}
+
+	t.root.setTombstone(key)
 }
 
 // func (t *binarySearchTree) minimum() *binarySearchNode {
@@ -74,10 +90,11 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 // }
 
 type binarySearchNode struct {
-	key   []byte
-	value []byte
-	left  *binarySearchNode
-	right *binarySearchNode
+	key       []byte
+	value     []byte
+	left      *binarySearchNode
+	right     *binarySearchNode
+	tombstone bool
 }
 
 // func (b binarySearchNode) String() string {
@@ -105,6 +122,9 @@ func (n *binarySearchNode) insert(key, value []byte) {
 
 	if bytes.Equal(key, n.key) {
 		n.value = value
+
+		// reset tombstone in case it had one
+		n.tombstone = false
 		return
 	}
 
@@ -153,23 +173,60 @@ func (n *binarySearchNode) insert(key, value []byte) {
 // 	}
 // }
 
-func (n *binarySearchNode) get(key []byte) ([]byte, bool) {
+func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 	if bytes.Equal(n.key, key) {
-		return n.value, true
+		if !n.tombstone {
+			return n.value, nil
+		} else {
+			return nil, Deleted
+		}
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left == nil {
-			return nil, false
+			return nil, NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, false
+			return nil, NotFound
 		}
 
 		return n.right.get(key)
+	}
+}
+
+func (n *binarySearchNode) setTombstone(key []byte) {
+	if bytes.Equal(n.key, key) {
+		n.value = nil
+		n.tombstone = true
+	}
+
+	if bytes.Compare(key, n.key) < 0 {
+		if n.left == nil {
+			n.left = &binarySearchNode{
+				key:       key,
+				value:     nil,
+				tombstone: true,
+			}
+			return
+		}
+
+		n.left.setTombstone(key)
+		return
+	} else {
+		if n.right == nil {
+			n.right = &binarySearchNode{
+				key:       key,
+				value:     nil,
+				tombstone: true,
+			}
+			return
+		}
+
+		n.right.setTombstone(key)
+		return
 	}
 }
 

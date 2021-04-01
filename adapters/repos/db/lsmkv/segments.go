@@ -108,7 +108,10 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	return i.contents[start:end], nil
 }
 
-var NotFound = errors.Errorf("not found")
+var (
+	NotFound = errors.Errorf("not found")
+	Deleted  = errors.Errorf("deleted")
+)
 
 func (i *segment) segmentBinarySearch(needle []byte) (uint64, uint64, error) {
 	low := uint64(0)

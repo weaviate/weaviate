@@ -63,18 +63,28 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	// TODO: allow other strategies than latest
 
 	v, err := b.active.get(key)
-	if err == nil {
+	switch err {
+	case nil:
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
 		return v, nil
+	case Deleted:
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return nil, nil
+	case NotFound:
+		return b.disk.get(key)
+	default:
+		panic("unsupported error in memtable.Get")
 	}
-	if err != NotFound {
-		return nil, err
-	}
-
-	return b.disk.get(key)
 }
 
 func (b *Bucket) Put(key, value []byte) error {
 	return b.active.put(key, value)
+}
+
+func (b *Bucket) Delete(key []byte) error {
+	return b.active.setTombstone(key)
 }
 
 // meant to be called from situations where a lock is already held, does not
