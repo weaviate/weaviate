@@ -15,16 +15,23 @@ type Memtable struct {
 	sync.RWMutex
 	key          *binarySearchTree
 	primaryIndex *binarySearchTree
+	commitlog    *commitLogger
 	size         uint64
 	path         string
 }
 
-func newMemtable(path string) *Memtable {
+func newMemtable(path string) (*Memtable, error) {
+	cl, err := newCommitLogger(path)
+	if err != nil {
+		return nil, errors.Wrap(err, "init commit logger")
+	}
+
 	return &Memtable{
 		key:          &binarySearchTree{},
 		primaryIndex: &binarySearchTree{}, // todo, sort upfront
+		commitlog:    cl,
 		path:         path,
-	}
+	}, nil
 }
 
 type keyIndex struct {
@@ -48,6 +55,10 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 func (l *Memtable) put(key, value []byte) error {
 	l.Lock()
 	defer l.Unlock()
+	if err := l.commitlog.put(key, value); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
 	l.key.insert(key, value)
 	l.size += uint64(len(key))
 	l.size += uint64(len(value))
@@ -58,6 +69,10 @@ func (l *Memtable) put(key, value []byte) error {
 func (l *Memtable) setTombstone(key []byte) error {
 	l.Lock()
 	defer l.Unlock()
+
+	if err := l.commitlog.setTombstone(key); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
 
 	l.key.setTombstone(key)
 
@@ -72,12 +87,19 @@ func (l *Memtable) Size() uint64 {
 }
 
 func (l *Memtable) flush() error {
-	f, err := os.Create(l.path)
+	// close the commit log first, this also forces it to be fsynced. If
+	// something fails there, don't proceed with flushing. The commit log will
+	// not only be deleted at the very end, if the flush was successful
+	// (indicated by a successful close of the flush file - which indicates a
+	// successful fsync)
+	if err := l.commitlog.close(); err != nil {
+		return errors.Wrap(err, "close commit log file")
+	}
+
+	f, err := os.Create(l.path + ".db")
 	if err != nil {
 		return err
 	}
-
-	defer f.Close()
 
 	flat := l.key.flattenInOrder()
 
@@ -141,8 +163,14 @@ func (l *Memtable) flush() error {
 			return err
 		}
 	}
+	if err := f.Close(); err != nil {
+		return err
+	}
 
-	return nil
+	// only now that the file has been flushed is it safe to delete the commit log
+	// TODO: there might be an interest in keeping the commit logs around for
+	// longer as they might come in handy for replication
+	return l.commitlog.delete()
 }
 
 func totalValueSize(in []*binarySearchNode) int {

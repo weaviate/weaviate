@@ -132,13 +132,13 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assert.Equal(t, orig1, res)
 			res, err = b.Get(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, replaced2)
+			assert.Equal(t, replaced2, res)
 			res, err = b.Get(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, replaced3)
+			assert.Equal(t, replaced3, res)
 		})
 	})
 

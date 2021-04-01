@@ -34,15 +34,24 @@ func newSegmentGroup(dir string) (*SegmentGroup, error) {
 		segments: make([]*segment, len(list)),
 	}
 
-	for i, fileInfo := range list {
+	segmentIndex := 0
+	for _, fileInfo := range list {
+		fmt.Printf("%v\n", fileInfo.Name())
+		if filepath.Ext(fileInfo.Name()) != ".db" {
+			// skip, this could be commit log, etc.
+			continue
+		}
+
 		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()))
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
 
-		out.segments[i] = segment
+		out.segments[segmentIndex] = segment
+		segmentIndex++
 	}
 
+	out.segments = out.segments[:segmentIndex]
 	return out, nil
 }
 

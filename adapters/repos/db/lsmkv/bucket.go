@@ -45,7 +45,9 @@ func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
 		strategy:          strategy,
 	}
 
-	b.setNewActiveMemtable()
+	if err := b.setNewActiveMemtable(); err != nil {
+		return nil, err
+	}
 	b.initFlushCycle()
 
 	return b, nil
@@ -89,9 +91,15 @@ func (b *Bucket) Delete(key []byte) error {
 
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
-func (b *Bucket) setNewActiveMemtable() {
-	b.active = newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
+func (b *Bucket) setNewActiveMemtable() error {
+	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
 		time.Now().UnixNano())))
+	if err != nil {
+		return err
+	}
+
+	b.active = mt
+	return nil
 }
 
 func (b *Bucket) Shutdown() error {
@@ -123,7 +131,10 @@ func (b *Bucket) initFlushCycle() {
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 	fmt.Printf("start flush and switch\n")
-	b.atomicallySwitchMemtable()
+	if err := b.atomicallySwitchMemtable(); err != nil {
+		return err
+	}
+
 	if err := b.flushing.flush(); err != nil {
 		return err
 	}
@@ -142,7 +153,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	defer b.flushLock.Unlock()
 
 	path := b.flushing.path
-	if err := b.disk.add(path); err != nil {
+	if err := b.disk.add(path + ".db"); err != nil {
 		return nil
 	}
 	b.flushing = nil
@@ -150,10 +161,10 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	return nil
 }
 
-func (b *Bucket) atomicallySwitchMemtable() {
+func (b *Bucket) atomicallySwitchMemtable() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
 	b.flushing = b.active
-	b.setNewActiveMemtable()
+	return b.setNewActiveMemtable()
 }
