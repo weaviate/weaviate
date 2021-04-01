@@ -95,9 +95,9 @@ func (l *Memtable) setTombstone(key []byte) error {
 	return nil
 }
 
-func (l *Memtable) getList(key []byte) ([]value, error) {
+func (l *Memtable) getCollection(key []byte) ([]value, error) {
 	if l.strategy != StrategyCollection {
-		return nil, errors.Errorf("getList only possible with strategy %q", StrategyCollection)
+		return nil, errors.Errorf("getCollection only possible with strategy %q", StrategyCollection)
 	}
 
 	l.RLock()
