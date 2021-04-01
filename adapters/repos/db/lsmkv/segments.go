@@ -105,7 +105,20 @@ func (i *segment) get(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return i.contents[start:end], nil
+	return i.parseData(i.contents[start:end])
+}
+
+func (i *segment) parseData(in []byte) ([]byte, error) {
+	if len(in) == 0 {
+		return nil, NotFound
+	}
+
+	// check the tombstone byte
+	if in[0] == 0x01 {
+		return nil, Deleted
+	}
+
+	return in[1:], nil
 }
 
 var (
