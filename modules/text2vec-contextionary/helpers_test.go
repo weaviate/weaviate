@@ -45,7 +45,8 @@ type mockResolver struct {
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return in, nil
 }
 
@@ -62,7 +63,8 @@ type fakeExtender struct {
 }
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -79,7 +81,8 @@ type fakeProjector struct {
 }
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -106,7 +109,8 @@ type fakePathBuilder struct {
 }
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -200,13 +204,14 @@ func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.
 }
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+	moduleParams map[string]interface{}, searchVector []float32,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string) (search.Results, error) {
+	searchVector []float32, capability string, argumentModuleParams map[string]interface{}) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
 	for name, value := range moduleParams {
@@ -217,7 +222,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 				searchVectorValue.SetSearchVector(searchVector)
 				searchValue = searchVectorValue
 			}
-			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil)
 			if err != nil {
 				return nil, err
 			}

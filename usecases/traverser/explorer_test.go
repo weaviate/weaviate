@@ -1922,12 +1922,14 @@ func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}
 }
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
+	moduleParams map[string]interface{}, searchVector []float32,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
 }
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}) ([]search.Result, error) {
+	moduleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
 }
 
@@ -1944,7 +1946,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 					searchVectorValue.SetSearchVector(searchVector)
 					searchValue = searchVectorValue
 				}
-				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil)
 				if err != nil {
 					return nil, err
 				}

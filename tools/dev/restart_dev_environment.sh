@@ -15,6 +15,9 @@ if [[ "$*" == *--transformers* ]]; then
 else 
   ADDITIONAL_SERVICES+=('contextionary')
 fi
+if [[ "$*" == *--qna* ]]; then
+  ADDITIONAL_SERVICES+=('qna-transformers')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 

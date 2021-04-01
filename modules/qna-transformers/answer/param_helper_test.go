@@ -1,0 +1,75 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+package answer
+
+import "testing"
+
+func TestParamsHelper_GetQuestion(t *testing.T) {
+	type args struct {
+		params interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "should get question",
+			args: args{
+				params: &AnswerParams{
+					Question:  "question",
+					Certainty: 0.8,
+					Limit:     1,
+				},
+			},
+			want: "question",
+		},
+		{
+			name: "should get empty string when empty params",
+			args: args{
+				params: &AnswerParams{},
+			},
+			want: "",
+		},
+		{
+			name: "should get empty string when nil params",
+			args: args{
+				params: nil,
+			},
+			want: "",
+		},
+		{
+			name: "should get empty string when passed a struct, not a pointer to struct",
+			args: args{
+				params: AnswerParams{},
+			},
+			want: "",
+		},
+		{
+			name: "should get empty string when passed a struct with question, not a pointer to struct",
+			args: args{
+				params: AnswerParams{
+					Question: "question?",
+				},
+			},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ParamsHelper{}
+			if got := p.GetQuestion(tt.args.params); got != tt.want {
+				t.Errorf("ParamsHelper.GetQuestion() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
