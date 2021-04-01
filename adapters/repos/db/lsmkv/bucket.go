@@ -83,20 +83,20 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	}
 }
 
-func (b *Bucket) GetList(key []byte) ([][]byte, error) {
+func (b *Bucket) GetCollection(key []byte) ([][]byte, error) {
 	// TODO: disk
 
-	v, err := b.active.getList(key)
+	v, err := b.active.getCollection(key)
 	if err != nil {
 		if err == NotFound {
 			return nil, nil
 		}
 	}
 
-	return b.decodeMultiValue(v), nil
+	return b.decodeCollectionValue(v), nil
 }
 
-func (b *Bucket) decodeMultiValue(in []value) [][]byte {
+func (b *Bucket) decodeCollectionValue(in []value) [][]byte {
 	out := make([][]byte, len(in))
 
 	for i, value := range in {
@@ -112,10 +112,10 @@ func (b *Bucket) Put(key, value []byte) error {
 }
 
 func (b *Bucket) Append(key []byte, values [][]byte) error {
-	return b.active.append(key, b.encodeMultiValue(values))
+	return b.active.append(key, b.encodeCollectionValue(values))
 }
 
-func (b *Bucket) encodeMultiValue(in [][]byte) []value {
+func (b *Bucket) encodeCollectionValue(in [][]byte) []value {
 	out := make([]value, len(in))
 	for i, v := range in {
 		out[i] = value{
