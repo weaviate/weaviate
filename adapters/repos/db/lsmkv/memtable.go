@@ -80,8 +80,12 @@ func (l *Memtable) flush() error {
 	defer f.Close()
 
 	flat := l.key.flattenInOrder()
-	indexPos := uint64(totalValueSize(flat)) + 10 // for the level and indicator offset itself
-	level := uint16(0)                            // always level zero on a new one
+
+	totalDataLength := totalValueSize(flat)
+	perObjectAdditions := len(flat) * 1 // 1 byte for the tombstone
+	offset := 10                        // 2 bytes for level, 8 bytes for this indicator itself
+	indexPos := uint64(totalDataLength + perObjectAdditions + offset)
+	level := uint16(0) // always level zero on a new one
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
 		return err
@@ -94,21 +98,28 @@ func (l *Memtable) flush() error {
 
 	totalWritten := 10 // offset level + indexPos unit64
 	for i, node := range flat {
+		writtenForNode := 0
+		if err := binary.Write(f, binary.LittleEndian, node.tombstone); err != nil {
+			return errors.Wrapf(err, "write tombstone for node %d", i)
+		}
+		writtenForNode += 1
+
 		n, err := f.Write(node.value)
 		if err != nil {
 			return errors.Wrapf(err, "write node %d", i)
 		}
+		writtenForNode += n
 
 		hasher := murmur3.New128()
 		hasher.Write(node.key)
 		hash := hasher.Sum(nil)
 		keys[i] = keyIndex{
 			valueStart: totalWritten,
-			valueEnd:   totalWritten + n,
+			valueEnd:   totalWritten + writtenForNode,
 			hash:       hash,
 		}
 
-		totalWritten += n
+		totalWritten += writtenForNode
 	}
 
 	// now sort keys according to their hashes for an efficient binary search
