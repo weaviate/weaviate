@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -77,7 +78,14 @@ func do() error {
 		tookQuery := time.Since(beforeQuery)
 
 		fmt.Printf("%s - %s - query took %s\n", string(key), string(res), tookQuery)
-		time.Sleep(10 * time.Millisecond)
+	}
+
+	fmt.Printf("waiting for shutdown")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := bucket.Shutdown(ctx); err != nil {
+		return err
 	}
 
 	return nil
