@@ -63,9 +63,12 @@ func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
 
-	// TODO: instead of returning first match, return latest
-	for _, segment := range ig.segments {
-		v, err := segment.get(key)
+	// assumes "replace" strategy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := len(ig.segments) - 1; i >= 0; i-- {
+		v, err := ig.segments[i].get(key)
 		if err != nil {
 			if err == NotFound {
 				continue

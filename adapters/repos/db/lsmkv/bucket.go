@@ -9,6 +9,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	// StrategyReplace allows for idem-potent PUT where the latest takes presence
+	StrategyReplace = "replace"
+)
+
 type Bucket struct {
 	dir      string
 	active   *Memtable
@@ -20,9 +25,10 @@ type Bucket struct {
 	flushLock sync.RWMutex
 
 	memTableThreshold uint64
+	strategy          string
 }
 
-func NewBucket(dir string) (*Bucket, error) {
+func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
 	// TODO: check if there are open commit logs: recover
 
 	// TODO: create folder if not exists
@@ -36,12 +42,21 @@ func NewBucket(dir string) (*Bucket, error) {
 		dir:               dir,
 		disk:              sg,
 		memTableThreshold: 10 * 1024 * 1024,
+		strategy:          strategy,
 	}
 
 	b.setNewActiveMemtable()
 	b.initFlushCycle()
 
 	return b, nil
+}
+
+func NewBucket(dir string) (*Bucket, error) {
+	return NewBucketWithStrategy(dir, StrategyReplace)
+}
+
+func (b *Bucket) SetMemtableThreshold(size uint64) {
+	b.memTableThreshold = size
 }
 
 func (b *Bucket) Get(key []byte) ([]byte, error) {
@@ -83,7 +98,7 @@ func (b *Bucket) initFlushCycle() {
 			<-t
 			fmt.Printf("current size: %d\nthreshold: %d\n\n", b.active.Size(), b.memTableThreshold)
 			if b.active.Size() >= b.memTableThreshold {
-				if err := b.flushAndSwitch(); err != nil {
+				if err := b.FlushAndSwitch(); err != nil {
 					// TODO: structured logging
 					fmt.Printf("Error flush and switch: %v\n", err)
 				}
@@ -92,7 +107,10 @@ func (b *Bucket) initFlushCycle() {
 	}()
 }
 
-func (b *Bucket) flushAndSwitch() error {
+// FlushAndSwitch is typically called periodically and does not require manual
+// calling, but there are some situations where this might be intended, such as
+// in test scenarios or when a force flush is desired.
+func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 	fmt.Printf("start flush and switch\n")
 	b.atomicallySwitchMemtable()
