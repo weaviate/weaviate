@@ -78,16 +78,25 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) GetCollection(key []byte) ([][]byte, error) {
-	// TODO: disk
+	var out []value
 
-	v, err := b.active.getCollection(key)
+	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err == NotFound {
-			return nil, nil
+		if err != nil && err != NotFound {
+			return nil, err
 		}
 	}
+	out = append(out, v...)
 
-	return b.decodeCollectionValue(v), nil
+	v, err = b.active.getCollection(key)
+	if err != nil {
+		if err != nil && err != NotFound {
+			return nil, err
+		}
+	}
+	out = append(out, v...)
+
+	return b.decodeCollectionValue(out), nil
 }
 
 func (b *Bucket) decodeCollectionValue(in []value) [][]byte {

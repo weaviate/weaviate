@@ -117,13 +117,11 @@ func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 }
 
 func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
-	flat := l.key.flattenInOrder()
+	flat := l.keyMulti.flattenInOrder()
 
-	// totalDataLength := totalValueSize(flat)
-	totalDataLength := 200              // TODO
-	perObjectAdditions := len(flat) * 1 // 1 byte for the tombstone
-	offset := 12                        // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
-	indexPos := uint64(totalDataLength + perObjectAdditions + offset)
+	totalDataLength := totalValueSizeCollection(flat)
+	offset := 12 // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
+	indexPos := uint64(totalDataLength + offset)
 	level := uint16(0) // always level zero on a new one
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
@@ -137,31 +135,48 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 	}
 	keys := make([]keyIndex, len(flat))
 
-	// totalWritten := offset
-	// for i, node := range flat {
-	// 	writtenForNode := 0
-	// 	if err := binary.Write(f, binary.LittleEndian, node.tombstone); err != nil {
-	// 		return nil, errors.Wrapf(err, "write tombstone for node %d", i)
-	// 	}
-	// 	writtenForNode += 1
+	totalWritten := offset
+	for i, node := range flat {
+		writtenForNode := 0
 
-	// 	n, err := f.Write(node.value)
-	// 	if err != nil {
-	// 		return nil, errors.Wrapf(err, "write node %d", i)
-	// 	}
-	// 	writtenForNode += n
+		valueLen := uint64(len(node.values))
+		if err := binary.Write(f, binary.LittleEndian, &valueLen); err != nil {
+			return nil, errors.Wrapf(err, "write values len for node %d", i)
+		}
+		writtenForNode += 8
 
-	// 	hasher := murmur3.New128()
-	// 	hasher.Write(node.key)
-	// 	hash := hasher.Sum(nil)
-	// 	keys[i] = keyIndex{
-	// 		valueStart: totalWritten,
-	// 		valueEnd:   totalWritten + writtenForNode,
-	// 		hash:       hash,
-	// 	}
+		for _, value := range node.values {
+			if err := binary.Write(f, binary.LittleEndian, value.tombstone); err != nil {
+				return nil, errors.Wrapf(err, "write tombstone for value on node %d", i)
+			}
+			writtenForNode += 1
 
-	// 	totalWritten += writtenForNode
-	// }
+			if !value.tombstone {
+				valueLen := uint64(len(value.value))
+				if err := binary.Write(f, binary.LittleEndian, valueLen); err != nil {
+					return nil, errors.Wrapf(err, "write len of value on node %d", i)
+				}
+				writtenForNode += 8
+
+				n, err := f.Write(value.value)
+				if err != nil {
+					return nil, errors.Wrapf(err, "write value on node %d", i)
+				}
+				writtenForNode += n
+			}
+		}
+
+		hasher := murmur3.New128()
+		hasher.Write(node.key)
+		hash := hasher.Sum(nil)
+		keys[i] = keyIndex{
+			valueStart: totalWritten,
+			valueEnd:   totalWritten + writtenForNode,
+			hash:       hash,
+		}
+
+		totalWritten += writtenForNode
+	}
 
 	return keys, nil
 }
@@ -170,6 +185,20 @@ func totalValueSize(in []*binarySearchNode) int {
 	var sum int
 	for _, n := range in {
 		sum += len(n.value)
+	}
+
+	return sum
+}
+
+func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
+	var sum int
+	for _, n := range in {
+		sum += 8 // uint64 to indicate array length
+		for _, v := range n.values {
+			sum += 8 // uint64 to indicate value length
+			sum += 1 // bool to indicate value tombstone
+			sum += len(v.value)
+		}
 	}
 
 	return sum
