@@ -82,8 +82,10 @@ type VectorRepo interface {
 }
 
 type ModulesProvider interface {
-	GetObjectAdditionalExtend(ctx context.Context, in *search.Result, moduleParams map[string]interface{}) (*search.Result, error)
-	ListObjectsAdditionalExtend(ctx context.Context, in search.Results, moduleParams map[string]interface{}) (search.Results, error)
+	GetObjectAdditionalExtend(ctx context.Context, in *search.Result,
+		moduleParams map[string]interface{}) (*search.Result, error)
+	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
+		moduleParams map[string]interface{}) (search.Results, error)
 }
 
 // NewManager creates a new manager
