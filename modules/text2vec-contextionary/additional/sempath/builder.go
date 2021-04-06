@@ -49,7 +49,8 @@ func (e *PathBuilder) AdditonalPropertyDefaultValue() interface{} {
 }
 
 func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return f.CalculatePath(in, parameters)
 	}

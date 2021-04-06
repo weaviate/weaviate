@@ -23,3 +23,14 @@ type Module interface {
 	Init(ctx context.Context, params moduletools.ModuleInitParams) error
 	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
 }
+
+type ModuleDependency interface {
+	Module
+	InitDependency(modules []Module) error
+}
+
+type Dependency interface {
+	Argument() string
+	GraphQLArgument() GraphQLArgument
+	VectorSearch() VectorForParams
+}
