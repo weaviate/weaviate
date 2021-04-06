@@ -9,14 +9,14 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import (
 	"reflect"
 	"testing"
 )
 
-func Test_extractAnswerFn(t *testing.T) {
+func Test_extractAskFn(t *testing.T) {
 	type args struct {
 		source map[string]interface{}
 	}
@@ -32,7 +32,7 @@ func Test_extractAnswerFn(t *testing.T) {
 					"question": "some question",
 				},
 			},
-			want: &AnswerParams{
+			want: &AskParams{
 				Question: "some question",
 				Limit:    1,
 			},
@@ -45,7 +45,7 @@ func Test_extractAnswerFn(t *testing.T) {
 					"certainty": 0.8,
 				},
 			},
-			want: &AnswerParams{
+			want: &AskParams{
 				Question:  "some question",
 				Certainty: 0.8,
 				Limit:     1,
@@ -56,15 +56,15 @@ func Test_extractAnswerFn(t *testing.T) {
 			args: args{
 				source: map[string]interface{}{},
 			},
-			want: &AnswerParams{
+			want: &AskParams{
 				Limit: 1,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := extractAnswerFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("extractAnswerFn() = %v, want %v", got, tt.want)
+			if got := extractAskFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("extractAskFn() = %v, want %v", got, tt.want)
 			}
 		})
 	}

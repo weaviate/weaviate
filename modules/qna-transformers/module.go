@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	qnaadditional "github.com/semi-technologies/weaviate/modules/qna-transformers/additional"
 	qnaadditionalanswer "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/answer"
-	qnaanswer "github.com/semi-technologies/weaviate/modules/qna-transformers/answer"
+	qnaask "github.com/semi-technologies/weaviate/modules/qna-transformers/ask"
 	"github.com/semi-technologies/weaviate/modules/qna-transformers/clients"
 	qnaadependency "github.com/semi-technologies/weaviate/modules/qna-transformers/dependency"
 	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
@@ -86,7 +86,7 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 	}
 	m.nearTextDependency = qnaadependency.New(argument, searcher)
 
-	if err := m.initAnswer(); err != nil {
+	if err := m.initAsk(); err != nil {
 		return errors.Wrap(err, "init answer")
 	}
 
@@ -108,7 +108,7 @@ func (m *QnAModule) initAdditional(ctx context.Context,
 
 	m.qna = client
 
-	answerProvider := qnaadditionalanswer.New(m.qna, qnaanswer.NewParamsHelper())
+	answerProvider := qnaadditionalanswer.New(m.qna, qnaask.NewParamsHelper())
 	m.additionalPropertiesProvider = qnaadditional.New(answerProvider)
 
 	return nil

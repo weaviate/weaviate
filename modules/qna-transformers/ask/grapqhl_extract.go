@@ -9,10 +9,10 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
-func extractAnswerFn(source map[string]interface{}) interface{} {
-	var args AnswerParams
+func extractAskFn(source map[string]interface{}) interface{} {
+	var args AskParams
 
 	question, ok := source["question"].(string)
 	if ok {

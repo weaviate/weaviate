@@ -88,7 +88,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		fakeParams := &Params{}
 		limit := 1
 		argumentModuleParams := map[string]interface{}{
-			"answer": "fake param",
+			"ask": "fake param",
 		}
 
 		// when

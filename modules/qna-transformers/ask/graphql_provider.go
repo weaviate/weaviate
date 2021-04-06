@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -23,15 +23,15 @@ func New() *GraphQLArgumentsProvider {
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
-	arguments["answer"] = g.getAnswer()
+	arguments["ask"] = g.getAsk()
 	return arguments
 }
 
-func (g *GraphQLArgumentsProvider) getAnswer() modulecapabilities.GraphQLArgument {
+func (g *GraphQLArgumentsProvider) getAsk() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     getAnswerArgumentFn,
-		ExploreArgumentsFunction: exploreAnswerArgumentFn,
-		ExtractFunction:          extractAnswerFn,
-		ValidateFunction:         validateAnswerFn,
+		GetArgumentsFunction:     getAskArgumentFn,
+		ExploreArgumentsFunction: exploreAskArgumentFn,
+		ExtractFunction:          extractAskFn,
+		ValidateFunction:         validateAskFn,
 	}
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 type ParamsHelper struct{}
 
@@ -18,7 +18,7 @@ func NewParamsHelper() *ParamsHelper {
 }
 
 func (p *ParamsHelper) GetQuestion(params interface{}) string {
-	if parameters, ok := params.(*AnswerParams); ok {
+	if parameters, ok := params.(*AskParams); ok {
 		return parameters.Question
 	}
 	return ""

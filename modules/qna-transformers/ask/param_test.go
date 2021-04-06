@@ -9,11 +9,11 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import "testing"
 
-func Test_validateAnswerFn(t *testing.T) {
+func Test_validateAskFn(t *testing.T) {
 	type args struct {
 		param interface{}
 	}
@@ -25,7 +25,7 @@ func Test_validateAnswerFn(t *testing.T) {
 		{
 			name: "should validate",
 			args: args{
-				param: &AnswerParams{
+				param: &AskParams{
 					Question: "question",
 					Limit:    1,
 				},
@@ -34,7 +34,7 @@ func Test_validateAnswerFn(t *testing.T) {
 		{
 			name: "should not validate when empty question",
 			args: args{
-				param: &AnswerParams{
+				param: &AskParams{
 					Question: "",
 					Limit:    1,
 				},
@@ -44,14 +44,14 @@ func Test_validateAnswerFn(t *testing.T) {
 		{
 			name: "should not validate when empty params",
 			args: args{
-				param: &AnswerParams{},
+				param: &AskParams{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not validate when param passed is struct, not a pointer to struct",
 			args: args{
-				param: AnswerParams{
+				param: AskParams{
 					Question: "question",
 					Limit:    1,
 				},
@@ -61,8 +61,8 @@ func Test_validateAnswerFn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateAnswerFn(tt.args.param); (err != nil) != tt.wantErr {
-				t.Errorf("validateAnswerFn() error = %v, wantErr %v", err, tt.wantErr)
+			if err := validateAskFn(tt.args.param); (err != nil) != tt.wantErr {
+				t.Errorf("validateAskFn() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
