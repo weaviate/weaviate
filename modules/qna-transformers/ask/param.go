@@ -9,30 +9,30 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import (
 	"github.com/pkg/errors"
 )
 
-type AnswerParams struct {
+type AskParams struct {
 	Question  string
 	Certainty float64
 	Limit     int
 }
 
-func (n AnswerParams) GetCertainty() float64 {
+func (n AskParams) GetCertainty() float64 {
 	return n.Certainty
 }
 
-func validateAnswerFn(param interface{}) error {
-	answer, ok := param.(*AnswerParams)
+func validateAskFn(param interface{}) error {
+	ask, ok := param.(*AskParams)
 	if !ok {
-		return errors.New("'answer' invalid parameter")
+		return errors.New("'ask' invalid parameter")
 	}
 
-	if len(answer.Question) == 0 {
-		return errors.Errorf("'answer.question' needs to be defined")
+	if len(ask.Question) == 0 {
+		return errors.Errorf("'ask.question' needs to be defined")
 	}
 
 	return nil

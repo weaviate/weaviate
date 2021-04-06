@@ -13,12 +13,12 @@ package modqna
 
 import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/answer"
+	"github.com/semi-technologies/weaviate/modules/qna-transformers/ask"
 )
 
-func (m *QnAModule) initAnswer() error {
-	m.searcher = answer.NewSearcher(m.nearTextDependency)
-	m.graphqlProvider = answer.New()
+func (m *QnAModule) initAsk() error {
+	m.searcher = ask.NewSearcher(m.nearTextDependency)
+	m.graphqlProvider = ask.New()
 	return nil
 }
 

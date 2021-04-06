@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 )
 
 type Searcher struct {
-	// here goes the module dependency
+	// nearText module dependency
 	nearTextDep modulecapabilities.Dependency
 }
 
@@ -29,18 +29,18 @@ func NewSearcher(nearTextDep modulecapabilities.Dependency) *Searcher {
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["answer"] = s.vectorForAnswerParam
+	vectorSearches["ask"] = s.vectorForAskParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForAnswerParam(ctx context.Context, params interface{},
+func (s *Searcher) vectorForAskParam(ctx context.Context, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig) ([]float32, error) {
-	return s.vectorFromAnswerParam(ctx, params.(*AnswerParams), findVectorFn, cfg)
+	return s.vectorFromAskParam(ctx, params.(*AskParams), findVectorFn, cfg)
 }
 
-func (s *Searcher) vectorFromAnswerParam(ctx context.Context,
-	params *AnswerParams, findVectorFn modulecapabilities.FindVectorFn,
+func (s *Searcher) vectorFromAskParam(ctx context.Context,
+	params *AskParams, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig) ([]float32, error) {
 	arg := s.nearTextDep.GraphQLArgument()
 

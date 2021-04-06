@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import "testing"
 
@@ -25,7 +25,7 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 		{
 			name: "should get question",
 			args: args{
-				params: &AnswerParams{
+				params: &AskParams{
 					Question:  "question",
 					Certainty: 0.8,
 					Limit:     1,
@@ -36,7 +36,7 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 		{
 			name: "should get empty string when empty params",
 			args: args{
-				params: &AnswerParams{},
+				params: &AskParams{},
 			},
 			want: "",
 		},
@@ -50,14 +50,14 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 		{
 			name: "should get empty string when passed a struct, not a pointer to struct",
 			args: args{
-				params: AnswerParams{},
+				params: AskParams{},
 			},
 			want: "",
 		},
 		{
 			name: "should get empty string when passed a struct with question, not a pointer to struct",
 			args: args{
-				params: AnswerParams{
+				params: AskParams{
 					Question: "question?",
 				},
 			},

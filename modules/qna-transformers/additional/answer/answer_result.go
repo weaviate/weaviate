@@ -37,7 +37,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 		if len(text) == 0 {
 			return in, errors.New("empty content")
 		}
-		question := p.paramsHelper.GetQuestion(argumentModuleParams["answer"])
+		question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
 		if question == "" {
 			return in, errors.New("empty question")
 		}
@@ -59,8 +59,6 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 		}
 
 		in[0].AdditionalProperties = ap
-		// just limiting the results to just 1 result
-		return in[:1], nil
 	}
 
 	return in, nil

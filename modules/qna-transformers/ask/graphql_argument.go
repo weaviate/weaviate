@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package answer
+package ask
 
 import (
 	"fmt"
@@ -18,28 +18,28 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func getAnswerArgumentFn(classname string) *graphql.ArgumentConfig {
-	return answerArgument("GetObjects", classname)
+func getAskArgumentFn(classname string) *graphql.ArgumentConfig {
+	return askArgument("GetObjects", classname)
 }
 
-func exploreAnswerArgumentFn() *graphql.ArgumentConfig {
-	return answerArgument("Explore", "")
+func exploreAskArgumentFn() *graphql.ArgumentConfig {
+	return askArgument("Explore", "")
 }
 
-func answerArgument(prefix, className string) *graphql.ArgumentConfig {
+func askArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("QnATransformers%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("%sAnswerInpObj", prefixName),
-				Fields:      answerFields(prefixName),
+				Name:        fmt.Sprintf("%sAskInpObj", prefixName),
+				Fields:      askFields(prefixName),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func answerFields(prefix string) graphql.InputObjectConfigFieldMap {
+func askFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"question": &graphql.InputObjectFieldConfig{
 			Description: "Question to be answered",
