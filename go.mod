@@ -12,8 +12,8 @@ require (
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.27
 	github.com/go-openapi/spec v0.19.8
-	github.com/go-openapi/strfmt v0.20.0
-	github.com/go-openapi/swag v0.19.14
+	github.com/go-openapi/strfmt v0.20.1
+	github.com/go-openapi/swag v0.19.15
 	github.com/go-openapi/validate v0.19.10
 	github.com/google/uuid v1.1.1
 	github.com/graphql-go/graphql v0.7.9
@@ -30,7 +30,6 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	go.etcd.io/bbolt v1.3.3
-	go.mongodb.org/mongo-driver v1.5.0 // indirect
 	golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb
 	golang.org/x/tools v0.1.0 // indirect
 	gonum.org/v1/gonum v0.7.0
