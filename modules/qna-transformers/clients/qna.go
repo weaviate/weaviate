@@ -75,12 +75,10 @@ func (v *qna) Answer(ctx context.Context,
 	}
 
 	return &ent.AnswerResult{
-		Text:          resBody.Question,
-		Question:      resBody.Question,
-		Answer:        resBody.Answer,
-		StartPosition: resBody.StartPosition,
-		EndPosition:   resBody.EndPosition,
-		Score:         resBody.Score,
+		Text:     resBody.Question,
+		Question: resBody.Question,
+		Answer:   resBody.Answer,
+		Score:    resBody.Score,
 	}, nil
 }
 
@@ -95,9 +93,6 @@ type answersInput struct {
 
 type answersResponse struct {
 	answersInput
-	Answer        string `json:"answer"`
-	Score         string `json:"score"`
-	StartPosition int    `json:"startPosition"`
-	EndPosition   int    `json:"endPosition"`
-	Error         string `json:"error"`
+	Answer string `json:"answer"`
+	Score  string `json:"score"`
 }

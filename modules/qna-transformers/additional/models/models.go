@@ -15,7 +15,7 @@ package models
 // the answer to a given question
 type Answer struct {
 	Result        string `json:"result,omitempty"`
-	Field         string `json:"field,omitempty"`
+	Property      string `json:"property,omitempty"`
 	StartPosition int    `json:"startPosition,omitempty"`
 	EndPosition   int    `json:"endPosition,omitempty"`
 }
