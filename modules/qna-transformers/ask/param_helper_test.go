@@ -11,7 +11,10 @@
 
 package ask
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParamsHelper_GetQuestion(t *testing.T) {
 	type args struct {
@@ -69,6 +72,60 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 			p := &ParamsHelper{}
 			if got := p.GetQuestion(tt.args.params); got != tt.want {
 				t.Errorf("ParamsHelper.GetQuestion() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParamsHelper_GetProperties(t *testing.T) {
+	type args struct {
+		params interface{}
+	}
+	tests := []struct {
+		name string
+		p    *ParamsHelper
+		args args
+		want []string
+	}{
+		{
+			name: "should get properties",
+			args: args{
+				params: &AskParams{
+					Question:   "question",
+					Properties: []string{"prop1", "prop2"},
+					Certainty:  0.8,
+					Limit:      1,
+				},
+			},
+			want: []string{"prop1", "prop2"},
+		},
+		{
+			name: "should get nil properties with empty pointer to AskParams",
+			args: args{
+				params: &AskParams{},
+			},
+			want: nil,
+		},
+		{
+			name: "should get nil properties with empty AskParams",
+			args: args{
+				params: AskParams{},
+			},
+			want: nil,
+		},
+		{
+			name: "should get nil properties with nil params",
+			args: args{
+				params: nil,
+			},
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ParamsHelper{}
+			if got := p.GetProperties(tt.args.params); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParamsHelper.GetProperties() = %v, want %v", got, tt.want)
 			}
 		})
 	}

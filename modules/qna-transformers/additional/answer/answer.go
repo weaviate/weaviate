@@ -30,6 +30,7 @@ type qnaClient interface {
 
 type paramsHelper interface {
 	GetQuestion(params interface{}) string
+	GetProperties(params interface{}) []string
 }
 
 type AnswerProvider struct {
