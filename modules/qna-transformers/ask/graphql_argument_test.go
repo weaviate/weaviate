@@ -37,7 +37,7 @@ func TestAskGraphQLArgument(t *testing.T) {
 		askFields, ok := ask.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, askFields)
-		assert.Equal(t, 2, len(askFields.Fields()))
+		assert.Equal(t, 3, len(askFields.Fields()))
 		fields := askFields.Fields()
 		question := fields["question"]
 		questionNonNull, questionNonNullOK := question.Type.(*graphql.NonNull)
@@ -45,5 +45,9 @@ func TestAskGraphQLArgument(t *testing.T) {
 		assert.Equal(t, "String", questionNonNull.OfType.Name())
 		assert.NotNil(t, question)
 		assert.NotNil(t, fields["certainty"])
+		properties := fields["properties"]
+		propertiesList, propertiesListOK := properties.Type.(*graphql.List)
+		assert.True(t, propertiesListOK)
+		assert.Equal(t, "String", propertiesList.OfType.Name())
 	})
 }

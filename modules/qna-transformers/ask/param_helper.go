@@ -23,3 +23,10 @@ func (p *ParamsHelper) GetQuestion(params interface{}) string {
 	}
 	return ""
 }
+
+func (p *ParamsHelper) GetProperties(params interface{}) []string {
+	if parameters, ok := params.(*AskParams); ok {
+		return parameters.Properties
+	}
+	return nil
+}

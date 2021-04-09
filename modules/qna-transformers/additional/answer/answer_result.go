@@ -25,15 +25,22 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 	in []search.Result, params *Params, limit *int,
 	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	if len(in) > 0 {
-		textFields := []string{}
+		properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
+		textProperties := map[string]string{}
 		schema := in[0].Object().Properties.(map[string]interface{})
-		for _, value := range schema {
-			if valueString, ok := value.(string); ok && len(valueString) > 0 {
-				textFields = append(textFields, valueString)
+		for property, value := range schema {
+			if p.containsProperty(property, properties) {
+				if valueString, ok := value.(string); ok && len(valueString) > 0 {
+					textProperties[property] = valueString
+				}
 			}
 		}
 
-		text := strings.Join(textFields, " ")
+		texts := []string{}
+		for _, value := range textProperties {
+			texts = append(texts, value)
+		}
+		text := strings.Join(texts, " ")
 		if len(text) == 0 {
 			return in, errors.New("empty content")
 		}
@@ -52,14 +59,41 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 			ap = models.AdditionalProperties{}
 		}
 
+		propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
 		ap["answer"] = &qnamodels.Answer{
 			Result:        answer.Answer,
-			StartPosition: answer.StartPosition,
-			EndPosition:   answer.EndPosition,
+			Property:      propertyName,
+			StartPosition: startPos,
+			EndPosition:   endPos,
 		}
 
 		in[0].AdditionalProperties = ap
 	}
 
 	return in, nil
+}
+
+func (p *AnswerProvider) containsProperty(property string, properties []string) bool {
+	if len(properties) == 0 {
+		return true
+	}
+	for i := range properties {
+		if properties[i] == property {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *AnswerProvider) findProperty(answer string, textProperties map[string]string) (string, int, int) {
+	lowercaseAnswer := strings.ToLower(answer)
+	if len(lowercaseAnswer) > 0 {
+		for property, value := range textProperties {
+			if lowercaseValue := strings.ToLower(value); strings.Contains(lowercaseValue, lowercaseAnswer) {
+				startIndex := strings.Index(lowercaseValue, lowercaseAnswer)
+				return property, startIndex, startIndex + len(lowercaseAnswer)
+			}
+		}
+	}
+	return "", 0, 0
 }

@@ -24,6 +24,14 @@ func extractAskFn(source map[string]interface{}) interface{} {
 		args.Certainty = certainty.(float64)
 	}
 
+	properties, ok := source["properties"].([]interface{})
+	if ok {
+		args.Properties = make([]string, len(properties))
+		for i, value := range properties {
+			args.Properties[i] = value.(string)
+		}
+	}
+
 	// always set the limit to 1
 	args.Limit = 1
 
