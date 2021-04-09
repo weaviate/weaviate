@@ -124,6 +124,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties := graphql.Fields{}
 	additionalProperties["classification"] = b.additionalClassificationField(class)
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
+	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	// module specific additional properties
 	if b.modulesProvider != nil {
@@ -164,5 +165,11 @@ func (b *classBuilder) additionalClassificationField(class *models.Class) *graph
 func (b *classBuilder) additionalCertaintyField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Float,
+	}
+}
+
+func (b *classBuilder) additionalVectorField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.Float),
 	}
 }
