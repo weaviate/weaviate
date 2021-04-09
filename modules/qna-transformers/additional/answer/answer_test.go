@@ -88,7 +88,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		fakeParams := &Params{}
 		limit := 1
 		argumentModuleParams := map[string]interface{}{
-			"ask": "fake param",
+			"ask": map[string]interface{}{
+				"question": "question",
+			},
 		}
 
 		// when
@@ -104,6 +106,47 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
 		assert.True(t, answerAdditionalOK)
 		assert.Equal(t, "answer", answerAdditional.Result)
+	})
+
+	t.Run("should answer with property", func(t *testing.T) {
+		// given
+		qnaClient := &fakeQnAClient{}
+		fakeHelper := &fakeParamsHelper{}
+		answerProvider := New(qnaClient, fakeHelper)
+		in := []search.Result{
+			{
+				ID: "some-uuid",
+				Schema: map[string]interface{}{
+					"content":  "content with answer",
+					"content2": "this one is just a title",
+				},
+			},
+		}
+		fakeParams := &Params{}
+		limit := 1
+		argumentModuleParams := map[string]interface{}{
+			"ask": map[string]interface{}{
+				"question":   "question",
+				"properties": []string{"content", "content2"},
+			},
+		}
+
+		// when
+		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+
+		// then
+		require.Nil(t, err)
+		require.NotEmpty(t, out)
+		assert.Equal(t, 1, len(in))
+		answer, answerOK := in[0].AdditionalProperties["answer"]
+		assert.True(t, answerOK)
+		assert.NotNil(t, answer)
+		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
+		assert.True(t, answerAdditionalOK)
+		assert.Equal(t, "answer", answerAdditional.Result)
+		assert.Equal(t, "content", answerAdditional.Property)
+		assert.Equal(t, 13, answerAdditional.StartPosition)
+		assert.Equal(t, 19, answerAdditional.EndPosition)
 	})
 }
 
@@ -122,8 +165,19 @@ func (c *fakeQnAClient) Answer(ctx context.Context,
 type fakeParamsHelper struct{}
 
 func (h *fakeParamsHelper) GetQuestion(params interface{}) string {
-	if params == nil {
-		return ""
+	if fakeParamsMap, ok := params.(map[string]interface{}); ok {
+		if question, ok := fakeParamsMap["question"].(string); ok {
+			return question
+		}
 	}
-	return "question"
+	return ""
+}
+
+func (h *fakeParamsHelper) GetProperties(params interface{}) []string {
+	if fakeParamsMap, ok := params.(map[string]interface{}); ok {
+		if properties, ok := fakeParamsMap["properties"].([]string); ok {
+			return properties
+		}
+	}
+	return nil
 }

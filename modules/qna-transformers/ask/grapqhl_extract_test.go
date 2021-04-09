@@ -60,6 +60,22 @@ func Test_extractAskFn(t *testing.T) {
 				Limit: 1,
 			},
 		},
+		{
+			name: "should parse properly with question and certainty and properties",
+			args: args{
+				source: map[string]interface{}{
+					"question":   "some question",
+					"certainty":  0.8,
+					"properties": []interface{}{"prop1", "prop2"},
+				},
+			},
+			want: &AskParams{
+				Question:   "some question",
+				Certainty:  0.8,
+				Properties: []string{"prop1", "prop2"},
+				Limit:      1,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

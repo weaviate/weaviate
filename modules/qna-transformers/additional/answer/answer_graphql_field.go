@@ -25,6 +25,7 @@ func (p *AnswerProvider) additionalAnswerField(classname string) *graphql.Field 
 				"result":        &graphql.Field{Type: graphql.String},
 				"startPosition": &graphql.Field{Type: graphql.Int},
 				"endPosition":   &graphql.Field{Type: graphql.Int},
+				"property":      &graphql.Field{Type: graphql.String},
 			},
 		}),
 	}

@@ -49,5 +49,9 @@ func askFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 		},
+		"properties": &graphql.InputObjectFieldConfig{
+			Description: "Properties which contains text",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 }
