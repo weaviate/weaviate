@@ -12,13 +12,47 @@
 package test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func gettingObjectsWithAdditionalProps(t *testing.T) {
+	t.Run("with vector set", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company {
+					_additional {
+						vector
+					}
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		require.Greater(t, len(companies), 0)
+		for _, comp := range companies {
+			vec, ok := comp.(map[string]interface{})["_additional"].(map[string]interface{})["vector"]
+			require.True(t, ok)
+
+			vecSlice, ok := vec.([]interface{})
+			require.True(t, ok)
+			require.Greater(t, len(vecSlice), 0)
+
+			asFloat, err := vecSlice[0].(json.Number).Float64()
+			require.Nil(t, err)
+			assert.True(t, asFloat >= -1)
+			assert.True(t, asFloat <= 1)
+		}
+	})
+
 	t.Run("with interpretation set", func(t *testing.T) {
 		query := `
 		{
