@@ -181,6 +181,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["id"] = res.ID
 		}
 
+		if params.AdditionalProperties.Vector {
+			additionalProperties["vector"] = res.Vector
+		}
+
 		if len(additionalProperties) > 0 {
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
