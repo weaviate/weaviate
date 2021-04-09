@@ -315,6 +315,28 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		test{
+			name:  "with _additional vector",
+			query: "{ Get { SomeAction { _additional { vector } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: traverser.AdditionalProperties{
+					Vector: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"vector": []float32{0.1, -0.3},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"vector": []interface{}{float32(0.1), float32(-0.3)},
+				},
+			},
+		},
+		test{
 			name:  "with _additional classification",
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
