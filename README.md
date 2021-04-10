@@ -14,6 +14,31 @@ Weaviate is a cloud-native, real-time vector search engine (aka _neural search e
 
 _GraphQL - RESTful - vector search engine - vector database - neural search engine - semantic search - HNSW - deep search - machine learning - kNN_
 
+## Features
+
+Weaviate makes it easy to use state-of-the-art AI models while giving you the scalability, ease of use, safety and cost-effectiveness of a purpose-built vector database. Most notably:
+
+* **Fast queries**<br>
+   Weaviate typically performs a 10-NN neighbor search out of millions of objects in considerably less than 100ms. 
+
+* **Any media type with Weaviate Modules**<br>
+  Use State-of-the-Art AI model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
+
+* **Combine vector and scalar search**<br>
+  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for a third party object storage. 
+
+* **Real-time and persistent**<br>
+Weaviate let’s you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
+
+* **Horizontal Scalability**<br>
+  Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Currently under development, ETA Fall 2021) 
+
+* **Cost-Effectiveness**<br>
+  Very large datasets do not need to be kept entirely in memory in Weaviate. At the same time available memory can be used to increase the speed of queries. This allows for a conscious speed/cost trade-off to suit every use case.
+
+* **Graph-like connections between objects**<br>
+  Make arbitrary connections between your objects in a graph-like fashion to resemble real-life connections between your data points. Traverse those connections using GraphQL.
+
 ## Documentation
 
 You can find detailed documentation in the [developers section of our website](https://www.semi.technology/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
