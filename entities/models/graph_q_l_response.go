@@ -33,7 +33,7 @@ type GraphQLResponse struct {
 	Data map[string]JSONObject `json:"data,omitempty"`
 
 	// Array with errors.
-	Errors []*GraphQLError `json:"errors"`
+	Errors []*GraphQLError `json:"errors,omitempty"`
 }
 
 // Validate validates this graph q l response
