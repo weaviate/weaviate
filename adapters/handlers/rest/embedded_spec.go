@@ -1810,7 +1810,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/GraphQLError"
-          }
+          },
+          "x-omitempty": true
         }
       }
     },
@@ -4330,7 +4331,8 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/GraphQLError"
-          }
+          },
+          "x-omitempty": true
         }
       }
     },

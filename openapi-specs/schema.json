@@ -317,6 +317,7 @@
           "items": {
             "$ref": "#/definitions/GraphQLError"
           },
+          "x-omitempty": true,
           "type": "array"
         }
       }
