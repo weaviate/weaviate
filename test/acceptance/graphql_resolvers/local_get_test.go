@@ -12,10 +12,15 @@
 package test
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // run by setup_test.go
@@ -48,5 +53,25 @@ func gettingObjects(t *testing.T) {
   ]`)
 
 		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("make sure raw response contains no error key", func(t *testing.T) {
+		// This test prevents a regression on gh-1535
+
+		query := []byte(`{"query":"{ Get { City { name } } }"}`)
+		res, err := http.Post(fmt.Sprintf("%s%s", helper.GetWeaviateURL(), "/v1/graphql"),
+			"application/json", bytes.NewReader(query))
+		require.Nil(t, err)
+
+		defer res.Body.Close()
+		var body map[string]interface{}
+		err = json.NewDecoder(res.Body).Decode(&body)
+		require.Nil(t, err)
+
+		_, ok := body["errors"]
+		assert.False(t, ok)
+
+		cities := body["data"].(map[string]interface{})["Get"].(map[string]interface{})["City"].([]interface{})
+		assert.Greater(t, len(cities), 0)
 	})
 }
