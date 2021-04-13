@@ -133,15 +133,15 @@ func (b *Bucket) encodeCollectionValue(in [][]byte) []value {
 func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 	var raw []value
 
-	// v, err := b.disk.getCollection(key)
-	// if err != nil {
-	// 	if err != nil && err != NotFound {
-	// 		return nil, err
-	// 	}
-	// }
-	// out = append(out, v...)
+	v, err := b.disk.getCollection(key)
+	if err != nil {
+		if err != nil && err != NotFound {
+			return nil, err
+		}
+	}
+	raw = append(raw, v...)
 
-	v, err := b.active.getCollection(key)
+	v, err = b.active.getCollection(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err

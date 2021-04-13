@@ -96,6 +96,8 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 			if err == NotFound {
 				continue
 			}
+
+			return nil, err
 		}
 
 		out = append(out, v...)
