@@ -165,7 +165,35 @@ func (b *Bucket) decodeMapCollectionValues(in []value) ([]MapPair, error) {
 		out[i] = kv
 	}
 
-	return out, nil
+	return b.mergeDuplicateMapKeys(out), nil
+}
+
+// assumes a latest-takes-presence strategy
+// iterates the array twice, first to register duplicates with counts, then a
+// second time to skip all but the last count of a duplicate. possibly not a
+// perfect algo, but considerably better than some O(n^2) attempt
+func (b *Bucket) mergeDuplicateMapKeys(in []MapPair) []MapPair {
+	seenKeys := map[string]uint{}
+
+	for _, pair := range in {
+		count := seenKeys[string(pair.Key)]
+		seenKeys[string(pair.Key)] = count + 1
+	}
+
+	out := make([]MapPair, len(in))
+	i := 0
+	for _, pair := range in {
+		count := seenKeys[string(pair.Key)]
+		if count == 1 {
+			out[i] = pair
+			i++
+			continue
+		}
+
+		seenKeys[string(pair.Key)] = count - 1
+	}
+
+	return out[:i]
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
