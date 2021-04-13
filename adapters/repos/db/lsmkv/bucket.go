@@ -130,6 +130,68 @@ func (b *Bucket) encodeCollectionValue(in [][]byte) []value {
 	return out
 }
 
+func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
+	var raw []value
+
+	// v, err := b.disk.getCollection(key)
+	// if err != nil {
+	// 	if err != nil && err != NotFound {
+	// 		return nil, err
+	// 	}
+	// }
+	// out = append(out, v...)
+
+	v, err := b.active.getCollection(key)
+	if err != nil {
+		if err != nil && err != NotFound {
+			return nil, err
+		}
+	}
+	raw = append(raw, v...)
+
+	return b.decodeMapCollectionValues(raw)
+}
+
+func (b *Bucket) decodeMapCollectionValues(in []value) ([]MapPair, error) {
+	out := make([]MapPair, len(in))
+
+	for i, value := range in {
+		// TODO: handle tombstones
+		kv := MapPair{}
+		err := kv.FromBytes(value.value)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = kv
+	}
+
+	return out, nil
+}
+
+func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
+	v, err := b.encodeMapValue(kv)
+	if err != nil {
+		return err
+	}
+
+	return b.active.append(rowKey, v)
+}
+
+func (b *Bucket) encodeMapValue(kv MapPair) ([]value, error) {
+	v, err := kv.Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]value, 1)
+	out[0] = value{
+		tombstone: false,
+		value:     v,
+	}
+
+	return out, nil
+}
+
 func (b *Bucket) Delete(key []byte) error {
 	return b.active.setTombstone(key)
 }

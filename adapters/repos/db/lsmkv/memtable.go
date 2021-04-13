@@ -40,7 +40,7 @@ type keyIndex struct {
 }
 
 func (l *Memtable) get(key []byte) ([]byte, error) {
-	if l.strategy != "replace" {
+	if l.strategy != StrategyReplace {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
@@ -56,7 +56,7 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 }
 
 func (l *Memtable) put(key, value []byte) error {
-	if l.strategy != "replace" {
+	if l.strategy != StrategyReplace {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
@@ -91,8 +91,9 @@ func (l *Memtable) setTombstone(key []byte) error {
 }
 
 func (l *Memtable) getCollection(key []byte) ([]value, error) {
-	if l.strategy != StrategyCollection {
-		return nil, errors.Errorf("getCollection only possible with strategy %q", StrategyCollection)
+	if l.strategy != StrategySetCollection && l.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("getCollection only possible with strategies %q, %q",
+			StrategySetCollection, StrategyMapCollection)
 	}
 
 	l.RLock()
@@ -107,8 +108,9 @@ func (l *Memtable) getCollection(key []byte) ([]value, error) {
 }
 
 func (l *Memtable) append(key []byte, values []value) error {
-	if l.strategy != StrategyCollection {
-		return errors.Errorf("append only possible with strategy %q", StrategyCollection)
+	if l.strategy != StrategySetCollection && l.strategy != StrategyMapCollection {
+		return errors.Errorf("append only possible with strategies %q, %q",
+			StrategySetCollection, StrategyMapCollection)
 	}
 
 	l.Lock()
@@ -126,6 +128,27 @@ func (l *Memtable) append(key []byte, values []value) error {
 
 	return nil
 }
+
+// func (l *Memtable) mapSet(rowKey []byte, values []value) error {
+// 	if l.strategy != StrategySetCollection {
+// 		return errors.Errorf("append only possible with strategy %q", StrategySetCollection)
+// 	}
+
+// 	l.Lock()
+// 	defer l.Unlock()
+// 	// TODO: commit log
+// 	// if err := l.commitlog.put(key, value); err != nil {
+// 	// 	return errors.Wrap(err, "write into commit log")
+// 	// }
+
+// 	l.keyMulti.insert(key, values)
+// 	l.size += uint64(len(key))
+// 	for _, value := range values {
+// 		l.size += uint64(len(value.value))
+// 	}
+
+// 	return nil
+// }
 
 func (l *Memtable) Size() uint64 {
 	l.RLock()

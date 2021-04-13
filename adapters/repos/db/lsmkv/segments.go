@@ -47,7 +47,7 @@ func newSegment(path string) (*segment, error) {
 	}
 
 	switch strategy {
-	case SegmentStrategyReplace, SegmentStrategyCollection:
+	case SegmentStrategyReplace, SegmentStrategySetCollection:
 	default:
 		return nil, errors.Errorf("unsupported strategy in segment")
 	}
@@ -114,9 +114,9 @@ func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
 }
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
-	if i.strategy != SegmentStrategyCollection {
+	if i.strategy != SegmentStrategySetCollection {
 		return nil, errors.Errorf("get only possible for strategy %q",
-			StrategyCollection)
+			StrategySetCollection)
 	}
 
 	hasher := murmur3.New128()
