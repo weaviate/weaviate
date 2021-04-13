@@ -153,19 +153,17 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 			}
 			writtenForNode += 1
 
-			if !value.tombstone {
-				valueLen := uint64(len(value.value))
-				if err := binary.Write(f, binary.LittleEndian, valueLen); err != nil {
-					return nil, errors.Wrapf(err, "write len of value on node %d", i)
-				}
-				writtenForNode += 8
-
-				n, err := f.Write(value.value)
-				if err != nil {
-					return nil, errors.Wrapf(err, "write value on node %d", i)
-				}
-				writtenForNode += n
+			valueLen := uint64(len(value.value))
+			if err := binary.Write(f, binary.LittleEndian, valueLen); err != nil {
+				return nil, errors.Wrapf(err, "write len of value on node %d", i)
 			}
+			writtenForNode += 8
+
+			n, err := f.Write(value.value)
+			if err != nil {
+				return nil, errors.Wrapf(err, "write value on node %d", i)
+			}
+			writtenForNode += n
 		}
 
 		hasher := murmur3.New128()
@@ -197,8 +195,8 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 	for _, n := range in {
 		sum += 8 // uint64 to indicate array length
 		for _, v := range n.values {
-			sum += 8 // uint64 to indicate value length
 			sum += 1 // bool to indicate value tombstone
+			sum += 8 // uint64 to indicate value length
 			sum += len(v.value)
 		}
 	}

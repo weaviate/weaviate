@@ -159,10 +159,6 @@ func (i *segment) parseCollectionData(in []byte) ([]value, error) {
 		}
 		readSoFar += 1
 
-		if values[i].tombstone {
-			continue
-		}
-
 		var valueLen uint64
 		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
 			return nil, errors.Wrap(err, "read value len")

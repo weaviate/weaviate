@@ -99,15 +99,29 @@ func (b *Bucket) GetCollection(key []byte) ([][]byte, error) {
 	return b.decodeCollectionValue(out), nil
 }
 
+// iterates twice to see if a value ends in a tombstone, if yes, omits it
 func (b *Bucket) decodeCollectionValue(in []value) [][]byte {
-	out := make([][]byte, len(in))
-
-	for i, value := range in {
-		// TODO: handle tombstones
-		out[i] = value.value
+	tombstones := map[string]bool{}
+	for _, value := range in {
+		// with regards to tombstones a last write wins philosophy is applied, i.e.
+		// if the last write is a tombstone, the object is ultiamtely deleted, if
+		// the last write has no tombstone, the object was ultimately created
+		// (again)
+		tombstones[string(value.value)] = value.tombstone
 	}
 
-	return out
+	out := make([][]byte, len(in))
+
+	i := 0
+	for _, value := range in {
+		if tombstones[string(value.value)] {
+			continue
+		}
+		out[i] = value.value
+		i++
+	}
+
+	return out[:i]
 }
 
 func (b *Bucket) Put(key, value []byte) error {
@@ -116,6 +130,15 @@ func (b *Bucket) Put(key, value []byte) error {
 
 func (b *Bucket) Append(key []byte, values [][]byte) error {
 	return b.active.append(key, b.encodeCollectionValue(values))
+}
+
+func (b *Bucket) DeleteFromCollection(key []byte, valueToDelete []byte) error {
+	return b.active.append(key, []value{
+		{
+			value:     valueToDelete,
+			tombstone: true,
+		},
+	})
 }
 
 func (b *Bucket) encodeCollectionValue(in [][]byte) []value {
