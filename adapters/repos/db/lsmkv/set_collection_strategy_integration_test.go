@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
+func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
@@ -22,7 +22,7 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 	}()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyCollection)
+		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -80,7 +80,7 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyCollection)
+		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -142,7 +142,7 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyCollection)
+		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -206,7 +206,7 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyCollection)
+		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -267,7 +267,7 @@ func TestCollectionStrategy_InsertAndAppend(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucketWithStrategy(dirName, StrategyCollection)
+			b2, err := NewBucketWithStrategy(dirName, StrategySetCollection)
 			require.Nil(t, err)
 
 			orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}

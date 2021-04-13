@@ -32,7 +32,7 @@ func (l *Memtable) flush() error {
 			return err
 		}
 
-	case StrategyCollection:
+	case StrategySetCollection:
 		if keys, err = l.flushDataCollection(f); err != nil {
 			return err
 		}
@@ -127,7 +127,7 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(f, binary.LittleEndian, SegmentStrategyCollection); err != nil {
+	if err := binary.Write(f, binary.LittleEndian, SegmentStrategySetCollection); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(f, binary.LittleEndian, &indexPos); err != nil {
