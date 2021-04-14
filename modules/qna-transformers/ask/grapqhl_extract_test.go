@@ -34,7 +34,6 @@ func Test_extractAskFn(t *testing.T) {
 			},
 			want: &AskParams{
 				Question: "some question",
-				Limit:    1,
 			},
 		},
 		{
@@ -48,7 +47,6 @@ func Test_extractAskFn(t *testing.T) {
 			want: &AskParams{
 				Question:  "some question",
 				Certainty: 0.8,
-				Limit:     1,
 			},
 		},
 		{
@@ -56,9 +54,7 @@ func Test_extractAskFn(t *testing.T) {
 			args: args{
 				source: map[string]interface{}{},
 			},
-			want: &AskParams{
-				Limit: 1,
-			},
+			want: &AskParams{},
 		},
 		{
 			name: "should parse properly with question and certainty and properties",
@@ -73,7 +69,6 @@ func Test_extractAskFn(t *testing.T) {
 				Question:   "some question",
 				Certainty:  0.8,
 				Properties: []string{"prop1", "prop2"},
-				Limit:      1,
 			},
 		},
 	}

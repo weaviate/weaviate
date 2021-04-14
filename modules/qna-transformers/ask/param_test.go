@@ -27,7 +27,6 @@ func Test_validateAskFn(t *testing.T) {
 			args: args{
 				param: &AskParams{
 					Question: "question",
-					Limit:    1,
 				},
 			},
 		},
@@ -36,7 +35,6 @@ func Test_validateAskFn(t *testing.T) {
 			args: args{
 				param: &AskParams{
 					Question: "",
-					Limit:    1,
 				},
 			},
 			wantErr: true,
@@ -53,7 +51,6 @@ func Test_validateAskFn(t *testing.T) {
 			args: args{
 				param: AskParams{
 					Question: "question",
-					Limit:    1,
 				},
 			},
 			wantErr: true,

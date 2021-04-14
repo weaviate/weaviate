@@ -32,8 +32,5 @@ func extractAskFn(source map[string]interface{}) interface{} {
 		}
 	}
 
-	// always set the limit to 1
-	args.Limit = 1
-
 	return &args
 }
