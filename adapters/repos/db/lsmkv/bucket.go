@@ -77,7 +77,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	}
 }
 
-func (b *Bucket) GetCollection(key []byte) ([][]byte, error) {
+func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key)
@@ -103,11 +103,11 @@ func (b *Bucket) Put(key, value []byte) error {
 	return b.active.put(key, value)
 }
 
-func (b *Bucket) Append(key []byte, values [][]byte) error {
+func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 	return b.active.append(key, newSetEncoder().Do(values))
 }
 
-func (b *Bucket) DeleteFromCollection(key []byte, valueToDelete []byte) error {
+func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	return b.active.append(key, []value{
 		{
 			value:     valueToDelete,
