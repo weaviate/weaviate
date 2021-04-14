@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
+func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
@@ -39,20 +39,20 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -64,18 +64,18 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			append2 := [][]byte{[]byte("value 2.3")}
 			append3 := [][]byte{[]byte("value 3.3")}
 
-			err = b.Append(key2, append2)
+			err = b.SetAdd(key2, append2)
 			require.Nil(t, err)
-			err = b.Append(key3, append3)
+			err = b.SetAdd(key3, append3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig2, append2...), res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig3, append3...), res)
 		})
@@ -97,20 +97,20 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -126,18 +126,18 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			append2 := [][]byte{[]byte("value 2.3")}
 			append3 := [][]byte{[]byte("value 3.3")}
 
-			err = b.Append(key2, append2)
+			err = b.SetAdd(key2, append2)
 			require.Nil(t, err)
-			err = b.Append(key3, append3)
+			err = b.SetAdd(key3, append3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig2, append2...), res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig3, append3...), res)
 		})
@@ -158,20 +158,20 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -187,21 +187,21 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			append2 := [][]byte{[]byte("value 2.3")}
 			append3 := [][]byte{[]byte("value 3.3")}
 
-			err = b.Append(key2, append2)
+			err = b.SetAdd(key2, append2)
 			require.Nil(t, err)
-			err = b.Append(key3, append3)
+			err = b.SetAdd(key3, append3)
 			require.Nil(t, err)
 
 			// Flush again!
 			require.Nil(t, b.FlushAndSwitch())
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig2, append2...), res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig3, append3...), res)
 		})
@@ -223,20 +223,20 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -248,18 +248,18 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			append2 := [][]byte{[]byte("value 2.3")}
 			append3 := [][]byte{[]byte("value 3.3")}
 
-			err = b.Append(key2, append2)
+			err = b.SetAdd(key2, append2)
 			require.Nil(t, err)
-			err = b.Append(key3, append3)
+			err = b.SetAdd(key3, append3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig2, append2...), res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig3, append3...), res)
 		})
@@ -278,13 +278,13 @@ func TestSetCollectionStrategy_InsertAndAppend(t *testing.T) {
 			append2 := [][]byte{[]byte("value 2.3")}
 			append3 := [][]byte{[]byte("value 3.3")}
 
-			res, err := b2.GetCollection(key1)
+			res, err := b2.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b2.GetCollection(key2)
+			res, err = b2.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig2, append2...), res)
-			res, err = b2.GetCollection(key3)
+			res, err = b2.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, append(orig3, append3...), res)
 		})
@@ -316,20 +316,20 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, orig1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, orig2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, orig3, res)
 		})
@@ -338,9 +338,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			delete2 := []byte("value 2.1")
 			delete3 := []byte("value 3.2")
 
-			err = b.DeleteFromCollection(key2, delete2)
+			err = b.SetDeleteSingle(key2, delete2)
 			require.Nil(t, err)
-			err = b.DeleteFromCollection(key3, delete3)
+			err = b.SetDeleteSingle(key3, delete3)
 			require.Nil(t, err)
 		})
 
@@ -349,13 +349,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
 			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -364,9 +364,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
 			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
 
-			err = b.Append(key2, readd2)
+			err = b.SetAdd(key2, readd2)
 			require.Nil(t, err)
-			err = b.Append(key3, readd3)
+			err = b.SetAdd(key3, readd3)
 			require.Nil(t, err)
 		})
 
@@ -383,13 +383,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				[]byte("value 3.3"), // newly added
 			} // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -411,20 +411,20 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -437,9 +437,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			delete2 := []byte("value 2.1")
 			delete3 := []byte("value 3.2")
 
-			err = b.DeleteFromCollection(key2, delete2)
+			err = b.SetDeleteSingle(key2, delete2)
 			require.Nil(t, err)
-			err = b.DeleteFromCollection(key3, delete3)
+			err = b.SetDeleteSingle(key3, delete3)
 			require.Nil(t, err)
 		})
 
@@ -448,13 +448,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
 			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -463,9 +463,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
 			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
 
-			err = b.Append(key2, readd2)
+			err = b.SetAdd(key2, readd2)
 			require.Nil(t, err)
-			err = b.Append(key3, readd3)
+			err = b.SetAdd(key3, readd3)
 			require.Nil(t, err)
 		})
 
@@ -482,13 +482,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				[]byte("value 3.3"), // newly added
 			} // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -510,20 +510,20 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 			orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-			err = b.Append(key1, orig1)
+			err = b.SetAdd(key1, orig1)
 			require.Nil(t, err)
-			err = b.Append(key2, orig2)
+			err = b.SetAdd(key2, orig2)
 			require.Nil(t, err)
-			err = b.Append(key3, orig3)
+			err = b.SetAdd(key3, orig3)
 			require.Nil(t, err)
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig2)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig3)
 		})
@@ -536,9 +536,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			delete2 := []byte("value 2.1")
 			delete3 := []byte("value 3.2")
 
-			err = b.DeleteFromCollection(key2, delete2)
+			err = b.SetDeleteSingle(key2, delete2)
 			require.Nil(t, err)
-			err = b.DeleteFromCollection(key3, delete3)
+			err = b.SetDeleteSingle(key3, delete3)
 			require.Nil(t, err)
 		})
 
@@ -551,13 +551,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
 			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -566,9 +566,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
 			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
 
-			err = b.Append(key2, readd2)
+			err = b.SetAdd(key2, readd2)
 			require.Nil(t, err)
-			err = b.Append(key3, readd3)
+			err = b.SetAdd(key3, readd3)
 			require.Nil(t, err)
 		})
 
@@ -589,13 +589,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				[]byte("value 3.3"), // newly added
 			} // value2 deleted
 
-			res, err := b.GetCollection(key1)
+			res, err := b.SetList(key1)
 			require.Nil(t, err)
 			assert.Equal(t, expected1, res)
-			res, err = b.GetCollection(key2)
+			res, err = b.SetList(key2)
 			require.Nil(t, err)
 			assert.Equal(t, expected2, res)
-			res, err = b.GetCollection(key3)
+			res, err = b.SetList(key3)
 			require.Nil(t, err)
 			assert.Equal(t, expected3, res)
 		})
@@ -618,20 +618,20 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
 				orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
 
-				err = b.Append(key1, orig1)
+				err = b.SetAdd(key1, orig1)
 				require.Nil(t, err)
-				err = b.Append(key2, orig2)
+				err = b.SetAdd(key2, orig2)
 				require.Nil(t, err)
-				err = b.Append(key3, orig3)
+				err = b.SetAdd(key3, orig3)
 				require.Nil(t, err)
 
-				res, err := b.GetCollection(key1)
+				res, err := b.SetList(key1)
 				require.Nil(t, err)
 				assert.Equal(t, res, orig1)
-				res, err = b.GetCollection(key2)
+				res, err = b.SetList(key2)
 				require.Nil(t, err)
 				assert.Equal(t, res, orig2)
-				res, err = b.GetCollection(key3)
+				res, err = b.SetList(key3)
 				require.Nil(t, err)
 				assert.Equal(t, res, orig3)
 			})
@@ -640,9 +640,9 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				delete2 := []byte("value 2.1")
 				delete3 := []byte("value 3.2")
 
-				err = b.DeleteFromCollection(key2, delete2)
+				err = b.SetDeleteSingle(key2, delete2)
 				require.Nil(t, err)
-				err = b.DeleteFromCollection(key3, delete3)
+				err = b.SetDeleteSingle(key3, delete3)
 				require.Nil(t, err)
 			})
 
@@ -658,13 +658,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 				expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
 				expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
-				res, err := b2.GetCollection(key1)
+				res, err := b2.SetList(key1)
 				require.Nil(t, err)
 				assert.Equal(t, expected1, res)
-				res, err = b2.GetCollection(key2)
+				res, err = b2.SetList(key2)
 				require.Nil(t, err)
 				assert.Equal(t, expected2, res)
-				res, err = b2.GetCollection(key3)
+				res, err = b2.SetList(key3)
 				require.Nil(t, err)
 				assert.Equal(t, expected3, res)
 			})
