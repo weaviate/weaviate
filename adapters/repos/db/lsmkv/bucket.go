@@ -96,12 +96,7 @@ func (b *Bucket) GetCollection(key []byte) ([][]byte, error) {
 	}
 	out = append(out, v...)
 
-	return b.decodeCollectionValue(out), nil
-}
-
-// iterates twice to see if a value ends in a tombstone, if yes, omits it
-func (b *Bucket) decodeCollectionValue(in []value) [][]byte {
-	return newSetDecoder().Do(in)
+	return newSetDecoder().Do(out), nil
 }
 
 func (b *Bucket) Put(key, value []byte) error {
@@ -109,7 +104,7 @@ func (b *Bucket) Put(key, value []byte) error {
 }
 
 func (b *Bucket) Append(key []byte, values [][]byte) error {
-	return b.active.append(key, b.encodeSetValues(values))
+	return b.active.append(key, newSetEncoder().Do(values))
 }
 
 func (b *Bucket) DeleteFromCollection(key []byte, valueToDelete []byte) error {
@@ -119,10 +114,6 @@ func (b *Bucket) DeleteFromCollection(key []byte, valueToDelete []byte) error {
 			tombstone: true,
 		},
 	})
-}
-
-func (b *Bucket) encodeSetValues(in [][]byte) []value {
-	return newSetEncoder().Do(in)
 }
 
 func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
@@ -144,55 +135,11 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 	}
 	raw = append(raw, v...)
 
-	return b.decodeMapCollectionValues(raw)
-}
-
-func (b *Bucket) decodeMapCollectionValues(in []value) ([]MapPair, error) {
-	out := make([]MapPair, len(in))
-
-	for i, value := range in {
-		// TODO: handle tombstones
-		kv := MapPair{}
-		err := kv.FromBytes(value.value)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = kv
-	}
-
-	return b.mergeDuplicateMapKeys(out), nil
-}
-
-// assumes a latest-takes-presence strategy
-// iterates the array twice, first to register duplicates with counts, then a
-// second time to skip all but the last count of a duplicate. possibly not a
-// perfect algo, but considerably better than some O(n^2) attempt
-func (b *Bucket) mergeDuplicateMapKeys(in []MapPair) []MapPair {
-	seenKeys := map[string]uint{}
-
-	for _, pair := range in {
-		count := seenKeys[string(pair.Key)]
-		seenKeys[string(pair.Key)] = count + 1
-	}
-
-	out := make([]MapPair, len(in))
-	i := 0
-	for _, pair := range in {
-		count := seenKeys[string(pair.Key)]
-		if count == 1 {
-			out[i] = pair
-			i++
-			continue
-		}
-
-		seenKeys[string(pair.Key)] = count - 1
-	}
-
-	return out[:i]
+	return newMapDecoder().Do(raw)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	v, err := b.encodeMapValue(kv)
+	v, err := newMapEncoder().Do(kv)
 	if err != nil {
 		return err
 	}
@@ -200,19 +147,18 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	return b.active.append(rowKey, v)
 }
 
-func (b *Bucket) encodeMapValue(kv MapPair) ([]value, error) {
-	v, err := kv.Bytes()
+func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
+	kv := MapPair{
+		Key:       mapKey,
+		Tombstone: true,
+	}
+
+	v, err := newMapEncoder().Do(kv)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	out := make([]value, 1)
-	out[0] = value{
-		tombstone: false,
-		value:     v,
-	}
-
-	return out, nil
+	return b.active.append(rowKey, v)
 }
 
 func (b *Bucket) Delete(key []byte) error {
