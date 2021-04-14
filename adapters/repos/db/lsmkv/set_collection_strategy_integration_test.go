@@ -1,3 +1,5 @@
+// +build integrationTest
+
 package lsmkv
 
 import (
@@ -323,26 +325,63 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.GetCollection(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assert.Equal(t, orig1, res)
 			res, err = b.GetCollection(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assert.Equal(t, orig2, res)
 			res, err = b.GetCollection(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assert.Equal(t, orig3, res)
 		})
 
 		t.Run("delete individual keys", func(t *testing.T) {
 			delete2 := []byte("value 2.1")
 			delete3 := []byte("value 3.2")
-			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
-			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
-			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
 			err = b.DeleteFromCollection(key2, delete2)
 			require.Nil(t, err)
 			err = b.DeleteFromCollection(key3, delete3)
 			require.Nil(t, err)
+		})
+
+		t.Run("validate the results", func(t *testing.T) {
+			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
+			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
+			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
+
+			res, err := b.GetCollection(key1)
+			require.Nil(t, err)
+			assert.Equal(t, expected1, res)
+			res, err = b.GetCollection(key2)
+			require.Nil(t, err)
+			assert.Equal(t, expected2, res)
+			res, err = b.GetCollection(key3)
+			require.Nil(t, err)
+			assert.Equal(t, expected3, res)
+		})
+
+		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
+			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
+			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
+
+			err = b.Append(key2, readd2)
+			require.Nil(t, err)
+			err = b.Append(key3, readd3)
+			require.Nil(t, err)
+		})
+
+		t.Run("validate the results again", func(t *testing.T) {
+			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
+			expected2 := [][]byte{
+				[]byte("value 2.2"), // from original import
+				[]byte("value 2.1"), // added again after initial deletion
+				[]byte("value 2.3"), // newly added
+			}
+			expected3 := [][]byte{
+				[]byte("value 3.1"), // form original import
+				[]byte("value 3.2"), // added again after initial deletion
+				[]byte("value 3.3"), // newly added
+			} // value2 deleted
 
 			res, err := b.GetCollection(key1)
 			require.Nil(t, err)
@@ -397,14 +436,51 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 		t.Run("delete individual keys", func(t *testing.T) {
 			delete2 := []byte("value 2.1")
 			delete3 := []byte("value 3.2")
-			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
-			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
-			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
 
 			err = b.DeleteFromCollection(key2, delete2)
 			require.Nil(t, err)
 			err = b.DeleteFromCollection(key3, delete3)
 			require.Nil(t, err)
+		})
+
+		t.Run("validate the results", func(t *testing.T) {
+			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
+			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
+			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
+
+			res, err := b.GetCollection(key1)
+			require.Nil(t, err)
+			assert.Equal(t, expected1, res)
+			res, err = b.GetCollection(key2)
+			require.Nil(t, err)
+			assert.Equal(t, expected2, res)
+			res, err = b.GetCollection(key3)
+			require.Nil(t, err)
+			assert.Equal(t, expected3, res)
+		})
+
+		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
+			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
+			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
+
+			err = b.Append(key2, readd2)
+			require.Nil(t, err)
+			err = b.Append(key3, readd3)
+			require.Nil(t, err)
+		})
+
+		t.Run("validate the results again", func(t *testing.T) {
+			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
+			expected2 := [][]byte{
+				[]byte("value 2.2"), // from original import
+				[]byte("value 2.1"), // added again after initial deletion
+				[]byte("value 2.3"), // newly added
+			}
+			expected3 := [][]byte{
+				[]byte("value 3.1"), // form original import
+				[]byte("value 3.2"), // added again after initial deletion
+				[]byte("value 3.3"), // newly added
+			} // value2 deleted
 
 			res, err := b.GetCollection(key1)
 			require.Nil(t, err)
@@ -474,6 +550,44 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
 			expected2 := [][]byte{[]byte("value 2.2")}                      // value1 deleted
 			expected3 := [][]byte{[]byte("value 3.1")}                      // value2 deleted
+
+			res, err := b.GetCollection(key1)
+			require.Nil(t, err)
+			assert.Equal(t, expected1, res)
+			res, err = b.GetCollection(key2)
+			require.Nil(t, err)
+			assert.Equal(t, expected2, res)
+			res, err = b.GetCollection(key3)
+			require.Nil(t, err)
+			assert.Equal(t, expected3, res)
+		})
+
+		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
+			readd2 := [][]byte{[]byte("value 2.1"), []byte("value 2.3")}
+			readd3 := [][]byte{[]byte("value 3.2"), []byte("value 3.3")}
+
+			err = b.Append(key2, readd2)
+			require.Nil(t, err)
+			err = b.Append(key3, readd3)
+			require.Nil(t, err)
+		})
+
+		t.Run("flush to disk - yet again!", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
+
+		t.Run("validate the results again", func(t *testing.T) {
+			expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
+			expected2 := [][]byte{
+				[]byte("value 2.2"), // from original import
+				[]byte("value 2.1"), // added again after initial deletion
+				[]byte("value 2.3"), // newly added
+			}
+			expected3 := [][]byte{
+				[]byte("value 3.1"), // form original import
+				[]byte("value 3.2"), // added again after initial deletion
+				[]byte("value 3.3"), // newly added
+			} // value2 deleted
 
 			res, err := b.GetCollection(key1)
 			require.Nil(t, err)

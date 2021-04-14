@@ -1,3 +1,5 @@
+// +build integrationTest
+
 package lsmkv
 
 import (
