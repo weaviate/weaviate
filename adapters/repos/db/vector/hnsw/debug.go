@@ -37,13 +37,8 @@ func (index *hnsw) Dump(labels ...string) {
 		}
 
 		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
-		for level, conns := range node.connectionsOrdered {
-			fmt.Printf("    Level %d: Connections: ", level)
-			fmt.Printf("(count: %d) ", conns.len())
-			for _, conn := range conns.flattenInOrder() {
-				fmt.Printf("%d-%f ", conn.index, conn.dist)
-			}
-			fmt.Printf("\n")
+		for level, conns := range node.connections {
+			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}
 

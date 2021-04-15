@@ -297,11 +297,3 @@ func (n *binarySearchNodeGeneric) flattenInOrder() []*binarySearchNodeGeneric {
 	right = append([]*binarySearchNodeGeneric{n}, right...)
 	return append(left, right...)
 }
-
-func (n *binarySearchNodeGeneric) len() int {
-	if n == nil {
-		return 0
-	}
-
-	return n.left.len() + 1 + n.right.len()
-}
