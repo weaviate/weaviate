@@ -112,31 +112,35 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
-	before := time.Now()
+	// before := time.Now()
 	results, err := n.graph.searchLayerByVector(n.nodeVec, *n.results, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
-	fmt.Printf("level %d - search layer took %s\n", level, time.Since(before))
+	// fmt.Printf("level %d - search layer took %s\n", level, time.Since(before))
 
 	n.removeSelfFromResults()
 
-	before = time.Now()
+	// before = time.Now()
 	neighbors := n.graph.selectNeighborsSimple(*results, n.graph.maximumConnections,
 		n.denyList)
-	fmt.Printf("level %d - select neighbors took %s\n", level, time.Since(before))
+	// fmt.Printf("level %d - select neighbors took %s\n", level, time.Since(before))
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
 
-	before = time.Now()
+	// before = time.Now()
+	// var totalTimes connectTimes
 	for _, neighborID := range neighbors {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+		if _, err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return err
-		}
+		} // else {
+		// totalTimes.Add(times)
+		// }
 	}
-	fmt.Printf("level %d - connect neighbors took %s\n\n", level, time.Since(before))
+	// totalTimes.Print()
+	// fmt.Printf("level %d - connect neighbors took %s\n\n", level, time.Since(before))
 
 	return nil
 }
@@ -174,41 +178,91 @@ func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 	return nil
 }
 
+type connectTimes struct {
+	skipCheck     time.Duration
+	linkForeign   time.Duration
+	linkOwn       time.Duration
+	obtain        time.Duration
+	selectAgain   time.Duration
+	commitLogging time.Duration
+	replace       time.Duration
+}
+
+func (c *connectTimes) Add(x connectTimes) {
+	c.skipCheck += x.skipCheck
+	c.linkForeign += x.linkForeign
+	c.linkOwn += x.linkOwn
+	c.obtain += x.obtain
+	c.selectAgain += x.selectAgain
+	c.commitLogging += x.commitLogging
+	c.replace += x.replace
+}
+
+func (c *connectTimes) Print() {
+	fmt.Printf("connect - skipCheck: %s\n", c.skipCheck)
+	fmt.Printf("connect - linkForeign: %s\n", c.linkForeign)
+	fmt.Printf("connect - linkOwn: %s\n", c.linkOwn)
+	fmt.Printf("connect - obtain: %s\n", c.obtain)
+	fmt.Printf("connect - selectAgain: %s\n", c.selectAgain)
+	fmt.Printf("connect - commitLogging: %s\n", c.commitLogging)
+	fmt.Printf("connect - replace: %s\n", c.replace)
+}
+
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
-	level int) error {
+	level int) (connectTimes, error) {
+	times := connectTimes{}
+	var before time.Time
+
+	before = time.Now()
 	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
-		return nil
+		times.skipCheck += time.Since(before)
+		return times, nil
 	}
+	times.skipCheck += time.Since(before)
 
+	before = time.Now()
 	if err := neighbor.linkAtLevel(level, n.node.id, n.graph.commitLog); err != nil {
-		return err
+		return times, err
 	}
+	times.linkForeign += time.Since(before)
 
+	before = time.Now()
 	if err := n.node.linkAtLevel(level, neighbor.id, n.graph.commitLog); err != nil {
-		return err
+		return times, err
 	}
+	times.linkOwn += time.Since(before)
 
+	before = time.Now()
 	currentConnections := neighbor.connectionsAtLevel(level)
 	maximumConnections := n.maximumConnections(level)
+	times.obtain += time.Since(before)
+
 	if len(currentConnections) <= maximumConnections {
 		// nothing to do, skip
-		return nil
+		return times, nil
 	}
 
+	before = time.Now()
 	updatedConnections, err := n.graph.selectNeighborsSimpleFromId(n.node.id,
 		currentConnections, maximumConnections, n.denyList)
+	times.selectAgain += time.Since(before)
 	if err != nil {
-		return errors.Wrap(err, "connect neighbors")
+		return times, errors.Wrap(err, "connect neighbors")
 	}
 
+	before = time.Now()
 	if err := n.bufLinksLog.ReplaceLinksAtLevel(neighbor.id, level,
 		updatedConnections); err != nil {
-		return err
+		return times, err
 	}
+	times.commitLogging += time.Since(before)
 
+	before = time.Now()
 	neighbor.setConnectionsAtLevel(level, updatedConnections)
-	return nil
+	times.replace += time.Since(before)
+
+	return times, nil
 }
 
 func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {

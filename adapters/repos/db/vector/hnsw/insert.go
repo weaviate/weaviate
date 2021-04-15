@@ -42,6 +42,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
 	node.connections = map[int][]uint64{}
+	node.connectionsOrdered = map[int]*binarySearchTreeGeneric{}
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
@@ -82,6 +83,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
 	node.connections = map[int][]uint64{}
+	node.connectionsOrdered = map[int]*binarySearchTreeGeneric{}
 
 	// before = time.Now()
 	h.Lock()

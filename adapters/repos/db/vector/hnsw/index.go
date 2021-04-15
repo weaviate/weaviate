@@ -301,9 +301,10 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 type vertex struct {
 	id uint64
 	sync.RWMutex
-	level       int
-	connections map[int][]uint64 // map[level][]connectedId
-	maintenance bool
+	level              int
+	connections        map[int][]uint64 // map[level][]connectedId
+	connectionsOrdered map[int]*binarySearchTreeGeneric
+	maintenance        bool
 }
 
 func (v *vertex) markAsMaintenance() {
@@ -332,6 +333,13 @@ func (v *vertex) connectionsAtLevel(level int) []uint64 {
 	defer v.RUnlock()
 
 	return v.connections[level]
+}
+
+func (v *vertex) connectionsOrderedAtLevel(level int) *binarySearchTreeGeneric {
+	v.RLock()
+	defer v.RUnlock()
+
+	return v.connectionsOrdered[level]
 }
 
 func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {

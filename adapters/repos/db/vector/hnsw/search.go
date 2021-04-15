@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"math"
@@ -91,52 +92,59 @@ func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
 	allowList helpers.AllowList) (*binarySearchTreeGeneric, error) {
-	visited := newVisitedList(entrypoints)
+	visited := h.newVisitedList(entrypoints)
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
 	distancer := h.distancerProvider.New(queryVector)
 
-	var timeDistancing time.Duration
-	var timeGetMiminium time.Duration
-	var timeDelete time.Duration
-	var timeExtending time.Duration
-	var timeExtendingDistancing time.Duration
-	var timeExtendingOther time.Duration
-	var timeOther time.Duration
+	// var timeDistancing time.Duration
+	// var timeGetMiminium time.Duration
+	// var timeDelete time.Duration
+	// var timeExtending time.Duration
+	// var timeExtendingDistancing time.Duration
+	// var timeExtendingOther otherTimes
+	// var timeOther time.Duration
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, allowList)
 
+	// before = time.Now()
+	worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate distance of current last result")
+	}
+	// fmt.Printf("initial worst distance is %f\n", worstResultDistance)
+
+	updateWorstResultDistance := func(dist float32) {
+		worstResultDistance = dist
+	}
+	// timeOther += time.Since(before)
+
 	for candidates.root != nil { // efficient way to see if the len is > 0
-		before := time.Now()
+		// before := time.Now()
 		candidate := candidates.minimum()
-		timeGetMiminium += time.Since(before)
-
-		before = time.Now()
-		candidates.delete(candidate.index, candidate.dist)
-		timeDelete += time.Since(before)
-
-		before = time.Now()
-		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
-		if err != nil {
-			return nil, errors.Wrapf(err, "calculate distance of current last result")
-		}
-		timeOther += time.Since(before)
-
-		before = time.Now()
-		dist, ok, err := h.distanceToNode(distancer, candidate.index)
-		if err != nil {
-			return nil, errors.Wrap(err, "calculate distance between candidate and query")
-		}
-		timeDistancing += time.Since(before)
-
-		if !ok {
-			continue
-		}
-
-		if dist > worstResultDistance {
+		// fmt.Printf("got a new candidate with dist %f\n", candidate.dist)
+		// timeGetMiminium += time.Since(before)
+		if candidate.dist > worstResultDistance {
+			// fmt.Printf("stoppoing because cadidate %d dist is %f worse than worst result %f\n", candidate.index, candidate.dist,
+			// worstResultDistance)
 			break
 		}
+
+		// before = time.Now()
+		candidates.delete(candidate.index, candidate.dist)
+		// timeDelete += time.Since(before)
+
+		// // before = time.Now()
+		// dist, ok, err := h.distanceToNode(distancer, candidate.index)
+		// if err != nil {
+		// 	return nil, errors.Wrap(err, "calculate distance between candidate and query")
+		// }
+		// // timeDistancing += time.Since(before)
+
+		// if !ok {
+		// 	continue
+		// }
 
 		// before := time.Now()
 		h.RLock()
@@ -156,27 +164,137 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		connections := candidateNode.connections[level]
 		candidateNode.RUnlock()
 
-		before = time.Now()
-		if td, to, err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
+		// before = time.Now()
+		if _, _, err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
 			connections, visited, distancer, ef, level, allowList,
-			worstResultDistance); err != nil {
+			worstResultDistance, updateWorstResultDistance); err != nil {
 			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
 		} else {
-			timeExtendingDistancing += td
-			timeExtendingOther += to
+			// timeExtendingDistancing += td
+			// timeExtendingOther.allowListChecking += to.allowListChecking
+			// timeExtendingOther.inserting += to.inserting
+			// timeExtendingOther.maxDeleting += to.maxDeleting
+			// timeExtendingOther.tombstoneChecking += to.tombstoneChecking
+			// timeExtendingOther.visitedListReading += to.visitedListReading
+			// timeExtendingOther.visitedListWriting += to.visitedListWriting
+			// timeExtendingOther.lenCalculating += to.lenCalculating
+			// timeExtendingOther.total += to.total
+			// timeExtendingOther.visitedListReadCount += to.visitedListReadCount
+			// timeExtendingOther.visitedListWriteCount += to.visitedListWriteCount
 		}
-		timeExtending += time.Since(before)
+		// timeExtending += time.Since(before)
 	}
 
-	fmt.Printf("distancing: %s\nminimum: %s\ndelete: %s\nextending: %s\nextending-distancing: %s\nextending-other: %s\nother: %s\n\n", timeDistancing, timeGetMiminium, timeDelete, timeExtending, timeExtendingDistancing, timeExtendingOther, timeOther)
+	// beforePrint := time.Now()
+	// fmt.Printf("distancing: %s\nminimum: %s\ndelete: %s\nextending: %s\nextending-distancing: %s\nother: %s\n\n", timeDistancing, timeGetMiminium, timeDelete, timeExtending, timeExtendingDistancing, timeOther)
+	// timeExtendingOther.Print()
+	// fmt.Printf("print took %s\n\n\n\n", time.Since(beforePrint))
 
 	return results, nil
 }
 
-func newVisitedList(entrypoints binarySearchTreeGeneric) map[uint64]struct{} {
-	visited := map[uint64]struct{}{}
+// func (h *hnsw) searchLayerByVectorPQ(queryVector []float32,
+// 	entrypoint *pqItem, ef int, level int,
+// 	allowList helpers.AllowList) (priorityQueue, error) {
+// 	visited := newVisitedListPQ(entrypoint)
+
+// 	candidates := priorityQueue{}
+// 	results := priorityQueue{}
+// 	distancer := h.distancerProvider.New(queryVector)
+
+// 	var timeDistancing time.Duration
+// 	var timeGetMiminium time.Duration
+// 	var timeDelete time.Duration
+// 	var timeExtending time.Duration
+// 	var timeExtendingDistancing time.Duration
+// 	var timeExtendingOther time.Duration
+// 	var timeOther time.Duration
+
+// 	h.insertViableEntrypointsAsCandidatesAndResultsPQ(entrypoint, candidates,
+// 		results, level, allowList)
+
+// 	for pq.Len() > 0 {
+// 		before := time.Now()
+// 		candidate := candidates.minimum()
+// 		timeGetMiminium += time.Since(before)
+
+// 		before = time.Now()
+// 		candidates.delete(candidate.index, candidate.dist)
+// 		timeDelete += time.Since(before)
+
+// 		before = time.Now()
+// 		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+// 		if err != nil {
+// 			return nil, errors.Wrapf(err, "calculate distance of current last result")
+// 		}
+// 		timeOther += time.Since(before)
+
+// 		before = time.Now()
+// 		dist, ok, err := h.distanceToNode(distancer, candidate.index)
+// 		if err != nil {
+// 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
+// 		}
+// 		timeDistancing += time.Since(before)
+
+// 		if !ok {
+// 			continue
+// 		}
+
+// 		if dist > worstResultDistance {
+// 			break
+// 		}
+
+// 		// before := time.Now()
+// 		h.RLock()
+// 		// m.addBuildingReadLocking(before)
+// 		candidateNode := h.nodes[candidate.index]
+// 		h.RUnlock()
+
+// 		if candidateNode == nil {
+// 			// could have been a node that already had a tombstone attached and was
+// 			// just cleaned up while we were waiting for a read lock
+// 			continue
+// 		}
+
+// 		// before = time.Now()
+// 		candidateNode.RLock()
+// 		// m.addBuildingItemLocking(before)
+// 		connections := candidateNode.connections[level]
+// 		candidateNode.RUnlock()
+
+// 		before = time.Now()
+// 		if td, to, err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
+// 			connections, visited, distancer, ef, level, allowList,
+// 			worstResultDistance); err != nil {
+// 			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
+// 		} else {
+// 			timeExtendingDistancing += td
+// 			timeExtendingOther += to
+// 		}
+// 		timeExtending += time.Since(before)
+// 	}
+
+// 	fmt.Printf("distancing: %s\nminimum: %s\ndelete: %s\nextending: %s\nextending-distancing: %s\nextending-other: %s\nother: %s\n\n", timeDistancing, timeGetMiminium, timeDelete, timeExtending, timeExtendingDistancing, timeExtendingOther, timeOther)
+
+// 	return results, nil
+// }
+
+func (h *hnsw) newVisitedList(entrypoints binarySearchTreeGeneric) []bool {
+	h.RLock()
+	size := len(h.nodes) + defaultIndexGrowthDelta // add delta to be add some
+	// buffer if a visited list is created shortly before a growth operation
+	h.RUnlock()
+
+	visited := make([]bool, size)
 	for _, elem := range entrypoints.flattenInOrder() {
-		visited[elem.index] = struct{}{}
+		visited[elem.index] = true
+	}
+	return visited
+}
+
+func newVisitedListPQ(entrypoint *pqItem) map[uint64]struct{} {
+	visited := map[uint64]struct{}{
+		entrypoint.hnswIndex: struct{}{},
 	}
 	return visited
 }
@@ -204,20 +322,41 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	}
 }
 
+func (h *hnsw) insertViableEntrypointsAsCandidatesAndResultsPQ(
+	entrypoint *pqItem, candidates,
+	results *priorityQueue, level int, allowList helpers.AllowList) {
+	heap.Push(candidates, entrypoint)
+	if level == 0 && allowList != nil {
+		// we are on the lowest level containing the actual candidates and we
+		// have an allow list (i.e. the user has probably set some sort of a
+		// filter restricting this search further. As a result we have to
+		// ignore items not on the list
+		if !allowList.Contains(entrypoint.hnswIndex) {
+			return
+		}
+
+		if h.hasTombstone(entrypoint.hnswIndex) {
+			return
+		}
+
+		heap.Push(results, entrypoint)
+	}
+}
+
 func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer distancer.Distancer) (float32, error) {
 	if results.root != nil {
-		id := results.maximum().index
-		d, ok, err := h.distanceToNode(distancer, id)
-		if err != nil {
-			return 0, errors.Wrap(err,
-				"calculated distance between worst result and query")
-		}
+		return results.maximum().dist, nil
+		// d, ok, err := h.distanceToNode(distancer, id)
+		// if err != nil {
+		// 	return 0, errors.Wrap(err,
+		// 		"calculated distance between worst result and query")
+		// }
 
-		if !ok {
-			return math.MaxFloat32, nil
-		}
-		return d, nil
+		// if !ok {
+		// 	return math.MaxFloat32, nil
+		// }
+		// return d, nil
 	} else {
 		// if the entrypoint (which we received from a higher layer doesn't match
 		// the allow List the result list is empty. In this case we can just set
@@ -227,61 +366,124 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	}
 }
 
+type otherTimes struct {
+	inserting             time.Duration
+	allowListChecking     time.Duration
+	maxDeleting           time.Duration
+	tombstoneChecking     time.Duration
+	visitedListReading    time.Duration
+	visitedListWriting    time.Duration
+	visitedListReadCount  int
+	visitedListWriteCount int
+	lenCalculating        time.Duration
+	total                 time.Duration
+}
+
+func (t otherTimes) Print() {
+	fmt.Printf("ex-other-inserting: %s\n", t.inserting)
+	fmt.Printf("ex-other-allowlist: %s\n", t.allowListChecking)
+	fmt.Printf("ex-other-maxDeleting: %s\n", t.maxDeleting)
+	fmt.Printf("ex-other-tombstoneChecking: %s\n", t.tombstoneChecking)
+	fmt.Printf("ex-other-visitedListWriting: %s\n", t.visitedListWriting)
+	fmt.Printf("ex-other-visitedListReading: %s\n", t.visitedListReading)
+	fmt.Printf("ex-other-visitedListReadCount: %d\n", t.visitedListReadCount)
+	fmt.Printf("ex-other-visitedListWriteCount: %d\n", t.visitedListWriteCount)
+	fmt.Printf("ex-other-lenCalculating: %s\n", t.lenCalculating)
+	fmt.Printf("ex-other-total: %s\n", t.total)
+}
+
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint64,
-	visited map[uint64]struct{}, distancer distancer.Distancer, ef int,
-	level int, allowList helpers.AllowList, worstResultDistance float32) (time.Duration, time.Duration, error) {
+	visited []bool, distancer distancer.Distancer, ef int,
+	level int, allowList helpers.AllowList, worstResultDistance float32,
+	updateWorstResultDistance func(dist float32),
+) (time.Duration, otherTimes, error) {
 	var timeDistancing time.Duration
-	var timeOther time.Duration
+	var timeOther otherTimes
+	// var before time.Time
+	total := time.Now()
 	for _, neighborID := range connections {
-		if _, ok := visited[neighborID]; ok {
+
+		// before = time.Now()
+		// timeOther.visitedListReadCount++
+		if ok := visited[neighborID]; ok {
 			// skip if we've already visited this neighbor
+			// timeOther.visitedListReading += time.Since(before)
 			continue
 		}
+		// timeOther.visitedListReading += time.Since(before)
 
 		// make sure we never visit this neighbor again
-		visited[neighborID] = struct{}{}
+		// before = time.Now()
+		// timeOther.visitedListWriteCount++
+		visited[neighborID] = true
+		// timeOther.visitedListWriting += time.Since(before)
 
-		before := time.Now()
+		// before = time.Now()
 		distance, ok, err := h.distanceToNode(distancer, neighborID)
 		if err != nil {
-			return 0, 0, errors.Wrap(err, "calculate distance between candidate and query")
+			return 0, timeOther, errors.Wrap(err, "calculate distance between candidate and query")
 		}
-		timeDistancing += time.Since(before)
+		// timeDistancing += time.Since(before)
 
 		if !ok {
 			// node was deleted in the underlying object store
 			continue
 		}
 
-		before = time.Now()
+		// before = time.Now()
 		resLenBefore := results.len() // calculating just once saves a bit of time
-		if distance < worstResultDistance || resLenBefore < ef {
+		// timeOther.lenCalculating += time.Since(before)
+
+		if resLenBefore < ef || distance < worstResultDistance {
+			// before = time.Now()
 			candidates.insert(neighborID, distance)
+			// fmt.Printf("candidate total length is now %d\n", candidates.len())
+			// fmt.Printf("inserting new cand with dist %f\n", distance)
+			// timeOther.inserting += time.Since(before)
+
+			// before = time.Now()
 			if level == 0 && allowList != nil {
 				// we are on the lowest level containing the actual candidates and we
 				// have an allow list (i.e. the user has probably set some sort of a
 				// filter restricting this search further. As a result we have to
 				// ignore items not on the list
 				if !allowList.Contains(neighborID) {
+					// timeOther.allowListChecking += time.Since(before)
 					continue
 				}
 			}
+			// timeOther.allowListChecking += time.Since(before)
 
+			// before = time.Now()
 			if h.hasTombstone(neighborID) {
+				// timeOther.tombstoneChecking += time.Since(before)
 				continue
 			}
+			// timeOther.tombstoneChecking += time.Since(before)
 
+			// before = time.Now()
 			results.insert(neighborID, distance)
+			// timeOther.inserting += time.Since(before)
 
+			// before = time.Now()
 			// +1 because we have added one node size calculating the len
 			if resLenBefore+1 > ef {
 				max := results.maximum()
 				results.delete(max.index, max.dist)
 			}
+
+			if resLenBefore != 0 {
+				worstResult := results.maximum()
+				worstResultDistance = worstResult.dist
+				updateWorstResultDistance(worstResultDistance)
+				// fmt.Printf("updating worst distance to %f\n", worstResultDistance)
+			}
+			// timeOther.maxDeleting += time.Since(before)
 		}
-		timeOther += time.Since(before)
 	}
+
+	timeOther.total = time.Since(total)
 
 	return timeDistancing, timeOther, nil
 }
@@ -394,6 +596,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 	max int, denyList helpers.AllowList) []uint64 {
+	// before := time.Now()
 	flat := input.flattenInOrder()
 
 	maxSize := min(len(flat), max)
@@ -411,24 +614,45 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 		actualSize++
 	}
 
+	// fmt.Printf("SN - flatten&cut took %s\n", time.Since(before))
 	return out[:actualSize]
 }
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 	max int, denyList helpers.AllowList) ([]uint64, error) {
+	// before := time.Now()
+
+	vec, err := h.vectorForID(context.Background(), nodeId)
+	if err != nil {
+		return nil, err
+	}
+
+	distancer := h.distancerProvider.New(vec)
+
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, ok, err := h.distBetweenNodes(id, nodeId)
+
+		vecA, err := h.vectorForID(context.Background(), id)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return nil, errors.Wrapf(err,
+					"could not get vector of object at docID %d", id)
+			}
+		}
+		dist, _, err := distancer.Distance(vecA)
 		if err != nil {
 			return nil, errors.Wrap(err, "select neighbors simple from id")
 		}
 
-		if !ok {
-			// node was deleted in the underlying object store
-			continue
-		}
 		bst.insert(id, dist)
 	}
+
+	// fmt.Printf("SN - distancing took %s\n", time.Since(before))
 
 	return h.selectNeighborsSimple(*bst, max, denyList), nil
 }

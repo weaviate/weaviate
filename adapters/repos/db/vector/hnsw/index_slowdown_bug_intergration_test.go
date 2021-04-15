@@ -55,6 +55,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 		vectorIndex = index
 
 		workerCount := runtime.GOMAXPROCS(0)
+		// workerCount := 1
 		jobsForWorker := make([][][]float32, workerCount)
 
 		for i, vec := range vectors {
@@ -77,7 +78,12 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 		}
 
 		wg.Wait()
+		// neighbor := bruteForceCosine(vectors, vectors[0], 2)
+		// dist, _, _ := distancer.NewCosineProvider().SingleDist(vectors[0], vectors[neighbor[1]])
+		// fmt.Printf("distance between 0 and %d is %f\n", neighbor[1], dist)
 		fmt.Printf("import took %s\n", time.Since(beforeImport))
+
+		// vectorIndex.Dump()
 
 		t.Fail()
 	})
