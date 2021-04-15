@@ -90,7 +90,7 @@ func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
 	allowList helpers.AllowList) (*binarySearchTreeGeneric, error) {
-	visited := newVisitedList(entrypoints)
+	visited := h.newVisitedList(entrypoints)
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
 	distancer := h.distancerProvider.New(queryVector)
@@ -98,27 +98,22 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, allowList)
 
+	worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate distance of current last result")
+	}
+
+	updateWorstResultDistance := func(dist float32) {
+		worstResultDistance = dist
+	}
+
 	for candidates.root != nil { // efficient way to see if the len is > 0
 		candidate := candidates.minimum()
-		candidates.delete(candidate.index, candidate.dist)
-
-		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
-		if err != nil {
-			return nil, errors.Wrapf(err, "calculate distance of current last result")
-		}
-
-		dist, ok, err := h.distanceToNode(distancer, candidate.index)
-		if err != nil {
-			return nil, errors.Wrap(err, "calculate distance between candidate and query")
-		}
-
-		if !ok {
-			continue
-		}
-
-		if dist > worstResultDistance {
+		if candidate.dist > worstResultDistance {
 			break
 		}
+
+		candidates.delete(candidate.index, candidate.dist)
 
 		// before := time.Now()
 		h.RLock()
@@ -132,15 +127,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			continue
 		}
 
-		// before = time.Now()
 		candidateNode.RLock()
-		// m.addBuildingItemLocking(before)
 		connections := candidateNode.connections[level]
 		candidateNode.RUnlock()
 
 		if err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
 			connections, visited, distancer, ef, level, allowList,
-			worstResultDistance); err != nil {
+			worstResultDistance, updateWorstResultDistance); err != nil {
 			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
 		}
 	}
@@ -148,10 +141,15 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	return results, nil
 }
 
-func newVisitedList(entrypoints binarySearchTreeGeneric) map[uint64]struct{} {
-	visited := map[uint64]struct{}{}
+func (h *hnsw) newVisitedList(entrypoints binarySearchTreeGeneric) []bool {
+	h.RLock()
+	size := len(h.nodes) + defaultIndexGrowthDelta // add delta to be add some
+	// buffer if a visited list is created shortly before a growth operation
+	h.RUnlock()
+
+	visited := make([]bool, size)
 	for _, elem := range entrypoints.flattenInOrder() {
-		visited[elem.index] = struct{}{}
+		visited[elem.index] = true
 	}
 	return visited
 }
@@ -182,38 +180,27 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer distancer.Distancer) (float32, error) {
 	if results.root != nil {
-		id := results.maximum().index
-		d, ok, err := h.distanceToNode(distancer, id)
-		if err != nil {
-			return 0, errors.Wrap(err,
-				"calculated distance between worst result and query")
-		}
-
-		if !ok {
-			return math.MaxFloat32, nil
-		}
-		return d, nil
+		return results.maximum().dist, nil
 	} else {
-		// if the entrypoint (which we received from a higher layer doesn't match
-		// the allow List the result list is empty. In this case we can just set
-		// the worstDistance to an arbitrarily large number, so that any
-		// (allowed) candidate will have a lower distance in comparison
 		return math.MaxFloat32, nil
 	}
 }
 
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint64,
-	visited map[uint64]struct{}, distancer distancer.Distancer, ef int,
-	level int, allowList helpers.AllowList, worstResultDistance float32) error {
+	visited []bool, distancer distancer.Distancer, ef int,
+	level int, allowList helpers.AllowList, worstResultDistance float32,
+	updateWorstResultDistance func(dist float32),
+) error {
 	for _, neighborID := range connections {
-		if _, ok := visited[neighborID]; ok {
+		if ok := visited[neighborID]; ok {
 			// skip if we've already visited this neighbor
+			// timeOther.visitedListReading += time.Since(before)
 			continue
 		}
 
 		// make sure we never visit this neighbor again
-		visited[neighborID] = struct{}{}
+		visited[neighborID] = true
 
 		distance, ok, err := h.distanceToNode(distancer, neighborID)
 		if err != nil {
@@ -226,8 +213,10 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 		}
 
 		resLenBefore := results.len() // calculating just once saves a bit of time
-		if distance < worstResultDistance || resLenBefore < ef {
+
+		if resLenBefore < ef || distance < worstResultDistance {
 			candidates.insert(neighborID, distance)
+
 			if level == 0 && allowList != nil {
 				// we are on the lowest level containing the actual candidates and we
 				// have an allow list (i.e. the user has probably set some sort of a
@@ -237,17 +226,21 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 					continue
 				}
 			}
-
 			if h.hasTombstone(neighborID) {
 				continue
 			}
 
 			results.insert(neighborID, distance)
 
-			// +1 because we have added one node size calculating the len
 			if resLenBefore+1 > ef {
 				max := results.maximum()
 				results.delete(max.index, max.dist)
+			}
+
+			if resLenBefore != 0 {
+				worstResult := results.maximum()
+				worstResultDistance = worstResult.dist
+				updateWorstResultDistance(worstResultDistance)
 			}
 		}
 	}
@@ -385,17 +378,33 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 	max int, denyList helpers.AllowList) ([]uint64, error) {
+	vec, err := h.vectorForID(context.Background(), nodeId)
+	if err != nil {
+		return nil, err
+	}
+
+	distancer := h.distancerProvider.New(vec)
+
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, ok, err := h.distBetweenNodes(id, nodeId)
+
+		vecA, err := h.vectorForID(context.Background(), id)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return nil, errors.Wrapf(err,
+					"could not get vector of object at docID %d", id)
+			}
+		}
+		dist, _, err := distancer.Distance(vecA)
 		if err != nil {
 			return nil, errors.Wrap(err, "select neighbors simple from id")
 		}
 
-		if !ok {
-			// node was deleted in the underlying object store
-			continue
-		}
 		bst.insert(id, dist)
 	}
 
