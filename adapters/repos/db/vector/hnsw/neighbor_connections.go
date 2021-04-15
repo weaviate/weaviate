@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -111,25 +112,31 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
+	before := time.Now()
 	results, err := n.graph.searchLayerByVector(n.nodeVec, *n.results, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
+	fmt.Printf("level %d - search layer took %s\n", level, time.Since(before))
 
 	n.removeSelfFromResults()
 
+	before = time.Now()
 	neighbors := n.graph.selectNeighborsSimple(*results, n.graph.maximumConnections,
 		n.denyList)
+	fmt.Printf("level %d - select neighbors took %s\n", level, time.Since(before))
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
 
+	before = time.Now()
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return err
 		}
 	}
+	fmt.Printf("level %d - connect neighbors took %s\n\n", level, time.Since(before))
 
 	return nil
 }

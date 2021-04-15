@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -95,22 +96,39 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	results := &binarySearchTreeGeneric{}
 	distancer := h.distancerProvider.New(queryVector)
 
+	var timeDistancing time.Duration
+	var timeGetMiminium time.Duration
+	var timeDelete time.Duration
+	var timeExtending time.Duration
+	var timeExtendingDistancing time.Duration
+	var timeExtendingOther time.Duration
+	var timeOther time.Duration
+
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, allowList)
 
 	for candidates.root != nil { // efficient way to see if the len is > 0
+		before := time.Now()
 		candidate := candidates.minimum()
-		candidates.delete(candidate.index, candidate.dist)
+		timeGetMiminium += time.Since(before)
 
+		before = time.Now()
+		candidates.delete(candidate.index, candidate.dist)
+		timeDelete += time.Since(before)
+
+		before = time.Now()
 		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "calculate distance of current last result")
 		}
+		timeOther += time.Since(before)
 
+		before = time.Now()
 		dist, ok, err := h.distanceToNode(distancer, candidate.index)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
 		}
+		timeDistancing += time.Since(before)
 
 		if !ok {
 			continue
@@ -138,12 +156,19 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		connections := candidateNode.connections[level]
 		candidateNode.RUnlock()
 
-		if err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
+		before = time.Now()
+		if td, to, err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
 			connections, visited, distancer, ef, level, allowList,
 			worstResultDistance); err != nil {
 			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
+		} else {
+			timeExtendingDistancing += td
+			timeExtendingOther += to
 		}
+		timeExtending += time.Since(before)
 	}
+
+	fmt.Printf("distancing: %s\nminimum: %s\ndelete: %s\nextending: %s\nextending-distancing: %s\nextending-other: %s\nother: %s\n\n", timeDistancing, timeGetMiminium, timeDelete, timeExtending, timeExtendingDistancing, timeExtendingOther, timeOther)
 
 	return results, nil
 }
@@ -205,7 +230,9 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint64,
 	visited map[uint64]struct{}, distancer distancer.Distancer, ef int,
-	level int, allowList helpers.AllowList, worstResultDistance float32) error {
+	level int, allowList helpers.AllowList, worstResultDistance float32) (time.Duration, time.Duration, error) {
+	var timeDistancing time.Duration
+	var timeOther time.Duration
 	for _, neighborID := range connections {
 		if _, ok := visited[neighborID]; ok {
 			// skip if we've already visited this neighbor
@@ -215,16 +242,19 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 		// make sure we never visit this neighbor again
 		visited[neighborID] = struct{}{}
 
+		before := time.Now()
 		distance, ok, err := h.distanceToNode(distancer, neighborID)
 		if err != nil {
-			return errors.Wrap(err, "calculate distance between candidate and query")
+			return 0, 0, errors.Wrap(err, "calculate distance between candidate and query")
 		}
+		timeDistancing += time.Since(before)
 
 		if !ok {
 			// node was deleted in the underlying object store
 			continue
 		}
 
+		before = time.Now()
 		resLenBefore := results.len() // calculating just once saves a bit of time
 		if distance < worstResultDistance || resLenBefore < ef {
 			candidates.insert(neighborID, distance)
@@ -250,9 +280,10 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 				results.delete(max.index, max.dist)
 			}
 		}
+		timeOther += time.Since(before)
 	}
 
-	return nil
+	return timeDistancing, timeOther, nil
 }
 
 func (h *hnsw) distanceToNode(distancer distancer.Distancer,
