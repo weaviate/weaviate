@@ -385,17 +385,33 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 	max int, denyList helpers.AllowList) ([]uint64, error) {
+	vec, err := h.vectorForID(context.Background(), nodeId)
+	if err != nil {
+		return nil, err
+	}
+
+	distancer := h.distancerProvider.New(vec)
+
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, ok, err := h.distBetweenNodes(id, nodeId)
+
+		vecA, err := h.vectorForID(context.Background(), id)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return nil, errors.Wrapf(err,
+					"could not get vector of object at docID %d", id)
+			}
+		}
+		dist, _, err := distancer.Distance(vecA)
 		if err != nil {
 			return nil, errors.Wrap(err, "select neighbors simple from id")
 		}
 
-		if !ok {
-			// node was deleted in the underlying object store
-			continue
-		}
 		bst.insert(id, dist)
 	}
 
