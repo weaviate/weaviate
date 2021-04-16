@@ -98,16 +98,12 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, allowList)
 
-	worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
-	if err != nil {
-		return nil, errors.Wrapf(err, "calculate distance of current last result")
-	}
-
-	updateWorstResultDistance := func(dist float32) {
-		worstResultDistance = dist
-	}
-
 	for candidates.root != nil { // efficient way to see if the len is > 0
+		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+		if err != nil {
+			return nil, errors.Wrapf(err, "calculate distance of current last result")
+		}
+
 		candidate := candidates.minimum()
 		if candidate.dist > worstResultDistance {
 			break
@@ -133,7 +129,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 		if err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
 			connections, visited, distancer, ef, level, allowList,
-			worstResultDistance, updateWorstResultDistance); err != nil {
+			worstResultDistance); err != nil {
 			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
 		}
 	}
@@ -180,8 +176,22 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer distancer.Distancer) (float32, error) {
 	if results.root != nil {
-		return results.maximum().dist, nil
+		id := results.maximum().index
+		d, ok, err := h.distanceToNode(distancer, id)
+		if err != nil {
+			return 0, errors.Wrap(err,
+				"calculated distance between worst result and query")
+		}
+
+		if !ok {
+			return math.MaxFloat32, nil
+		}
+		return d, nil
 	} else {
+		// if the entrypoint (which we received from a higher layer doesn't match
+		// the allow List the result list is empty. In this case we can just set
+		// the worstDistance to an arbitrarily large number, so that any
+		// (allowed) candidate will have a lower distance in comparison
 		return math.MaxFloat32, nil
 	}
 }
@@ -190,7 +200,6 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint64,
 	visited []bool, distancer distancer.Distancer, ef int,
 	level int, allowList helpers.AllowList, worstResultDistance float32,
-	updateWorstResultDistance func(dist float32),
 ) error {
 	for _, neighborID := range connections {
 		if ok := visited[neighborID]; ok {
@@ -235,12 +244,6 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 			if resLenBefore+1 > ef {
 				max := results.maximum()
 				results.delete(max.index, max.dist)
-			}
-
-			if resLenBefore != 0 {
-				worstResult := results.maximum()
-				worstResultDistance = worstResult.dist
-				updateWorstResultDistance(worstResultDistance)
 			}
 		}
 	}
