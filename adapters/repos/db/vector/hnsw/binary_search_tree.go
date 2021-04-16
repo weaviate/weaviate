@@ -17,7 +17,8 @@ import (
 )
 
 type binarySearchTreeGeneric struct {
-	root *binarySearchNodeGeneric
+	root   *binarySearchNodeGeneric
+	length int
 }
 
 func (t *binarySearchTreeGeneric) insert(index uint64, dist float32) {
@@ -32,6 +33,7 @@ func (t *binarySearchTreeGeneric) insert(index uint64, dist float32) {
 		return
 	}
 
+	t.length++
 	t.root.insert(index, dist)
 }
 
@@ -77,14 +79,11 @@ func (t *binarySearchTreeGeneric) delete(index uint64, dist float32) {
 
 	t.root.delete(index, dist, fakeParent)
 	t.root = fakeParent.right
+	t.length--
 }
 
 func (t *binarySearchTreeGeneric) len() int {
-	if t.root == nil {
-		return 0
-	}
-
-	return t.root.len()
+	return t.length
 }
 
 type binarySearchNodeGeneric struct {
@@ -297,12 +296,4 @@ func (n *binarySearchNodeGeneric) flattenInOrder() []*binarySearchNodeGeneric {
 
 	right = append([]*binarySearchNodeGeneric{n}, right...)
 	return append(left, right...)
-}
-
-func (n *binarySearchNodeGeneric) len() int {
-	if n == nil {
-		return 0
-	}
-
-	return n.left.len() + 1 + n.right.len()
 }
