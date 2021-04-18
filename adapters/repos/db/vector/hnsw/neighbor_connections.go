@@ -18,19 +18,20 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
-func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) error {
-	v.Lock()
-	defer v.Unlock()
-
+func (v *vertex) linkAtLevel(level int, target uint64, cl BufferedLinksLogger) error {
 	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
 		return err
 	}
 
+	v.RLock()
 	if targetContained(v.connections[level], target) {
 		// already linked, nothing to do
 		return nil
 	}
+	v.RUnlock()
 
+	v.Lock()
+	defer v.Unlock()
 	v.connections[level] = append(v.connections[level], target)
 	return nil
 }
@@ -174,11 +175,11 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return nil
 	}
 
-	if err := neighbor.linkAtLevel(level, n.node.id, n.graph.commitLog); err != nil {
+	if err := neighbor.linkAtLevel(level, n.node.id, n.bufLinksLog); err != nil {
 		return err
 	}
 
-	if err := n.node.linkAtLevel(level, neighbor.id, n.graph.commitLog); err != nil {
+	if err := n.node.linkAtLevel(level, neighbor.id, n.bufLinksLog); err != nil {
 		return err
 	}
 

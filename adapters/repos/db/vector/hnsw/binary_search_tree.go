@@ -24,6 +24,11 @@ type binarySearchTreeGeneric struct {
 func (t *binarySearchTreeGeneric) insert(index uint64, dist float32) {
 	// before := time.Now()
 	// defer m.addInserting(before)
+	// if math.IsNaN(float64(dist)) {
+	// 	panic("NaN")
+	// }
+
+	// fmt.Printf("inserting %d with %f\n", index, dist)
 
 	if t.root == nil {
 		t.root = &binarySearchNodeGeneric{

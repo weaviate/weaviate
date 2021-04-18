@@ -75,6 +75,9 @@ func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
 	}
 
 	flat := res.flattenInOrder()
+	if len(flat) > k {
+		fmt.Printf("just wasted %d allocations\n", len(flat)-k)
+	}
 	size := min(len(flat), k)
 	out := make([]uint64, size)
 	for i, elem := range flat {
@@ -100,6 +103,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	for candidates.root != nil { // efficient way to see if the len is > 0
 		candidate := candidates.minimum()
+		// fmt.Println(candidates.flattenInOrder())
+		// h.Dump()
 		candidates.delete(candidate.index, candidate.dist)
 
 		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
@@ -355,6 +360,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	flat := res.flattenInOrder()
+	if len(flat) > k {
+		fmt.Printf("search by vec: just wasted %d allocations\n", len(flat)-k)
+	}
 	size := min(len(flat), k)
 	out := make([]uint64, size)
 	for i, elem := range flat {
@@ -369,19 +377,21 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 	max int, denyList helpers.AllowList) []uint64 {
-	flat := input.flattenInOrder()
+	// flat := input.flattenInOrder()
+	// if len(flat) > max {
+	// 	fmt.Printf("select neighbors: just wasted %d allocations\n", len(flat)-max)
+	// }
 
-	maxSize := min(len(flat), max)
-	out := make([]uint64, maxSize)
+	// maxSize := min(len(flat), max)
+	out := make([]uint64, max)
 	actualSize := 0
-	for i, elem := range flat {
+	for input.len() > 0 && actualSize < max {
+		elem := input.minimum()
+		input.delete(elem.index, elem.dist)
 		if denyList != nil && denyList.Contains(elem.index) {
 			continue
 		}
 
-		if i >= maxSize {
-			break
-		}
 		out[actualSize] = elem.index
 		actualSize++
 	}

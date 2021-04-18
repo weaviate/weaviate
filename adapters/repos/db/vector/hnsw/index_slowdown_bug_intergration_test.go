@@ -69,6 +69,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
+			// DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
