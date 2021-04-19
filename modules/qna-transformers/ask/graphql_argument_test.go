@@ -28,9 +28,10 @@ func TestAskGraphQLArgument(t *testing.T) {
 
 		// then
 		// the built graphQL field needs to support this structure:
-		// {
-		//   question: "question",
+		// ask {
+		//   question: "question?",
 		//   certainty: 0.9
+		//   properties: ["prop1", "prop2"]
 		// }
 		assert.NotNil(t, ask)
 		assert.Equal(t, "QnATransformersPrefixClassAskInpObj", ask.Type.Name())

@@ -12,8 +12,8 @@
 package ent
 
 type AnswerResult struct {
-	Text     string
-	Question string
-	Answer   string
-	Score    string
+	Text      string
+	Question  string
+	Answer    *string
+	Certainty *float64
 }
