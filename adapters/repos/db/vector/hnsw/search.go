@@ -188,7 +188,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
 	distancer distancer.Distancer) (float32, error) {
 	if results.Len() > 0 {
-		id := results.Pop().ID
+		id := results.Top().ID
 		d, ok, err := h.distanceToNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
@@ -380,7 +380,7 @@ func (h *hnsw) selectNeighborsSimple(input *priorityqueue.Queue,
 	out := make([]uint64, max)
 	actualSize := 0
 	for results.Len() > 0 && actualSize < max {
-		elem := input.Pop()
+		elem := results.Pop()
 		if denyList != nil && denyList.Contains(elem.ID) {
 			continue
 		}
