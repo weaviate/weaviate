@@ -31,7 +31,6 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 				params: &AskParams{
 					Question:  "question",
 					Certainty: 0.8,
-					Limit:     1,
 				},
 			},
 			want: "question",
@@ -94,7 +93,6 @@ func TestParamsHelper_GetProperties(t *testing.T) {
 					Question:   "question",
 					Properties: []string{"prop1", "prop2"},
 					Certainty:  0.8,
-					Limit:      1,
 				},
 			},
 			want: []string{"prop1", "prop2"},

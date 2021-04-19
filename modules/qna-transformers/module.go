@@ -44,6 +44,7 @@ type QnAModule struct {
 type qnaClient interface {
 	Answer(ctx context.Context,
 		text, question string) (*ent.AnswerResult, error)
+	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *QnAModule) Name() string {
@@ -120,7 +121,7 @@ func (m *QnAModule) RootHandler() http.Handler {
 }
 
 func (m *QnAModule) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{}, nil
+	return m.qna.MetaInfo()
 }
 
 func (m *QnAModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
@@ -131,4 +132,5 @@ func (m *QnAModule) AdditionalProperties() map[string]modulecapabilities.Additio
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
+	_ = modulecapabilities.MetaProvider(New())
 )
