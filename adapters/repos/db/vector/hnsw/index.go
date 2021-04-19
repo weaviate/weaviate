@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/sirupsen/logrus"
 )
 
@@ -273,7 +274,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
-		tmpBST := &binarySearchTreeGeneric{}
+		eps := priorityqueue.NewMin(1)
 		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return 0, errors.Wrapf(err,
@@ -283,18 +284,19 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			continue
 		}
 
-		tmpBST.insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
+		eps.Insert(entryPointID, dist)
+		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
-		if res.root != nil {
+		if res.Len() > 0 {
 			// if we could find a new entrypoint, use it
 			// in case everything was tombstoned, stick with the existing one
-			if !h.nodeByID(res.root.index).isUnderMaintenance() {
+			elem := res.Pop()
+			if !h.nodeByID(elem.ID).isUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
-				entryPointID = res.minimum().index
+				entryPointID = elem.ID
 			}
 		}
 	}
