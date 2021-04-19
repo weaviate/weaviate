@@ -80,6 +80,10 @@ func (l *Queue) Pop() Item {
 	return out
 }
 
+func (l *Queue) Top() Item {
+	return l.items[0]
+}
+
 func (l *Queue) Len() int {
 	return len(l.items)
 }
