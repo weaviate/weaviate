@@ -19,7 +19,6 @@ type AskParams struct {
 	Question   string
 	Certainty  float64
 	Properties []string
-	Limit      int
 }
 
 func (n AskParams) GetCertainty() float64 {

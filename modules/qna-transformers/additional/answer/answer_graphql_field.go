@@ -26,6 +26,8 @@ func (p *AnswerProvider) additionalAnswerField(classname string) *graphql.Field 
 				"startPosition": &graphql.Field{Type: graphql.Int},
 				"endPosition":   &graphql.Field{Type: graphql.Int},
 				"property":      &graphql.Field{Type: graphql.String},
+				"certainty":     &graphql.Field{Type: graphql.Float},
+				"hasAnswer":     &graphql.Field{Type: graphql.Boolean},
 			},
 		}),
 	}

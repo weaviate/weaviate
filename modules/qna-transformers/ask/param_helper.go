@@ -30,3 +30,10 @@ func (p *ParamsHelper) GetProperties(params interface{}) []string {
 	}
 	return nil
 }
+
+func (p *ParamsHelper) GetCertainty(params interface{}) float64 {
+	if parameters, ok := params.(*AskParams); ok {
+		return parameters.Certainty
+	}
+	return 0
+}

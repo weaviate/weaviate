@@ -14,8 +14,10 @@ package models
 // Answer used in qna module to represent
 // the answer to a given question
 type Answer struct {
-	Result        string `json:"result,omitempty"`
-	Property      string `json:"property,omitempty"`
-	StartPosition int    `json:"startPosition,omitempty"`
-	EndPosition   int    `json:"endPosition,omitempty"`
+	Result        *string  `json:"result,omitempty"`
+	Property      *string  `json:"property,omitempty"`
+	StartPosition int      `json:"startPosition,omitempty"`
+	EndPosition   int      `json:"endPosition,omitempty"`
+	Certainty     *float64 `json:"certainty,omitempty"`
+	HasAnswer     bool     `json:"hasAnswer,omitempty"`
 }
