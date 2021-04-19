@@ -16,6 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func (v *vertex) linkAtLevel(level int, target uint64, cl BufferedLinksLogger) error {
@@ -57,12 +58,12 @@ type neighborFinderConnector struct {
 	graph           *hnsw
 	node            *vertex
 	entryPointID    uint64
+	entryPointDist  float32
 	nodeVec         []float32
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	bufLinksLog     BufferedLinksLogger
-	results         *binarySearchTreeGeneric
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -80,9 +81,17 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 }
 
 func (n *neighborFinderConnector) Do() error {
-	n.results = &binarySearchTreeGeneric{}
+	if n.denyList == nil {
+		n.denyList = helpers.AllowList{}
+	}
+
+	// make sure we exclude self
+	n.denyList[n.node.id] = struct{}{}
+
 	n.bufLinksLog = n.graph.commitLog.NewBufferedLinksLogger()
 
+	// TODO: this initial dist calc is pointless, we could just get that from
+	// findBestEntrypointForNode
 	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -92,8 +101,7 @@ func (n *neighborFinderConnector) Do() error {
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
-	n.results.insert(n.entryPointID, dist)
-	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
+	n.entryPointDist = dist
 
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
 		err := n.doAtLevel(level)
@@ -110,15 +118,16 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
-	results, err := n.graph.searchLayerByVector(n.nodeVec, *n.results, n.graph.efConstruction,
+	eps := priorityqueue.NewMin(1)
+	eps.Insert(n.entryPointID, n.entryPointDist)
+
+	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	n.removeSelfFromResults()
-
-	neighbors := n.graph.selectNeighborsSimple(*results, n.graph.maximumConnections,
+	neighbors := n.graph.selectNeighborsSimple(results, n.graph.maximumConnections,
 		n.denyList)
 
 	// // for distributed spike
@@ -130,37 +139,49 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 	}
 
+	n.entryPointID = neighbors[0]
+	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
+	if err != nil {
+		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+	}
+	if !ok {
+		return fmt.Errorf("entrypoint was deleted in the object store, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+
+	n.entryPointDist = dist
+
 	return nil
 }
 
 func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 	if n.node.isUnderMaintenance() {
-		haveAlternative := false
-		for i, ep := range n.results.flattenInOrder() {
-			if haveAlternative {
-				break
-			}
-			if i == 0 {
-				continue
-			}
+		// haveAlternative := false
+		// for i, ep := range n.results.flattenInOrder() {
+		// 	if haveAlternative {
+		// 		break
+		// 	}
+		// 	if i == 0 {
+		// 		continue
+		// 	}
 
-			if !n.graph.nodeByID(ep.index).isUnderMaintenance() {
-				haveAlternative = true
-			}
-		}
+		// 	if !n.graph.nodeByID(ep.index).isUnderMaintenance() {
+		// 		haveAlternative = true
+		// 	}
+		// }
 
-		if !haveAlternative {
-			globalEP := n.graph.entryPointID
-			dist, ok, err := n.graph.distBetweenNodeAndVec(globalEP, n.nodeVec)
-			if err != nil {
-				return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-			}
-			if !ok {
-				return fmt.Errorf("entrypoint was deleted in the object store, " +
-					"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-			}
-			n.results.insert(globalEP, dist)
+		// if !haveAlternative {
+		globalEP := n.graph.entryPointID
+		dist, ok, err := n.graph.distBetweenNodeAndVec(globalEP, n.nodeVec)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 		}
+		if !ok {
+			return fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
+		n.entryPointID = globalEP
+		n.entryPointDist = dist
 	}
 
 	return nil
@@ -221,29 +242,29 @@ func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {
 	return false
 }
 
-func (n *neighborFinderConnector) removeSelfFromResults() {
-	if n.results.contains(n.node.id, 0) {
-		// Make sure we don't get the node we're currently assigning on the
-		// result list. This could lead to a self-link, but far worse it could
-		// lead to using ourself as an entry point on the next lower level. In
-		// the process of (re)-assigning edges it would be fatal to use ourselves
-		// as an entrypoint, as there are only two possible scenarios: 1. This is
-		// a new insert, so we don't have edges yet. 2. This is a re-assign after
-		// a delete, so we did originally have edges, but they were cleared in
-		// preparation for the re-assignment.
-		//
-		// So why is it so bad to have ourselves (without connections) as an
-		// entrypoint? Because the exit condition in searchLayerByVector is if
-		// the candidates distance is worse than the current worst distance.
-		// Naturally, the node itself has the best distance (=0) to itself, so
-		// we'd ignore all other elements. However, since the node - as outlined
-		// before - has no nodes, the search wouldn't find any results. Thus we
-		// also can't add any new connections, leading to an isolated node in the
-		// grapn.graph. If that isolated node were to become the graphs entrypoint, the
-		// graph is basically unusable.
-		n.results.delete(n.node.id, 0)
-	}
-}
+// func (n *neighborFinderConnector) removeSelfFromResults() {
+// 	if n.results.contains(n.node.id, 0) {
+// 		// Make sure we don't get the node we're currently assigning on the
+// 		// result list. This could lead to a self-link, but far worse it could
+// 		// lead to using ourself as an entry point on the next lower level. In
+// 		// the process of (re)-assigning edges it would be fatal to use ourselves
+// 		// as an entrypoint, as there are only two possible scenarios: 1. This is
+// 		// a new insert, so we don't have edges yet. 2. This is a re-assign after
+// 		// a delete, so we did originally have edges, but they were cleared in
+// 		// preparation for the re-assignment.
+// 		//
+// 		// So why is it so bad to have ourselves (without connections) as an
+// 		// entrypoint? Because the exit condition in searchLayerByVector is if
+// 		// the candidates distance is worse than the current worst distance.
+// 		// Naturally, the node itself has the best distance (=0) to itself, so
+// 		// we'd ignore all other elements. However, since the node - as outlined
+// 		// before - has no nodes, the search wouldn't find any results. Thus we
+// 		// also can't add any new connections, leading to an isolated node in the
+// 		// grapn.graph. If that isolated node were to become the graphs entrypoint, the
+// 		// graph is basically unusable.
+// 		n.results.delete(n.node.id, 0)
+// 	}
+// }
 
 func (n *neighborFinderConnector) maximumConnections(level int) int {
 	if level == 0 {

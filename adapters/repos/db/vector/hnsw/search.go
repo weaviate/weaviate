@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func reasonableEfFromK(k int) int {
@@ -34,85 +35,82 @@ func reasonableEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByID(id uint64, k int) ([]uint64, error) {
-	return h.knnSearch(id, k, reasonableEfFromK(k))
-}
+// func (h *hnsw) SearchByID(id uint64, k int) ([]uint64, error) {
+// 	return h.knnSearch(id, k, reasonableEfFromK(k))
+// }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, error) {
 	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 
-func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
-	entryPointID := h.entryPointID
-	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
-	if err != nil || !ok {
-		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
-	}
+// func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
+// 	entryPointID := h.entryPointID
+// 	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
+// 	if err != nil || !ok {
+// 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+// 	}
 
-	queryVector, err := h.vectorForID(context.Background(), queryNodeID)
-	if err != nil {
-		return nil, errors.Wrapf(err, "could not get vector of object at docID %d", queryNodeID)
-	}
+// 	queryVector, err := h.vectorForID(context.Background(), queryNodeID)
+// 	if err != nil {
+// 		return nil, errors.Wrapf(err, "could not get vector of object at docID %d", queryNodeID)
+// 	}
 
-	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
-		eps := &binarySearchTreeGeneric{}
-		eps.insert(entryPointID, entryPointDistance)
+// 	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
+// 		eps := &binarySearchTreeGeneric{}
+// 		eps.insert(entryPointID, entryPointDistance)
 
-		res, err := h.searchLayerByVector(queryVector, *eps, 1, level, nil)
-		if err != nil {
-			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
-		}
-		best := res.minimum()
-		entryPointID = best.index
-		entryPointDistance = best.dist
-	}
+// 		res, err := h.searchLayerByVector(queryVector, *eps, 1, level, nil)
+// 		if err != nil {
+// 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
+// 		}
+// 		best := res.minimum()
+// 		entryPointID = best.index
+// 		entryPointDistance = best.dist
+// 	}
 
-	eps := &binarySearchTreeGeneric{}
-	eps.insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(queryVector, *eps, ef, 0, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
-	}
+// 	eps := priorityqueue.NewMin(10)
+// 	eps.Insert(entryPointID, entryPointDistance)
+// 	res, err := h.searchLayerByVector(queryVector, eps, ef, 0, nil)
+// 	if err != nil {
+// 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+// 	}
 
-	flat := res.flattenInOrder()
-	if len(flat) > k {
-		fmt.Printf("just wasted %d allocations\n", len(flat)-k)
-	}
-	size := min(len(flat), k)
-	out := make([]uint64, size)
-	for i, elem := range flat {
-		if i >= size {
-			break
-		}
-		out[i] = elem.index
-	}
+// 	flat := res.flattenInOrder()
+// 	if len(flat) > k {
+// 		fmt.Printf("just wasted %d allocations\n", len(flat)-k)
+// 	}
+// 	size := min(len(flat), k)
+// 	out := make([]uint64, size)
+// 	for i, elem := range flat {
+// 		if i >= size {
+// 			break
+// 		}
+// 		out[i] = elem.index
+// 	}
 
-	return out, nil
-}
+// 	return out, nil
+// }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints binarySearchTreeGeneric, ef int, level int,
-	allowList helpers.AllowList) (*binarySearchTreeGeneric, error) {
-	visited := h.newVisitedList(entrypoints)
-	candidates := &binarySearchTreeGeneric{}
-	results := &binarySearchTreeGeneric{}
+	entrypoints *priorityqueue.Queue, ef int, level int,
+	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
+	visited := h.newVisitedList()
+	candidates := priorityqueue.NewMin(ef)
+	results := priorityqueue.NewMax(ef)
 	distancer := h.distancerProvider.New(queryVector)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
-		results, level, allowList)
+		results, level, visited, allowList)
 
-	for candidates.root != nil { // efficient way to see if the len is > 0
-		candidate := candidates.minimum()
-		// fmt.Println(candidates.flattenInOrder())
-		// h.Dump()
-		candidates.delete(candidate.index, candidate.dist)
+	for candidates.Len() > 0 {
+		candidate := candidates.Pop()
 
 		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "calculate distance of current last result")
 		}
 
-		dist, ok, err := h.distanceToNode(distancer, candidate.index)
+		dist, ok, err := h.distanceToNode(distancer, candidate.ID)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
 		}
@@ -128,7 +126,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		// before := time.Now()
 		// h.Lock()
 		// m.addBuildingReadLocking(before)
-		candidateNode := h.nodes[candidate.index]
+		candidateNode := h.nodes[candidate.ID]
 		// h.Unlock()
 
 		if candidateNode == nil {
@@ -153,46 +151,44 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	return results, nil
 }
 
-func (h *hnsw) newVisitedList(entrypoints binarySearchTreeGeneric) []bool {
+func (h *hnsw) newVisitedList() []bool {
 	h.Lock()
 	size := len(h.nodes) + defaultIndexGrowthDelta // add delta to be add some
 	// buffer if a visited list is created shortly before a growth operation
 	h.Unlock()
 
 	visited := make([]bool, size)
-	for _, elem := range entrypoints.flattenInOrder() {
-		visited[elem.index] = true
-	}
 	return visited
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
-	entrypoints binarySearchTreeGeneric, candidates,
-	results *binarySearchTreeGeneric, level int, allowList helpers.AllowList) {
-	for _, ep := range entrypoints.flattenInOrder() {
-		candidates.insert(ep.index, ep.dist)
+	entrypoints, candidates, results *priorityqueue.Queue, level int,
+	visitedList []bool, allowList helpers.AllowList) {
+	for entrypoints.Len() > 0 {
+		ep := entrypoints.Pop()
+		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
-			if !allowList.Contains(ep.index) {
+			if !allowList.Contains(ep.ID) {
 				continue
 			}
 		}
 
-		if h.hasTombstone(ep.index) {
+		if h.hasTombstone(ep.ID) {
 			continue
 		}
 
-		results.insert(ep.index, ep.dist)
+		results.Insert(ep.ID, ep.Dist)
 	}
 }
 
-func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
+func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
 	distancer distancer.Distancer) (float32, error) {
-	if results.root != nil {
-		id := results.maximum().index
+	if results.Len() > 0 {
+		id := results.Pop().ID
 		d, ok, err := h.distanceToNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
@@ -213,7 +209,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 }
 
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
-	results *binarySearchTreeGeneric, connections []uint64,
+	results *priorityqueue.Queue, connections []uint64,
 	visited []bool, distancer distancer.Distancer, ef int,
 	level int, allowList helpers.AllowList, worstResultDistance float32,
 ) error {
@@ -236,9 +232,8 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 			continue
 		}
 
-		resLenBefore := results.len() // calculating just once saves a bit of time
-		if distance < worstResultDistance || resLenBefore < ef {
-			candidates.insert(neighborID, distance)
+		if distance < worstResultDistance || results.Len() < ef {
+			candidates.Insert(neighborID, distance)
 			if level == 0 && allowList != nil {
 				// we are on the lowest level containing the actual candidates and we
 				// have an allow list (i.e. the user has probably set some sort of a
@@ -253,12 +248,11 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 				continue
 			}
 
-			results.insert(neighborID, distance)
+			results.Insert(neighborID, distance)
 
 			// +1 because we have added one node size calculating the len
-			if resLenBefore+1 > ef {
-				max := results.maximum()
-				results.delete(max.index, max.dist)
+			if results.Len() > ef {
+				results.Pop()
 			}
 		}
 	}
@@ -324,9 +318,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	// stop at layer 1, not 0!
 	for level := h.currentMaximumLayer; level >= 1; level-- {
-		eps := &binarySearchTreeGeneric{}
-		eps.insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, *eps, 1, level, nil)
+		eps := priorityqueue.NewMin(10)
+		eps.Insert(entryPointID, entryPointDistance)
+		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -335,64 +329,63 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		// that particular level, so instead we're keeping whatever entrypoint we
 		// had before (i.e. either from a previous level or even the main
 		// entrypoint)
-		if res.root != nil {
-			best := res.flattenInOrder()
-
-			for _, cand := range best {
-				if !h.nodeByID(cand.index).isUnderMaintenance() {
-					entryPointID = cand.index
-					entryPointDistance = cand.dist
-					break
-				}
-
-				// if we managed to go through the loop without finding a single
-				// suitable node, we simply stick with the original, i.e. the global
-				// entrypoint
+		for res.Len() > 0 {
+			cand := res.Pop()
+			if !h.nodeByID(cand.ID).isUnderMaintenance() {
+				entryPointID = cand.ID
+				entryPointDistance = cand.Dist
+				break
 			}
+
+			// if we managed to go through the loop without finding a single
+			// suitable node, we simply stick with the original, i.e. the global
+			// entrypoint
 		}
 	}
 
-	eps := &binarySearchTreeGeneric{}
-	eps.insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(searchVec, *eps, ef, 0, allowList)
+	eps := priorityqueue.NewMin(10)
+	eps.Insert(entryPointID, entryPointDistance)
+	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
-	flat := res.flattenInOrder()
-	if len(flat) > k {
-		fmt.Printf("search by vec: just wasted %d allocations\n", len(flat)-k)
+	for res.Len() > k {
+		res.Pop()
 	}
-	size := min(len(flat), k)
-	out := make([]uint64, size)
-	for i, elem := range flat {
-		if i >= size {
-			break
-		}
-		out[i] = elem.index
+
+	out := make([]uint64, res.Len())
+
+	// results is ordered in reverse, we need to flip the order before presenting
+	// to the user!
+	i := len(out) - 1
+	for res.Len() > 0 {
+		out[i] = res.Pop().ID
+		i--
 	}
 
 	return out, nil
 }
 
-func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
+func (h *hnsw) selectNeighborsSimple(input *priorityqueue.Queue,
 	max int, denyList helpers.AllowList) []uint64 {
-	// flat := input.flattenInOrder()
-	// if len(flat) > max {
-	// 	fmt.Printf("select neighbors: just wasted %d allocations\n", len(flat)-max)
-	// }
+	results := priorityqueue.NewMin(input.Len())
+	for input.Len() > 0 {
+		elem := input.Pop()
+		results.Insert(elem.ID, elem.Dist)
+	}
 
-	// maxSize := min(len(flat), max)
+	// TODO: can we optimizie this by getting the last elem out one at a time?
+
 	out := make([]uint64, max)
 	actualSize := 0
-	for input.len() > 0 && actualSize < max {
-		elem := input.minimum()
-		input.delete(elem.index, elem.dist)
-		if denyList != nil && denyList.Contains(elem.index) {
+	for results.Len() > 0 && actualSize < max {
+		elem := input.Pop()
+		if denyList != nil && denyList.Contains(elem.ID) {
 			continue
 		}
 
-		out[actualSize] = elem.index
+		out[actualSize] = elem.ID
 		actualSize++
 	}
 
@@ -408,9 +401,8 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 
 	distancer := h.distancerProvider.New(vec)
 
-	bst := &binarySearchTreeGeneric{}
+	idQ := priorityqueue.NewMax(len(ids))
 	for _, id := range ids {
-
 		vecA, err := h.vectorForID(context.Background(), id)
 		if err != nil {
 			var e storobj.ErrNotFound
@@ -428,8 +420,8 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 			return nil, errors.Wrap(err, "select neighbors simple from id")
 		}
 
-		bst.insert(id, dist)
+		idQ.Insert(id, dist)
 	}
 
-	return h.selectNeighborsSimple(*bst, max, denyList), nil
+	return h.selectNeighborsSimple(idQ, max, denyList), nil
 }

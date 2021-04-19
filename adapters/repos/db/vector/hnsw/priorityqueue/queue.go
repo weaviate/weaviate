@@ -1,4 +1,4 @@
-package main
+package priorityqueue
 
 type Item struct {
 	ID   uint64
