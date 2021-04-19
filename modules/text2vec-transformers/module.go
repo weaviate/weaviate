@@ -32,6 +32,7 @@ func New() *TransformersModule {
 
 type TransformersModule struct {
 	vectorizer      textVectorizer
+	metaProvider    metaProvider
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
 }
@@ -47,6 +48,10 @@ type textVectorizer interface {
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
 	CombineVectors([][]float32) []float32
+}
+
+type metaProvider interface {
+	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *TransformersModule) Name() string {
@@ -80,6 +85,7 @@ func (m *TransformersModule) initVectorizer(ctx context.Context,
 	}
 
 	m.vectorizer = vectorizer.New(client)
+	m.metaProvider = client
 
 	return nil
 }
@@ -96,11 +102,12 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{}, nil
+	return m.metaProvider.MetaInfo()
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.MetaProvider(New())
 )
