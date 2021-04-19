@@ -43,9 +43,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.currentMaximumLayer = 0
 	node.connections = map[int][]uint64{}
 	node.level = 0
-	if err := h.commitLog.AddNode(node); err != nil {
-		return err
-	}
+	// if err := h.commitLog.AddNode(node); err != nil {
+	// 	return err
+	// }
 
 	h.nodes[node.id] = node
 
@@ -66,6 +66,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return firstInsertError
 	}
 
+	// // make sure this new vec is immediately present in the cache, so we don't
+	// // have to read it from disk again
+	// h.cache.preload(node.id, nodeVec)
+
 	node.markAsMaintenance()
 
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -83,21 +87,22 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	node.level = targetLevel
 	node.connections = map[int][]uint64{}
 
+	// if err := h.commitLog.AddNode(node); err != nil {
+	// 	h.Unlock()
+	// 	return err
+	// }
+
+	nodeId := node.id
+
 	// before = time.Now()
 	h.Lock()
 	// m.addBuildingLocking(before)
-	nodeId := node.id
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
-	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
-		return err
-	}
-
 	h.Unlock()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
@@ -116,13 +121,13 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	if targetLevel > h.currentMaximumLayer {
 		// before = time.Now()
-		h.Lock()
 		// m.addBuildingLocking(before)
-		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-			h.Unlock()
-			return err
-		}
+		// if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+		// 	h.Unlock()
+		// 	return err
+		// }
 
+		h.Lock()
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()

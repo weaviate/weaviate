@@ -126,10 +126,10 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		// before := time.Now()
-		h.RLock()
+		// h.Lock()
 		// m.addBuildingReadLocking(before)
 		candidateNode := h.nodes[candidate.index]
-		h.RUnlock()
+		// h.Unlock()
 
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
@@ -138,10 +138,10 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		// before = time.Now()
-		candidateNode.RLock()
+		candidateNode.Lock()
 		// m.addBuildingItemLocking(before)
 		connections := candidateNode.connections[level]
-		candidateNode.RUnlock()
+		candidateNode.Unlock()
 
 		if err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
 			connections, visited, distancer, ef, level, allowList,
@@ -154,10 +154,10 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 }
 
 func (h *hnsw) newVisitedList(entrypoints binarySearchTreeGeneric) []bool {
-	h.RLock()
+	h.Lock()
 	size := len(h.nodes) + defaultIndexGrowthDelta // add delta to be add some
 	// buffer if a visited list is created shortly before a growth operation
-	h.RUnlock()
+	h.Unlock()
 
 	visited := make([]bool, size)
 	for _, elem := range entrypoints.flattenInOrder() {
