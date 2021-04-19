@@ -59,12 +59,21 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 			ap = models.AdditionalProperties{}
 		}
 
-		propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-		ap["answer"] = &qnamodels.Answer{
-			Result:        answer.Answer,
-			Property:      propertyName,
-			StartPosition: startPos,
-			EndPosition:   endPos,
+		certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
+		if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
+			ap["answer"] = &qnamodels.Answer{
+				HasAnswer: false,
+			}
+		} else {
+			propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
+			ap["answer"] = &qnamodels.Answer{
+				Result:        answer.Answer,
+				Property:      propertyName,
+				StartPosition: startPos,
+				EndPosition:   endPos,
+				Certainty:     answer.Certainty,
+				HasAnswer:     answer.Answer != nil,
+			}
 		}
 
 		in[0].AdditionalProperties = ap
@@ -85,15 +94,20 @@ func (p *AnswerProvider) containsProperty(property string, properties []string) 
 	return false
 }
 
-func (p *AnswerProvider) findProperty(answer string, textProperties map[string]string) (string, int, int) {
-	lowercaseAnswer := strings.ToLower(answer)
+func (p *AnswerProvider) findProperty(answer *string, textProperties map[string]string) (*string, int, int) {
+	if answer == nil {
+		return nil, 0, 0
+	}
+	lowercaseAnswer := strings.ToLower(*answer)
 	if len(lowercaseAnswer) > 0 {
 		for property, value := range textProperties {
-			if lowercaseValue := strings.ToLower(value); strings.Contains(lowercaseValue, lowercaseAnswer) {
+			lowercaseValue := strings.ToLower(strings.ReplaceAll(value, "\n", " "))
+			if strings.Contains(lowercaseValue, lowercaseAnswer) {
 				startIndex := strings.Index(lowercaseValue, lowercaseAnswer)
-				return property, startIndex, startIndex + len(lowercaseAnswer)
+				return &property, startIndex, startIndex + len(lowercaseAnswer)
 			}
 		}
 	}
-	return "", 0, 0
+	propertyNotFound := ""
+	return &propertyNotFound, 0, 0
 }

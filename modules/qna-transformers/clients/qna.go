@@ -75,10 +75,10 @@ func (v *qna) Answer(ctx context.Context,
 	}
 
 	return &ent.AnswerResult{
-		Text:     resBody.Question,
-		Question: resBody.Question,
-		Answer:   resBody.Answer,
-		Score:    resBody.Score,
+		Text:      resBody.Question,
+		Question:  resBody.Question,
+		Answer:    resBody.Answer,
+		Certainty: resBody.Certainty,
 	}, nil
 }
 
@@ -93,6 +93,6 @@ type answersInput struct {
 
 type answersResponse struct {
 	answersInput
-	Answer string `json:"answer"`
-	Score  string `json:"score"`
+	Answer    *string  `json:"answer"`
+	Certainty *float64 `json:"certainty"`
 }
