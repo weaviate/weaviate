@@ -23,15 +23,13 @@ func (v *vertex) linkAtLevel(level int, target uint64, cl BufferedLinksLogger) e
 		return err
 	}
 
-	v.RLock()
+	v.Lock()
+	defer v.Unlock()
 	if targetContained(v.connections[level], target) {
 		// already linked, nothing to do
 		return nil
 	}
-	v.RUnlock()
 
-	v.Lock()
-	defer v.Unlock()
 	v.connections[level] = append(v.connections[level], target)
 	return nil
 }

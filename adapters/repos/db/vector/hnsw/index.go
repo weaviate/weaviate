@@ -27,12 +27,15 @@ import (
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
-	sync.RWMutex
+	sync.Mutex
 
 	// certain operations related to deleting, such as finding a new entrypoint
 	// can only run sequentially, this separate lock helps assuring this without
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
+
+	// TODO
+	tombstoneLock *sync.RWMutex
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -154,6 +157,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		distancerProvider: cfg.DistanceProvider,
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
+		tombstoneLock:     &sync.RWMutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 	}
@@ -300,7 +304,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 type vertex struct {
 	id uint64
-	sync.RWMutex
+	sync.Mutex
 	level       int
 	connections map[int][]uint64 // map[level][]connectedId
 	maintenance bool
@@ -321,15 +325,15 @@ func (v *vertex) unmarkAsMaintenance() {
 }
 
 func (v *vertex) isUnderMaintenance() bool {
-	v.RLock()
-	defer v.RUnlock()
+	v.Lock()
+	defer v.Unlock()
 
 	return v.maintenance
 }
 
 func (v *vertex) connectionsAtLevel(level int) []uint64 {
-	v.RLock()
-	defer v.RUnlock()
+	v.Lock()
+	defer v.Unlock()
 
 	return v.connections[level]
 }
@@ -445,8 +449,8 @@ func (h *hnsw) Stats() {
 }
 
 func (h *hnsw) isEmpty() bool {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	for _, node := range h.nodes {
 		if node != nil {
@@ -458,8 +462,8 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	return h.nodes[id]
 }
