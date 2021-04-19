@@ -139,17 +139,19 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 	}
 
-	n.entryPointID = neighbors[0]
-	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
-	if err != nil {
-		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-	}
-	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
+	if len(neighbors) > 0 {
+		n.entryPointID = neighbors[0]
+		dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+		}
+		if !ok {
+			return fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
 
-	n.entryPointDist = dist
+		n.entryPointDist = dist
+	}
 
 	return nil
 }
