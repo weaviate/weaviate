@@ -86,6 +86,10 @@ func (f *fakeCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	return nil, nil
 }
 
+func (f *fakeCache) preload(id uint64, vec []float32) {
+	panic("not implemented")
+}
+
 func (f *fakeCache) reset() {
 	f.store = map[uint64]struct{}{}
 }

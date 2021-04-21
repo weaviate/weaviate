@@ -21,6 +21,48 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type unlimitedCache struct {
+	cache       [][]float32
+	vectorForID VectorForID
+}
+
+func newUnlimitedCache(vecForID VectorForID, maxSize int,
+	logger logrus.FieldLogger) *unlimitedCache {
+	return &unlimitedCache{
+		vectorForID: vecForID,
+		cache:       make([][]float32, 1e6), // TODO: grow
+	}
+}
+
+func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) {
+	return n.cache[id], nil
+}
+
+func (n *unlimitedCache) preload(id uint64, vec []float32) {
+	n.cache[id] = vec
+}
+
+func (n *unlimitedCache) len() int32 {
+	return 0
+}
+
+type noopCache struct {
+	vectorForID VectorForID
+}
+
+func newNoopCache(vecForID VectorForID, maxSize int,
+	logger logrus.FieldLogger) *noopCache {
+	return &noopCache{vectorForID: vecForID}
+}
+
+func (n *noopCache) get(ctx context.Context, id uint64) ([]float32, error) {
+	return n.vectorForID(ctx, id)
+}
+
+func (n *noopCache) len() int32 {
+	return 0
+}
+
 type vectorCache struct {
 	cache         sync.Map
 	count         int32

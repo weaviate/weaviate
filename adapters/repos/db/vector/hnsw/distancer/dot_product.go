@@ -3,7 +3,8 @@ package distancer
 import (
 	"fmt"
 	"math"
-	"unsafe"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 type DotProduct struct {
@@ -11,10 +12,7 @@ type DotProduct struct {
 }
 
 func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
-	l := uint(len(d.a))
-	dist := 1 - DotProductAVX(uintptr(unsafe.Pointer(&d.a[0])),
-		uintptr(unsafe.Pointer(&b[0])), uintptr(unsafe.Pointer(&l)))
-	// fmt.Printf("distance: %f\n", dist)
+	dist := 1 - asm.Dot(d.a, b)
 	return dist, true, nil
 }
 
@@ -38,13 +36,7 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 		panic("len different")
 	}
 
-	if len(a)%32 != 0 {
-		panic("unsupported length")
-	}
-
-	l := uint(len(a))
-	prod := 1 - DotProductAVX(uintptr(unsafe.Pointer(&a[0])),
-		uintptr(unsafe.Pointer(&b[0])), uintptr(unsafe.Pointer(&l)))
+	prod := 1 - asm.Dot(a, b)
 	if math.IsNaN(float64(prod)) {
 		fmt.Println(a)
 		fmt.Println(b)
@@ -54,7 +46,7 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 
 	}
 
-	return 1 - prod, true, nil
+	return prod, true, nil
 }
 
 func (d DotProductProvider) New(a []float32) Distancer {

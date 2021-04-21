@@ -27,7 +27,7 @@ type vectorCachePrefiller struct {
 type cache interface {
 	get(ctx context.Context, id uint64) ([]float32, error)
 	len() int32
-	// preload(id uint64, vec []float32)
+	preload(id uint64, vec []float32)
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,
