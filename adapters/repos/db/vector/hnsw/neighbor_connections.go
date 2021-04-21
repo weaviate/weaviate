@@ -127,11 +127,22 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	neighbors := n.graph.selectNeighborsSimple(results, n.graph.maximumConnections,
+	// spew.Dump(results)
+	n.graph.selectNeighborsHeuristic(results, n.graph.maximumConnections,
 		n.denyList)
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
+
+	// spew.Dump(results)
+	neighbors := make([]uint64, 0, results.Len())
+	for results.Len() > 0 {
+		neighbors = append(neighbors, results.Pop().ID)
+	}
+
+	// set all outoing in one go
+	n.node.setConnectionsAtLevel(level, neighbors)
+	n.bufLinksLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
@@ -139,7 +150,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 	}
 
-	n.entryPointID = neighbors[0]
+	n.entryPointID = neighbors[len(neighbors)-1]
 	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -194,25 +205,47 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return nil
 	}
 
-	if err := neighbor.linkAtLevel(level, n.node.id, n.bufLinksLog); err != nil {
-		return err
-	}
-
-	if err := n.node.linkAtLevel(level, neighbor.id, n.bufLinksLog); err != nil {
-		return err
-	}
-
 	currentConnections := neighbor.connectionsAtLevel(level)
-	maximumConnections := n.maximumConnections(level)
-	if len(currentConnections) <= maximumConnections {
-		// nothing to do, skip
-		return nil
+
+	// check if node already contained
+	for _, conn := range currentConnections {
+		if conn == n.node.id {
+			return nil
+		}
 	}
 
-	updatedConnections, err := n.graph.selectNeighborsSimpleFromId(n.node.id,
-		currentConnections, maximumConnections, n.denyList)
-	if err != nil {
-		return errors.Wrap(err, "connect neighbors")
+	var updatedConnections []uint64
+	maximumConnections := n.maximumConnections(level)
+	if len(currentConnections) < maximumConnections {
+		// we can simply append
+		updatedConnections = append(currentConnections, n.node.id)
+	} else {
+		// we need to run the heurisitc
+
+		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		if err != nil || !ok {
+			panic("TODO")
+		}
+
+		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
+		candidates.Insert(n.node.id, dist)
+
+		for _, existingConnection := range currentConnections {
+			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			if err != nil || !ok {
+				panic("TODO")
+			}
+			candidates.Insert(existingConnection, dist)
+		}
+
+		n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		if err != nil {
+			return errors.Wrap(err, "connect neighbors")
+		}
+
+		for candidates.Len() > 0 {
+			updatedConnections = append(updatedConnections, candidates.Pop().ID)
+		}
 	}
 
 	if err := n.bufLinksLog.ReplaceLinksAtLevel(neighbor.id, level,

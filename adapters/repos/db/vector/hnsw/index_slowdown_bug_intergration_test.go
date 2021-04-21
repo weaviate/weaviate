@@ -43,7 +43,7 @@ func Normalize(v []float32) []float32 {
 
 func TestSlowDownBugAtHighEF(t *testing.T) {
 	dimensions := 256
-	size := 10000
+	size := 25000
 	efConstruction := 2000
 	maxNeighbors := 100
 
@@ -69,9 +69,9 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
-			// DistanceProvider:      distancer.NewCosineProvider(),
+			// DistanceProvider: distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
+				return nil, nil
 			},
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
@@ -109,7 +109,6 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 		// dist, _, _ := distancer.NewCosineProvider().SingleDist(vectors[0], vectors[neighbor[1]])
 		// fmt.Printf("distance between 0 and %d is %f\n", neighbor[1], dist)
 		fmt.Printf("import took %s\n", time.Since(beforeImport))
-
 		// vectorIndex.Dump()
 
 		t.Fail()

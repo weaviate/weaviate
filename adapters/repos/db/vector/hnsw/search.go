@@ -24,14 +24,15 @@ import (
 )
 
 func reasonableEfFromK(k int) int {
-	ef := k * 8
-	if ef > 100 {
-		ef = 100
-	}
-	if k > ef {
-		ef = k // otherwise results will get cut off early
-	}
+	// ef := k * 8
+	// if ef > 100 {
+	// 	ef = 100
+	// }
+	// if k > ef {
+	// 	ef = k // otherwise results will get cut off early
+	// }
 
+	ef := 100
 	return ef
 }
 
@@ -141,10 +142,52 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		connections := candidateNode.connections[level]
 		candidateNode.Unlock()
 
-		if err := h.extendCandidatesAndResultsFromNeighbors(candidates, results,
-			connections, visited, distancer, ef, level, allowList,
-			worstResultDistance); err != nil {
-			return nil, errors.Wrap(err, "extend candidates and results from neighbors")
+		for _, neighborID := range connections {
+			if ok := visited[neighborID]; ok {
+				// skip if we've already visited this neighbor
+				continue
+			}
+
+			// make sure we never visit this neighbor again
+			visited[neighborID] = true
+
+			distance, ok, err := h.distanceToNode(distancer, neighborID)
+			if err != nil {
+				return nil, errors.Wrap(err, "calculate distance between candidate and query")
+			}
+
+			if !ok {
+				// node was deleted in the underlying object store
+				continue
+			}
+
+			if distance < worstResultDistance || results.Len() < ef {
+				candidates.Insert(neighborID, distance)
+				if level == 0 && allowList != nil {
+					// we are on the lowest level containing the actual candidates and we
+					// have an allow list (i.e. the user has probably set some sort of a
+					// filter restricting this search further. As a result we have to
+					// ignore items not on the list
+					if !allowList.Contains(neighborID) {
+						continue
+					}
+				}
+
+				if h.hasTombstone(neighborID) {
+					continue
+				}
+
+				results.Insert(neighborID, distance)
+
+				// +1 because we have added one node size calculating the len
+				if results.Len() > ef {
+					results.Pop()
+				}
+
+				if results.Len() > 0 {
+					worstResultDistance = results.Top().Dist
+				}
+			}
 		}
 	}
 
@@ -213,50 +256,6 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	visited []bool, distancer distancer.Distancer, ef int,
 	level int, allowList helpers.AllowList, worstResultDistance float32,
 ) error {
-	for _, neighborID := range connections {
-		if ok := visited[neighborID]; ok {
-			// skip if we've already visited this neighbor
-			continue
-		}
-
-		// make sure we never visit this neighbor again
-		visited[neighborID] = true
-
-		distance, ok, err := h.distanceToNode(distancer, neighborID)
-		if err != nil {
-			return errors.Wrap(err, "calculate distance between candidate and query")
-		}
-
-		if !ok {
-			// node was deleted in the underlying object store
-			continue
-		}
-
-		if distance < worstResultDistance || results.Len() < ef {
-			candidates.Insert(neighborID, distance)
-			if level == 0 && allowList != nil {
-				// we are on the lowest level containing the actual candidates and we
-				// have an allow list (i.e. the user has probably set some sort of a
-				// filter restricting this search further. As a result we have to
-				// ignore items not on the list
-				if !allowList.Contains(neighborID) {
-					continue
-				}
-			}
-
-			if h.hasTombstone(neighborID) {
-				continue
-			}
-
-			results.Insert(neighborID, distance)
-
-			// +1 because we have added one node size calculating the len
-			if results.Len() > ef {
-				results.Pop()
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -365,63 +364,4 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	return out, nil
-}
-
-func (h *hnsw) selectNeighborsSimple(input *priorityqueue.Queue,
-	max int, denyList helpers.AllowList) []uint64 {
-	results := priorityqueue.NewMin(input.Len())
-	for input.Len() > 0 {
-		elem := input.Pop()
-		results.Insert(elem.ID, elem.Dist)
-	}
-
-	// TODO: can we optimizie this by getting the last elem out one at a time?
-
-	out := make([]uint64, max)
-	actualSize := 0
-	for results.Len() > 0 && actualSize < max {
-		elem := results.Pop()
-		if denyList != nil && denyList.Contains(elem.ID) {
-			continue
-		}
-
-		out[actualSize] = elem.ID
-		actualSize++
-	}
-
-	return out[:actualSize]
-}
-
-func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
-	max int, denyList helpers.AllowList) ([]uint64, error) {
-	vec, err := h.vectorForID(context.Background(), nodeId)
-	if err != nil {
-		return nil, err
-	}
-
-	distancer := h.distancerProvider.New(vec)
-
-	idQ := priorityqueue.NewMax(len(ids))
-	for _, id := range ids {
-		vecA, err := h.vectorForID(context.Background(), id)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrapf(err,
-					"could not get vector of object at docID %d", id)
-			}
-		}
-		dist, _, err := distancer.Distance(vecA)
-		if err != nil {
-			return nil, errors.Wrap(err, "select neighbors simple from id")
-		}
-
-		idQ.Insert(id, dist)
-	}
-
-	return h.selectNeighborsSimple(idQ, max, denyList), nil
 }

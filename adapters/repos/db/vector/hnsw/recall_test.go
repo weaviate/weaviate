@@ -16,6 +16,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"runtime"
 	"sort"
@@ -27,12 +28,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Normalize(v []float32) []float32 {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+
+	return v
+}
+
 func TestRecall(t *testing.T) {
-	dimensions := 300
+	dimensions := 256
 	size := 10000
 	queries := 1000
-	efConstruction := 256
-	maxNeighbors := 120
+	efConstruction := 2000
+	maxNeighbors := 100
 
 	vectors := make([][]float32, size)
 	queryVectors := make([][]float32, queries)
@@ -45,7 +60,8 @@ func TestRecall(t *testing.T) {
 			for j := 0; j < dimensions; j++ {
 				vector[j] = rand.Float32()
 			}
-			vectors[i] = vector
+			vectors[i] = Normalize(vector)
+
 		}
 		fmt.Printf("done\n")
 
@@ -55,26 +71,27 @@ func TestRecall(t *testing.T) {
 			for j := 0; j < dimensions; j++ {
 				queryVector[j] = rand.Float32()
 			}
-			queryVectors[i] = queryVector
+			queryVectors[i] = Normalize(queryVector)
 		}
 		fmt.Printf("done\n")
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
-		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
-		}
 
-		index, err := New(
-			"doesnt-matter-as-committlogger-is-mocked-out",
-			"recallbenchmark",
-			makeCL,
-			maxNeighbors, efConstruction,
-			func(ctx context.Context, id int32) ([]float32, error) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewDotProductProvider(),
+			// DistanceProvider: distancer.NewCosineProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
-			})
+			},
+		}, UserConfig{
+			MaxConnections: maxNeighbors,
+			EFConstruction: efConstruction,
+		})
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -93,7 +110,7 @@ func TestRecall(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.Add(originalIndex, vec)
+					err := vectorIndex.Add(uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)
@@ -118,12 +135,13 @@ func TestRecall(t *testing.T) {
 		}
 
 		recall := float32(relevant) / float32(retrieved)
+		fmt.Printf("recall is %f\n", recall)
 		assert.True(t, recall >= 0.99)
 	})
 }
 
-func matchesInLists(control []int, results []int) int {
-	desired := map[int]struct{}{}
+func matchesInLists(control []uint64, results []uint64) int {
+	desired := map[uint64]struct{}{}
 	for _, relevant := range control {
 		desired[relevant] = struct{}{}
 	}
@@ -139,19 +157,20 @@ func matchesInLists(control []int, results []int) int {
 	return matches
 }
 
-func bruteForce(vectors [][]float32, query []float32, k int) []int {
+func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	type distanceAndIndex struct {
 		distance float32
-		index    int
+		index    uint64
 	}
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	distancer := distancer.NewCosineProvider.New(query)
+	distancer := distancer.NewDotProductProvider().New(query)
+	// distancer := distancer.NewCosineProvider().New(query)
 	for i, vec := range vectors {
-		dist, _ := distancer.distance(vec)
+		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
-			index:    i,
+			index:    uint64(i),
 			distance: dist,
 		}
 	}
@@ -164,7 +183,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 		k = len(distances)
 	}
 
-	out := make([]int, k)
+	out := make([]uint64, k)
 	for i := 0; i < k; i++ {
 		out[i] = distances[i].index
 	}

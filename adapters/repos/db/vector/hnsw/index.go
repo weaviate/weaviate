@@ -136,7 +136,9 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cfg.Logger = logger
 	}
 
-	vectorCache := newCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	// vectorCache := newCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	// 	cfg.Logger)
+	vectorCache := newUnlimitedCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger)
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
@@ -145,12 +147,12 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:    uc.EFConstruction,
-		nodes:             make([]*vertex, initialSize),
-		cache:             vectorCache,
-		vectorForID:       vectorCache.get,
-		vectorCacheDrop:   vectorCache.drop,
+		levelNormalizer: 1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:  uc.EFConstruction,
+		nodes:           make([]*vertex, initialSize),
+		cache:           vectorCache,
+		vectorForID:     vectorCache.get,
+		// vectorCacheDrop:   vectorCache.drop,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
 		tombstones:        map[uint64]struct{}{},

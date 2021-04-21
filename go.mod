@@ -4,7 +4,6 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/go-oidc v2.0.0+incompatible
-	github.com/cornelk/hashmap v1.0.1 // indirect
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
@@ -21,6 +20,7 @@ require (
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
+	github.com/mmcloughlin/avo v0.2.0
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
@@ -32,8 +32,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	go.etcd.io/bbolt v1.3.3
 	golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb
-	golang.org/x/tools v0.1.0 // indirect
-	gonum.org/v1/gonum v0.7.0
+	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0
