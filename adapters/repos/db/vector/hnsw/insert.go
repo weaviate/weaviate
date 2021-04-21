@@ -47,9 +47,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.currentMaximumLayer = 0
 	node.connections = map[int][]uint64{}
 	node.level = 0
-	// if err := h.commitLog.AddNode(node); err != nil {
-	// 	return err
-	// }
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
+	}
 
 	h.nodes[node.id] = node
 
@@ -74,7 +74,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return firstInsertError
 	}
 
-	// node.markAsMaintenance()
+	node.markAsMaintenance()
 
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -91,23 +91,23 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	node.level = targetLevel
 	node.connections = map[int][]uint64{}
 
-	// if err := h.commitLog.AddNode(node); err != nil {
-	// 	h.Unlock()
-	// 	return err
-	// }
+	if err := h.commitLog.AddNode(node); err != nil {
+		h.Unlock()
+		return err
+	}
 
 	nodeId := node.id
 
 	// before = time.Now()
-	// h.Lock()
+	h.Lock()
 	// m.addBuildingLocking(before)
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
-		// h.Unlock()
+		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
-	// h.Unlock()
+	h.Unlock()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
@@ -121,15 +121,15 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	}
 
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
-	// node.unmarkAsMaintenance()
+	node.unmarkAsMaintenance()
 
 	if targetLevel > h.currentMaximumLayer {
 		// before = time.Now()
 		// m.addBuildingLocking(before)
-		// if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-		// 	h.Unlock()
-		// 	return err
-		// }
+		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			h.Unlock()
+			return err
+		}
 
 		h.Lock()
 		h.entryPointID = nodeId
