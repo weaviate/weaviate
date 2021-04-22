@@ -31,6 +31,6 @@ services:
     ports: 
       - "8000:8080"
   qna-transformers:
-    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad-1.0.0
+    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
       - "8001:8080"
