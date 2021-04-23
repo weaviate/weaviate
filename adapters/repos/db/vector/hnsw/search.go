@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 func reasonableEfFromK(k int) int {
@@ -95,7 +96,10 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
-	visited := h.newVisitedList()
+	h.Lock()
+	visited := h.visitedListPool.Borrow()
+	h.Unlock()
+
 	candidates := priorityqueue.NewMin(ef)
 	results := priorityqueue.NewMax(ef)
 	distancer := h.distancerProvider.New(queryVector)
@@ -143,13 +147,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connections {
-			if ok := visited[neighborID]; ok {
+			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor
 				continue
 			}
 
 			// make sure we never visit this neighbor again
-			visited[neighborID] = true
+			visited.Visit(neighborID)
 
 			distance, ok, err := h.distanceToNode(distancer, neighborID)
 			if err != nil {
@@ -191,22 +195,16 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 	}
 
-	return results, nil
-}
-
-func (h *hnsw) newVisitedList() []bool {
 	h.Lock()
-	size := len(h.nodes) + defaultIndexGrowthDelta // add delta to be add some
-	// buffer if a visited list is created shortly before a growth operation
+	h.visitedListPool.Return(visited)
 	h.Unlock()
 
-	visited := make([]bool, size)
-	return visited
+	return results, nil
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue, level int,
-	visitedList []bool, allowList helpers.AllowList) {
+	visitedList *visited.List, allowList helpers.AllowList) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		candidates.Insert(ep.ID, ep.Dist)

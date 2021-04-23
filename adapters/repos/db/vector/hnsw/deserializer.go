@@ -105,7 +105,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, id, c.logger)
+	newNodes, _, err := growIndexToAccomodateNode(res.Nodes, id, c.logger)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	newNodes, _, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	newNodes, _, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
