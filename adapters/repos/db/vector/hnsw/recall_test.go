@@ -15,65 +15,44 @@ package hnsw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
+	"io/ioutil"
 	"runtime"
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Normalize(v []float32) []float32 {
-	var norm float32
-	for i := range v {
-		norm += v[i] * v[i]
-	}
-
-	norm = float32(math.Sqrt(float64(norm)))
-	for i := range v {
-		v[i] = v[i] / norm
-	}
-
-	return v
-}
-
 func TestRecall(t *testing.T) {
-	dimensions := 256
-	size := 25000
-	queries := 1000
-	efConstruction := 2000
+	efConstruction := 500
 	maxNeighbors := 100
 
-	vectors := make([][]float32, size)
-	queryVectors := make([][]float32, queries)
+	var vectors [][]float32
+	var queries [][]float32
+	var truths [][]uint64
 	var vectorIndex *hnsw
 
 	t.Run("generate random vectors", func(t *testing.T) {
-		fmt.Printf("generating %d vectors", size)
-		for i := 0; i < size; i++ {
-			vector := make([]float32, dimensions)
-			for j := 0; j < dimensions; j++ {
-				vector[j] = rand.Float32()
-			}
-			vectors[i] = Normalize(vector)
+		vectorsJSON, err := ioutil.ReadFile("recall_vectors.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(vectorsJSON, &vectors)
+		require.Nil(t, err)
 
-		}
-		fmt.Printf("done\n")
+		queriesJSON, err := ioutil.ReadFile("recall_queries.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(queriesJSON, &queries)
+		require.Nil(t, err)
 
-		fmt.Printf("generating %d search queries", queries)
-		for i := 0; i < queries; i++ {
-			queryVector := make([]float32, dimensions)
-			for j := 0; j < dimensions; j++ {
-				queryVector[j] = rand.Float32()
-			}
-			queryVectors[i] = Normalize(queryVector)
-		}
-		fmt.Printf("done\n")
+		truthsJSON, err := ioutil.ReadFile("recall_truths.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(truthsJSON, &truths)
+		require.Nil(t, err)
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
@@ -98,6 +77,7 @@ func TestRecall(t *testing.T) {
 		workerCount := runtime.GOMAXPROCS(0)
 		jobsForWorker := make([][][]float32, workerCount)
 
+		before := time.Now()
 		for i, vec := range vectors {
 			workerID := i % workerCount
 			jobsForWorker[workerID] = append(jobsForWorker[workerID], vec)
@@ -117,6 +97,7 @@ func TestRecall(t *testing.T) {
 		}
 
 		wg.Wait()
+		fmt.Printf("importing took %s\n", time.Since(before))
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
@@ -124,7 +105,7 @@ func TestRecall(t *testing.T) {
 
 		hasDuplicates := 0
 
-		for _, vec := range queryVectors {
+		for _, vec := range queries {
 			results, err := vectorIndex.SearchByVector(vec, k, nil)
 			require.Nil(t, err)
 			if containsDuplicates(results) {
@@ -133,7 +114,7 @@ func TestRecall(t *testing.T) {
 			}
 		}
 
-		fmt.Printf("%d out of %d searches contained duplicates", hasDuplicates, len(queryVectors))
+		fmt.Printf("%d out of %d searches contained duplicates", hasDuplicates, len(queries))
 	})
 
 	t.Run("with k=1", func(t *testing.T) {
@@ -142,13 +123,12 @@ func TestRecall(t *testing.T) {
 		var relevant int
 		var retrieved int
 
-		for i := 0; i < queries; i++ {
-			controlList := bruteForce(vectors, queryVectors[i], k)
-			results, err := vectorIndex.SearchByVector(queryVectors[i], k, nil)
+		for i := 0; i < len(queries); i++ {
+			results, err := vectorIndex.SearchByVector(queries[i], k, nil)
 			require.Nil(t, err)
 
 			retrieved += k
-			relevant += matchesInLists(controlList, results)
+			relevant += matchesInLists(truths[i], results)
 		}
 
 		recall := float32(relevant) / float32(retrieved)

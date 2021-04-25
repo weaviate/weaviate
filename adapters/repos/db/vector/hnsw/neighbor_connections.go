@@ -208,14 +208,14 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	currentConnections := neighbor.connectionsAtLevel(level)
 
 	// check if node already contained
-	for _, conn := range currentConnections {
-		if conn == n.node.id {
-			return nil
-		}
-	}
+	// for _, conn := range currentConnections {
+	// 	if conn == n.node.id {
+	// 		return nil
+	// 	}
+	// }
 
-	var updatedConnections []uint64
 	maximumConnections := n.maximumConnections(level)
+	updatedConnections := make([]uint64, 0, maximumConnections)
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
 		updatedConnections = append(currentConnections, n.node.id)
