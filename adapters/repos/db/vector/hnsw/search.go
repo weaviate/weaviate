@@ -210,6 +210,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	visitedList *visited.List, allowList helpers.AllowList) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
+		visitedList.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
