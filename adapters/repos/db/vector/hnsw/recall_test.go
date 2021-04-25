@@ -44,7 +44,7 @@ func Normalize(v []float32) []float32 {
 
 func TestRecall(t *testing.T) {
 	dimensions := 256
-	size := 10000
+	size := 25000
 	queries := 1000
 	efConstruction := 2000
 	maxNeighbors := 100
@@ -119,6 +119,23 @@ func TestRecall(t *testing.T) {
 		wg.Wait()
 	})
 
+	t.Run("inspect a query", func(t *testing.T) {
+		k := 20
+
+		hasDuplicates := 0
+
+		for _, vec := range queryVectors {
+			results, err := vectorIndex.SearchByVector(vec, k, nil)
+			require.Nil(t, err)
+			if containsDuplicates(results) {
+				hasDuplicates++
+				panic("stop")
+			}
+		}
+
+		fmt.Printf("%d out of %d searches contained duplicates", hasDuplicates, len(queryVectors))
+	})
+
 	t.Run("with k=1", func(t *testing.T) {
 		k := 1
 
@@ -189,4 +206,17 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	}
 
 	return out
+}
+
+func containsDuplicates(in []uint64) bool {
+	seen := map[uint64]struct{}{}
+
+	for _, value := range in {
+		if _, ok := seen[value]; ok {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+
+	return false
 }
