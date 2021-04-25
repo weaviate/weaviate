@@ -147,6 +147,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connections {
+
 			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor
 				continue
@@ -182,6 +183,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 				}
 
 				results.Insert(neighborID, distance)
+
+				h.vectorCachePrefetch(candidates.Top().ID)
 
 				// +1 because we have added one node size calculating the len
 				if results.Len() > ef {

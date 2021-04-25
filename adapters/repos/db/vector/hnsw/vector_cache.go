@@ -16,8 +16,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,6 +38,10 @@ func newUnlimitedCache(vecForID VectorForID, maxSize int,
 
 func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	return n.cache[id], nil
+}
+
+func (n *unlimitedCache) prefetch(id uint64) {
+	asm.Prefetch(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
 func (n *unlimitedCache) preload(id uint64, vec []float32) {

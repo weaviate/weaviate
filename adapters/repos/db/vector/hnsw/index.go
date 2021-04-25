@@ -74,6 +74,8 @@ type hnsw struct {
 
 	vectorCacheDrop func()
 
+	vectorCachePrefetch func(id uint64)
+
 	commitLog CommitLogger
 
 	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
@@ -156,17 +158,18 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cache:           vectorCache,
 		vectorForID:     vectorCache.get,
 		// vectorCacheDrop:   vectorCache.drop,
-		id:                cfg.ID,
-		rootPath:          cfg.RootPath,
-		tombstones:        map[uint64]struct{}{},
-		logger:            cfg.Logger,
-		distancerProvider: cfg.DistanceProvider,
-		cancel:            make(chan struct{}),
-		deleteLock:        &sync.Mutex{},
-		tombstoneLock:     &sync.RWMutex{},
-		initialInsertOnce: &sync.Once{},
-		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
-		visitedListPool:   visited.NewPool(1, initialSize+500),
+		vectorCachePrefetch: vectorCache.prefetch,
+		id:                  cfg.ID,
+		rootPath:            cfg.RootPath,
+		tombstones:          map[uint64]struct{}{},
+		logger:              cfg.Logger,
+		distancerProvider:   cfg.DistanceProvider,
+		cancel:              make(chan struct{}),
+		deleteLock:          &sync.Mutex{},
+		tombstoneLock:       &sync.RWMutex{},
+		initialInsertOnce:   &sync.Once{},
+		cleanupInterval:     time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+		visitedListPool:     visited.NewPool(1, initialSize+500),
 	}
 
 	if err := index.init(cfg); err != nil {
