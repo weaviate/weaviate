@@ -205,7 +205,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return nil
 	}
 
-	currentConnections := neighbor.connectionsAtLevel(level)
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
 	// check if node already contained
 	// for _, conn := range currentConnections {
@@ -253,7 +255,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return err
 	}
 
-	neighbor.setConnectionsAtLevel(level, updatedConnections)
+	neighbor.setConnectionsAtLevelNoLock(level, updatedConnections)
 	return nil
 }
 

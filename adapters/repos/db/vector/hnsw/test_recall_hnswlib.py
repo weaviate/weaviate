@@ -24,7 +24,7 @@ data_labels = np.arange(num_elements)
 p = hnswlib.Index(space = 'cosine', dim = dim) # possible options are l2, cosine or ip
 
 # Initializing index - the maximum number of elements should be known beforehand
-p.init_index(max_elements = num_elements, ef_construction = 500, M = 100)
+p.init_index(max_elements = num_elements, ef_construction = 2000, M = 100)
 
 before = time.time()
 # Element insertion (can be called several times):

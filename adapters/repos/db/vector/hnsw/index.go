@@ -342,6 +342,10 @@ func (v *vertex) isUnderMaintenance() bool {
 	return v.maintenance
 }
 
+func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
+	return v.connections[level]
+}
+
 func (v *vertex) connectionsAtLevel(level int) []uint64 {
 	v.Lock()
 	defer v.Unlock()
@@ -353,6 +357,10 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.Lock()
 	defer v.Unlock()
 
+	v.connections[level] = connections
+}
+
+func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
 	v.connections[level] = connections
 }
 
