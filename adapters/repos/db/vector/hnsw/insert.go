@@ -84,7 +84,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
 
-	targetLevel := int(math.Floor(-math.Log(rand.Float64()*h.levelNormalizer))) - 1
+	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
 
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)

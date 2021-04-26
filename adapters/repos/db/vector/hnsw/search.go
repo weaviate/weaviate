@@ -107,15 +107,19 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
+	worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate distance of current last result")
+	}
+
 	for candidates.Len() > 0 {
-		candidate := candidates.Pop()
+		// candCount := atomic.AddUint64(&h.candidates, 1)
 
-		worstResultDistance, err := h.currentWorstResultDistance(results, distancer)
-		if err != nil {
-			return nil, errors.Wrapf(err, "calculate distance of current last result")
-		}
+		// if candCount%10000 == 0 {
+		// 	fmt.Printf("evaluted %d candidates so far \n", candCount)
+		// }
 
-		dist, ok, err := h.distanceToNode(distancer, candidate.ID)
+		dist, ok, err := h.distanceToNode(distancer, candidates.Top().ID)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
 		}
@@ -127,6 +131,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		if dist > worstResultDistance {
 			break
 		}
+		candidate := candidates.Pop()
 
 		// before := time.Now()
 		// h.Lock()

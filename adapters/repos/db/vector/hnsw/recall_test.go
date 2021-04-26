@@ -30,7 +30,7 @@ import (
 )
 
 func TestRecall(t *testing.T) {
-	efConstruction := 500
+	efConstruction := 2000
 	maxNeighbors := 100
 
 	var vectors [][]float32
@@ -133,6 +133,9 @@ func TestRecall(t *testing.T) {
 
 		recall := float32(relevant) / float32(retrieved)
 		fmt.Printf("recall is %f\n", recall)
+		// if recall != 1 {
+		// 	vectorIndex.Dump()
+		// }
 		assert.True(t, recall >= 0.99)
 	})
 }
