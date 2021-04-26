@@ -26,6 +26,7 @@ import (
 type unlimitedCache struct {
 	cache       [][]float32
 	vectorForID VectorForID
+	sync.RWMutex
 }
 
 func newUnlimitedCache(vecForID VectorForID, maxSize int,
@@ -37,7 +38,23 @@ func newUnlimitedCache(vecForID VectorForID, maxSize int,
 }
 
 func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	return n.cache[id], nil
+	n.RLock()
+	vec := n.cache[id]
+	n.RUnlock()
+
+	if vec != nil {
+		return vec, nil
+	}
+
+	vec, err := n.vectorForID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	n.Lock()
+	n.cache[id] = vec
+	n.Unlock()
+
+	return vec, nil
 }
 
 func (n *unlimitedCache) prefetch(id uint64) {
@@ -45,11 +62,14 @@ func (n *unlimitedCache) prefetch(id uint64) {
 }
 
 func (n *unlimitedCache) preload(id uint64, vec []float32) {
+	n.Lock()
+	defer n.Unlock()
+
 	n.cache[id] = vec
 }
 
 func (n *unlimitedCache) len() int32 {
-	return 0
+	return int32(len(n.cache))
 }
 
 type noopCache struct {
@@ -137,6 +157,17 @@ func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	}
 
 	return vec.([]float32), nil
+}
+
+func (c *vectorCache) prefetch(id uint64) {
+	// no implementation possible on this approach
+}
+
+func (c *vectorCache) preload(id uint64, vec []float32) {
+	c.RLock()
+	defer c.RUnlock()
+
+	c.cache.Store(id, vec)
 }
 
 func (c *vectorCache) drop() {
