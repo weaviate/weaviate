@@ -350,13 +350,6 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 	return v.connections[level]
 }
 
-func (v *vertex) connectionsAtLevel(level int) []uint64 {
-	v.Lock()
-	defer v.Unlock()
-
-	return v.connections[level]
-}
-
 func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.Lock()
 	defer v.Unlock()

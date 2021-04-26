@@ -143,10 +143,10 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	for id := range deleteList {
-		h.Lock()
+		h.tombstoneLock.Lock()
 		h.nodes[id] = nil
 		delete(h.tombstones, id)
-		h.Unlock()
+		h.tombstoneLock.Unlock()
 
 		if err := h.commitLog.DeleteNode(id); err != nil {
 			return err
