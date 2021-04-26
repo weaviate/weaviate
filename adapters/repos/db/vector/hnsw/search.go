@@ -25,15 +25,14 @@ import (
 )
 
 func reasonableEfFromK(k int) int {
-	// ef := k * 8
-	// if ef > 100 {
-	// 	ef = 100
-	// }
-	// if k > ef {
-	// 	ef = k // otherwise results will get cut off early
-	// }
+	ef := k * 8
+	if ef > 100 {
+		ef = 100
+	}
+	if k > ef {
+		ef = k // otherwise results will get cut off early
+	}
 
-	ef := 100
 	return ef
 }
 

@@ -212,28 +212,24 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		return
 	}
 
-	// lenBegin := input.Len()
-
-	// debug := []map[uint64]float32{}
-
 	closestFirst := priorityqueue.NewMin(input.Len())
 	for input.Len() > 0 {
 		elem := input.Pop()
-		// debug = append(debug, map[uint64]float32{elem.ID: elem.Dist})
 		closestFirst.Insert(elem.ID, elem.Dist)
 	}
 
 	returnList := []priorityqueue.Item{}
 
-	// i := 0
 	for closestFirst.Len() > 0 && len(returnList) < max {
 		curr := closestFirst.Pop()
+		if denyList != nil && denyList.Contains(curr.ID) {
+			continue
+		}
 		distToQuery := curr.Dist
-		// fmt.Printf("round %d: cand %d with dist %f\n", i, curr.ID, curr.Dist)
-		// i++
 
 		good := true
 		for _, item := range returnList {
+
 			peerDist, ok, err := h.distBetweenNodes(curr.ID, item.ID)
 			if err != nil {
 				// TODO
@@ -245,7 +241,6 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 			}
 
 			if peerDist < distToQuery {
-				// fmt.Printf("discarding %d because %f < %f\n", curr.ID, peerDist, distToQuery)
 				good = false
 				break
 			}
@@ -257,24 +252,9 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 
 	}
 
-	// TODO: respect deny list
-	// if denyList != nil && denyList.Contains(elem.ID) {
-	// 	continue
-	// }
-	if len(returnList) == 0 {
-		panic("heuristic should never return zero neighbors")
-	}
-
-	// if len(returnList) == 1 {
-	// 	fmt.Printf("we got just a single inputs were: %v\n", debug)
-	// 	panic("just one")
-	// }
-
 	for _, retElem := range returnList {
 		input.Insert(retElem.ID, retElem.Dist)
 	}
-
-	// fmt.Printf("started with %d elems, ended with %d elems\n", lenBegin, input.Len())
 }
 
 func (h *hnsw) selectNeighborsHeuristicFromId(nodeId uint64, ids []uint64,

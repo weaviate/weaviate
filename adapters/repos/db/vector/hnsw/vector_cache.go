@@ -79,6 +79,10 @@ func (n *unlimitedCache) len() int32 {
 	return int32(len(n.cache))
 }
 
+func (n *unlimitedCache) drop() {
+	// TODO: implement
+}
+
 type noopCache struct {
 	vectorForID VectorForID
 }

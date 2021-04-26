@@ -156,12 +156,12 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer: 1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:  uc.EFConstruction,
-		nodes:           make([]*vertex, initialSize),
-		cache:           vectorCache,
-		vectorForID:     vectorCache.get,
-		// vectorCacheDrop:   vectorCache.drop,
+		levelNormalizer:     1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:      uc.EFConstruction,
+		nodes:               make([]*vertex, initialSize),
+		cache:               vectorCache,
+		vectorForID:         vectorCache.get,
+		vectorCacheDrop:     vectorCache.drop,
 		vectorCachePrefetch: vectorCache.prefetch,
 		id:                  cfg.ID,
 		rootPath:            cfg.RootPath,

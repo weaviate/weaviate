@@ -12,8 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -85,9 +83,6 @@ func (n *neighborFinderConnector) Do() error {
 		n.denyList = helpers.AllowList{}
 	}
 
-	// make sure we exclude self
-	n.denyList[n.node.id] = struct{}{}
-
 	n.bufLinksLog = n.graph.commitLog.NewBufferedLinksLogger()
 
 	// TODO: this initial dist calc is pointless, we could just get that from
@@ -97,7 +92,7 @@ func (n *neighborFinderConnector) Do() error {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object store, " +
+		return errors.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
@@ -127,17 +122,16 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	// spew.Dump(results)
-	n.graph.selectNeighborsHeuristic(results, n.graph.maximumConnections,
-		n.denyList)
+	max := n.maximumConnections(level)
+	n.graph.selectNeighborsHeuristic(results, max, n.denyList)
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
 
-	// spew.Dump(results)
 	neighbors := make([]uint64, 0, results.Len())
 	for results.Len() > 0 {
-		neighbors = append(neighbors, results.Pop().ID)
+		id := results.Pop().ID
+		neighbors = append(neighbors, id)
 	}
 
 	// set all outoing in one go
@@ -150,48 +144,46 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 	}
 
-	n.entryPointID = neighbors[len(neighbors)-1]
-	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
-	if err != nil {
-		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-	}
-	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
+	if len(neighbors) > 0 {
+		// there could be no neighbors left, if all are marked deleted, in this
+		// case, don't change the entrypoint
+		n.entryPointID = neighbors[len(neighbors)-1]
+		dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+		}
+		if !ok {
+			return errors.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
 
-	n.entryPointDist = dist
+		n.entryPointDist = dist
+	}
 
 	return nil
 }
 
 func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
-	if n.node.isUnderMaintenance() {
-		// haveAlternative := false
-		// for i, ep := range n.results.flattenInOrder() {
-		// 	if haveAlternative {
-		// 		break
-		// 	}
-		// 	if i == 0 {
-		// 		continue
-		// 	}
+	node := n.graph.nodeByID(n.entryPointID)
+	if node.isUnderMaintenance() {
+		alternativeEP := n.graph.entryPointID
+		if alternativeEP == n.node.id || alternativeEP == n.entryPointID {
+			tmpDenyList := n.denyList.DeepCopy()
+			tmpDenyList.Insert(alternativeEP)
 
-		// 	if !n.graph.nodeByID(ep.index).isUnderMaintenance() {
-		// 		haveAlternative = true
-		// 	}
-		// }
-
-		// if !haveAlternative {
-		globalEP := n.graph.entryPointID
-		dist, ok, err := n.graph.distBetweenNodeAndVec(globalEP, n.nodeVec)
+			alternative, _ := n.graph.findNewLocalEntrypoint(tmpDenyList, n.graph.currentMaximumLayer,
+				n.entryPointID)
+			alternativeEP = alternative
+		}
+		dist, ok, err := n.graph.distBetweenNodeAndVec(alternativeEP, n.nodeVec)
 		if err != nil {
 			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 		}
 		if !ok {
-			return fmt.Errorf("entrypoint was deleted in the object store, " +
+			return errors.Errorf("entrypoint was deleted in the object store, " +
 				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 		}
-		n.entryPointID = globalEP
+		n.entryPointID = alternativeEP
 		n.entryPointDist = dist
 	}
 
