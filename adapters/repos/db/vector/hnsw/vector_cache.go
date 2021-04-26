@@ -25,19 +25,29 @@ import (
 )
 
 type unlimitedCache struct {
+	sync.RWMutex
 	cache           [][]float32
 	vectorForID     VectorForID
 	normalizeOnRead bool
-	sync.RWMutex
+	maxSize         int
+	count           int32
+	cancel          chan bool
+	logger          logrus.FieldLogger
 }
 
 func newUnlimitedCache(vecForID VectorForID, maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool) *unlimitedCache {
-	return &unlimitedCache{
+	vc := &unlimitedCache{
 		vectorForID:     vecForID,
 		cache:           make([][]float32, 1e6), // TODO: grow
 		normalizeOnRead: normalizeOnRead,
+		count:           0,
+		maxSize:         maxSize,
+		cancel:          make(chan bool),
+		logger:          logger,
 	}
+	vc.watchForDeletion()
+	return vc
 }
 
 func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) {
@@ -57,6 +67,7 @@ func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) 
 	if n.normalizeOnRead {
 		vec = distancer.Normalize(vec)
 	}
+	atomic.AddInt32(&n.count, 1)
 	n.Lock()
 	n.cache[id] = vec
 	n.Unlock()
@@ -72,6 +83,7 @@ func (n *unlimitedCache) preload(id uint64, vec []float32) {
 	n.Lock()
 	defer n.Unlock()
 
+	atomic.AddInt32(&n.count, 1)
 	n.cache[id] = vec
 }
 
@@ -80,7 +92,33 @@ func (n *unlimitedCache) len() int32 {
 }
 
 func (n *unlimitedCache) drop() {
-	// TODO: implement
+	n.cancel <- true
+}
+
+func (c *unlimitedCache) watchForDeletion() {
+	go func() {
+		t := time.Tick(10 * time.Second)
+		for {
+			select {
+			case <-c.cancel:
+				return
+			case <-t:
+				c.replaceIfFull()
+			}
+		}
+	}()
+}
+
+func (c *unlimitedCache) replaceIfFull() {
+	if atomic.LoadInt32(&c.count) >= int32(c.maxSize) {
+		c.Lock()
+		c.logger.WithField("action", "hnsw_delete_vector_cache").
+			Debug("deleting full vector cache")
+		for i := range c.cache {
+			c.cache[i] = nil
+		}
+		c.Unlock()
+	}
 }
 
 type noopCache struct {
