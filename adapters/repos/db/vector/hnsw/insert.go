@@ -12,14 +12,12 @@
 package hnsw
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"math/rand"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
@@ -147,65 +145,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	return nil
 }
 
-func (h *hnsw) selectNeighborsSimple(input *priorityqueue.Queue,
-	max int, denyList helpers.AllowList) []uint64 {
-	results := priorityqueue.NewMin(input.Len())
-	for input.Len() > 0 {
-		elem := input.Pop()
-		results.Insert(elem.ID, elem.Dist)
-	}
-
-	// TODO: can we optimizie this by getting the last elem out one at a time?
-
-	out := make([]uint64, max)
-	actualSize := 0
-	for results.Len() > 0 && actualSize < max {
-		elem := results.Pop()
-		if denyList != nil && denyList.Contains(elem.ID) {
-			continue
-		}
-
-		out[actualSize] = elem.ID
-		actualSize++
-	}
-
-	return out[:actualSize]
-}
-
-func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
-	max int, denyList helpers.AllowList) ([]uint64, error) {
-	vec, err := h.vectorForID(context.Background(), nodeId)
-	if err != nil {
-		return nil, err
-	}
-
-	distancer := h.distancerProvider.New(vec)
-
-	idQ := priorityqueue.NewMax(len(ids))
-	for _, id := range ids {
-		vecA, err := h.vectorForID(context.Background(), id)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrapf(err,
-					"could not get vector of object at docID %d", id)
-			}
-		}
-		dist, _, err := distancer.Distance(vecA)
-		if err != nil {
-			return nil, errors.Wrap(err, "select neighbors simple from id")
-		}
-
-		idQ.Insert(id, dist)
-	}
-
-	return h.selectNeighborsSimple(idQ, max, denyList), nil
-}
-
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	max int, denyList helpers.AllowList) {
 	if input.Len() < max {
@@ -255,41 +194,4 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	for _, retElem := range returnList {
 		input.Insert(retElem.ID, retElem.Dist)
 	}
-}
-
-func (h *hnsw) selectNeighborsHeuristicFromId(nodeId uint64, ids []uint64,
-	max int, denyList helpers.AllowList) (*priorityqueue.Queue, error) {
-	vec, err := h.vectorForID(context.Background(), nodeId)
-	if err != nil {
-		return nil, err
-	}
-
-	distancer := h.distancerProvider.New(vec)
-
-	// TODO: we're doing twice the work here, it will be reversed again in the
-	// heurisitic
-	idQ := priorityqueue.NewMax(len(ids))
-	for _, id := range ids {
-		vecA, err := h.vectorForID(context.Background(), id)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrapf(err,
-					"could not get vector of object at docID %d", id)
-			}
-		}
-		dist, _, err := distancer.Distance(vecA)
-		if err != nil {
-			return nil, errors.Wrap(err, "select neighbors simple from id")
-		}
-
-		idQ.Insert(id, dist)
-	}
-
-	h.selectNeighborsHeuristic(idQ, max, denyList)
-	return idQ, nil
 }

@@ -11,7 +11,7 @@ type DotProduct struct {
 
 func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
 	if len(d.a) != len(b) {
-		return 0, false, errors.Errorf("vector lenghts don't match: %d vs %d",
+		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(d.a), len(b))
 	}
 
@@ -36,7 +36,7 @@ func DotProductGo(a, b []float32) float32 {
 
 func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lenghts don't match: %d vs %d",
+		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(a), len(b))
 	}
 

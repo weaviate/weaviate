@@ -262,14 +262,6 @@ func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
 	}
 }
 
-func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
-	results *priorityqueue.Queue, connections []uint64,
-	visited []bool, distancer distancer.Distancer, ef int,
-	level int, allowList helpers.AllowList, worstResultDistance float32,
-) error {
-	return nil
-}
-
 func (h *hnsw) distanceToNode(distancer distancer.Distancer,
 	nodeID uint64) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)

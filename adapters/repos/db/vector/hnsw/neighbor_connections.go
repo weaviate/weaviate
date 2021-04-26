@@ -17,32 +17,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
-func (v *vertex) linkAtLevel(level int, target uint64, cl BufferedLinksLogger) error {
-	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
-		return err
-	}
-
-	v.Lock()
-	defer v.Unlock()
-	if targetContained(v.connections[level], target) {
-		// already linked, nothing to do
-		return nil
-	}
-
-	v.connections[level] = append(v.connections[level], target)
-	return nil
-}
-
-func targetContained(haystack []uint64, needle uint64) bool {
-	for _, candidate := range haystack {
-		if candidate == needle {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList) error {

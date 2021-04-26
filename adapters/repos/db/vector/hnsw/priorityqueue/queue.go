@@ -72,8 +72,7 @@ func (l *Queue) Insert(id uint64, dist float32) {
 }
 
 func (l *Queue) Pop() Item {
-	var out Item
-	out = l.items[0]
+	out := l.items[0]
 	l.items[0] = l.items[len(l.items)-1]
 	l.items = l.items[:len(l.items)-1]
 	l.heapify(0)

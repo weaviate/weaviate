@@ -87,15 +87,17 @@ type noopCache struct {
 	vectorForID VectorForID
 }
 
-func newNoopCache(vecForID VectorForID, maxSize int,
+func NewNoopCache(vecForID VectorForID, maxSize int,
 	logger logrus.FieldLogger) *noopCache {
 	return &noopCache{vectorForID: vecForID}
 }
 
+//nolint:unused
 func (n *noopCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	return n.vectorForID(ctx, id)
 }
 
+//nolint:unused
 func (n *noopCache) len() int32 {
 	return 0
 }
@@ -110,7 +112,7 @@ type vectorCache struct {
 	sync.RWMutex
 }
 
-func newCache(getFromSource VectorForID, maxSize int,
+func NewCache(getFromSource VectorForID, maxSize int,
 	logger logrus.FieldLogger) *vectorCache {
 	vc := &vectorCache{
 		cache:         sync.Map{},
@@ -150,6 +152,7 @@ func (c *vectorCache) replaceMapIfFull() {
 	}
 }
 
+//nolint:unused
 func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	c.RLock()
 	vec, ok := c.cache.Load(id)
@@ -170,10 +173,12 @@ func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	return vec.([]float32), nil
 }
 
+//nolint:unused
 func (c *vectorCache) prefetch(id uint64) {
 	// no implementation possible on this approach
 }
 
+//nolint:unused
 func (c *vectorCache) preload(id uint64, vec []float32) {
 	c.RLock()
 	defer c.RUnlock()
@@ -181,10 +186,12 @@ func (c *vectorCache) preload(id uint64, vec []float32) {
 	c.cache.Store(id, vec)
 }
 
+//nolint:unused
 func (c *vectorCache) drop() {
 	c.cancel <- true
 }
 
+//nolint:unused
 func (c *vectorCache) len() int32 {
 	return atomic.LoadInt32(&c.count)
 }
