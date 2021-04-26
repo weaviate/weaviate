@@ -42,6 +42,11 @@ func reasonableEfFromK(k int) int {
 // }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, error) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vector = distancer.Normalize(vector)
+	}
 	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 

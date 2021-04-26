@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
@@ -30,6 +31,12 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 
 	node := &vertex{
 		id: id,
+	}
+
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vector = distancer.Normalize(vector)
 	}
 
 	return h.insert(node, vector)
