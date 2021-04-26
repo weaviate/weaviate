@@ -96,7 +96,7 @@ const (
 	DefaultCleanupIntervalSeconds = 5 * 60
 	DefaultMaxConnections         = 64
 	DefaultEFConstruction         = 128
-	DefaultVectorCacheMaxObjects  = 500000
+	DefaultVectorCacheMaxObjects  = 2000000
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings

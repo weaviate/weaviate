@@ -41,7 +41,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"cleanupIntervalSeconds": float64(300),
 					"efConstruction":         float64(128),
 					"maxConnections":         float64(64),
-					"vectorCacheMaxObjects":  float64(500000),
+					"vectorCacheMaxObjects":  float64(2e6),
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{

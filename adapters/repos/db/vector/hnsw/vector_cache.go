@@ -25,7 +25,8 @@ import (
 )
 
 type unlimitedCache struct {
-	sync.RWMutex
+	// sync.RWMutex
+	shardedLocks    []sync.RWMutex
 	cache           [][]float32
 	vectorForID     VectorForID
 	normalizeOnRead bool
@@ -34,6 +35,8 @@ type unlimitedCache struct {
 	cancel          chan bool
 	logger          logrus.FieldLogger
 }
+
+var shardFactor = uint64(512)
 
 func newUnlimitedCache(vecForID VectorForID, maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool) *unlimitedCache {
@@ -45,15 +48,20 @@ func newUnlimitedCache(vecForID VectorForID, maxSize int,
 		maxSize:         maxSize,
 		cancel:          make(chan bool),
 		logger:          logger,
+		shardedLocks:    make([]sync.RWMutex, shardFactor),
+	}
+
+	for i := uint64(0); i < shardFactor; i++ {
+		vc.shardedLocks[i] = sync.RWMutex{}
 	}
 	vc.watchForDeletion()
 	return vc
 }
 
 func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	n.RLock()
+	n.shardedLocks[id%shardFactor].RLock()
 	vec := n.cache[id]
-	n.RUnlock()
+	n.shardedLocks[id%shardFactor].RUnlock()
 
 	if vec != nil {
 		return vec, nil
@@ -68,9 +76,9 @@ func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) 
 		vec = distancer.Normalize(vec)
 	}
 	atomic.AddInt32(&n.count, 1)
-	n.Lock()
+	n.shardedLocks[id%shardFactor].Lock()
 	n.cache[id] = vec
-	n.Unlock()
+	n.shardedLocks[id%shardFactor].Unlock()
 
 	return vec, nil
 }
@@ -80,8 +88,8 @@ func (n *unlimitedCache) prefetch(id uint64) {
 }
 
 func (n *unlimitedCache) preload(id uint64, vec []float32) {
-	n.Lock()
-	defer n.Unlock()
+	n.shardedLocks[id%shardFactor].RLock()
+	defer n.shardedLocks[id%shardFactor].RUnlock()
 
 	atomic.AddInt32(&n.count, 1)
 	n.cache[id] = vec
@@ -111,13 +119,32 @@ func (c *unlimitedCache) watchForDeletion() {
 
 func (c *unlimitedCache) replaceIfFull() {
 	if atomic.LoadInt32(&c.count) >= int32(c.maxSize) {
-		c.Lock()
+		c.obtainAllLocks()
 		c.logger.WithField("action", "hnsw_delete_vector_cache").
 			Debug("deleting full vector cache")
 		for i := range c.cache {
 			c.cache[i] = nil
 		}
-		c.Unlock()
+		c.releaseAllLocks()
+	}
+}
+
+func (c *unlimitedCache) obtainAllLocks() {
+	wg := &sync.WaitGroup{}
+	for i := uint64(0); i < shardFactor; i++ {
+		wg.Add(1)
+		go func(index uint64) {
+			defer wg.Done()
+			c.shardedLocks[index].Lock()
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func (c *unlimitedCache) releaseAllLocks() {
+	for i := uint64(0); i < shardFactor; i++ {
+		c.shardedLocks[i].Unlock()
 	}
 }
 

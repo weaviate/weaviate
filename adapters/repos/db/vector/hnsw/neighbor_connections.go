@@ -53,10 +53,6 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 }
 
 func (n *neighborFinderConnector) Do() error {
-	if n.denyList == nil {
-		n.denyList = helpers.AllowList{}
-	}
-
 	n.bufLinksLog = n.graph.commitLog.NewBufferedLinksLogger()
 
 	// TODO: this initial dist calc is pointless, we could just get that from
