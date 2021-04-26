@@ -141,10 +141,14 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cfg.Logger = logger
 	}
 
-	// vectorCache := newCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-	// 	cfg.Logger)
+	normalizeOnRead := false
+	if cfg.DistanceProvider.Type() == "cosine-dot" {
+		normalizeOnRead = true
+	}
+
 	vectorCache := newUnlimitedCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger)
+		cfg.Logger, normalizeOnRead)
+
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 

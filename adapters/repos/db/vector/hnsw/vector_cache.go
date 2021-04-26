@@ -19,21 +19,24 @@ import (
 	"unsafe"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/sirupsen/logrus"
 )
 
 type unlimitedCache struct {
-	cache       [][]float32
-	vectorForID VectorForID
+	cache           [][]float32
+	vectorForID     VectorForID
+	normalizeOnRead bool
 	sync.RWMutex
 }
 
 func newUnlimitedCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger) *unlimitedCache {
+	logger logrus.FieldLogger, normalizeOnRead bool) *unlimitedCache {
 	return &unlimitedCache{
-		vectorForID: vecForID,
-		cache:       make([][]float32, 1e6), // TODO: grow
+		vectorForID:     vecForID,
+		cache:           make([][]float32, 1e6), // TODO: grow
+		normalizeOnRead: normalizeOnRead,
 	}
 }
 
@@ -49,6 +52,10 @@ func (n *unlimitedCache) get(ctx context.Context, id uint64) ([]float32, error) 
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+
+	if n.normalizeOnRead {
+		vec = distancer.Normalize(vec)
 	}
 	n.Lock()
 	n.cache[id] = vec

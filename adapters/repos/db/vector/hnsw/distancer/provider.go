@@ -14,6 +14,7 @@ package distancer
 type Provider interface {
 	New(vec []float32) Distancer
 	SingleDist(vec1, vec2 []float32) (float32, bool, error)
+	Type() string
 }
 
 type Distancer interface {

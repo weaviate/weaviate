@@ -1,9 +1,7 @@
 package distancer
 
 import (
-	"fmt"
-	"math"
-
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
@@ -12,6 +10,11 @@ type DotProduct struct {
 }
 
 func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
+	if len(d.a) != len(b) {
+		return 0, false, errors.Errorf("vector lenghts don't match: %d vs %d",
+			len(d.a), len(b))
+	}
+
 	dist := 1 - asm.Dot(d.a, b)
 	return dist, true, nil
 }
@@ -33,20 +36,17 @@ func DotProductGo(a, b []float32) float32 {
 
 func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		panic("len different")
+		return 0, false, errors.Errorf("vector lenghts don't match: %d vs %d",
+			len(a), len(b))
 	}
 
 	prod := 1 - asm.Dot(a, b)
-	if math.IsNaN(float64(prod)) {
-		fmt.Println(a)
-		fmt.Println(b)
-
-		fmt.Printf("go-dot product is %f\n", DotProductGo(a, b))
-		panic("NaN")
-
-	}
 
 	return prod, true, nil
+}
+
+func (d DotProductProvider) Type() string {
+	return "cosine-dot"
 }
 
 func (d DotProductProvider) New(a []float32) Distancer {

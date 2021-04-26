@@ -28,7 +28,7 @@ func main() {
 		for j := 0; j < dimensions; j++ {
 			vector[j] = rand.Float32()
 		}
-		vectors[i] = Normalize(vector)
+		vectors[i] = vector
 
 	}
 	fmt.Printf("done\n")
@@ -39,7 +39,7 @@ func main() {
 		for j := 0; j < dimensions; j++ {
 			queryVector[j] = rand.Float32()
 		}
-		queryVectors[i] = Normalize(queryVector)
+		queryVectors[i] = queryVector
 	}
 	fmt.Printf("done\n")
 
@@ -82,7 +82,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	distances := make([]distanceAndIndex, len(vectors))
 
 	for i, vec := range vectors {
-		dist := 1 - asm.Dot(query, vec)
+		dist := 1 - asm.Dot(Normalize(query), Normalize(vec))
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,

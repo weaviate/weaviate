@@ -58,6 +58,10 @@ func (p GeoProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
 	return geoDist(vec1, vec2)
 }
 
+func (p GeoProvider) Type() string {
+	return "geo"
+}
+
 func NewGeoProvider() Provider {
 	return GeoProvider{}
 }
