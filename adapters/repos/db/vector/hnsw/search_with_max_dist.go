@@ -42,7 +42,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
 		if res.Len() > 0 {
-			best := eps.Pop()
+			best := res.Pop()
 			entryPointID = best.ID
 			entryPointDistance = best.Dist
 		}
