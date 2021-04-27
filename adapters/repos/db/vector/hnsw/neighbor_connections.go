@@ -55,8 +55,6 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 func (n *neighborFinderConnector) Do() error {
 	n.bufLinksLog = n.graph.commitLog.NewBufferedLinksLogger()
 
-	// TODO: this initial dist calc is pointless, we could just get that from
-	// findBestEntrypointForNode
 	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -93,7 +91,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	}
 
 	max := n.maximumConnections(level)
-	n.graph.selectNeighborsHeuristic(results, max, n.denyList)
+	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+		return err
+	}
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
@@ -171,13 +171,6 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	defer neighbor.Unlock()
 	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
-	// check if node already contained
-	// for _, conn := range currentConnections {
-	// 	if conn == n.node.id {
-	// 		return nil
-	// 	}
-	// }
-
 	maximumConnections := n.maximumConnections(level)
 	updatedConnections := make([]uint64, 0, maximumConnections)
 	if len(currentConnections) < maximumConnections {
@@ -187,8 +180,14 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we need to run the heurisitc
 
 		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		if err != nil || !ok {
-			panic("TODO")
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
+		}
+
+		if !ok {
+			// it seems either the node or the neighbor were deleted in the meantime,
+			// there is nothing we can do now
+			return nil
 		}
 
 		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
@@ -196,13 +195,19 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for _, existingConnection := range currentConnections {
 			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil || !ok {
-				panic("TODO")
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
+
+			if !ok {
+				// was deleted in the meantime
+				continue
+			}
+
 			candidates.Insert(existingConnection, dist)
 		}
 
-		n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")
 		}
@@ -238,30 +243,6 @@ func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {
 
 	return false
 }
-
-// func (n *neighborFinderConnector) removeSelfFromResults() {
-// 	if n.results.contains(n.node.id, 0) {
-// 		// Make sure we don't get the node we're currently assigning on the
-// 		// result list. This could lead to a self-link, but far worse it could
-// 		// lead to using ourself as an entry point on the next lower level. In
-// 		// the process of (re)-assigning edges it would be fatal to use ourselves
-// 		// as an entrypoint, as there are only two possible scenarios: 1. This is
-// 		// a new insert, so we don't have edges yet. 2. This is a re-assign after
-// 		// a delete, so we did originally have edges, but they were cleared in
-// 		// preparation for the re-assignment.
-// 		//
-// 		// So why is it so bad to have ourselves (without connections) as an
-// 		// entrypoint? Because the exit condition in searchLayerByVector is if
-// 		// the candidates distance is worse than the current worst distance.
-// 		// Naturally, the node itself has the best distance (=0) to itself, so
-// 		// we'd ignore all other elements. However, since the node - as outlined
-// 		// before - has no nodes, the search wouldn't find any results. Thus we
-// 		// also can't add any new connections, leading to an isolated node in the
-// 		// grapn.graph. If that isolated node were to become the graphs entrypoint, the
-// 		// graph is basically unusable.
-// 		n.results.delete(n.node.id, 0)
-// 	}
-// }
 
 func (n *neighborFinderConnector) maximumConnections(level int) int {
 	if level == 0 {

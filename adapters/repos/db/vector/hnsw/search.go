@@ -36,10 +36,6 @@ func reasonableEfFromK(k int) int {
 	return ef
 }
 
-// func (h *hnsw) SearchByID(id uint64, k int) ([]uint64, error) {
-// 	return h.knnSearch(id, k, reasonableEfFromK(k))
-// }
-
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, error) {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
@@ -48,54 +44,6 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	}
 	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
-
-// func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
-// 	entryPointID := h.entryPointID
-// 	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
-// 	if err != nil || !ok {
-// 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
-// 	}
-
-// 	queryVector, err := h.vectorForID(context.Background(), queryNodeID)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "could not get vector of object at docID %d", queryNodeID)
-// 	}
-
-// 	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
-// 		eps := &binarySearchTreeGeneric{}
-// 		eps.insert(entryPointID, entryPointDistance)
-
-// 		res, err := h.searchLayerByVector(queryVector, *eps, 1, level, nil)
-// 		if err != nil {
-// 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
-// 		}
-// 		best := res.minimum()
-// 		entryPointID = best.index
-// 		entryPointDistance = best.dist
-// 	}
-
-// 	eps := priorityqueue.NewMin(10)
-// 	eps.Insert(entryPointID, entryPointDistance)
-// 	res, err := h.searchLayerByVector(queryVector, eps, ef, 0, nil)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
-// 	}
-
-// 	flat := res.flattenInOrder()
-// 	if len(flat) > k {
-// 		fmt.Printf("just wasted %d allocations\n", len(flat)-k)
-// 	}
-// 	size := min(len(flat), k)
-// 	out := make([]uint64, size)
-// 	for i, elem := range flat {
-// 		if i >= size {
-// 			break
-// 		}
-// 		out[i] = elem.index
-// 	}
-
-// 	return out, nil
-// }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
