@@ -146,9 +146,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
-	max int, denyList helpers.AllowList) {
+	max int, denyList helpers.AllowList) error {
 	if input.Len() < max {
-		return
+		return nil
 	}
 
 	closestFirst := priorityqueue.NewMin(input.Len())
@@ -171,8 +171,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 
 			peerDist, ok, err := h.distBetweenNodes(curr.ID, item.ID)
 			if err != nil {
-				// TODO
-				panic(err)
+				return errors.Wrapf(err, "distance between %d and %d", curr.ID, item.ID)
 			}
 
 			if !ok {
@@ -194,4 +193,6 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	for _, retElem := range returnList {
 		input.Insert(retElem.ID, retElem.Dist)
 	}
+
+	return nil
 }
