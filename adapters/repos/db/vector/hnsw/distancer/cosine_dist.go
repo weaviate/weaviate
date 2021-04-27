@@ -110,6 +110,10 @@ func (p CosineProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) 
 	return res, err == nil, err
 }
 
+func (p CosineProvider) Type() string {
+	return "cosine"
+}
+
 func NewCosineProvider() Provider {
 	return CosineProvider{}
 }

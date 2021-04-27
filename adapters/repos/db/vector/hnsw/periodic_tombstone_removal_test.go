@@ -51,17 +51,17 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	})
 
 	t.Run("verify there are now tombstones", func(t *testing.T) {
-		index.RLock()
+		index.tombstoneLock.RLock()
 		ts := len(index.tombstones)
-		index.RUnlock()
+		index.tombstoneLock.RUnlock()
 		assert.True(t, ts > 0)
 	})
 
 	t.Run("wait for tombstones to disappear", func(t *testing.T) {
 		testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-			index.RLock()
+			index.tombstoneLock.RLock()
 			ts := len(index.tombstones)
-			index.RUnlock()
+			index.tombstoneLock.RUnlock()
 			return ts == 0
 		}, "wait until tombstones have been cleaned up")
 	})

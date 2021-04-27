@@ -11,12 +11,18 @@
 
 package distancer
 
-type Provider interface {
-	New(vec []float32) Distancer
-	SingleDist(vec1, vec2 []float32) (float32, bool, error)
-	Type() string
-}
+import "math"
 
-type Distancer interface {
-	Distance(vec []float32) (float32, bool, error)
+func Normalize(v []float32) []float32 {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+
+	return v
 }

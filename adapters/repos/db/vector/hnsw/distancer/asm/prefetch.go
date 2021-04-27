@@ -9,14 +9,24 @@
 //  CONTACT: hello@semi.technology
 //
 
-package distancer
+// +build ignore
 
-type Provider interface {
-	New(vec []float32) Distancer
-	SingleDist(vec1, vec2 []float32) (float32, bool, error)
-	Type() string
-}
+package main
 
-type Distancer interface {
-	Distance(vec []float32) (float32, bool, error)
+import (
+	. "github.com/mmcloughlin/avo/build"
+	. "github.com/mmcloughlin/avo/operand"
+	// . "github.com/mmcloughlin/avo/reg"
+)
+
+func main() {
+	TEXT("Prefetch", NOSPLIT, "func(addr uintptr)")
+	addr := Mem{Base: Load(Param("addr"), GP64())}
+	_ = addr
+
+	PREFETCHT0(addr)
+
+	RET()
+
+	Generate()
 }
