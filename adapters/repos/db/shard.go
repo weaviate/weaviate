@@ -74,7 +74,6 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
 				index.logger)
-			// return hnsw.MakeNoopCommitLogger()
 		},
 		VectorForIDThunk: s.vectorByIndexID,
 		DistanceProvider: distancer.NewDotProductProvider(),
