@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modtransformers
+package modkeras
 
 import (
 	"context"
@@ -21,62 +21,51 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/img2vec-keras/clients"
+	"github.com/semi-technologies/weaviate/modules/img2vec-keras/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
-func New() *TransformersModule {
-	return &TransformersModule{}
+func New() *KerasModule {
+	return &KerasModule{}
 }
 
-type TransformersModule struct {
-	vectorizer      textVectorizer
-	metaProvider    metaProvider
+type KerasModule struct {
+	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
 }
 
-type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object,
+type imageVectorizer interface {
+	Object(ctx context.Context, object *models.Object,
 		settings vectorizer.ClassSettings) error
-
-	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	// TODO all of these should be moved out of here, gh-1470
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+	VectorizeImage(ctx context.Context,
+		id, image string) ([]float32, error)
 }
 
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
+func (m *KerasModule) Name() string {
+	return "img2vec-keras"
 }
 
-func (m *TransformersModule) Name() string {
-	return "text2vec-transformers"
-}
-
-func (m *TransformersModule) Init(ctx context.Context,
+func (m *KerasModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
-	if err := m.initNearText(); err != nil {
+	if err := m.initNearImage(); err != nil {
 		return errors.Wrap(err, "init near text")
 	}
 
 	return nil
 }
 
-func (m *TransformersModule) initVectorizer(ctx context.Context,
+func (m *KerasModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
-	// TODO: gh-1486 proper config management
-	uri := os.Getenv("TRANSFORMERS_INFERENCE_API")
+	// TODO: proper config management
+	uri := os.Getenv("IMAGE_VECTORIZER_URL")
 	if uri == "" {
-		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API is not set")
+		return errors.Errorf("required variable IMAGE_VECTORIZER_URL is not set")
 	}
 
 	client := clients.New(uri, logger)
@@ -85,29 +74,27 @@ func (m *TransformersModule) initVectorizer(ctx context.Context,
 	}
 
 	m.vectorizer = vectorizer.New(client)
-	m.metaProvider = client
 
 	return nil
 }
 
-func (m *TransformersModule) RootHandler() http.Handler {
+func (m *KerasModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *TransformersModule) VectorizeObject(ctx context.Context,
+func (m *KerasModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
-func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
-	return m.metaProvider.MetaInfo()
+func (m *KerasModule) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{}, nil
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.MetaProvider(New())
 )

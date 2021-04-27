@@ -20,35 +20,35 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
+	"github.com/semi-technologies/weaviate/modules/img2vec-keras/ent"
 	"github.com/sirupsen/logrus"
 )
 
-type qna struct {
+type vectorizer struct {
 	origin     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *qna {
-	return &qna{
+func New(origin string, logger logrus.FieldLogger) *vectorizer {
+	return &vectorizer{
 		origin:     origin,
 		httpClient: &http.Client{},
 		logger:     logger,
 	}
 }
 
-func (v *qna) Answer(ctx context.Context,
-	text, question string) (*ent.AnswerResult, error) {
-	body, err := json.Marshal(answersInput{
-		Text:     text,
-		Question: question,
+func (v *vectorizer) Vectorize(ctx context.Context,
+	id, image string) (*ent.VectorizationResult, error) {
+	body, err := json.Marshal(vecRequest{
+		ID:    id,
+		Image: image,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/answers/"),
+	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/vectors"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -65,7 +65,7 @@ func (v *qna) Answer(ctx context.Context,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	var resBody answersResponse
+	var resBody vecResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
@@ -74,25 +74,26 @@ func (v *qna) Answer(ctx context.Context,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
-	return &ent.AnswerResult{
-		Text:      resBody.Question,
-		Question:  resBody.Question,
-		Answer:    resBody.Answer,
-		Certainty: resBody.Certainty,
+	return &ent.VectorizationResult{
+		ID:         resBody.ID,
+		Image:      image,
+		Dimensions: resBody.Dim,
+		Vector:     resBody.Vector,
 	}, nil
 }
 
-func (v *qna) url(path string) string {
+func (v *vectorizer) url(path string) string {
 	return fmt.Sprintf("%s%s", v.origin, path)
 }
 
-type answersInput struct {
-	Text     string `json:"text"`
-	Question string `json:"question"`
+type vecRequest struct {
+	ID    string `json:"id"`
+	Image string `json:"image"`
 }
 
-type answersResponse struct {
-	answersInput
-	Answer    *string  `json:"answer"`
-	Certainty *float64 `json:"certainty"`
+type vecResponse struct {
+	ID     string    `json:"id"`
+	Vector []float32 `json:"vector"`
+	Dim    int       `json:"dim"`
+	Error  string    `json:"error"`
 }

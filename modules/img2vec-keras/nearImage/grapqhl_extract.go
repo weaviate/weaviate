@@ -9,27 +9,20 @@
 //  CONTACT: hello@semi.technology
 //
 
-package ask
+package nearImage
 
-func extractAskFn(source map[string]interface{}) interface{} {
-	var args AskParams
+// extractNearImageFn arguments, such as "image" and "certainty"
+func extractNearImageFn(source map[string]interface{}) interface{} {
+	var args NearImageParams
 
-	question, ok := source["question"].(string)
+	image, ok := source["image"].(string)
 	if ok {
-		args.Question = question
+		args.Image = image
 	}
 
 	certainty, ok := source["certainty"]
 	if ok {
 		args.Certainty = certainty.(float64)
-	}
-
-	properties, ok := source["properties"].([]interface{})
-	if ok {
-		args.Properties = make([]string, len(properties))
-		for i, value := range properties {
-			args.Properties[i] = value.(string)
-		}
 	}
 
 	return &args

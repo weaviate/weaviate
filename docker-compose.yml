@@ -27,10 +27,14 @@ services:
     ports:
       - "9090:8080"
   t2v-transformers:
-    image: semitechnologies/transformers-inference:distilbert-base-uncased
+    image: semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0
     ports: 
       - "8000:8080"
   qna-transformers:
-    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad-34d66b1
+    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
       - "8001:8080"
+  i2v-keras:
+    image: semitechnologies/img2vec-keras:resnet50-61dcbf8
+    ports:
+      - "8002:8080"

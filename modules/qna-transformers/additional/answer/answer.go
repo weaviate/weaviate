@@ -31,6 +31,7 @@ type qnaClient interface {
 type paramsHelper interface {
 	GetQuestion(params interface{}) string
 	GetProperties(params interface{}) []string
+	GetCertainty(params interface{}) float64
 }
 
 type AnswerProvider struct {

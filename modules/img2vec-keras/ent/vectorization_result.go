@@ -11,9 +11,9 @@
 
 package ent
 
-type AnswerResult struct {
-	Text      string
-	Question  string
-	Answer    *string
-	Certainty *float64
+type VectorizationResult struct {
+	ID         string
+	Image      string
+	Dimensions int
+	Vector     []float32
 }
