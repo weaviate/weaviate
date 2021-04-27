@@ -236,24 +236,6 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 	return nil
 }
 
-func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFile, AddLinkAtLevel))
-	ec.add(l.writeUint64(l.logFile, nodeid))
-	ec.add(l.writeUint16(l.logFile, uint16(level)))
-	ec.add(l.writeUint64(l.logFile, target))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
-			nodeid, target, level)
-	}
-
-	return nil
-}
-
 func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	l.Lock()
 	defer l.Unlock()
