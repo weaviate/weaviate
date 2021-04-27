@@ -65,12 +65,6 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	}
 
 	for candidates.Len() > 0 {
-		// candCount := atomic.AddUint64(&h.candidates, 1)
-
-		// if candCount%10000 == 0 {
-		// 	fmt.Printf("evaluted %d candidates so far \n", candCount)
-		// }
-
 		dist, ok, err := h.distanceToNode(distancer, candidates.Top().ID)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
@@ -84,22 +78,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			break
 		}
 		candidate := candidates.Pop()
-
-		// before := time.Now()
-		// h.Lock()
-		// m.addBuildingReadLocking(before)
 		candidateNode := h.nodes[candidate.ID]
-		// h.Unlock()
-
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
 			// just cleaned up while we were waiting for a read lock
 			continue
 		}
 
-		// before = time.Now()
 		candidateNode.Lock()
-		// m.addBuildingItemLocking(before)
 		connections := candidateNode.connections[level]
 		candidateNode.Unlock()
 
