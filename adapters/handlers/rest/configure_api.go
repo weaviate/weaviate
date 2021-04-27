@@ -13,8 +13,10 @@ package rest
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -72,6 +74,11 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+	goruntime.SetBlockProfileRate(10)
+	goruntime.SetMutexProfileFraction(10)
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	ctx := context.Background()
 	// abort startup if it does not complete within 120s
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)

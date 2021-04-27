@@ -14,6 +14,7 @@ package hnsw
 import (
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,12 +28,23 @@ const (
 // its own, make sure that this function is called from a single-thread or
 // locked situation
 func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
-	newIndex, err := growIndexToAccomodateNode(h.nodes, id, logger)
+	newIndex, changed, err := growIndexToAccomodateNode(h.nodes, id, logger)
 	if err != nil {
 		return err
 	}
 
+	if !changed {
+		return nil
+	}
+
+	h.cache.grow(uint64(len(newIndex)))
+
+	h.visitedListPool.Destroy()
+	h.visitedListPool = nil
+	h.visitedListPool = visited.NewPool(1, len(newIndex)+500)
+
 	h.nodes = newIndex
+
 	return nil
 }
 
@@ -43,12 +55,12 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 // caller must make sure to lock the graph as concurrent reads/write would
 // otherwise be possible
 func growIndexToAccomodateNode(index []*vertex, id uint64,
-	logger logrus.FieldLogger) ([]*vertex, error) {
+	logger logrus.FieldLogger) ([]*vertex, bool, error) {
 	before := time.Now()
 	previousSize := uint64(len(index))
 	if id < previousSize {
 		// node will fit, nothing to do
-		return index, nil
+		return nil, false, nil
 	}
 
 	// typically grow the index by the delta
@@ -72,5 +84,5 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		WithField("previous_size", previousSize).
 		WithField("new_size", newSize).
 		Debugf("index grown from %d to %d, took %s\n", previousSize, newSize, took)
-	return newIndex, nil
+	return newIndex, true, nil
 }

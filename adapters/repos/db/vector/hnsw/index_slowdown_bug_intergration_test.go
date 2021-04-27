@@ -9,28 +9,43 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build integrationTestSlow
+// +build integrationTestBug
 
 package hnsw
 
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestGraphIntegrity(t *testing.T) {
-	dimensions := 300
-	size := 1000
-	efConstruction := 128
-	maxNeighbors := 64
+func Normalize(v []float32) []float32 {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+
+	return v
+}
+
+func TestSlowDownBugAtHighEF(t *testing.T) {
+	dimensions := 256
+	size := 25000
+	efConstruction := 2000
+	maxNeighbors := 100
 
 	vectors := make([][]float32, size)
 	var vectorIndex *hnsw
@@ -42,32 +57,32 @@ func TestGraphIntegrity(t *testing.T) {
 			for j := 0; j < dimensions; j++ {
 				vector[j] = rand.Float32()
 			}
-			vectors[i] = vector
+			vectors[i] = Normalize(vector)
 		}
+		fmt.Printf("done\n")
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
-		cl := &NoopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "graphintegrity",
-			MakeCommitLoggerThunk: makeCL,
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewDotProductProvider(),
+			// DistanceProvider: distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
+				return nil, nil
 			},
-			DistanceProvider: distancer.NewDotProductProvider(),
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
 		})
+
 		require.Nil(t, err)
 		vectorIndex = index
 
 		workerCount := runtime.GOMAXPROCS(0)
+		// workerCount := 1
 		jobsForWorker := make([][][]float32, workerCount)
 
 		for i, vec := range vectors {
@@ -75,37 +90,27 @@ func TestGraphIntegrity(t *testing.T) {
 			jobsForWorker[workerID] = append(jobsForWorker[workerID], vec)
 		}
 
+		beforeImport := time.Now()
 		wg := &sync.WaitGroup{}
 		for workerID, jobs := range jobsForWorker {
 			wg.Add(1)
 			go func(workerID int, myJobs [][]float32) {
 				defer wg.Done()
 				for i, vec := range myJobs {
-					originalIndex := uint64(i*workerCount) + uint64(workerID)
-					err := vectorIndex.Add(originalIndex, vec)
+					originalIndex := (i * workerCount) + workerID
+					err := vectorIndex.Add(uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)
 		}
 
 		wg.Wait()
+		// neighbor := bruteForceCosine(vectors, vectors[0], 2)
+		// dist, _, _ := distancer.NewCosineProvider().SingleDist(vectors[0], vectors[neighbor[1]])
+		// fmt.Printf("distance between 0 and %d is %f\n", neighbor[1], dist)
+		fmt.Printf("import took %s\n", time.Since(beforeImport))
+		// vectorIndex.Dump()
+
+		t.Fail()
 	})
-
-	for _, node := range vectorIndex.nodes {
-		if node == nil {
-			continue
-		}
-
-		conlen := len(node.connections[0])
-
-		// it is debatable how much value this test still adds. It used to check
-		// that a lot of connections are present before we had the heurisitic. But
-		// with the heuristic it's not uncommon that a node's connections get
-		// reduced to a slow amount of key connections. We have thus set this value
-		// to 1 to make sure that no nodes are entirely unconnected, but it's
-		// questionable if this still adds any value at all
-		requiredMinimum := 1
-		assert.True(t, conlen >= requiredMinimum, fmt.Sprintf(
-			"have %d connections, but want at least %d", conlen, requiredMinimum))
-	}
 }

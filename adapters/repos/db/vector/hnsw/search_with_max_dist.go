@@ -16,6 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
@@ -33,35 +34,41 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 
 	// stop at layer 1, not 0!
 	for level := h.currentMaximumLayer; level >= 1; level-- {
-		eps := &binarySearchTreeGeneric{}
-		eps.insert(entryPointID, entryPointDistance)
+		eps := priorityqueue.NewMin(1)
+		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
-		res, err := h.searchLayerByVector(searchVec, *eps, 1, level, nil)
+		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
-		if res.root != nil {
-			best := res.minimum()
-			entryPointID = best.index
-			entryPointDistance = best.dist
+		if res.Len() > 0 {
+			best := res.Pop()
+			entryPointID = best.ID
+			entryPointDistance = best.Dist
 		}
 	}
 
-	eps := &binarySearchTreeGeneric{}
-	eps.insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(searchVec, *eps, ef, 0, allowList)
+	eps := priorityqueue.NewMin(1)
+	eps.Insert(entryPointID, entryPointDistance)
+	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
-	flat := res.flattenInOrder()
-	out := make([]uint64, len(flat))
-	i := 0
-	for _, elem := range flat {
-		if elem.dist > dist {
+	all := make([]priorityqueue.Item, res.Len())
+	i := res.Len() - 1
+	for res.Len() > 0 {
+		all[i] = res.Pop()
+		i--
+	}
+
+	out := make([]uint64, len(all))
+	i = 0
+	for _, elem := range all {
+		if elem.Dist > dist {
 			break
 		}
-		out[i] = elem.index
+		out[i] = elem.ID
 		i++
 	}
 
