@@ -36,7 +36,6 @@ type hnsw struct {
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
 
-	// TODO
 	tombstoneLock *sync.RWMutex
 
 	// make sure the very first insert happens just once, otherwise we

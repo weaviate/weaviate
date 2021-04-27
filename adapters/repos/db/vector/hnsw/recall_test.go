@@ -63,7 +63,6 @@ func TestRecall(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
-			// DistanceProvider: distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -133,9 +132,6 @@ func TestRecall(t *testing.T) {
 
 		recall := float32(relevant) / float32(retrieved)
 		fmt.Printf("recall is %f\n", recall)
-		// if recall != 1 {
-		// 	vectorIndex.Dump()
-		// }
 		assert.True(t, recall >= 0.99)
 	})
 }
@@ -166,7 +162,6 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	distances := make([]distanceAndIndex, len(vectors))
 
 	distancer := distancer.NewDotProductProvider().New(query)
-	// distancer := distancer.NewCosineProvider().New(query)
 	for i, vec := range vectors {
 		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{

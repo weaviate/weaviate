@@ -13,10 +13,8 @@ package rest
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
-	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -46,8 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
-
-	_ "net/http/pprof"
+	// _ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -74,11 +71,6 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	goruntime.SetBlockProfileRate(10)
-	goruntime.SetMutexProfileFraction(10)
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
 	ctx := context.Background()
 	// abort startup if it does not complete within 120s
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
