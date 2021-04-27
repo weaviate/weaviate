@@ -76,8 +76,8 @@ func (h *hnsw) reset() error {
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	deleteList := helpers.AllowList{}
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	tombstones := h.tombstones
 	for id := range tombstones {
@@ -88,15 +88,15 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 }
 
 func (h *hnsw) getEntrypoint() uint64 {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	return h.entryPointID
 }
 
 func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	deleteList := helpers.AllowList{}
 	lenOfNodes := uint64(len(h.nodes))
@@ -133,9 +133,9 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			// level, we need to find an entyrpoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
 			// this case we must reset the graph
-			h.RLock()
+			h.Lock()
 			node := h.nodes[id]
-			h.RUnlock()
+			h.Unlock()
 			if err := h.deleteEntrypoint(node, deleteList); err != nil {
 				return errors.Wrap(err, "delete entrypoint")
 			}
@@ -143,10 +143,10 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	for id := range deleteList {
-		h.Lock()
+		h.tombstoneLock.Lock()
 		h.nodes[id] = nil
 		delete(h.tombstones, id)
-		h.Unlock()
+		h.tombstoneLock.Unlock()
 
 		if err := h.commitLog.DeleteNode(id); err != nil {
 			return err
@@ -167,16 +167,16 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
-	h.RLock()
+	h.Lock()
 	size := len(h.nodes)
 	currentEntrypoint := h.entryPointID
-	h.RUnlock()
+	h.Unlock()
 
 	for n := 0; n < size; n++ {
 		neighbor := uint64(n)
-		h.RLock()
+		h.Lock()
 		neighborNode := h.nodes[neighbor]
-		h.RUnlock()
+		h.Unlock()
 
 		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
 			continue
@@ -193,10 +193,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 				return errors.Wrap(err, "get neighbor vec")
 			}
 		}
-		neighborNode.RLock()
+		neighborNode.Lock()
 		neighborLevel := neighborNode.level
 		connections := neighborNode.connections
-		neighborNode.RUnlock()
+		neighborNode.Unlock()
 
 		if !connectionsPointTo(connections, deleteList) {
 			// nothing needs to be changed, skip
@@ -312,9 +312,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		// that level, in that case we need to look at the next lower level for a
 		// better candidate
 
-		h.RLock()
+		h.Lock()
 		maxNodes := len(h.nodes)
-		h.RUnlock()
+		h.Unlock()
 
 		for i := 0; i < maxNodes; i++ {
 			if h.getEntrypoint() != oldEntrypoint {
@@ -326,17 +326,17 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.RLock()
+			h.Lock()
 			candidate := h.nodes[i]
-			h.RUnlock()
+			h.Unlock()
 
 			if candidate == nil {
 				continue
 			}
 
-			candidate.RLock()
+			candidate.Lock()
 			candidateLevel := candidate.level
-			candidate.RUnlock()
+			candidate.Unlock()
 
 			if candidateLevel != l {
 				// not reaching up to the current level, skip in hope of finding another candidate
@@ -365,9 +365,9 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		return h.getEntrypoint(), h.currentMaximumLayer
 	}
 
-	h.RLock()
+	h.Lock()
 	maxNodes := len(h.nodes)
-	h.RUnlock()
+	h.Unlock()
 
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
@@ -378,17 +378,17 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.RLock()
+			h.Lock()
 			candidate := h.nodes[i]
-			h.RUnlock()
+			h.Unlock()
 
 			if candidate == nil {
 				continue
 			}
 
-			candidate.RLock()
+			candidate.Lock()
 			candidateLevel := candidate.level
-			candidate.RUnlock()
+			candidate.Unlock()
 
 			if candidateLevel != l {
 				// not reaching up to the current level, skip in hope of finding another candidate
@@ -404,8 +404,8 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	for _, node := range h.nodes {
 		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
@@ -419,15 +419,15 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 }
 
 func (h *hnsw) hasTombstone(id uint64) bool {
-	h.RLock()
-	defer h.RUnlock()
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
 	_, ok := h.tombstones[id]
 	return ok
 }
 
 func (h *hnsw) addTombstone(id uint64) error {
-	h.Lock()
+	h.tombstoneLock.Lock()
 	h.tombstones[id] = struct{}{}
-	h.Unlock()
+	h.tombstoneLock.Unlock()
 	return h.commitLog.AddTombstone(id)
 }

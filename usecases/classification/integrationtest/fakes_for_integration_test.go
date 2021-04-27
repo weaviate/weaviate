@@ -16,6 +16,7 @@ package classification_integration_test
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -167,7 +168,7 @@ func largeTestDataSize(size int) search.Results {
 		out[i] = search.Result{
 			ID:        mustUUID(),
 			ClassName: "Article",
-			Vector:    []float32{0.02, 0, 0},
+			Vector:    []float32{0.02, 0, rand.Float32()},
 			Schema: map[string]interface{}{
 				"description": "does not matter much",
 			},

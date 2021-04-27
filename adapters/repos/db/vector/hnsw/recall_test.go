@@ -15,12 +15,14 @@ package hnsw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"math/rand"
+	"io/ioutil"
 	"runtime"
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
@@ -28,59 +30,53 @@ import (
 )
 
 func TestRecall(t *testing.T) {
-	dimensions := 300
-	size := 10000
-	queries := 1000
-	efConstruction := 256
-	maxNeighbors := 120
+	efConstruction := 2000
+	maxNeighbors := 100
 
-	vectors := make([][]float32, size)
-	queryVectors := make([][]float32, queries)
+	var vectors [][]float32
+	var queries [][]float32
+	var truths [][]uint64
 	var vectorIndex *hnsw
 
 	t.Run("generate random vectors", func(t *testing.T) {
-		fmt.Printf("generating %d vectors", size)
-		for i := 0; i < size; i++ {
-			vector := make([]float32, dimensions)
-			for j := 0; j < dimensions; j++ {
-				vector[j] = rand.Float32()
-			}
-			vectors[i] = vector
-		}
-		fmt.Printf("done\n")
+		vectorsJSON, err := ioutil.ReadFile("recall_vectors.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(vectorsJSON, &vectors)
+		require.Nil(t, err)
 
-		fmt.Printf("generating %d search queries", queries)
-		for i := 0; i < queries; i++ {
-			queryVector := make([]float32, dimensions)
-			for j := 0; j < dimensions; j++ {
-				queryVector[j] = rand.Float32()
-			}
-			queryVectors[i] = queryVector
-		}
-		fmt.Printf("done\n")
+		queriesJSON, err := ioutil.ReadFile("recall_queries.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(queriesJSON, &queries)
+		require.Nil(t, err)
+
+		truthsJSON, err := ioutil.ReadFile("recall_truths.json")
+		require.Nil(t, err)
+		err = json.Unmarshal(truthsJSON, &truths)
+		require.Nil(t, err)
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
-		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
-		}
 
-		index, err := New(
-			"doesnt-matter-as-committlogger-is-mocked-out",
-			"recallbenchmark",
-			makeCL,
-			maxNeighbors, efConstruction,
-			func(ctx context.Context, id int32) ([]float32, error) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewDotProductProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
-			})
+			},
+		}, UserConfig{
+			MaxConnections: maxNeighbors,
+			EFConstruction: efConstruction,
+		})
 		require.Nil(t, err)
 		vectorIndex = index
 
 		workerCount := runtime.GOMAXPROCS(0)
 		jobsForWorker := make([][][]float32, workerCount)
 
+		before := time.Now()
 		for i, vec := range vectors {
 			workerID := i % workerCount
 			jobsForWorker[workerID] = append(jobsForWorker[workerID], vec)
@@ -93,13 +89,31 @@ func TestRecall(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.Add(originalIndex, vec)
+					err := vectorIndex.Add(uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)
 		}
 
 		wg.Wait()
+		fmt.Printf("importing took %s\n", time.Since(before))
+	})
+
+	t.Run("inspect a query", func(t *testing.T) {
+		k := 20
+
+		hasDuplicates := 0
+
+		for _, vec := range queries {
+			results, err := vectorIndex.SearchByVector(vec, k, nil)
+			require.Nil(t, err)
+			if containsDuplicates(results) {
+				hasDuplicates++
+				panic("stop")
+			}
+		}
+
+		fmt.Printf("%d out of %d searches contained duplicates", hasDuplicates, len(queries))
 	})
 
 	t.Run("with k=1", func(t *testing.T) {
@@ -108,22 +122,22 @@ func TestRecall(t *testing.T) {
 		var relevant int
 		var retrieved int
 
-		for i := 0; i < queries; i++ {
-			controlList := bruteForce(vectors, queryVectors[i], k)
-			results, err := vectorIndex.SearchByVector(queryVectors[i], k, nil)
+		for i := 0; i < len(queries); i++ {
+			results, err := vectorIndex.SearchByVector(queries[i], k, nil)
 			require.Nil(t, err)
 
 			retrieved += k
-			relevant += matchesInLists(controlList, results)
+			relevant += matchesInLists(truths[i], results)
 		}
 
 		recall := float32(relevant) / float32(retrieved)
+		fmt.Printf("recall is %f\n", recall)
 		assert.True(t, recall >= 0.99)
 	})
 }
 
-func matchesInLists(control []int, results []int) int {
-	desired := map[int]struct{}{}
+func matchesInLists(control []uint64, results []uint64) int {
+	desired := map[uint64]struct{}{}
 	for _, relevant := range control {
 		desired[relevant] = struct{}{}
 	}
@@ -139,19 +153,19 @@ func matchesInLists(control []int, results []int) int {
 	return matches
 }
 
-func bruteForce(vectors [][]float32, query []float32, k int) []int {
+func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	type distanceAndIndex struct {
 		distance float32
-		index    int
+		index    uint64
 	}
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	distancer := distancer.NewCosineProvider.New(query)
+	distancer := distancer.NewDotProductProvider().New(query)
 	for i, vec := range vectors {
-		dist, _ := distancer.distance(vec)
+		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
-			index:    i,
+			index:    uint64(i),
 			distance: dist,
 		}
 	}
@@ -164,10 +178,23 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 		k = len(distances)
 	}
 
-	out := make([]int, k)
+	out := make([]uint64, k)
 	for i := 0; i < k; i++ {
 		out[i] = distances[i].index
 	}
 
 	return out
+}
+
+func containsDuplicates(in []uint64) bool {
+	seen := map[uint64]struct{}{}
+
+	for _, value := range in {
+		if _, ok := seen[value]; ok {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+
+	return false
 }

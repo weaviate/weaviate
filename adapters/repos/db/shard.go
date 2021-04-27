@@ -76,7 +76,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 				index.logger)
 		},
 		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distancer.NewCosineProvider(),
+		DistanceProvider: distancer.NewDotProductProvider(),
 	}, hnswUserConfig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

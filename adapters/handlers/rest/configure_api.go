@@ -44,8 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
-
-	_ "net/http/pprof"
+	// _ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"

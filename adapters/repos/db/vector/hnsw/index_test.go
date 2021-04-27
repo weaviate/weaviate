@@ -73,15 +73,4 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
-
-	t.Run("searching within cluster 2 by id instead of vector", func(t *testing.T) {
-		position := uint64(3)
-		res, err := index.knnSearch(position, 50, 36)
-		require.Nil(t, err)
-		assert.Equal(t, []uint64{
-			3, 5, 4, // cluster 2
-			7, 8, 6, // cluster 3
-			2, 1, 0, // cluster 1
-		}, res)
-	})
 }
