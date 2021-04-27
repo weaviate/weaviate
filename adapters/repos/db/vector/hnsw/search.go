@@ -193,7 +193,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 				results.Insert(neighborID, distance)
 
-				h.vectorCachePrefetch(candidates.Top().ID)
+				h.cache.prefetch(candidates.Top().ID)
 
 				// +1 because we have added one node size calculating the len
 				if results.Len() > ef {

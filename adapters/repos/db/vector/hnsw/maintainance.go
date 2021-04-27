@@ -37,6 +37,8 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 		return nil
 	}
 
+	h.cache.grow(uint64(len(newIndex)))
+
 	h.visitedListPool.Destroy()
 	h.visitedListPool = nil
 	h.visitedListPool = visited.NewPool(1, len(newIndex)+500)
