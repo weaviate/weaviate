@@ -9,11 +9,11 @@
 //  CONTACT: hello@semi.technology
 //
 
-package ask
+package nearImage
 
 import "testing"
 
-func Test_validateAskFn(t *testing.T) {
+func Test_validateNearImageFn(t *testing.T) {
 	type args struct {
 		param interface{}
 	}
@@ -23,34 +23,34 @@ func Test_validateAskFn(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "should validate",
+			name: "should pass with proper values",
 			args: args{
-				param: &AskParams{
-					Question: "question",
+				param: &NearImageParams{
+					Image: "base64;enncoded",
 				},
 			},
 		},
 		{
-			name: "should not validate when empty question",
+			name: "should not pass with empty image",
 			args: args{
-				param: &AskParams{
-					Question: "",
+				param: &NearImageParams{
+					Image: "",
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "should not validate when empty params",
+			name: "should not pass with nil image",
 			args: args{
-				param: &AskParams{},
+				param: &NearImageParams{},
 			},
 			wantErr: true,
 		},
 		{
-			name: "should not validate when param passed is struct, not a pointer to struct",
+			name: "should not pass with struct param, not a pointer to struct",
 			args: args{
-				param: AskParams{
-					Question: "question",
+				param: NearImageParams{
+					Image: "image",
 				},
 			},
 			wantErr: true,
@@ -58,8 +58,8 @@ func Test_validateAskFn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateAskFn(tt.args.param); (err != nil) != tt.wantErr {
-				t.Errorf("validateAskFn() error = %v, wantErr %v", err, tt.wantErr)
+			if err := validateNearImageFn(tt.args.param); (err != nil) != tt.wantErr {
+				t.Errorf("validateNearImageFn() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

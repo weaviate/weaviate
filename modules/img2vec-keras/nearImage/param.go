@@ -9,30 +9,29 @@
 //  CONTACT: hello@semi.technology
 //
 
-package ask
+package nearImage
 
 import (
 	"github.com/pkg/errors"
 )
 
-type AskParams struct {
-	Question   string
-	Certainty  float64
-	Properties []string
+type NearImageParams struct {
+	Image     string
+	Certainty float64
 }
 
-func (n AskParams) GetCertainty() float64 {
+func (n NearImageParams) GetCertainty() float64 {
 	return n.Certainty
 }
 
-func validateAskFn(param interface{}) error {
-	ask, ok := param.(*AskParams)
+func validateNearImageFn(param interface{}) error {
+	nearImage, ok := param.(*NearImageParams)
 	if !ok {
-		return errors.New("'ask' invalid parameter")
+		return errors.New("'nearImage' invalid parameter")
 	}
 
-	if len(ask.Question) == 0 {
-		return errors.Errorf("'ask.question' needs to be defined")
+	if len(nearImage.Image) == 0 {
+		return errors.Errorf("'nearImage.image' needs to be defined")
 	}
 
 	return nil
