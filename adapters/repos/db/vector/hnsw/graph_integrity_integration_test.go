@@ -102,9 +102,9 @@ func TestGraphIntegrity(t *testing.T) {
 		// that a lot of connections are present before we had the heurisitic. But
 		// with the heuristic it's not uncommon that a node's connections get
 		// reduced to a slow amount of key connections. We have thus set this value
-		// to 3 to make sure that no nodes are entirely unconnected, but it's
+		// to 1 to make sure that no nodes are entirely unconnected, but it's
 		// questionable if this still adds any value at all
-		requiredMinimum := 3
+		requiredMinimum := 1
 		assert.True(t, conlen >= requiredMinimum, fmt.Sprintf(
 			"have %d connections, but want at least %d", conlen, requiredMinimum))
 	}
