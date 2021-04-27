@@ -10,24 +10,23 @@ import (
 
 var unroll = 4
 
+// inspired by the avo example which is itself inspired by the PeachPy example.
+// Adjusted unrolling that fits our use cases better.
 func main() {
 	TEXT("Dot", NOSPLIT, "func(x, y []float32) float32")
 	x := Mem{Base: Load(Param("x").Base(), GP64())}
 	y := Mem{Base: Load(Param("y").Base(), GP64())}
 	n := Load(Param("x").Len(), GP64())
 
-	// Allocate accumulation registers.
 	acc := make([]VecVirtual, unroll)
 	for i := 0; i < unroll; i++ {
 		acc[i] = YMM()
 	}
 
-	// Zero initialization.
 	for i := 0; i < unroll; i++ {
 		VXORPS(acc[i], acc[i], acc[i])
 	}
 
-	// Loop over blocks and process them with vector instructions.
 	blockitems := 8 * unroll
 	blocksize := 4 * blockitems
 	Label("blockloop")
@@ -75,12 +74,13 @@ func main() {
 	// Reduce the lanes to one.
 	Label("reduce")
 	if unroll != 4 {
+		// we have hard-coded the reduction for this specific unrolling as it
+		// allows us to do 0+1 and 2+3 and only then have a multiplication which
+		// touches both.
 		panic("addition is hard-coded")
 	}
-	// for i := 1; i < unroll; i++ {
-	// 	VADDPS(acc[0], acc[i], acc[0])
-	// }
 
+	// Manual reduction
 	VADDPS(acc[0], acc[1], acc[0])
 	VADDPS(acc[2], acc[3], acc[2])
 	VADDPS(acc[0], acc[2], acc[0])

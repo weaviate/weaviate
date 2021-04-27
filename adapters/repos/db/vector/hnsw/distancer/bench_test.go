@@ -1,6 +1,7 @@
 package distancer
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -8,9 +9,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
-var dims = 256
-
-func BenchmarkDotGo(b *testing.B) {
+func benchmarkDotGo(b *testing.B, dims int) {
 	rand.Seed(time.Now().UnixNano())
 
 	vec1 := make([]float32, dims)
@@ -21,13 +20,12 @@ func BenchmarkDotGo(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	// run the Fib function b.N times
 	for n := 0; n < b.N; n++ {
 		DotProductGo(vec1, vec2)
 	}
 }
 
-func BenchmarkDotAVX(b *testing.B) {
+func benchmarkDotAVX(b *testing.B, dims int) {
 	rand.Seed(time.Now().UnixNano())
 
 	vec1 := make([]float32, dims)
@@ -35,14 +33,20 @@ func BenchmarkDotAVX(b *testing.B) {
 	for i := range vec1 {
 		vec1[i] = rand.Float32()
 		vec2[i] = rand.Float32()
-		// vec1[i] = 3
-		// vec2[i] = 2
 	}
 
 	b.ResetTimer()
-	// run the Fib function b.N times
 	for n := 0; n < b.N; n++ {
-		// _ = 1 - DotProductAVXScratch(&vec1[0], &vec2[0], size)
 		asm.Dot(vec1, vec2)
+	}
+}
+
+func BenchmarkDot(b *testing.B) {
+	dims := []int{256, 300, 600, 768, 1024}
+	for _, dim := range dims {
+		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+			b.Run("pure go", func(b *testing.B) { benchmarkDotGo(b, dim) })
+			b.Run("avx", func(b *testing.B) { benchmarkDotAVX(b, dim) })
+		})
 	}
 }
