@@ -90,6 +90,18 @@ func (f *fakeCache) preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) prefetch(id uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) grow(id uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) drop() {
+	panic("not implemented")
+}
+
 func (f *fakeCache) reset() {
 	f.store = map[uint64]struct{}{}
 }

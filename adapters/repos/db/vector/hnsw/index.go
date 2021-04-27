@@ -72,10 +72,6 @@ type hnsw struct {
 
 	cache cache
 
-	vectorCacheDrop func()
-
-	vectorCachePrefetch func(id uint64)
-
 	commitLog CommitLogger
 
 	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
@@ -146,7 +142,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		normalizeOnRead = true
 	}
 
-	vectorCache := newUnlimitedCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
 
 	index := &hnsw{
@@ -156,24 +152,22 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:     1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:      uc.EFConstruction,
-		nodes:               make([]*vertex, initialSize),
-		cache:               vectorCache,
-		vectorForID:         vectorCache.get,
-		vectorCacheDrop:     vectorCache.drop,
-		vectorCachePrefetch: vectorCache.prefetch,
-		id:                  cfg.ID,
-		rootPath:            cfg.RootPath,
-		tombstones:          map[uint64]struct{}{},
-		logger:              cfg.Logger,
-		distancerProvider:   cfg.DistanceProvider,
-		cancel:              make(chan struct{}),
-		deleteLock:          &sync.Mutex{},
-		tombstoneLock:       &sync.RWMutex{},
-		initialInsertOnce:   &sync.Once{},
-		cleanupInterval:     time.Duration(uc.CleanupIntervalSeconds) * time.Second,
-		visitedListPool:     visited.NewPool(1, initialSize+500),
+		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:    uc.EFConstruction,
+		nodes:             make([]*vertex, initialSize),
+		cache:             vectorCache,
+		vectorForID:       vectorCache.get,
+		id:                cfg.ID,
+		rootPath:          cfg.RootPath,
+		tombstones:        map[uint64]struct{}{},
+		logger:            cfg.Logger,
+		distancerProvider: cfg.DistanceProvider,
+		cancel:            make(chan struct{}),
+		deleteLock:        &sync.Mutex{},
+		tombstoneLock:     &sync.RWMutex{},
+		initialInsertOnce: &sync.Once{},
+		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+		visitedListPool:   visited.NewPool(1, initialSize+500),
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -491,7 +485,7 @@ func (h *hnsw) Drop() error {
 		return errors.Wrap(err, "commit log drop")
 	}
 	// cancel vector cache goroutine
-	h.vectorCacheDrop()
+	h.cache.drop()
 	// cancel tombstone cleanup goroutine
 	h.cancel <- struct{}{}
 	return nil

@@ -63,10 +63,6 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
-	// // make sure this new vec is immediately present in the cache, so we don't
-	// // have to read it from disk again
-	h.cache.preload(node.id, nodeVec)
-
 	wasFirst := false
 	var firstInsertError error
 	h.initialInsertOnce.Do(func() {
@@ -113,6 +109,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	}
 	h.nodes[nodeId] = node
 	h.Unlock()
+
+	// // make sure this new vec is immediately present in the cache, so we don't
+	// // have to read it from disk again
+	h.cache.preload(node.id, nodeVec)
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
