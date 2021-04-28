@@ -101,6 +101,7 @@ func Test_UserConfig(t *testing.T) {
 				MaxConnections:         DefaultMaxConnections,
 				EFConstruction:         DefaultEFConstruction,
 				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
 			},
 		},
 
@@ -114,6 +115,7 @@ func Test_UserConfig(t *testing.T) {
 				MaxConnections:         100,
 				EFConstruction:         DefaultEFConstruction,
 				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
 			},
 		},
 
@@ -124,12 +126,14 @@ func Test_UserConfig(t *testing.T) {
 				"maxConnections":         json.Number("12"),
 				"efConstruction":         json.Number("13"),
 				"vectorCacheMaxObjects":  json.Number("14"),
+				"ef":                     json.Number("15"),
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
 				VectorCacheMaxObjects:  14,
+				EF:                     15,
 			},
 		},
 
@@ -142,12 +146,14 @@ func Test_UserConfig(t *testing.T) {
 				"maxConnections":         float64(12),
 				"efConstruction":         float64(13),
 				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
 				VectorCacheMaxObjects:  14,
+				EF:                     15,
 			},
 		},
 	}
