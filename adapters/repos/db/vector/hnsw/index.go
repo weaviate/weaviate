@@ -63,6 +63,9 @@ type hnsw struct {
 	// ef parameter used in construction phases, should be higher than ef during querying
 	efConstruction int
 
+	// ef at search time
+	ef int
+
 	levelNormalizer float64
 
 	nodes []*vertex
@@ -153,6 +156,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:    uc.EFConstruction,
+		ef:                uc.EF,
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
