@@ -40,6 +40,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				"vectorIndexConfig": map[string]interface{}{ // from default
 					"cleanupIntervalSeconds": float64(300),
 					"efConstruction":         float64(128),
+					"ef":                     float64(-1),
 					"maxConnections":         float64(64),
 					"vectorCacheMaxObjects":  float64(2e6),
 				},
