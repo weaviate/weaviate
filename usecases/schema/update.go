@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -27,21 +28,76 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	initial := m.getClassByName(className)
+
 	if initial == nil {
 		panic("TODO")
 	}
 
-	if err := m.validateClassNameUpdate(initial, updated); err != nil {
+	// make sure unset optionals on 'updated' don't lead to an error, as all
+	// optionals would have been set with defaults on the initial already
+	m.setClassDefaults(updated)
+
+	if err := m.validateImmutableFields(initial, updated); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *Manager) validateClassNameUpdate(initial, updated *models.Class) error {
-	if initial.Class != updated.Class {
-		return errors.Errorf("class name is immutable: attempted change from %q to %q",
-			initial.Class, updated.Class)
+func (m *Manager) validateImmutableFields(initial, updated *models.Class) error {
+	immutableFields := []immutableText{
+		{
+			name:     "class name",
+			accessor: func(c *models.Class) string { return c.Class },
+		},
+		{
+			name:     "vectorizer",
+			accessor: func(c *models.Class) string { return c.Vectorizer },
+		},
+		{
+			name:     "vector index type",
+			accessor: func(c *models.Class) string { return c.VectorIndexType },
+		},
+	}
+
+	for _, u := range immutableFields {
+		if err := m.validateImmutableTextField(u, initial, updated); err != nil {
+			return err
+		}
+	}
+
+	if !reflect.DeepEqual(initial.Properties, updated.Properties) {
+		return errors.Errorf(
+			"properties cannot be updated through updating the class. Use the add " +
+				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
+				"to add additional properties")
+	}
+
+	if !reflect.DeepEqual(initial.InvertedIndexConfig, updated.InvertedIndexConfig) {
+		// NOTE: There is no technical reason for this to be immutable, it is
+		// simply not implemented (yet).
+		return errors.Errorf("inverted index config is immutable")
+	}
+
+	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
+		return errors.Errorf("module config is immutable")
+	}
+
+	return nil
+}
+
+type immutableText struct {
+	accessor func(c *models.Class) string
+	name     string
+}
+
+func (m *Manager) validateImmutableTextField(u immutableText,
+	previous, next *models.Class) error {
+	oldField := u.accessor(previous)
+	newField := u.accessor(next)
+	if oldField != newField {
+		return errors.Errorf("%s is immutable: attempted change from %q to %q",
+			u.name, oldField, newField)
 	}
 
 	return nil

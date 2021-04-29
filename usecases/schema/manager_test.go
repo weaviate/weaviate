@@ -25,8 +25,6 @@ import (
 
 // TODO: These tests don't match the overall testing style in Weaviate.
 // Refactor!
-
-// The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class) error {
@@ -495,7 +493,7 @@ func TestSchema(t *testing.T) {
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
-		valid: config.VectorizerModuleText2VecContextionary,
+		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
