@@ -14,9 +14,40 @@ package schema
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
+
+func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
+	className string, updated *models.Class) error {
+	err := m.authorizer.Authorize(principal, "update", "schema/objects")
+	if err != nil {
+		return err
+	}
+
+	initial := m.getClassByName(className)
+	if initial == nil {
+		panic("TODO")
+	}
+
+	if err := m.validateClassNameUpdate(initial, updated); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Manager) validateClassNameUpdate(initial, updated *models.Class) error {
+	if initial.Class != updated.Class {
+		return errors.Errorf("class name is immutable: attempted change from %q to %q",
+			initial.Class, updated.Class)
+	}
+
+	return nil
+}
+
+// Below here is old - to be deleted
 
 // UpdateObject which exists
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,

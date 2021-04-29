@@ -38,10 +38,7 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 }
 
 func (m *Manager) IndexedInverted(className, propertyName string) bool {
-	s := schema.Schema{
-		Objects: m.state.ObjectSchema,
-	}
-	class := s.FindClassByName(schema.ClassName(className))
+	class := m.getClassByName(className)
 	if class == nil {
 		return false
 	}
@@ -57,4 +54,12 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	}
 
 	return false
+}
+
+func (m *Manager) getClassByName(name string) *models.Class {
+	s := schema.Schema{
+		Objects: m.state.ObjectSchema,
+	}
+
+	return s.FindClassByName(schema.ClassName(name))
 }
