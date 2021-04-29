@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -177,4 +178,111 @@ func TestClassUpdates(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("update vector index config", func(t *testing.T) {
+		t.Run("with a validation error", func(t *testing.T) {
+			sm := newSchemaManager()
+			migrator := &vectorIndexConfigMigrator{
+				validationError: errors.Errorf("don't think so!"),
+			}
+			sm.migrator = migrator
+
+			t.Run("create an initial class", func(t *testing.T) {
+				err := sm.AddObject(context.Background(), nil, &models.Class{
+					Class: "ClassWithVectorIndexConfig",
+					VectorIndexConfig: map[string]interface{}{
+						"setting-1": "value-1",
+					},
+				})
+
+				assert.Nil(t, err)
+			})
+
+			t.Run("attempt an update of the vector index config", func(t *testing.T) {
+				err := sm.UpdateClass(context.Background(), nil,
+					"ClassWithVectorIndexConfig", &models.Class{
+						Class: "ClassWithVectorIndexConfig",
+						VectorIndexConfig: map[string]interface{}{
+							"setting-1": "updated-value",
+						},
+					})
+				expectedErrMsg := "vector index config: don't think so!"
+				expectedValidateCalledWith := fakeVectorConfig{
+					raw: map[string]interface{}{
+						"setting-1": "updated-value",
+					},
+				}
+				expectedUpdateCalled := false
+
+				require.NotNil(t, err)
+				assert.Equal(t, expectedErrMsg, err.Error())
+				assert.Equal(t, expectedValidateCalledWith, migrator.validateCalledWith)
+				assert.Equal(t, expectedUpdateCalled, migrator.updateCalled)
+			})
+		})
+
+		t.Run("with a valid update", func(t *testing.T) {
+			sm := newSchemaManager()
+			migrator := &vectorIndexConfigMigrator{}
+			sm.migrator = migrator
+
+			t.Run("create an initial class", func(t *testing.T) {
+				err := sm.AddObject(context.Background(), nil, &models.Class{
+					Class: "ClassWithVectorIndexConfig",
+					VectorIndexConfig: map[string]interface{}{
+						"setting-1": "value-1",
+					},
+				})
+
+				assert.Nil(t, err)
+			})
+
+			t.Run("update the vector index config", func(t *testing.T) {
+				err := sm.UpdateClass(context.Background(), nil,
+					"ClassWithVectorIndexConfig", &models.Class{
+						Class: "ClassWithVectorIndexConfig",
+						VectorIndexConfig: map[string]interface{}{
+							"setting-1": "updated-value",
+						},
+					})
+				expectedValidateCalledWith := fakeVectorConfig{
+					raw: map[string]interface{}{
+						"setting-1": "updated-value",
+					},
+				}
+				expectedUpdateCalledWith := fakeVectorConfig{
+					raw: map[string]interface{}{
+						"setting-1": "updated-value",
+					},
+				}
+				expectedUpdateCalled := true
+
+				require.Nil(t, err)
+				assert.Equal(t, expectedValidateCalledWith, migrator.validateCalledWith)
+				assert.Equal(t, expectedUpdateCalledWith, migrator.updateCalledWith)
+				assert.Equal(t, expectedUpdateCalled, migrator.updateCalled)
+			})
+		})
+	})
+}
+
+type vectorIndexConfigMigrator struct {
+	NilMigrator
+	validationError    error
+	validateCalledWith schema.VectorIndexConfig
+	updateCalled       bool
+	updateCalledWith   schema.VectorIndexConfig
+}
+
+func (m *vectorIndexConfigMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+	old, updated schema.VectorIndexConfig) error {
+	m.validateCalledWith = updated
+	return m.validationError
+}
+
+func (m *vectorIndexConfigMigrator) UpdateVectorIndexConfig(ctx context.Context,
+	updated schema.VectorIndexConfig) error {
+	m.updateCalledWith = updated
+	m.updateCalled = true
+	return nil
 }

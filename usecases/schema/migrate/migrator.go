@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // Migrator represents both the input and output interface of the Composer
@@ -34,4 +35,9 @@ type Migrator interface {
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
 	UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error
+
+	ValidateVectorIndexConfigUpdate(ctx context.Context,
+		old, updated schema.VectorIndexConfig) error
+	UpdateVectorIndexConfig(ctx context.Context,
+		updated schema.VectorIndexConfig) error
 }

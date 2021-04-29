@@ -109,3 +109,13 @@ func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, className stri
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }
+
+func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
+	updated schema.VectorIndexConfig) error {
+	return errors.Errorf("not implemented yet")
+}
+
+func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+	old, updated schema.VectorIndexConfig) error {
+	return errors.Errorf("not implemented yet")
+}

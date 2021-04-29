@@ -42,14 +42,16 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-type fakeVectorConfig struct{}
+type fakeVectorConfig struct {
+	raw interface{}
+}
 
 func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
 func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
-	return fakeVectorConfig{}, nil
+	return fakeVectorConfig{raw: in}, nil
 }
 
 type fakeVectorizerValidator struct {

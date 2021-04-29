@@ -41,6 +41,21 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	if err := m.parseVectorIndexConfig(ctx, updated); err != nil {
+		return err
+	}
+
+	if err := m.migrator.ValidateVectorIndexConfigUpdate(ctx,
+		initial.VectorIndexConfig.(schema.VectorIndexConfig),
+		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		return errors.Wrap(err, "vector index config")
+	}
+
+	if err := m.migrator.UpdateVectorIndexConfig(ctx,
+		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		return errors.Wrap(err, "vector index config")
+	}
+
 	return nil
 }
 
