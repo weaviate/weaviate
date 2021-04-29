@@ -24,7 +24,20 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
-func reasonableEfFromK(k int) int {
+func (h *hnsw) searchTimeEF(k int) int {
+	if h.ef < 1 {
+		return autoEfFromK(k)
+	}
+
+	ef := h.ef
+	if ef < k {
+		ef = k
+	}
+
+	return ef
+}
+
+func autoEfFromK(k int) int {
 	ef := k * 8
 	if ef > 100 {
 		ef = 100
@@ -42,7 +55,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
-	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
+	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
