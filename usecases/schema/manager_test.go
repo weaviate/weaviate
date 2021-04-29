@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -52,6 +53,14 @@ func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, className s
 }
 
 func (n *NilMigrator) DropProperty(ctx context.Context, className string, propName string) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
 	return nil
 }
 
@@ -105,7 +114,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 			DataType: []string{"string"},
 			Name:     "dummy",
 		}},
-		VectorIndexConfig: "this should be replaced by the parser",
+		VectorIndexConfig: "this should be parsed",
 	})
 
 	assert.Nil(t, err)
@@ -116,7 +125,9 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
-	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
+	assert.Equal(t, fakeVectorConfig{
+		raw: "this should be parsed",
+	}, objectClasses[0].VectorIndexConfig)
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
 }
@@ -536,7 +547,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",
-				VectorIndexConfig: "replace me through parsing",
+				VectorIndexConfig: "parse me, i should be in some sort of an object",
 				VectorIndexType:   "hnsw", // will always be set when loading from disk
 			}},
 		},
@@ -549,5 +560,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	require.Nil(t, err)
 
 	classes := sm.GetSchemaSkipAuth().Objects.Classes
-	assert.Equal(t, fakeVectorConfig{}, classes[0].VectorIndexConfig)
+	assert.Equal(t, fakeVectorConfig{
+		raw: "parse me, i should be in some sort of an object",
+	}, classes[0].VectorIndexConfig)
 }
