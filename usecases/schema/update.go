@@ -52,7 +52,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
-		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
 

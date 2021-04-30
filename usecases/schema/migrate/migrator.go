@@ -38,6 +38,6 @@ type Migrator interface {
 
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
-	UpdateVectorIndexConfig(ctx context.Context,
+	UpdateVectorIndexConfig(ctx context.Context, className string,
 		updated schema.VectorIndexConfig) error
 }

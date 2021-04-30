@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -25,11 +26,14 @@ import (
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
-	if h.ef < 1 {
+	// load atomically, so we can get away with concurrent updates of the
+	// userconfig without having to set a lock each time we try to read - which
+	// can be so common that it would cause considerable overhead
+	ef := int(atomic.LoadInt64(&h.ef))
+	if ef < 1 {
 		return autoEfFromK(k)
 	}
 
-	ef := h.ef
 	if ef < k {
 		ef = k
 	}

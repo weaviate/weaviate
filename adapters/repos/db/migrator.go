@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
@@ -111,11 +112,19 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig) error {
-	return errors.Errorf("not implemented yet")
+	className string, updated schema.VectorIndexConfig) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update vector index config of non-existing index for %s", className)
+	}
+
+	return idx.updateVectorIndexConfig(ctx, updated)
 }
 
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	old, updated schema.VectorIndexConfig) error {
-	return errors.Errorf("not implemented yet")
+	// hnsw is the only supported vector index type at the moment, so no need
+	// to check, we can always use that an hnsw-specific validation should be
+	// used for now.
+	return hnsw.ValidateUserConfigUpdate(old, updated)
 }

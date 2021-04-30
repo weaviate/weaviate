@@ -264,3 +264,8 @@ func (s *Shard) startPeriodicCleanup() {
 		}
 	}(batchSize, batchCleanupInterval, t, s.cleanupCancel)
 }
+
+func (s *Shard) updateVectorIndexConfig(ctx context.Context,
+	updated schema.VectorIndexConfig) error {
+	return s.vectorIndex.UpdateUserConfig(updated)
+}

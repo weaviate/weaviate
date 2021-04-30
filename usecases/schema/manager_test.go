@@ -60,7 +60,7 @@ func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, 
 	return nil
 }
 
-func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
 	return nil
 }
 
