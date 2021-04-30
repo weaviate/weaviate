@@ -56,7 +56,9 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "vector index config")
 	}
 
-	return nil
+	*initial = *updated
+
+	return m.saveSchema(ctx)
 }
 
 func (m *Manager) validateImmutableFields(initial, updated *models.Class) error {
