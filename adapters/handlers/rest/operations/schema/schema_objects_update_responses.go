@@ -136,6 +136,50 @@ func (o *SchemaObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, pro
 	}
 }
 
+// SchemaObjectsUpdateNotFoundCode is the HTTP code returned for type SchemaObjectsUpdateNotFound
+const SchemaObjectsUpdateNotFoundCode int = 404
+
+/*SchemaObjectsUpdateNotFound Class to be updated does not exist
+
+swagger:response schemaObjectsUpdateNotFound
+*/
+type SchemaObjectsUpdateNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsUpdateNotFound creates SchemaObjectsUpdateNotFound with default headers values
+func NewSchemaObjectsUpdateNotFound() *SchemaObjectsUpdateNotFound {
+
+	return &SchemaObjectsUpdateNotFound{}
+}
+
+// WithPayload adds the payload to the schema objects update not found response
+func (o *SchemaObjectsUpdateNotFound) WithPayload(payload *models.ErrorResponse) *SchemaObjectsUpdateNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects update not found response
+func (o *SchemaObjectsUpdateNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SchemaObjectsUpdateUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsUpdateUnprocessableEntity
 const SchemaObjectsUpdateUnprocessableEntityCode int = 422
 

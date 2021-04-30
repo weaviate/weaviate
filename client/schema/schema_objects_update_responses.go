@@ -52,6 +52,12 @@ func (o *SchemaObjectsUpdateReader) ReadResponse(response runtime.ClientResponse
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewSchemaObjectsUpdateNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewSchemaObjectsUpdateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -146,6 +152,39 @@ func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsUpdateNotFound creates a SchemaObjectsUpdateNotFound with default headers values
+func NewSchemaObjectsUpdateNotFound() *SchemaObjectsUpdateNotFound {
+	return &SchemaObjectsUpdateNotFound{}
+}
+
+/*SchemaObjectsUpdateNotFound handles this case with default header values.
+
+Class to be updated does not exist
+*/
+type SchemaObjectsUpdateNotFound struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *SchemaObjectsUpdateNotFound) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

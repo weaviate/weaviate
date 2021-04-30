@@ -30,7 +30,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	initial := m.getClassByName(className)
 
 	if initial == nil {
-		panic("TODO")
+		return ErrNotFound
 	}
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
