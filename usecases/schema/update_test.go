@@ -281,7 +281,7 @@ func (m *vectorIndexConfigMigrator) ValidateVectorIndexConfigUpdate(ctx context.
 }
 
 func (m *vectorIndexConfigMigrator) UpdateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig) error {
+	className string, updated schema.VectorIndexConfig) error {
 	m.updateCalledWith = updated
 	m.updateCalled = true
 	return nil
