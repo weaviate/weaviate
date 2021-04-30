@@ -85,7 +85,7 @@ func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo r
 /*
   ClassificationsPost starts a classification
 
-  Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.
+  Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
 */
 func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error) {
 	// TODO: Validate the params before sending

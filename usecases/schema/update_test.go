@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package schema
 
 import (
@@ -261,6 +272,18 @@ func TestClassUpdates(t *testing.T) {
 				assert.Equal(t, expectedValidateCalledWith, migrator.validateCalledWith)
 				assert.Equal(t, expectedUpdateCalledWith, migrator.updateCalledWith)
 				assert.Equal(t, expectedUpdateCalled, migrator.updateCalled)
+			})
+
+			t.Run("the update is reflected", func(t *testing.T) {
+				class := sm.getClassByName("ClassWithVectorIndexConfig")
+				require.NotNil(t, class)
+				expectedVectorIndexConfig := fakeVectorConfig{
+					raw: map[string]interface{}{
+						"setting-1": "updated-value",
+					},
+				}
+
+				assert.Equal(t, expectedVectorIndexConfig, class.VectorIndexConfig)
 			})
 		})
 	})

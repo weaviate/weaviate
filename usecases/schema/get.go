@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -54,6 +56,16 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	}
 
 	return false
+}
+
+func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
+	name string) (*models.Class, error) {
+	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	if err != nil {
+		return nil, err
+	}
+
+	return m.getClassByName(name), nil
 }
 
 func (m *Manager) getClassByName(name string) *models.Class {
