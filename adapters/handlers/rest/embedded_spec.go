@@ -1283,6 +1283,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "Class to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Invalid update attempt",
             "schema": {
@@ -3812,6 +3818,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Class to be updated does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

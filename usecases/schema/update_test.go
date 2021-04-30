@@ -25,6 +25,13 @@ import (
 // As of now, most class settings are immutable, but we need to allow some
 // specific updates, such as the vector index config
 func TestClassUpdates(t *testing.T) {
+	t.Run("a class which doesn't exist", func(t *testing.T) {
+		err := newSchemaManager().UpdateClass(context.Background(),
+			nil, "WrongClass", &models.Class{})
+		require.NotNil(t, err)
+		assert.Equal(t, ErrNotFound, err)
+	})
+
 	t.Run("various immutable and mutable fields", func(t *testing.T) {
 		type test struct {
 			name          string

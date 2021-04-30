@@ -47,6 +47,10 @@ func (s *schemaHandlers) updateObject(params schema.SchemaObjectsUpdateParams,
 	err := s.manager.UpdateClass(params.HTTPRequest.Context(), principal, params.ClassName,
 		params.ObjectClass)
 	if err != nil {
+		if err == schemaUC.ErrNotFound {
+			return schema.NewSchemaObjectsUpdateNotFound()
+		}
+
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsUpdateForbidden().
