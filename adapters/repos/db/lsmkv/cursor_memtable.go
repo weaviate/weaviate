@@ -28,6 +28,15 @@ func (l *Memtable) newCursor() *memtableCursor {
 	}
 }
 
+func (c *memtableCursor) first() ([]byte, []byte) {
+	if len(c.data) == 0 {
+		return nil, nil
+	}
+
+	c.current = 0
+	return c.data[c.current].key, c.data[c.current].value
+}
+
 func (c *memtableCursor) seek(key []byte) ([]byte, []byte) {
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {

@@ -17,3 +17,7 @@ func (c *Cursor) Seek(key []byte) ([]byte, []byte) {
 func (c *Cursor) Next() ([]byte, []byte) {
 	return c.memtable.next()
 }
+
+func (c *Cursor) First() ([]byte, []byte) {
+	return c.memtable.first()
+}
