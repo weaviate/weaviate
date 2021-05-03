@@ -103,3 +103,51 @@ func (t *DiskTree) readNode(offset int64) (dtNode, error) {
 
 	return out, nil
 }
+
+func (t *DiskTree) Seek(key []byte) (Node, error) {
+	if len(t.data) == 0 {
+		return Node{}, NotFound
+	}
+
+	return t.seekAt(0, key)
+}
+
+func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
+	node, err := t.readNode(offset)
+	if err != nil {
+		return Node{}, err
+	}
+
+	self := Node{
+		Key:   node.key,
+		Start: node.startPos,
+		End:   node.endPos,
+	}
+
+	if bytes.Equal(key, node.key) {
+		return self, nil
+	}
+
+	if bytes.Compare(key, node.key) < 0 {
+		if node.leftChild < 0 {
+			return self, nil
+		}
+
+		left, err := t.seekAt(node.leftChild, key)
+		if err == nil {
+			return left, nil
+		}
+
+		if err == NotFound {
+			return self, nil
+		}
+
+		return Node{}, err
+	} else {
+		if node.rightChild < 0 {
+			return Node{}, NotFound
+		}
+
+		return t.seekAt(node.rightChild, key)
+	}
+}
