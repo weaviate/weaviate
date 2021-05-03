@@ -87,6 +87,22 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 	return shard.addIDProperty(ctx)
 }
 
+func (i *Index) updateVectorIndexConfig(ctx context.Context,
+	updated schema.VectorIndexConfig) error {
+	// an updated is not specific to one shard, but rather all
+	for name, shard := range i.Shards {
+		// At the moment, we don't do anything in an update that could fail, but
+		// technically this should be part of some sort of a two-phase commit  or
+		// have another way to rollback if we have updates that could potentially
+		// fail in the future. For now that's not a realistic risk.
+		if err := shard.updateVectorIndexConfig(ctx, updated); err != nil {
+			return errors.Wrapf(err, "shard %s", name)
+		}
+	}
+
+	return nil
+}
+
 type IndexConfig struct {
 	RootPath  string
 	ClassName schema.ClassName

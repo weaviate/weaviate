@@ -128,7 +128,7 @@ func init() {
             "description": "The application has completed its start-up routine and is ready to accept traffic."
           },
           "503": {
-            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead."
+            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
       }
@@ -278,7 +278,7 @@ func init() {
     },
     "/classifications/": {
       "post": {
-        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
         "tags": [
           "classifications"
         ],
@@ -1200,6 +1200,112 @@ func init() {
       }
     },
     "/schema/{className}": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get a single class from the schema",
+        "operationId": "schema.objects.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Class was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      },
+      "put": {
+        "description": "Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update settings of an existing schema class",
+        "operationId": "schema.objects.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "objectClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Class was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Class to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update attempt",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
         "tags": [
           "schema"
@@ -1527,7 +1633,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
           "type": "string"
         }
       }
@@ -1576,7 +1682,7 @@ func init() {
               "$ref": "#/definitions/WhereFilter"
             },
             "targetWhere": {
-              "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
@@ -2551,7 +2657,7 @@ func init() {
             "description": "The application has completed its start-up routine and is ready to accept traffic."
           },
           "503": {
-            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead."
+            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
       }
@@ -2701,7 +2807,7 @@ func init() {
     },
     "/classifications/": {
       "post": {
-        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classification.",
         "tags": [
           "classifications"
         ],
@@ -3633,6 +3739,112 @@ func init() {
       }
     },
     "/schema/{className}": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get a single class from the schema",
+        "operationId": "schema.objects.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Class was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      },
+      "put": {
+        "description": "Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update settings of an existing schema class",
+        "operationId": "schema.objects.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "objectClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Class was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/Class"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Class to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update attempt",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
         "tags": [
           "schema"
@@ -4022,7 +4234,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
+          "description": "Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.",
           "type": "string"
         }
       }
@@ -4071,7 +4283,7 @@ func init() {
               "$ref": "#/definitions/WhereFilter"
             },
             "targetWhere": {
-              "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
@@ -4122,7 +4334,7 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         },
         "targetWhere": {
-          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
         },

@@ -44,7 +44,11 @@ type ClientService interface {
 
 	SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsDeleteOK, error)
 
+	SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsGetOK, error)
+
 	SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error)
+
+	SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -155,6 +159,41 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 }
 
 /*
+  SchemaObjectsGet gets a single class from the schema
+*/
+func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsGetParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.get",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
   SchemaObjectsPropertiesAdd adds a property to an object class
 */
 func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error) {
@@ -186,6 +225,43 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  SchemaObjectsUpdate updates settings of an existing schema class
+
+  Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
+*/
+func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.update",
+		Method:             "PUT",
+		PathPattern:        "/schema/{className}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

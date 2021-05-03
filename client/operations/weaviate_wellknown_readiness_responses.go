@@ -77,7 +77,7 @@ func NewWeaviateWellknownReadinessServiceUnavailable() *WeaviateWellknownReadine
 
 /*WeaviateWellknownReadinessServiceUnavailable handles this case with default header values.
 
-The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead.
+The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */
 type WeaviateWellknownReadinessServiceUnavailable struct {
 }
