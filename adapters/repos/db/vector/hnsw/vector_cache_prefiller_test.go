@@ -98,6 +98,10 @@ func (f *fakeCache) grow(id uint64) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) updateMaxSize(size int64) {
+	panic("not implemented")
+}
+
 func (f *fakeCache) drop() {
 	panic("not implemented")
 }

@@ -64,7 +64,7 @@ type hnsw struct {
 	efConstruction int
 
 	// ef at search time
-	ef int
+	ef int64
 
 	levelNormalizer float64
 
@@ -156,7 +156,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:    uc.EFConstruction,
-		ef:                uc.EF,
+		ef:                int64(uc.EF),
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,

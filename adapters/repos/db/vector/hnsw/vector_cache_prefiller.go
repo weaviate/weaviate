@@ -31,6 +31,7 @@ type cache interface {
 	prefetch(id uint64)
 	grow(size uint64)
 	drop()
+	updateMaxSize(size int64)
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,

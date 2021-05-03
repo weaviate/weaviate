@@ -28,8 +28,8 @@ type shardedLockCache struct {
 	cache           [][]float32
 	vectorForID     VectorForID
 	normalizeOnRead bool
-	maxSize         int
-	count           int32
+	maxSize         int64
+	count           int64
 	cancel          chan bool
 	logger          logrus.FieldLogger
 }
@@ -43,7 +43,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 		cache:           make([][]float32, initialSize),
 		normalizeOnRead: normalizeOnRead,
 		count:           0,
-		maxSize:         maxSize,
+		maxSize:         int64(maxSize),
 		cancel:          make(chan bool),
 		logger:          logger,
 		shardedLocks:    make([]sync.RWMutex, shardFactor),
@@ -74,7 +74,7 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 		vec = distancer.Normalize(vec)
 	}
 
-	atomic.AddInt32(&n.count, 1)
+	atomic.AddInt64(&n.count, 1)
 	n.shardedLocks[id%shardFactor].Lock()
 	n.cache[id] = vec
 	n.shardedLocks[id%shardFactor].Unlock()
@@ -90,7 +90,7 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
 
-	atomic.AddInt32(&n.count, 1)
+	atomic.AddInt64(&n.count, 1)
 	n.cache[id] = vec
 }
 
@@ -127,7 +127,7 @@ func (c *shardedLockCache) watchForDeletion() {
 }
 
 func (c *shardedLockCache) replaceIfFull() {
-	if atomic.LoadInt32(&c.count) >= int32(c.maxSize) {
+	if atomic.LoadInt64(&c.count) >= atomic.LoadInt64(&c.maxSize) {
 		c.obtainAllLocks()
 		c.logger.WithField("action", "hnsw_delete_vector_cache").
 			Debug("deleting full vector cache")
@@ -155,6 +155,10 @@ func (c *shardedLockCache) releaseAllLocks() {
 	for i := uint64(0); i < shardFactor; i++ {
 		c.shardedLocks[i].Unlock()
 	}
+}
+
+func (c *shardedLockCache) updateMaxSize(size int64) {
+	atomic.StoreInt64(&c.maxSize, size)
 }
 
 // noopCache can be helpful in debugging situations, where we want to

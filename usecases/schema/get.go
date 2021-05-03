@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -38,10 +40,7 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 }
 
 func (m *Manager) IndexedInverted(className, propertyName string) bool {
-	s := schema.Schema{
-		Objects: m.state.ObjectSchema,
-	}
-	class := s.FindClassByName(schema.ClassName(className))
+	class := m.getClassByName(className)
 	if class == nil {
 		return false
 	}
@@ -57,4 +56,22 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	}
 
 	return false
+}
+
+func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
+	name string) (*models.Class, error) {
+	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	if err != nil {
+		return nil, err
+	}
+
+	return m.getClassByName(name), nil
+}
+
+func (m *Manager) getClassByName(name string) *models.Class {
+	s := schema.Schema{
+		Objects: m.state.ObjectSchema,
+	}
+
+	return s.FindClassByName(schema.ClassName(name))
 }
