@@ -41,7 +41,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 }
 
 func (t *DiskTree) getAt(offset int64, key []byte) (Node, error) {
-	node, err := t.readNode(offset)
+	node, err := t.readNodeAt(offset)
 	if err != nil {
 		return Node{}, err
 	}
@@ -69,10 +69,14 @@ func (t *DiskTree) getAt(offset int64, key []byte) (Node, error) {
 	}
 }
 
-func (t *DiskTree) readNode(offset int64) (dtNode, error) {
+func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
 	r := bytes.NewReader(t.data)
 	r.Seek(offset, io.SeekStart)
 
+	return t.readNode(r)
+}
+
+func (t *DiskTree) readNode(r io.Reader) (dtNode, error) {
 	var out dtNode
 
 	var keyLen uint32
@@ -113,7 +117,7 @@ func (t *DiskTree) Seek(key []byte) (Node, error) {
 }
 
 func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
-	node, err := t.readNode(offset)
+	node, err := t.readNodeAt(offset)
 	if err != nil {
 		return Node{}, err
 	}
@@ -150,4 +154,31 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 
 		return t.seekAt(node.rightChild, key)
 	}
+}
+
+// AllKeys is a relatively expensive operation as it basically does a full disk
+// read of the index. It is meant for one of operations, such as initializing a
+// segment where we need access to all keys, e.g. to build a bloom filter. This
+// should not run at query time.
+//
+// The binary tree is traversed in Level-Order so keys have no meaningful
+// order. Do not use this method if an In-Order traversal is required, but only
+// for use cases who don't require a specific order, such as building a
+// bloom filter.
+func (t *DiskTree) AllKeys() ([][]byte, error) {
+	r := bytes.NewReader(t.data)
+	var out [][]byte
+	for {
+		node, err := t.readNode(r)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, node.key)
+	}
+
+	return out, nil
 }

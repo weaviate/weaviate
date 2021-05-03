@@ -51,7 +51,7 @@ func (t *Tree) insertAt(nodeID int, newNode Node) {
 	if bytes.Equal(newNode.Key, t.nodes[nodeID].Key) {
 		// this key already exists, which is an unexpected situation for an index
 		// key
-		panic(fmt.Sprintf("duplicate key %v", newNode.Key))
+		panic(fmt.Sprintf("duplicate key %s", newNode.Key))
 	}
 
 	if bytes.Compare(newNode.Key, t.nodes[nodeID].Key) < 0 {

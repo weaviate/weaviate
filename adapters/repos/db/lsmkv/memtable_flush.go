@@ -1,13 +1,12 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
+	"math/rand"
 	"os"
-	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/spaolacci/murmur3"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (l *Memtable) flush() error {
@@ -38,25 +37,25 @@ func (l *Memtable) flush() error {
 		}
 
 	}
-	// now sort keys according to their hashes for an efficient binary search
-	sort.Slice(keys, func(a, b int) bool {
-		return bytes.Compare(keys[a].hash, keys[b].hash) < 0
-	})
 
-	// now write all the keys with "links" to the values
-	// delimit a key with \xFF (obviously needs a better mechanism to protect against the data containing the delimter byte)
+	// shuffle keys so we don't end up with an unbalanced binary tree, as we
+	// would if they were perfectly ordered
+	rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
+
+	index := segmentindex.NewTree(len(keys))
 	for _, key := range keys {
-		f.Write(key.hash)
-
-		start := uint64(key.valueStart)
-		end := uint64(key.valueEnd)
-		if err := binary.Write(f, binary.LittleEndian, &start); err != nil {
-			return err
-		}
-		if err := binary.Write(f, binary.LittleEndian, &end); err != nil {
-			return err
-		}
+		index.Insert(key.key, uint64(key.valueStart), uint64(key.valueEnd))
 	}
+
+	indexBytes, err := index.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	if _, err := f.Write(indexBytes); err != nil {
+		return err
+	}
+
 	if err := f.Close(); err != nil {
 		return err
 	}
@@ -101,13 +100,10 @@ func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 		}
 		writtenForNode += n
 
-		hasher := murmur3.New128()
-		hasher.Write(node.key)
-		hash := hasher.Sum(nil)
 		keys[i] = keyIndex{
 			valueStart: totalWritten,
 			valueEnd:   totalWritten + writtenForNode,
-			hash:       hash,
+			key:        node.key,
 		}
 
 		totalWritten += writtenForNode
@@ -166,13 +162,10 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 			writtenForNode += n
 		}
 
-		hasher := murmur3.New128()
-		hasher.Write(node.key)
-		hash := hasher.Sum(nil)
 		keys[i] = keyIndex{
 			valueStart: totalWritten,
 			valueEnd:   totalWritten + writtenForNode,
-			hash:       hash,
+			key:        node.key,
 		}
 
 		totalWritten += writtenForNode

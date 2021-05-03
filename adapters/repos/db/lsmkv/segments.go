@@ -9,19 +9,24 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/spaolacci/murmur3"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/willf/bloom"
 )
 
 type segment struct {
 	segmentStartPos uint64
 	segmentEndPos   uint64
-	segmentCount    uint64
 	dataStartPos    uint64
 	dataEndPos      uint64
-	contents        []byte // in mem for now, mmapped later
+	contents        []byte
 	bloomFilter     *bloom.BloomFilter
 	strategy        SegmentStrategy
+	index           diskIndex
+}
+
+type diskIndex interface {
+	Get(key []byte) (segmentindex.Node, error)
+	AllKeys() ([][]byte, error)
 }
 
 func newSegment(path string) (*segment, error) {
@@ -53,29 +58,28 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Errorf("unsupported strategy in segment")
 	}
 
-	var pos uint64
+	var indexStartPos uint64
 	if err := binary.Read(bytes.NewReader(content[4:12]), binary.LittleEndian,
-		&pos); err != nil {
+		&indexStartPos); err != nil {
 		return nil, err
 	}
-	segmentBytes := content[pos:]
-	if len(segmentBytes)%32 != 0 {
-		return nil, errors.Errorf("corrupt segment with len %d", len(segmentBytes))
-	}
 
-	elementCount := len(segmentBytes) / 32
+	diskIndex := segmentindex.NewDiskTree(content[indexStartPos:])
+	// elementCount := len(segmentBytes) / 32
 
 	ind := &segment{
 		contents:        content,
-		segmentStartPos: pos,
+		segmentStartPos: indexStartPos,
 		segmentEndPos:   uint64(len(content)),
-		segmentCount:    uint64(elementCount),
 		strategy:        strategy,
 		dataStartPos:    8,
-		dataEndPos:      pos,
+		dataEndPos:      indexStartPos,
+		index:           diskIndex,
 	}
 
-	ind.initBloomFilter()
+	if err := ind.initBloomFilter(); err != nil {
+		return nil, err
+	}
 
 	return ind, nil
 }
@@ -85,20 +89,16 @@ func (i *segment) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
-	hasher := murmur3.New128()
-	hasher.Write(key)
-	keyHash := hasher.Sum(nil)
-
-	if !i.bloomFilter.Test(keyHash) {
+	if !i.bloomFilter.Test(key) {
 		return nil, NotFound
 	}
 
-	start, end, err := i.segmentBinarySearch(keyHash)
+	node, err := i.index.Get(key)
 	if err != nil {
 		return nil, err
 	}
 
-	return i.parseReplaceData(i.contents[start:end])
+	return i.parseReplaceData(i.contents[node.Start:node.End])
 }
 
 func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
@@ -121,20 +121,16 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
-	hasher := murmur3.New128()
-	hasher.Write(key)
-	keyHash := hasher.Sum(nil)
-
-	if !i.bloomFilter.Test(keyHash) {
+	if !i.bloomFilter.Test(key) {
 		return nil, NotFound
 	}
 
-	start, end, err := i.segmentBinarySearch(keyHash)
+	node, err := i.index.Get(key)
 	if err != nil {
 		return nil, err
 	}
 
-	return i.parseCollectionData(i.contents[start:end])
+	return i.parseCollectionData(i.contents[node.Start:node.End])
 }
 
 func (i *segment) parseCollectionData(in []byte) ([]value, error) {
@@ -186,52 +182,19 @@ var (
 	Deleted  = errors.Errorf("deleted")
 )
 
-func (i *segment) segmentBinarySearch(needle []byte) (uint64, uint64, error) {
-	low := uint64(0)
-	high := i.segmentCount - 1
-
-	for {
-		mid := (high-low)/2 + low
-		start := i.segmentStartPos + (mid * 32)
-		end := start + 16
-		hay := i.contents[start:end]
-
-		res := bytes.Compare(hay, needle)
-		if res == 0 {
-			return i.decodeStartEnd(i.contents[end : end+16])
-		}
-
-		if high == low {
-			return 0, 0, NotFound
-		}
-
-		if res > 0 {
-			high = mid
-		} else {
-			low = mid + 1
-		}
-	}
-}
-
-func (i *segment) decodeStartEnd(in []byte) (uint64, uint64, error) {
-	tuple := make([]uint64, 2)
-	err := binary.Read(bytes.NewReader(in), binary.LittleEndian, &tuple)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return tuple[0], tuple[1], nil
-}
-
-func (ind *segment) initBloomFilter() {
+func (ind *segment) initBloomFilter() error {
 	before := time.Now()
-	ind.bloomFilter = bloom.NewWithEstimates(uint(ind.segmentCount), 0.001)
-	for i := uint64(0); i < ind.segmentCount; i++ {
-		start := ind.segmentStartPos + (i * 32)
-		end := start + 16
-		ind.bloomFilter.Add(ind.contents[start:end])
+	keys, err := ind.index.AllKeys()
+	if err != nil {
+		return err
+	}
+
+	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+	for _, key := range keys {
+		ind.bloomFilter.Add(key)
 	}
 	took := time.Since(before)
 
 	fmt.Printf("building bloom filter took %s\n", took)
+	return nil
 }

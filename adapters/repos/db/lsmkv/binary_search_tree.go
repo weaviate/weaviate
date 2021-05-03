@@ -37,6 +37,7 @@ func (t *binarySearchTree) setTombstone(key []byte) {
 			value:     nil,
 			tombstone: true,
 		}
+		return
 	}
 
 	t.root.setTombstone(key)
