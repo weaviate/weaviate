@@ -34,7 +34,7 @@ func newMemtable(path string, strategy string) (*Memtable, error) {
 }
 
 type keyIndex struct {
-	hash       []byte
+	key        []byte
 	valueStart int
 	valueEnd   int
 }

@@ -181,5 +181,20 @@ func TestTree(t *testing.T) {
 			n, err = dTree.Seek([]byte("zzzzz"))
 			assert.Equal(t, NotFound, err)
 		})
+
+		t.Run("get all keys (for building bloom filters at segment init time)", func(t *testing.T) {
+			expected := [][]byte{
+				[]byte("aaa"),
+				[]byte("abc"),
+				[]byte("foobar"),
+				[]byte("zzz"),
+				[]byte("zzzz"),
+			}
+
+			keys, err := dTree.AllKeys()
+
+			require.Nil(t, err)
+			assert.ElementsMatch(t, expected, keys)
+		})
 	})
 }
