@@ -507,6 +507,32 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
+		t.Run("start from the beginning", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-000"),
+				[]byte("key-001"),
+				[]byte("key-002"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-000"),
+				[]byte("value-001"),
+				[]byte("value-002"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
 		// t.Run("replace some, keep one", func(t *testing.T) {
 		// 	key1 := []byte("key-1")
 		// 	key2 := []byte("key-2")
