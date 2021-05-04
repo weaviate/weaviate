@@ -38,7 +38,7 @@ func (s *segmentCursor) seek(key []byte) ([]byte, []byte, error) {
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[node.Start:node.End])
 	if err != nil {
-		return nil, nil, err
+		return parsed.key, nil, err
 	}
 
 	s.nextOffset = node.End
@@ -50,13 +50,17 @@ func (s *segmentCursor) next() ([]byte, []byte, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
 		return nil, nil, NotFound
 	}
+
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
-	if err != nil {
-		return nil, nil, err
-	}
 
+	// make sure to set the next offset before checking the error. The error
+	// could be 'Deleted' which would require that the offset is still advanced
+	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	if err != nil {
+		return parsed.key, nil, err
+	}
 
 	return parsed.key, parsed.value, nil
 }

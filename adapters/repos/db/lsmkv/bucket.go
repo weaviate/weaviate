@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+// TODO: are all the methods in here missing flushLock.RLock()??
+
 type Bucket struct {
 	dir      string
 	active   *Memtable

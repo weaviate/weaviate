@@ -134,9 +134,10 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 }
 
 type segmentParseResult struct {
-	key   []byte
-	value []byte
-	read  int // so that the cursor and calculate its offset for the next round
+	deleted bool
+	key     []byte
+	value   []byte
+	read    int // so that the cursor and calculate its offset for the next round
 }
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, error) {
@@ -148,7 +149,7 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, e
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
-		return out, Deleted
+		out.deleted = true
 	}
 	out.read += 1
 
@@ -177,6 +178,10 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, e
 		return out, errors.Wrap(err, "read key")
 	} else {
 		out.read += n
+	}
+
+	if out.deleted {
+		return out, Deleted
 	}
 
 	return out, nil
