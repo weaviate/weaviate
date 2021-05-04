@@ -80,7 +80,7 @@ func newSegment(path string) (*segment, error) {
 		segmentStartPos: indexStartPos,
 		segmentEndPos:   uint64(len(content)),
 		strategy:        strategy,
-		dataStartPos:    8,
+		dataStartPos:    SegmentHeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:      indexStartPos,
 		index:           diskIndex,
 	}

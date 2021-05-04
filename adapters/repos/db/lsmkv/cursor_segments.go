@@ -60,3 +60,16 @@ func (s *segmentCursor) next() ([]byte, []byte, error) {
 
 	return parsed.key, parsed.value, nil
 }
+
+func (s *segmentCursor) first() ([]byte, []byte, error) {
+	s.nextOffset = s.segment.dataStartPos
+	parsed, err := s.segment.replaceStratParseDataWithKey(
+		s.segment.contents[s.nextOffset:])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	s.nextOffset = s.nextOffset + uint64(parsed.read)
+
+	return parsed.key, parsed.value, nil
+}

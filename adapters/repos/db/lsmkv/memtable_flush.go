@@ -66,13 +66,18 @@ func (l *Memtable) flush() error {
 	return l.commitlog.delete()
 }
 
+// SegmentOffset describes the general offset in a segment until the data
+// starts, it is comprised of 2 bytes for level, 2 bytes for strategy, 8 bytes
+// for the pointer to the index part
+const SegmentHeaderSize = 12
+
 func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 	flat := l.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding
-	offset := 12                                  // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
-	indexPos := uint64(totalDataLength + perObjectAdditions + offset)
+	headerSize := SegmentHeaderSize
+	indexPos := uint64(totalDataLength + perObjectAdditions + headerSize)
 	level := uint16(0) // always level zero on a new one
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
@@ -86,7 +91,7 @@ func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 	}
 	keys := make([]keyIndex, len(flat))
 
-	totalWritten := offset
+	totalWritten := headerSize
 	for i, node := range flat {
 		writtenForNode := 0
 		if err := binary.Write(f, binary.LittleEndian, node.tombstone); err != nil {

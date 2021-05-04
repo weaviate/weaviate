@@ -50,5 +50,21 @@ func (c *Cursor) Next() ([]byte, []byte) {
 }
 
 func (c *Cursor) First() ([]byte, []byte) {
-	return c.memtable.first()
+	k, v := c.memtable.first()
+	// hacky temp workaround
+
+	if k == nil && len(c.segmentCursors) > 0 {
+		k, v, err := c.segmentCursors[0].first()
+		if err == NotFound {
+			return nil, nil
+		}
+
+		if err != nil {
+			panic(err)
+		}
+
+		return k, v
+	}
+
+	return k, v
 }
