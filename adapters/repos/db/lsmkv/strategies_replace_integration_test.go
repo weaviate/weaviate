@@ -533,29 +533,35 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
-		// t.Run("replace some, keep one", func(t *testing.T) {
-		// 	key1 := []byte("key-1")
-		// 	key2 := []byte("key-2")
-		// 	key3 := []byte("key-3")
-		// 	orig1 := []byte("original value for key1")
-		// 	replaced2 := []byte("updated value for key2")
-		// 	replaced3 := []byte("updated value for key3")
+		t.Run("replace a key", func(t *testing.T) {
+			key := []byte("key-002")
+			value := []byte("value-002-updated")
 
-		// 	err = b.Put(key2, replaced2)
-		// 	require.Nil(t, err)
-		// 	err = b.Put(key3, replaced3)
-		// 	require.Nil(t, err)
+			err = b.Put(key, value)
+			require.Nil(t, err)
 
-		// 	res, err := b.Get(key1)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, orig1)
-		// 	res, err = b.Get(key2)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, replaced2)
-		// 	res, err = b.Get(key3)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, replaced3)
-		// })
+			expectedKeys := [][]byte{
+				[]byte("key-001"),
+				[]byte("key-002"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-001"),
+				[]byte("value-002-updated"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			retrieved := 0
+			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
 	})
 
 	// t.Run("with single flush in between updates", func(t *testing.T) {
