@@ -139,8 +139,8 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 	flat := l.keyMulti.flattenInOrder()
 
 	totalDataLength := totalValueSizeCollection(flat)
-	offset := 12 // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
-	indexPos := uint64(totalDataLength + offset)
+	headerSize := SegmentHeaderSize
+	indexPos := uint64(totalDataLength + headerSize)
 	level := uint16(0) // always level zero on a new one
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
@@ -156,7 +156,7 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 	}
 	keys := make([]keyIndex, len(flat))
 
-	totalWritten := offset
+	totalWritten := headerSize
 	for i, node := range flat {
 		writtenForNode := 0
 
@@ -182,6 +182,18 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 			if err != nil {
 				return nil, errors.Wrapf(err, "write value on node %d", i)
 			}
+			writtenForNode += n
+		}
+
+		keyLen := uint32(len(node.key))
+		if err := binary.Write(f, binary.LittleEndian, &keyLen); err != nil {
+			return nil, errors.Wrapf(err, "write key len for node %d", i)
+		}
+		writtenForNode += 4
+
+		if n, err := f.Write(node.key); err != nil {
+			return nil, errors.Wrapf(err, "write key on node %d", i)
+		} else {
 			writtenForNode += n
 		}
 
@@ -216,6 +228,9 @@ func totalValueSizeCollection(in []*binarySearchNodeMulti) int {
 			sum += 8 // uint64 to indicate value length
 			sum += len(v.value)
 		}
+
+		sum += 4 // uint32 to indicate key size
+		sum += len(n.key)
 	}
 
 	return sum
