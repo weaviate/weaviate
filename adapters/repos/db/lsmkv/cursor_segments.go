@@ -15,8 +15,8 @@ func (s *segment) newCursor() *segmentCursor {
 	}
 }
 
-func (s *SegmentGroup) newCursors() []*segmentCursor {
-	out := make([]*segmentCursor, len(s.segments))
+func (s *SegmentGroup) newCursors() []innerCursor {
+	out := make([]innerCursor, len(s.segments))
 
 	for i, segment := range s.segments {
 		out[i] = segment.newCursor()
