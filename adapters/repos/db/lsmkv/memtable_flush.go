@@ -69,9 +69,9 @@ func (l *Memtable) flush() error {
 func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 	flat := l.key.flattenInOrder()
 
-	totalDataLength := totalValueSize(flat)
-	perObjectAdditions := len(flat) * 1 // 1 byte for the tombstone
-	offset := 12                        // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
+	totalDataLength := totalKeyAndValueSize(flat)
+	perObjectAdditions := len(flat) * (1 + 8 + 4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding
+	offset := 12                                  // 2 bytes for level, 2 bytes for strategy, 8 bytes for this indicator itself
 	indexPos := uint64(totalDataLength + perObjectAdditions + offset)
 	level := uint16(0) // always level zero on a new one
 
@@ -94,7 +94,25 @@ func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 		}
 		writtenForNode += 1
 
+		valueLength := uint64(len(node.value))
+		if err := binary.Write(f, binary.LittleEndian, &valueLength); err != nil {
+			return nil, errors.Wrapf(err, "write value length encoding for node %d", i)
+		}
+		writtenForNode += 8
+
 		n, err := f.Write(node.value)
+		if err != nil {
+			return nil, errors.Wrapf(err, "write node %d", i)
+		}
+		writtenForNode += n
+
+		keyLength := uint32(len(node.key))
+		if err := binary.Write(f, binary.LittleEndian, &keyLength); err != nil {
+			return nil, errors.Wrapf(err, "write key length encoding for node %d", i)
+		}
+		writtenForNode += 4
+
+		n, err = f.Write(node.key)
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
@@ -174,10 +192,11 @@ func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
 	return keys, nil
 }
 
-func totalValueSize(in []*binarySearchNode) int {
+func totalKeyAndValueSize(in []*binarySearchNode) int {
 	var sum int
 	for _, n := range in {
 		sum += len(n.value)
+		sum += len(n.key)
 	}
 
 	return sum
