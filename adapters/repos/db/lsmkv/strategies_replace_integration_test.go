@@ -443,15 +443,15 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 }
 
 func TestReplaceStrategy_Cursors(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-
 	t.Run("memtable-only", func(t *testing.T) {
+		rand.Seed(time.Now().UnixNano())
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			err := os.RemoveAll(dirName)
+			fmt.Println(err)
+		}()
+
 		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
 		require.Nil(t, err)
 
@@ -565,6 +565,14 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 	})
 
 	t.Run("with a single flush", func(t *testing.T) {
+		rand.Seed(time.Now().UnixNano())
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			err := os.RemoveAll(dirName)
+			fmt.Println(err)
+		}()
+
 		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
 		require.Nil(t, err)
 
@@ -650,163 +658,167 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
-		// t.Run("replace a key", func(t *testing.T) {
-		// 	key := []byte("key-002")
-		// 	value := []byte("value-002-updated")
+		// TODO: update
 
-		// 	err = b.Put(key, value)
-		// 	require.Nil(t, err)
-
-		// 	expectedKeys := [][]byte{
-		// 		[]byte("key-001"),
-		// 		[]byte("key-002"),
-		// 	}
-		// 	expectedValues := [][]byte{
-		// 		[]byte("value-001"),
-		// 		[]byte("value-002-updated"),
-		// 	}
-
-		// 	var retrievedKeys [][]byte
-		// 	var retrievedValues [][]byte
-		// 	c := b.Cursor()
-		// 	retrieved := 0
-		// 	for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-		// 		retrieved++
-		// 		retrievedKeys = append(retrievedKeys, k)
-		// 		retrievedValues = append(retrievedValues, v)
-		// 	}
-
-		// 	assert.Equal(t, expectedKeys, retrievedKeys)
-		// 	assert.Equal(t, expectedValues, retrievedValues)
-		// })
+		// TODO: delete
 	})
 
-	// t.Run("with single flush in between updates", func(t *testing.T) {
-	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 	require.Nil(t, err)
+	t.Run("mixing several disk segments and memtable", func(t *testing.T) {
+		rand.Seed(time.Now().UnixNano())
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			err := os.RemoveAll(dirName)
+			fmt.Println(err)
+		}()
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		require.Nil(t, err)
 
-	// 	t.Run("set original values and verify", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		orig2 := []byte("original value for key2")
-	// 		orig3 := []byte("original value for key3")
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
 
-	// 		err = b.Put(key1, orig1)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key2, orig2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, orig3)
-	// 		require.Nil(t, err)
+		t.Run("first third (%3==0)", func(t *testing.T) {
+			pairs := 20
+			var keys [][]byte
+			var values [][]byte
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig3)
-	// 	})
+			for i := 0; i < pairs; i++ {
+				if i%3 == 0 {
+					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+				}
+			}
 
-	// 	t.Run("flush memtable to disk", func(t *testing.T) {
-	// 		require.Nil(t, b.FlushAndSwitch())
-	// 	})
+			// shuffle to make sure the BST isn't accidentally in order
+			rand.Seed(time.Now().UnixNano())
+			rand.Shuffle(len(keys), func(i, j int) {
+				keys[i], keys[j] = keys[j], keys[i]
+				values[i], values[j] = values[j], values[i]
+			})
 
-	// 	t.Run("replace some, keep one", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+			for i := range keys {
+				err = b.Put(keys[i], values[i])
+				require.Nil(t, err)
+			}
+		})
 
-	// 		err = b.Put(key2, replaced2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, replaced3)
-	// 		require.Nil(t, err)
+		t.Run("flush to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, orig1, res)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced2, res)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced3, res)
-	// 	})
-	// })
+		t.Run("second third (%3==1)", func(t *testing.T) {
+			pairs := 20
+			var keys [][]byte
+			var values [][]byte
 
-	// t.Run("with a flush after the initial write and after the update", func(t *testing.T) {
-	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 	require.Nil(t, err)
+			for i := 0; i < pairs; i++ {
+				if i%3 == 1 {
+					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+				}
+			}
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+			// shuffle to make sure the BST isn't accidentally in order
+			rand.Seed(time.Now().UnixNano())
+			rand.Shuffle(len(keys), func(i, j int) {
+				keys[i], keys[j] = keys[j], keys[i]
+				values[i], values[j] = values[j], values[i]
+			})
 
-	// 	t.Run("set original values and verify", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		orig2 := []byte("original value for key2")
-	// 		orig3 := []byte("original value for key3")
+			for i := range keys {
+				err = b.Put(keys[i], values[i])
+				require.Nil(t, err)
+			}
+		})
 
-	// 		err = b.Put(key1, orig1)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key2, orig2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, orig3)
-	// 		require.Nil(t, err)
+		t.Run("flush to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig3)
-	// 	})
+		t.Run("third third (%3==2) memtable only", func(t *testing.T) {
+			pairs := 20
+			var keys [][]byte
+			var values [][]byte
 
-	// 	t.Run("flush memtable to disk", func(t *testing.T) {
-	// 		require.Nil(t, b.FlushAndSwitch())
-	// 	})
+			for i := 0; i < pairs; i++ {
+				if i%3 == 2 {
+					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+				}
+			}
 
-	// 	t.Run("replace some, keep one", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+			// shuffle to make sure the BST isn't accidentally in order
+			rand.Seed(time.Now().UnixNano())
+			rand.Shuffle(len(keys), func(i, j int) {
+				keys[i], keys[j] = keys[j], keys[i]
+				values[i], values[j] = values[j], values[i]
+			})
 
-	// 		err = b.Put(key2, replaced2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, replaced3)
-	// 		require.Nil(t, err)
+			for i := range keys {
+				err = b.Put(keys[i], values[i])
+				require.Nil(t, err)
+			}
 
-	// 		// Flush before verifying!
-	// 		require.Nil(t, b.FlushAndSwitch())
+			// no flush for this one, so this segment stays in the memtable
+		})
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced3)
-	// 	})
-	// })
+		t.Run("seek from somewhere in the middle", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-016"),
+				[]byte("key-017"),
+				[]byte("key-018"),
+				[]byte("key-019"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-016"),
+				[]byte("value-017"),
+				[]byte("value-018"),
+				[]byte("value-019"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
+		t.Run("start from the beginning", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-000"),
+				[]byte("key-001"),
+				[]byte("key-002"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-000"),
+				[]byte("value-001"),
+				[]byte("value-002"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
+		// TODO: update
+
+		// TODO: delete
+	})
 
 	// t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
 	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
