@@ -9,7 +9,7 @@ type memtableCursor struct {
 	current int
 }
 
-func (l *Memtable) newCursor() innerCursor {
+func (l *Memtable) newCursor() innerCursorReplace {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the
 	// very last element. However, given that the memtable will on average be
@@ -20,7 +20,6 @@ func (l *Memtable) newCursor() innerCursor {
 	l.RLock()
 	defer l.RUnlock()
 
-	// TODO: support strategies other than replace
 	data := l.key.flattenInOrder()
 
 	return &memtableCursor{

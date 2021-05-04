@@ -6,33 +6,37 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Cursor struct {
-	innerCursors []innerCursor
-	state        []cursorState
+type CursorReplace struct {
+	innerCursors []innerCursorReplace
+	state        []cursorStateReplace
 }
 
-type innerCursor interface {
+type innerCursorReplace interface {
 	first() ([]byte, []byte, error)
 	next() ([]byte, []byte, error)
 	seek([]byte) ([]byte, []byte, error)
 }
 
-type cursorState struct {
+type cursorStateReplace struct {
 	key   []byte
 	value []byte
 	err   error
 }
 
-func (b *Bucket) Cursor() *Cursor {
-	return &Cursor{
+func (b *Bucket) Cursor() *CursorReplace {
+	if b.strategy != StrategyReplace {
+		panic("Cursor() called on strategy other than 'replace'")
+	}
+
+	return &CursorReplace{
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: append(b.disk.newCursors(), b.active.newCursor()),
 	}
 }
 
-func (c *Cursor) seekAll(target []byte) {
-	state := make([]cursorState, len(c.innerCursors))
+func (c *CursorReplace) seekAll(target []byte) {
+	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
 		if err == NotFound {
@@ -51,7 +55,7 @@ func (c *Cursor) seekAll(target []byte) {
 	c.state = state
 }
 
-func (c *Cursor) serveCurrentStateAndAdvance() ([]byte, []byte) {
+func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
 		if err == NotFound {
@@ -70,7 +74,7 @@ func (c *Cursor) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	}
 }
 
-func (c *Cursor) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
+func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 	key := c.state[idWithLowestKey].key
 
 	var idsFound []int
@@ -91,7 +95,7 @@ func (c *Cursor) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 
 // if there are no duplicates present it will still work as returning the
 // latest result is the same as returning the only result
-func (c *Cursor) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []byte) {
+func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []byte) {
 	res := c.state[ids[len(ids)-1]]
 
 	// with a replace strategy only the highest will be returned, but still all
@@ -109,12 +113,12 @@ func (c *Cursor) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []b
 	return res.key, res.value
 }
 
-func (c *Cursor) Seek(key []byte) ([]byte, []byte) {
+func (c *CursorReplace) Seek(key []byte) ([]byte, []byte) {
 	c.seekAll(key)
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *Cursor) cursorWithLowestKey() (int, error) {
+func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 	err := NotFound
 	pos := -1
 	var lowest []byte
@@ -138,7 +142,7 @@ func (c *Cursor) cursorWithLowestKey() (int, error) {
 	return pos, nil
 }
 
-func (c *Cursor) advanceInner(id int) {
+func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
 	if err == NotFound {
 		c.state[id].err = err
@@ -163,12 +167,12 @@ func (c *Cursor) advanceInner(id int) {
 	c.state[id].err = nil
 }
 
-func (c *Cursor) Next() ([]byte, []byte) {
+func (c *CursorReplace) Next() ([]byte, []byte) {
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *Cursor) firstAll() {
-	state := make([]cursorState, len(c.innerCursors))
+func (c *CursorReplace) firstAll() {
+	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
 		if err == NotFound {
@@ -187,7 +191,7 @@ func (c *Cursor) firstAll() {
 	c.state = state
 }
 
-func (c *Cursor) First() ([]byte, []byte) {
+func (c *CursorReplace) First() ([]byte, []byte) {
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance()
 }
