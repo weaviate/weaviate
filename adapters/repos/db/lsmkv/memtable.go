@@ -129,27 +129,6 @@ func (l *Memtable) append(key []byte, values []value) error {
 	return nil
 }
 
-// func (l *Memtable) mapSet(rowKey []byte, values []value) error {
-// 	if l.strategy != StrategySetCollection {
-// 		return errors.Errorf("append only possible with strategy %q", StrategySetCollection)
-// 	}
-
-// 	l.Lock()
-// 	defer l.Unlock()
-// 	// TODO: commit log
-// 	// if err := l.commitlog.put(key, value); err != nil {
-// 	// 	return errors.Wrap(err, "write into commit log")
-// 	// }
-
-// 	l.keyMulti.insert(key, values)
-// 	l.size += uint64(len(key))
-// 	for _, value := range values {
-// 		l.size += uint64(len(value.value))
-// 	}
-
-// 	return nil
-// }
-
 func (l *Memtable) Size() uint64 {
 	l.RLock()
 	defer l.RUnlock()

@@ -4,19 +4,19 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-type segmentCursor struct {
+type segmentCursorReplace struct {
 	segment    *segment
 	nextOffset uint64
 }
 
-func (s *segment) newCursor() *segmentCursor {
-	return &segmentCursor{
+func (s *segment) newCursor() *segmentCursorReplace {
+	return &segmentCursorReplace{
 		segment: s,
 	}
 }
 
-func (s *SegmentGroup) newCursors() []innerCursor {
-	out := make([]innerCursor, len(s.segments))
+func (s *SegmentGroup) newCursors() []innerCursorReplace {
+	out := make([]innerCursorReplace, len(s.segments))
 
 	for i, segment := range s.segments {
 		out[i] = segment.newCursor()
@@ -25,7 +25,7 @@ func (s *SegmentGroup) newCursors() []innerCursor {
 	return out
 }
 
-func (s *segmentCursor) seek(key []byte) ([]byte, []byte, error) {
+func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
@@ -46,7 +46,7 @@ func (s *segmentCursor) seek(key []byte) ([]byte, []byte, error) {
 	return parsed.key, parsed.value, nil
 }
 
-func (s *segmentCursor) next() ([]byte, []byte, error) {
+func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
 		return nil, nil, NotFound
 	}
@@ -65,7 +65,7 @@ func (s *segmentCursor) next() ([]byte, []byte, error) {
 	return parsed.key, parsed.value, nil
 }
 
-func (s *segmentCursor) first() ([]byte, []byte, error) {
+func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
