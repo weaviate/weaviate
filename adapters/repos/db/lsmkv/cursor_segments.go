@@ -1,9 +1,12 @@
 package lsmkv
 
-import "github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+import (
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+)
 
 type segmentCursor struct {
-	segment *segment
+	segment    *segment
+	nextOffset uint64
 }
 
 func (s *segment) newCursor() *segmentCursor {
@@ -32,11 +35,28 @@ func (s *segmentCursor) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	value, err := s.segment.parseReplaceData(s.segment.contents[node.Start:node.End])
+	parsed, err := s.segment.replaceStratParseDataWithKey(
+		s.segment.contents[node.Start:node.End])
 	if err != nil {
 		return nil, nil, err
 	}
 
-	foundKey := []byte("missing")
-	return foundKey, value, nil
+	s.nextOffset = node.End
+
+	return parsed.key, parsed.value, nil
+}
+
+func (s *segmentCursor) next() ([]byte, []byte, error) {
+	if s.nextOffset >= s.segment.dataEndPos {
+		return nil, nil, NotFound
+	}
+	parsed, err := s.segment.replaceStratParseDataWithKey(
+		s.segment.contents[s.nextOffset:])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	s.nextOffset = s.nextOffset + uint64(parsed.read)
+
+	return parsed.key, parsed.value, nil
 }

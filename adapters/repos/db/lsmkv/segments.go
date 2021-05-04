@@ -106,10 +106,10 @@ func (i *segment) get(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return i.parseReplaceData(i.contents[node.Start:node.End])
+	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
 
-func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
+func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
 		return nil, NotFound
 	}
@@ -133,6 +133,55 @@ func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
 	return data, nil
 }
 
+type segmentParseResult struct {
+	key   []byte
+	value []byte
+	read  int // so that the cursor and calculate its offset for the next round
+}
+
+func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, error) {
+	out := segmentParseResult{}
+
+	if len(in) == 0 {
+		return out, NotFound
+	}
+
+	// check the tombstone byte
+	if in[0] == 0x01 {
+		return out, Deleted
+	}
+	out.read += 1
+
+	r := bytes.NewReader(in[1:])
+	var valueLength uint64
+	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
+		return out, errors.Wrap(err, "read value length encoding")
+	}
+	out.read += 8
+
+	out.value = make([]byte, valueLength)
+	if n, err := r.Read(out.value); err != nil {
+		return out, errors.Wrap(err, "read value")
+	} else {
+		out.read += n
+	}
+
+	var keyLength uint32
+	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+		return out, errors.Wrap(err, "read key length encoding")
+	}
+	out.read += 4
+
+	out.key = make([]byte, keyLength)
+	if n, err := r.Read(out.key); err != nil {
+		return out, errors.Wrap(err, "read key")
+	} else {
+		out.read += n
+	}
+
+	return out, nil
+}
+
 func (i *segment) getCollection(key []byte) ([]value, error) {
 	if i.strategy != SegmentStrategySetCollection &&
 		i.strategy != SegmentStrategyMapCollection {
@@ -149,10 +198,10 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 		return nil, err
 	}
 
-	return i.parseCollectionData(i.contents[node.Start:node.End])
+	return i.collectionStratParseData(i.contents[node.Start:node.End])
 }
 
-func (i *segment) parseCollectionData(in []byte) ([]value, error) {
+func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 	if len(in) == 0 {
 		return nil, NotFound
 	}

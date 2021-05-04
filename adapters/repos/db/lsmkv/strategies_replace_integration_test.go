@@ -564,122 +564,122 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 		})
 	})
 
-	// t.Run("with a single flush", func(t *testing.T) {
-	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 	require.Nil(t, err)
+	t.Run("with a single flush", func(t *testing.T) {
+		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		require.Nil(t, err)
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
 
-	// 	t.Run("set original values", func(t *testing.T) {
-	// 		pairs := 20
-	// 		keys := make([][]byte, pairs)
-	// 		values := make([][]byte, pairs)
+		t.Run("set original values", func(t *testing.T) {
+			pairs := 20
+			keys := make([][]byte, pairs)
+			values := make([][]byte, pairs)
 
-	// 		for i := range keys {
-	// 			keys[i] = []byte(fmt.Sprintf("key-%03d", i))
-	// 			values[i] = []byte(fmt.Sprintf("value-%03d", i))
-	// 		}
+			for i := range keys {
+				keys[i] = []byte(fmt.Sprintf("key-%03d", i))
+				values[i] = []byte(fmt.Sprintf("value-%03d", i))
+			}
 
-	// 		// shuffle to make sure the BST isn't accidentally in order
-	// 		rand.Seed(time.Now().UnixNano())
-	// 		rand.Shuffle(len(keys), func(i, j int) {
-	// 			keys[i], keys[j] = keys[j], keys[i]
-	// 			values[i], values[j] = values[j], values[i]
-	// 		})
+			// shuffle to make sure the BST isn't accidentally in order
+			rand.Seed(time.Now().UnixNano())
+			rand.Shuffle(len(keys), func(i, j int) {
+				keys[i], keys[j] = keys[j], keys[i]
+				values[i], values[j] = values[j], values[i]
+			})
 
-	// 		for i := range keys {
-	// 			err = b.Put(keys[i], values[i])
-	// 			require.Nil(t, err)
-	// 		}
-	// 	})
+			for i := range keys {
+				err = b.Put(keys[i], values[i])
+				require.Nil(t, err)
+			}
+		})
 
-	// 	t.Run("flush to disk", func(t *testing.T) {
-	// 		require.Nil(t, b.FlushAndSwitch())
-	// 	})
+		t.Run("flush to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 	t.Run("seek from somewhere in the middle", func(t *testing.T) {
-	// 		expectedKeys := [][]byte{
-	// 			[]byte("key-016"),
-	// 			[]byte("key-017"),
-	// 			[]byte("key-018"),
-	// 			[]byte("key-019"),
-	// 		}
-	// 		expectedValues := [][]byte{
-	// 			[]byte("value-016"),
-	// 			[]byte("value-017"),
-	// 			[]byte("value-018"),
-	// 			[]byte("value-019"),
-	// 		}
+		t.Run("seek from somewhere in the middle", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-016"),
+				[]byte("key-017"),
+				[]byte("key-018"),
+				[]byte("key-019"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-016"),
+				[]byte("value-017"),
+				[]byte("value-018"),
+				[]byte("value-019"),
+			}
 
-	// 		var retrievedKeys [][]byte
-	// 		var retrievedValues [][]byte
-	// 		c := b.Cursor()
-	// 		for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-	// 			retrievedKeys = append(retrievedKeys, k)
-	// 			retrievedValues = append(retrievedValues, v)
-	// 		}
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
 
-	// 		assert.Equal(t, expectedKeys, retrievedKeys)
-	// 		assert.Equal(t, expectedValues, retrievedValues)
-	// 	})
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
 
-	// 	// t.Run("start from the beginning", func(t *testing.T) {
-	// 	// 	expectedKeys := [][]byte{
-	// 	// 		[]byte("key-000"),
-	// 	// 		[]byte("key-001"),
-	// 	// 		[]byte("key-002"),
-	// 	// 	}
-	// 	// 	expectedValues := [][]byte{
-	// 	// 		[]byte("value-000"),
-	// 	// 		[]byte("value-001"),
-	// 	// 		[]byte("value-002"),
-	// 	// 	}
+		// t.Run("start from the beginning", func(t *testing.T) {
+		// 	expectedKeys := [][]byte{
+		// 		[]byte("key-000"),
+		// 		[]byte("key-001"),
+		// 		[]byte("key-002"),
+		// 	}
+		// 	expectedValues := [][]byte{
+		// 		[]byte("value-000"),
+		// 		[]byte("value-001"),
+		// 		[]byte("value-002"),
+		// 	}
 
-	// 	// 	var retrievedKeys [][]byte
-	// 	// 	var retrievedValues [][]byte
-	// 	// 	c := b.Cursor()
-	// 	// 	retrieved := 0
-	// 	// 	for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-	// 	// 		retrieved++
-	// 	// 		retrievedKeys = append(retrievedKeys, k)
-	// 	// 		retrievedValues = append(retrievedValues, v)
-	// 	// 	}
+		// 	var retrievedKeys [][]byte
+		// 	var retrievedValues [][]byte
+		// 	c := b.Cursor()
+		// 	retrieved := 0
+		// 	for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+		// 		retrieved++
+		// 		retrievedKeys = append(retrievedKeys, k)
+		// 		retrievedValues = append(retrievedValues, v)
+		// 	}
 
-	// 	// 	assert.Equal(t, expectedKeys, retrievedKeys)
-	// 	// 	assert.Equal(t, expectedValues, retrievedValues)
-	// 	// })
+		// 	assert.Equal(t, expectedKeys, retrievedKeys)
+		// 	assert.Equal(t, expectedValues, retrievedValues)
+		// })
 
-	// 	// t.Run("replace a key", func(t *testing.T) {
-	// 	// 	key := []byte("key-002")
-	// 	// 	value := []byte("value-002-updated")
+		// t.Run("replace a key", func(t *testing.T) {
+		// 	key := []byte("key-002")
+		// 	value := []byte("value-002-updated")
 
-	// 	// 	err = b.Put(key, value)
-	// 	// 	require.Nil(t, err)
+		// 	err = b.Put(key, value)
+		// 	require.Nil(t, err)
 
-	// 	// 	expectedKeys := [][]byte{
-	// 	// 		[]byte("key-001"),
-	// 	// 		[]byte("key-002"),
-	// 	// 	}
-	// 	// 	expectedValues := [][]byte{
-	// 	// 		[]byte("value-001"),
-	// 	// 		[]byte("value-002-updated"),
-	// 	// 	}
+		// 	expectedKeys := [][]byte{
+		// 		[]byte("key-001"),
+		// 		[]byte("key-002"),
+		// 	}
+		// 	expectedValues := [][]byte{
+		// 		[]byte("value-001"),
+		// 		[]byte("value-002-updated"),
+		// 	}
 
-	// 	// 	var retrievedKeys [][]byte
-	// 	// 	var retrievedValues [][]byte
-	// 	// 	c := b.Cursor()
-	// 	// 	retrieved := 0
-	// 	// 	for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-	// 	// 		retrieved++
-	// 	// 		retrievedKeys = append(retrievedKeys, k)
-	// 	// 		retrievedValues = append(retrievedValues, v)
-	// 	// 	}
+		// 	var retrievedKeys [][]byte
+		// 	var retrievedValues [][]byte
+		// 	c := b.Cursor()
+		// 	retrieved := 0
+		// 	for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
+		// 		retrieved++
+		// 		retrievedKeys = append(retrievedKeys, k)
+		// 		retrievedValues = append(retrievedValues, v)
+		// 	}
 
-	// 	// 	assert.Equal(t, expectedKeys, retrievedKeys)
-	// 	// 	assert.Equal(t, expectedValues, retrievedValues)
-	// 	// })
-	// })
+		// 	assert.Equal(t, expectedKeys, retrievedKeys)
+		// 	assert.Equal(t, expectedValues, retrievedValues)
+		// })
+	})
 
 	// t.Run("with single flush in between updates", func(t *testing.T) {
 	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
