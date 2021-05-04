@@ -9,7 +9,7 @@ type memtableCursor struct {
 	current int
 }
 
-func (l *Memtable) newCursor() *memtableCursor {
+func (l *Memtable) newCursor() innerCursor {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the
 	// very last element. However, given that the memtable will on average be
@@ -28,23 +28,23 @@ func (l *Memtable) newCursor() *memtableCursor {
 	}
 }
 
-func (c *memtableCursor) first() ([]byte, []byte) {
+func (c *memtableCursor) first() ([]byte, []byte, error) {
 	if len(c.data) == 0 {
-		return nil, nil
+		return nil, nil, NotFound
 	}
 
 	c.current = 0
-	return c.data[c.current].key, c.data[c.current].value
+	return c.data[c.current].key, c.data[c.current].value, nil
 }
 
-func (c *memtableCursor) seek(key []byte) ([]byte, []byte) {
+func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
-		return nil, nil
+		return nil, nil, NotFound
 	}
 
 	c.current = pos
-	return c.data[pos].key, c.data[pos].value
+	return c.data[pos].key, c.data[pos].value, nil
 }
 
 func (c *memtableCursor) posLargerThanEqual(key []byte) int {
@@ -57,11 +57,11 @@ func (c *memtableCursor) posLargerThanEqual(key []byte) int {
 	return -1
 }
 
-func (c *memtableCursor) next() ([]byte, []byte) {
+func (c *memtableCursor) next() ([]byte, []byte, error) {
 	c.current++
 	if c.current >= len(c.data) {
-		return nil, nil
+		return nil, nil, NotFound
 	}
 
-	return c.data[c.current].key, c.data[c.current].value
+	return c.data[c.current].key, c.data[c.current].value, nil
 }

@@ -1,70 +1,166 @@
 package lsmkv
 
+import (
+	"bytes"
+
+	"github.com/pkg/errors"
+)
+
 type Cursor struct {
-	memtable       *memtableCursor
-	segmentCursors []*segmentCursor
+	innerCursors []innerCursor
+	state        []cursorState
+}
+
+type innerCursor interface {
+	first() ([]byte, []byte, error)
+	next() ([]byte, []byte, error)
+	seek([]byte) ([]byte, []byte, error)
+}
+
+type cursorState struct {
+	key   []byte
+	value []byte
+	err   error
 }
 
 func (b *Bucket) Cursor() *Cursor {
 	return &Cursor{
-		memtable:       b.active.newCursor(),
-		segmentCursors: b.disk.newCursors(),
+		// cursor are in order from oldest to newest, with the memtable cursor
+		// being at the very top
+		innerCursors: append(b.disk.newCursors(), b.active.newCursor()),
 	}
+}
+
+func (c *Cursor) seekAll(target []byte) {
+	state := make([]cursorState, len(c.innerCursors))
+	for i, cur := range c.innerCursors {
+		key, value, err := cur.seek(target)
+		if err == NotFound {
+			state[i].err = err
+			continue
+		}
+
+		if err != nil {
+			panic(errors.Wrap(err, "unexpected error in seek"))
+		}
+
+		state[i].key = key
+		state[i].value = value
+	}
+
+	c.state = state
 }
 
 func (c *Cursor) Seek(key []byte) ([]byte, []byte) {
-	// temp logic
-	k, v := c.memtable.seek(key)
+	c.seekAll(key)
 
-	// hacky workaround to switch to disk only
-	if k == nil {
-		k, v, err := c.segmentCursors[0].seek(key)
-		if err != nil {
-			panic(err)
+	id, err := c.cursorWithLowestKey()
+	if err != nil {
+		if err == NotFound {
+			return nil, nil
 		}
 
-		return k, v
+		panic(errors.Wrap(err, "unexpected error in seek"))
+	}
+	res := c.state[id]
+
+	// only advance the one that delivered a result
+	c.advanceInner(id)
+	return res.key, res.value
+}
+
+func (c *Cursor) cursorWithLowestKey() (int, error) {
+	// TODO: what about duplicates? (updates, deletes)
+	err := NotFound
+	pos := -1
+	var lowest []byte
+
+	for i, res := range c.state {
+		if res.err == NotFound {
+			continue
+		}
+
+		if lowest == nil || bytes.Compare(res.key, lowest) < 0 {
+			pos = i
+			err = nil
+			lowest = res.key
+		}
 	}
 
-	return k, v
+	if err != nil {
+		return -1, err
+	}
+
+	return pos, nil
+}
+
+func (c *Cursor) advanceInner(id int) {
+	k, v, err := c.innerCursors[id].next()
+	if err == NotFound {
+		c.state[id].err = err
+		c.state[id].key = nil
+		c.state[id].value = nil
+		return
+	}
+
+	if err != nil {
+		panic(errors.Wrap(err, "unexpected error in advance"))
+	}
+
+	c.state[id].key = k
+	c.state[id].value = v
 }
 
 func (c *Cursor) Next() ([]byte, []byte) {
-	// temp logic
-	k, v := c.memtable.next()
-	// hacky workaround to switch to disk only
-	if k == nil && len(c.segmentCursors) > 0 {
-		k, v, err := c.segmentCursors[0].next()
+	id, err := c.cursorWithLowestKey()
+	if err != nil {
 		if err == NotFound {
 			return nil, nil
 		}
 
-		if err != nil {
-			panic(err)
+		panic(errors.Wrap(err, "unexpected error in next"))
+	}
+	res := c.state[id]
+
+	// only advance the one that delivered a result
+	c.advanceInner(id)
+	return res.key, res.value
+}
+
+func (c *Cursor) firstAll() {
+	state := make([]cursorState, len(c.innerCursors))
+	for i, cur := range c.innerCursors {
+		key, value, err := cur.first()
+		if err == NotFound {
+			state[i].err = err
+			continue
 		}
 
-		return k, v
+		if err != nil {
+			panic(errors.Wrap(err, "unexpected error in seek"))
+		}
+
+		state[i].key = key
+		state[i].value = value
 	}
 
-	return k, v
+	c.state = state
 }
 
 func (c *Cursor) First() ([]byte, []byte) {
-	k, v := c.memtable.first()
-	// hacky temp workaround
+	c.firstAll()
 
-	if k == nil && len(c.segmentCursors) > 0 {
-		k, v, err := c.segmentCursors[0].first()
+	id, err := c.cursorWithLowestKey()
+	if err != nil {
 		if err == NotFound {
 			return nil, nil
 		}
 
-		if err != nil {
-			panic(err)
-		}
-
-		return k, v
+		panic(errors.Wrap(err, "unexpected error in seek"))
 	}
+	res := c.state[id]
 
-	return k, v
+	// only advance the one that delivered a result
+	c.advanceInner(id)
+	return res.key, res.value
 }
