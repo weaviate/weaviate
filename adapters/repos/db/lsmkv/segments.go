@@ -25,7 +25,15 @@ type segment struct {
 }
 
 type diskIndex interface {
+	// Get return segmentindex.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
+
+	// Seek returns segmentindex.NotFound in case the seek value is larger than
+	// the highest value in the collection, otherwise it returns the next highest
+	// value (or the exact value if present)
+	Seek(key []byte) (segmentindex.Node, error)
+
+	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
 }
 
@@ -111,7 +119,18 @@ func (i *segment) parseReplaceData(in []byte) ([]byte, error) {
 		return nil, Deleted
 	}
 
-	return in[1:], nil
+	r := bytes.NewReader(in[1:])
+	var valueLength uint64
+	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
+		return nil, errors.Wrap(err, "read value length encoding")
+	}
+
+	data := make([]byte, valueLength)
+	if _, err := r.Read(data); err != nil {
+		return nil, errors.Wrap(err, "read value")
+	}
+
+	return data, nil
 }
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
