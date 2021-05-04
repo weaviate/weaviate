@@ -657,13 +657,9 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
-
-		// TODO: update
-
-		// TODO: delete
 	})
 
-	t.Run("mixing several disk segments and memtable", func(t *testing.T) {
+	t.Run("mixing several disk segments and memtable - with updates", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
 		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 		os.MkdirAll(dirName, 0o777)
@@ -732,6 +728,11 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			}
 		})
 
+		t.Run("update something that was already written in segment 1", func(t *testing.T) {
+			require.Nil(t, b.Put([]byte("key-000"), []byte("updated-value-000")))
+			require.Nil(t, b.Delete([]byte("key-003")))
+		})
+
 		t.Run("flush to disk", func(t *testing.T) {
 			require.Nil(t, b.FlushAndSwitch())
 		})
@@ -763,18 +764,24 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			// no flush for this one, so this segment stays in the memtable
 		})
 
+		t.Run("update something that was already written previoulsy", func(t *testing.T) {
+			require.Nil(t, b.Put([]byte("key-000"), []byte("twice-updated-value-000")))
+			require.Nil(t, b.Put([]byte("key-001"), []byte("once-updated-value-001")))
+			require.Nil(t, b.Put([]byte("key-019"), []byte("once-updated-value-019")))
+			require.Nil(t, b.Delete([]byte("key-018")))
+		})
+
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
 			expectedKeys := [][]byte{
 				[]byte("key-016"),
 				[]byte("key-017"),
-				[]byte("key-018"),
+				// key-018 deleted
 				[]byte("key-019"),
 			}
 			expectedValues := [][]byte{
 				[]byte("value-016"),
 				[]byte("value-017"),
-				[]byte("value-018"),
-				[]byte("value-019"),
+				[]byte("once-updated-value-019"),
 			}
 
 			var retrievedKeys [][]byte
@@ -794,18 +801,21 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 				[]byte("key-000"),
 				[]byte("key-001"),
 				[]byte("key-002"),
+				// key-003 was deleted
+				[]byte("key-004"),
 			}
 			expectedValues := [][]byte{
-				[]byte("value-000"),
-				[]byte("value-001"),
+				[]byte("twice-updated-value-000"),
+				[]byte("once-updated-value-001"),
 				[]byte("value-002"),
+				[]byte("value-004"),
 			}
 
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
 			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -815,9 +825,123 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
-		// TODO: update
+		t.Run("re-add the deleted keys", func(t *testing.T) {
+			require.Nil(t, b.Put([]byte("key-003"), []byte("readded-003")))
+			require.Nil(t, b.Put([]byte("key-018"), []byte("readded-018")))
+			// tombstones are now only in memtable
+		})
 
-		// TODO: delete
+		t.Run("seek from somewhere in the middle", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-016"),
+				[]byte("key-017"),
+				[]byte("key-018"),
+				[]byte("key-019"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-016"),
+				[]byte("value-017"),
+				[]byte("readded-018"),
+				[]byte("once-updated-value-019"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
+		t.Run("start from the beginning", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-000"),
+				[]byte("key-001"),
+				[]byte("key-002"),
+				[]byte("key-003"),
+			}
+			expectedValues := [][]byte{
+				[]byte("twice-updated-value-000"),
+				[]byte("once-updated-value-001"),
+				[]byte("value-002"),
+				[]byte("readded-003"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
+		t.Run("perform a final flush to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
+
+		t.Run("seek from somewhere in the middle", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-016"),
+				[]byte("key-017"),
+				[]byte("key-018"),
+				[]byte("key-019"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-016"),
+				[]byte("value-017"),
+				[]byte("readded-018"),
+				[]byte("once-updated-value-019"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
+		t.Run("start from the beginning", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-000"),
+				[]byte("key-001"),
+				[]byte("key-002"),
+				[]byte("key-003"),
+			}
+			expectedValues := [][]byte{
+				[]byte("twice-updated-value-000"),
+				[]byte("once-updated-value-001"),
+				[]byte("value-002"),
+				[]byte("readded-003"),
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
 	})
 
 	// t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {

@@ -34,6 +34,10 @@ func (c *memtableCursor) first() ([]byte, []byte, error) {
 	}
 
 	c.current = 0
+
+	if c.data[c.current].tombstone {
+		return c.data[c.current].key, nil, Deleted
+	}
 	return c.data[c.current].key, c.data[c.current].value, nil
 }
 
@@ -44,6 +48,9 @@ func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
 	}
 
 	c.current = pos
+	if c.data[c.current].tombstone {
+		return c.data[c.current].key, nil, Deleted
+	}
 	return c.data[pos].key, c.data[pos].value, nil
 }
 
@@ -63,5 +70,8 @@ func (c *memtableCursor) next() ([]byte, []byte, error) {
 		return nil, nil, NotFound
 	}
 
+	if c.data[c.current].tombstone {
+		return c.data[c.current].key, nil, Deleted
+	}
 	return c.data[c.current].key, c.data[c.current].value, nil
 }
