@@ -151,24 +151,18 @@ func (c *CursorSet) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 // if there are no duplicates present it will still work as returning the
 // latest result is the same as returning the only result
 func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, [][]byte) {
-	res := c.state[ids[len(ids)-1]]
+	// take the key from any of the results, we have the guarantee that they're
+	// all the same
+	key := c.state[ids[0]].key
 
+	var raw []value
 	for _, id := range ids {
+		raw = append(raw, c.state[id].value...)
 		c.advanceInner(id)
 	}
 
-	// if res.err == Deleted {
-	// 	// element was deleted, proceed with next round
-	// 	return c.Next()
-	// }
-
-	// TODO, this is temporary nonsense logic
-	values := make([][]byte, len(res.value))
-	for i, value := range res.value {
-		values[i] = value.value
-	}
-
-	return res.key, values
+	values := newSetDecoder().Do(raw)
+	return key, values
 }
 
 func (c *CursorSet) advanceInner(id int) {
