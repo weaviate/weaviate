@@ -44,6 +44,22 @@ func (b *bufferedLinksLogger) ReplaceLinksAtLevel(nodeid uint64,
 	return nil
 }
 
+func (b *bufferedLinksLogger) AddLinkAtLevel(nodeid uint64, level int,
+	target uint64) error {
+	ec := &errorCompounder{}
+	ec.add(b.base.writeCommitType(b.buf, AddLinkAtLevel))
+	ec.add(b.base.writeUint64(b.buf, nodeid))
+	ec.add(b.base.writeUint16(b.buf, uint16(level)))
+	ec.add(b.base.writeUint64(b.buf, target))
+
+	if err := ec.toError(); err != nil {
+		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
+			nodeid, target, level)
+	}
+
+	return nil
+}
+
 func (b *bufferedLinksLogger) Close() error {
 	b.base.Lock()
 	defer b.base.Unlock()

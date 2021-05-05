@@ -43,9 +43,11 @@ type ModulesProvider interface {
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-		moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error)
+		moduleParams map[string]interface{}, searchVector []float32,
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-		moduleParams map[string]interface{}) ([]search.Result, error)
+		moduleParams map[string]interface{},
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -107,7 +109,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVector)
+			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -134,7 +136,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams)
+			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
@@ -152,24 +154,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		additionalProperties := make(map[string]interface{})
 
 		if res.AdditionalProperties != nil {
-			if res.AdditionalProperties["classification"] != nil {
-				additionalProperties["classification"] = res.AdditionalProperties["classification"]
-			}
-
-			if res.AdditionalProperties["interpretation"] != nil {
-				additionalProperties["interpretation"] = res.AdditionalProperties["interpretation"]
-			}
-
-			if res.AdditionalProperties["nearestNeighbors"] != nil {
-				additionalProperties["nearestNeighbors"] = res.AdditionalProperties["nearestNeighbors"]
-			}
-
-			if res.AdditionalProperties["featureProjection"] != nil {
-				additionalProperties["featureProjection"] = res.AdditionalProperties["featureProjection"]
-			}
-
-			if res.AdditionalProperties["semanticPath"] != nil {
-				additionalProperties["semanticPath"] = res.AdditionalProperties["semanticPath"]
+			for additionalProperty, value := range res.AdditionalProperties {
+				if value != nil {
+					additionalProperties[additionalProperty] = value
+				}
 			}
 		}
 
@@ -191,6 +179,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 		if params.AdditionalProperties.ID {
 			additionalProperties["id"] = res.ID
+		}
+
+		if params.AdditionalProperties.Vector {
+			additionalProperties["vector"] = res.Vector
 		}
 
 		if len(additionalProperties) > 0 {

@@ -42,6 +42,49 @@ func (s *schemaHandlers) addObject(params schema.SchemaObjectsCreateParams,
 	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
 }
 
+func (s *schemaHandlers) updateObject(params schema.SchemaObjectsUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.UpdateClass(params.HTTPRequest.Context(), principal, params.ClassName,
+		params.ObjectClass)
+	if err != nil {
+		if err == schemaUC.ErrNotFound {
+			return schema.NewSchemaObjectsUpdateNotFound()
+		}
+
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.NewSchemaObjectsUpdateOK().WithPayload(params.ObjectClass)
+}
+
+func (s *schemaHandlers) getObject(params schema.SchemaObjectsGetParams,
+	principal *models.Principal) middleware.Responder {
+	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsGetInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	if class == nil {
+		return schema.NewSchemaObjectsGetNotFound()
+	}
+
+	return schema.NewSchemaObjectsGetOK().WithPayload(class)
+}
+
 func (s *schemaHandlers) deleteObject(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
 	err := s.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
@@ -101,6 +144,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
 		SchemaObjectsPropertiesAddHandlerFunc(h.addObjectProperty)
 
+	api.SchemaSchemaObjectsUpdateHandler = schema.
+		SchemaObjectsUpdateHandlerFunc(h.updateObject)
+
+	api.SchemaSchemaObjectsGetHandler = schema.
+		SchemaObjectsGetHandlerFunc(h.getObject)
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
 }

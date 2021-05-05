@@ -3,10 +3,12 @@
 [![Build Status](https://api.travis-ci.org/semi-technologies/weaviate.svg?branch=master)](https://travis-ci.org/semi-technologies/weaviate/branches)
 [![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
 [![Coverage Status](https://codecov.io/gh/semi-technologies/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/semi-technologies/weaviate)
-[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://codecov.io/gh/semi-technologies/weaviate)
+[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
 [![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
 
-<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
+
+<sup>Weaviate GraphQL demo on news article dataset containing: Transformers module, GraphQL usage, semantic search, _additional{} features, Q&A, and Aggregate{} function. You can the demo on this dataset in the GUI here: <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%20%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20nearText%3A%20%7B%0A%20%20%20%20%20%20%20%20concepts%3A%20%5B%22Housing%20prices%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20where%3A%20%7B%0A%20%20%20%20%20%20%20%20operator%3A%20Equal%0A%20%20%20%20%20%20%20%20path%3A%20%5B%22inPublication%22%2C%20%22Publication%22%2C%20%22name%22%5D%0A%20%20%20%20%20%20%20%20valueString%3A%20%22The%20Economist%22%0A%20%20%20%20%20%20%7D%0A%20%20%20%20)%20%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20certainty%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">semantic search</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20ask%3A%20%7B%0A%20%20%20%20%20%20%20%20question%3A%20%22What%20did%20Jemina%20Packington%20predict%3F%22%0A%20%20%20%20%20%20%20%20properties%3A%20%5B%22summary%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20limit%3A%201%0A%20%20%20%20)%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20answer%20%7B%0A%20%20%20%20%20%20%20%20%20%20endPosition%0A%20%20%20%20%20%20%20%20%20%20property%0A%20%20%20%20%20%20%20%20%20%20result%0A%20%20%20%20%20%20%20%20%20%20startPosition%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Q&A</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Aggregate%20%7B%0A%20%20%20%20Article%20%7B%0A%20%20%20%20%20%20meta%20%7B%0A%20%20%20%20%20%20%20%20count%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Aggregate</a>.</sup>
 
 ## Description
 
@@ -14,136 +16,54 @@ Weaviate is a cloud-native, real-time vector search engine (aka _neural search e
 
 _GraphQL - RESTful - vector search engine - vector database - neural search engine - semantic search - HNSW - deep search - machine learning - kNN_
 
+## Features
+
+Weaviate makes it easy to use state-of-the-art AI models while giving you the scalability, ease of use, safety and cost-effectiveness of a purpose-built vector database. Most notably:
+
+* **Fast queries**<br>
+   Weaviate typically performs a 10-NN neighbor search out of millions of objects in considerably less than 100ms.
+   <br><sub></sub>
+
+* **Any media type with Weaviate Modules**<br>
+  Use State-of-the-Art AI model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
+
+* **Combine vector and scalar search**<br>
+  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for a third party object storage. 
+
+* **Real-time and persistent**<br>
+Weaviate let’s you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
+
+* **Horizontal Scalability**<br>
+  Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Currently under development, ETA Fall 2021) 
+
+* **Cost-Effectiveness**<br>
+  Very large datasets do not need to be kept entirely in memory in Weaviate. At the same time available memory can be used to increase the speed of queries. This allows for a conscious speed/cost trade-off to suit every use case.
+
+* **Graph-like connections between objects**<br>
+  Make arbitrary connections between your objects in a graph-like fashion to resemble real-life connections between your data points. Traverse those connections using GraphQL.
+
 ## Documentation
 
 You can find detailed documentation in the [developers section of our website](https://www.semi.technology/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
 
-- [Documentation](https://semi.technology/developers/weaviate/current/)
-  - About Weaviate
-    - [Introduction video](https://www.semi.technology/developers/weaviate/current/index.html#introduction-video)
-    - [What is Weaviate](https://www.semi.technology/developers/weaviate/current/index.html#what-is-weaviate)
-    - [Why a vector search engine?](https://www.semi.technology/developers/weaviate/current/index.html#why-a-vector-search-engine)
-    - [How does Weaviate work?](https://www.semi.technology/developers/weaviate/current/index.html#how-does-weaviate-work)
-    - [When should I use Weaviate?](https://www.semi.technology/developers/weaviate/current/index.html#when-should-i-use-weaviate)
-  - Installation
-    - [Docker Compose](https://semi.technology/developers/weaviate/current/getting-started/installation.html#docker-compose)
-    - [Cloud Deployment](https://semi.technology/developers/weaviate/current/getting-started/installation.html#cloud-deployment)
-    - [Weaviate Cluster Service (beta)](https://semi.technology/developers/weaviate/current/getting-started/installation.html#weaviate-cluster-service)
-    - [Kubernetes](https://semi.technology/developers/weaviate/current/getting-started/installation.html#kubernetes)
-  - [Modules](https://www.semi.technology/developers/weaviate/current/modules/)
-  - [RESTful API references](https://www.semi.technology/developers/weaviate/current/restful-api-references/)
-  - [GraphQL references](https://www.semi.technology/developers/weaviate/current/graphql-references/)
-  - Client Libraries
-    - [Python](https://semi.technology/developers/weaviate/current/client-libraries/python.html)
-    - [JavaScript](https://semi.technology/developers/weaviate/current/client-libraries/javascript.html)
-    - [Go](https://www.semi.technology/developers/weaviate/current/client-libraries/go.html)
-  - [How To's](https://semi.technology/developers/weaviate/current/how-tos/)
-  - [RESTful API references](https://semi.technology/developers/weaviate/current/restful-api-references/)
-  - [GraphQL references](https://semi.technology/developers/weaviate/current/graphql-references/)
-  - [More resources](https://semi.technology/developers/weaviate/current/more-resources/)
+## Additional reading
+
+- [Weaviate is an open-source search engine powered by ML, vectors, graphs, and GraphQL (ZDNet)](https://www.zdnet.com/article/weaviate-an-open-source-search-engine-powered-by-machine-learning-vectors-graphs-and-graphql/)
+- [Weaviate, an ANN Database with CRUD support (DB-Engines.com)](https://db-engines.com/en/blog_post/87)
+- [A sub-50ms neural search with DistilBERT and Weaviate (Towards Datascience)](https://towardsdatascience.com/a-sub-50ms-neural-search-with-distilbert-and-weaviate-4857ae390154)
+- [Getting Started with Weaviate Python Library (Towards Datascience)](https://towardsdatascience.com/getting-started-with-weaviate-python-client-e85d14f19e4f)
+- [Industry use cases (SeMI Technologies)](https://www.semi.technology/industry-solutions/)
 
 ## Examples
 
-You can find [more examples here](https://github.com/semi-technologies/weaviate-examples)
-
-### Unmask Superheroes in 5 steps using the NLP module
-
-A simple example in Python (you can also use other [client libs](https://www.semi.technology/developers/weaviate/current/client-libraries/)) showing how Weaviate can help you unmask superheroes thanks to its vector search capabilities 🦸
-
-1. Connect to a Weaviate
-
-```python
-import weaviate
-client = weaviate.Client("http://localhost:8080")
-```
-
-2. Add a class to the schema
-
-```python
-classObj = {
-    "class": "Superhero",
-    "description": "A class describing a super hero",
-    "properties": [
-        {
-            "name": "name",
-            "dataType": [
-                "string"
-            ],
-            "description": "Name of the super hero"
-        }
-    ],
-    "vectorizer": "text2vec-contextionary" # Tell Weaviate to vectorize the content
-}
-client.schema.create_class(classObj) # returns None if successful
-```
-
-Step 3. Add the superheroes with a batch request
-
-```python
-
-batman = {
-    "name": "Batman"
-}
-superman = {
-    "name": "Superman"
-}
-batch = weaviate.ObjectsBatchRequest()
-batch.add(batman, "Superhero")
-batch.add(superman, "Superhero")
-client.batch.create(batch)
-```
-
-Step 4. Try to find superheroes in the vectorspace
-
-```python
-def findAlterego(alterEgo):
-    whoIsIt = client.query.get(
-        "Superhero",
-        ["name", "_additional {certainty, id } "]
-    ).with_near_text({
-        "concepts": [alterEgo] # query that gets vectorized 🪄
-    }).do()
-
-    print(
-        alterEgo, "is", whoIsIt['data']['Get']['Superhero'][0]['name'],
-        "with a certainy of", whoIsIt['data']['Get']['Superhero'][0]['_additional']['certainty']
-    )
-
-findAlterego("Clark Kent")  # prints something like: Clark Kent is Superman with a certainy of 0.6026741
-findAlterego("Bruce Wayne") # prints something like: Bruce Wayne is Batman with a certainy of 0.6895526
-```
-
-Step 5. See how the superheroes are represented in the vectorspace
-
-```python
-def showVectorForAlterego(alterEgo):
-    whoIsIt = client.query.get(
-        "Superhero",
-        ["_additional {id} "]
-    ).with_near_text({
-        "concepts": [alterEgo] # query that gets vectorized 🪄
-    }).do()
-
-    getVector = client.data_object.get_by_id(
-        whoIsIt['data']['Get']['Superhero'][0]['_additional']['id'],
-        additional_properties=["vector"]
-    )
-
-    print(
-        "The vector for",
-        alterEgo,
-        "is",
-        getVector['vector']
-    )
-
-showVectorForAlterego("Clark Kent") # prints something like: The vector for Clark Kent is [-0.05484624, 0.08283167, -0.3002325, ...etc...
-```
+You can find [code examples here](https://github.com/semi-technologies/weaviate-examples)
 
 ## Support
 
 - [Stackoverflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
 - [Github for issues](https://github.com/semi-technologies/weaviate/issues)
-- [Slack channel](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
+- [Slack channel to connect](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
+- [Newsletter to stay in the know](https://www.semi.technology/newsletter/)
 
 ## Contributing
 

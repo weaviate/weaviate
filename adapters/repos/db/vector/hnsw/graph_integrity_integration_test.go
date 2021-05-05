@@ -59,7 +59,7 @@ func TestGraphIntegrity(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-			DistanceProvider: distancer.NewCosineProvider(),
+			DistanceProvider: distancer.NewDotProductProvider(),
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
@@ -98,12 +98,13 @@ func TestGraphIntegrity(t *testing.T) {
 
 		conlen := len(node.connections[0])
 
-		// why exactly half? There is no guarantee that every single node has the
-		// maximum number of connections, thus checking for the exact maxNeighbors
-		// amount would not be very helpful. However, if nodes don't even have half
-		// the number of desired connections we have a good indication that
-		// something is wrong
-		requiredMinimum := maxNeighbors / 2
+		// it is debatable how much value this test still adds. It used to check
+		// that a lot of connections are present before we had the heurisitic. But
+		// with the heuristic it's not uncommon that a node's connections get
+		// reduced to a slow amount of key connections. We have thus set this value
+		// to 1 to make sure that no nodes are entirely unconnected, but it's
+		// questionable if this still adds any value at all
+		requiredMinimum := 1
 		assert.True(t, conlen >= requiredMinimum, fmt.Sprintf(
 			"have %d connections, but want at least %d", conlen, requiredMinimum))
 	}

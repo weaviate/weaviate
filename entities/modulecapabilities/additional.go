@@ -34,7 +34,8 @@ type AdditionalPropertyWithSearchVector interface {
 // AdditionalPropertyFn defines interface for additional property
 // functions performing given logic
 type AdditionalPropertyFn = func(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error)
+	in []search.Result, params interface{}, limit *int,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error)
 
 // AdditionalSearch defines on which type of query a given
 // additional logic can be performed

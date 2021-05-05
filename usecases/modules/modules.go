@@ -64,6 +64,16 @@ func (m *Provider) GetAll() []modulecapabilities.Module {
 	return out
 }
 
+func (m *Provider) GetAllExclude(module string) []modulecapabilities.Module {
+	filtered := []modulecapabilities.Module{}
+	for _, mod := range m.GetAll() {
+		if mod.Name() != module {
+			filtered = append(filtered, mod)
+		}
+	}
+	return filtered
+}
+
 func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 	m.schemaGetter = sg
 }
@@ -75,10 +85,16 @@ func (m *Provider) Init(ctx context.Context,
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
 		}
 	}
+	for i, mod := range m.GetAll() {
+		if modDependency, ok := mod.(modulecapabilities.ModuleDependency); ok {
+			if err := modDependency.InitDependency(m.GetAllExclude(mod.Name())); err != nil {
+				return errors.Wrapf(err, "init module dependency %d (%q)", i, mod.Name())
+			}
+		}
+	}
 	if err := m.validate(); err != nil {
 		return errors.Wrap(err, "validate modules")
 	}
-
 	return nil
 }
 
@@ -164,13 +180,17 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 	return errorMessages
 }
 
-func (m *Provider) shouldIncludeClassArgument(class *models.Class, vectorizer string) bool {
-	return class.Vectorizer == vectorizer
+func (m *Provider) isDefaultModule(module string) bool {
+	return module == "qna-transformers"
 }
 
-func (m *Provider) shouldIncludeArgument(schema *models.Schema, vectorizer string) bool {
+func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string) bool {
+	return class.Vectorizer == module || m.isDefaultModule(module)
+}
+
+func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string) bool {
 	for _, c := range schema.Classes {
-		if m.shouldIncludeClassArgument(c, vectorizer) {
+		if m.shouldIncludeClassArgument(c, module) {
 			return true
 		}
 	}
@@ -276,7 +296,7 @@ func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) i
 // GetObjectAdditionalExtend extends rest api get queries with additional properties
 func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
 	in *search.Result, moduleParams map[string]interface{}) (*search.Result, error) {
-	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet")
+	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -286,47 +306,56 @@ func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
 // ListObjectsAdditionalExtend extends rest api list queries with additional properties
 func (m *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}) (search.Results, error) {
-	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList")
+	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (m *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
-	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+	moduleParams map[string]interface{}, searchVector []float32,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
 func (m *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}) ([]search.Result, error) {
-	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
+	moduleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
 func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32, capability string) ([]search.Result, error) {
+	moduleParams map[string]interface{}, searchVector []float32,
+	capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
+	allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 	for _, module := range m.GetAll() {
 		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-			if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
-				if err := m.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
-					return nil, err
+			if arg != nil && arg.AdditionalProperties() != nil {
+				for name, additionalProperty := range arg.AdditionalProperties() {
+					allAdditionalProperties[name] = additionalProperty
 				}
-				for name, value := range moduleParams {
-					additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
-					if additionalPropertyFn != nil && value != nil {
-						searchValue := value
-						if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-							searchVectorValue.SetSearchVector(searchVector)
-							searchValue = searchVectorValue
-						}
-						resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil)
-						if err != nil {
-							return nil, errors.Errorf("extend %s: %v", name, err)
-						}
-						toBeExtended = resArray
-					} else {
-						return nil, errors.Errorf("unknown capability: %s", name)
-					}
+			}
+		}
+	}
+	if len(allAdditionalProperties) > 0 {
+		if err := m.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
+			return nil, err
+		}
+		for name, value := range moduleParams {
+			additionalPropertyFn := m.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
+			if additionalPropertyFn != nil && value != nil {
+				searchValue := value
+				if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+					searchVectorValue.SetSearchVector(searchVector)
+					searchValue = searchVectorValue
 				}
+				resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams)
+				if err != nil {
+					return nil, errors.Errorf("extend %s: %v", name, err)
+				}
+				toBeExtended = resArray
+			} else {
+				return nil, errors.Errorf("unknown capability: %s", name)
 			}
 		}
 	}

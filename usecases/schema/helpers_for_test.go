@@ -42,23 +42,27 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-type fakeVectorConfig struct{}
+type fakeVectorConfig struct {
+	raw interface{}
+}
 
 func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
 func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
-	return fakeVectorConfig{}, nil
+	return fakeVectorConfig{raw: in}, nil
 }
 
 type fakeVectorizerValidator struct {
-	valid string
+	valid []string
 }
 
 func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
-	if moduleName == f.valid {
-		return nil
+	for _, valid := range f.valid {
+		if moduleName == valid {
+			return nil
+		}
 	}
 
 	return errors.Errorf("invalid vectorizer %q", moduleName)
@@ -66,7 +70,38 @@ func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
 
 type fakeModuleConfig struct{}
 
-func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {}
+func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
+	defaultConfig := map[string]interface{}{
+		"my-module1": map[string]interface{}{
+			"my-setting": "default-value",
+		},
+	}
+
+	asMap, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		class.ModuleConfig = defaultConfig
+		return
+	}
+
+	module, ok := asMap["my-module1"]
+	if !ok {
+		class.ModuleConfig = defaultConfig
+		return
+	}
+
+	asMap, ok = module.(map[string]interface{})
+	if !ok {
+		class.ModuleConfig = defaultConfig
+		return
+	}
+
+	if _, ok := asMap["my-setting"]; !ok {
+		asMap["my-setting"] = "default-value"
+		defaultConfig["my-module1"] = asMap
+		class.ModuleConfig = defaultConfig
+	}
+}
+
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }

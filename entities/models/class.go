@@ -50,7 +50,7 @@ type Class struct {
 	// Name of the vector index to use, eg. (HNSW)
 	VectorIndexType string `json:"vectorIndexType,omitempty"`
 
-	// Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilites, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.
+	// Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.
 	Vectorizer string `json:"vectorizer,omitempty"`
 }
 
