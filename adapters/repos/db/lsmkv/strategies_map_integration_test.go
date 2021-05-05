@@ -838,44 +838,51 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			}
 		})
 
-		// t.Run("replace an existing map key", func(t *testing.T) {
-		// 	err = b.MapSet(rowKey1, MapPair{
-		// 		Key:   []byte("row1-key1"),        // existing key
-		// 		Value: []byte("row1-key1-value2"), // updated value
-		// 	})
-		// 	require.Nil(t, err)
+		t.Run("replace an existing map key/value pair", func(t *testing.T) {
+			row := []byte("row-002")
+			pair := MapPair{
+				Key:   []byte("row-002-key-1"),           // existing key
+				Value: []byte("row-002-value-1-updated"), // upadated value
+			}
 
-		// 	row1Updated := []MapPair{
-		// 		{
-		// 			Key:   []byte("row1-key1"),
-		// 			Value: []byte("row1-key1-value2"), // <--- updated, rest unchanged
-		// 		}, {
-		// 			Key:   []byte("row1-key2"),
-		// 			Value: []byte("row1-key2-value1"),
-		// 		},
-		// 	}
+			require.Nil(t, b.MapSet(row, pair))
+		})
 
-		// 	row2Unchanged := []MapPair{
-		// 		{
-		// 			Key:   []byte("row2-key1"),
-		// 			Value: []byte("row2-key1-value1"),
-		// 		}, {
-		// 			Key:   []byte("row2-key2"),
-		// 			Value: []byte("row2-key2-value1"),
-		// 		},
-		// 	}
+		t.Run("verify update is contained", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("row-001"),
+				[]byte("row-002"),
+			}
+			expectedValues := [][]MapPair{
+				[]MapPair{
+					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
+					{Key: []byte("row-001-key-1"), Value: []byte("row-001-value-1")},
+					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
+				},
+				[]MapPair{
+					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
+					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1-updated")},
+					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},
+				},
+			}
 
-		// 	res, err := b.MapList(rowKey1)
-		// 	require.Nil(t, err)
-		// 	// NOTE: We are accepting that the order is changed here. Given the name
-		// 	// "MapCollection" there should be no expectations regarding the order,
-		// 	// but we have yet to validate if this fits with all of the intended use
-		// 	// cases.
-		// 	assert.ElementsMatch(t, row1Updated, res)
-		// 	res, err = b.MapList(rowKey2)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, row2Unchanged)
-		// })
+			var retrievedKeys [][]byte
+			var retrievedValues [][]MapPair
+			c := b.MapCursor()
+			retrieved := 0
+			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+
+			require.Equal(t, len(expectedValues), len(retrievedValues))
+			for i := range expectedValues {
+				assert.ElementsMatch(t, expectedValues[i], retrievedValues[i])
+			}
+		})
 	})
 
 	// t.Run("with a single flush between updates", func(t *testing.T) {
