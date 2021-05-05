@@ -2,7 +2,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/pkg/errors"
 )
@@ -155,7 +154,6 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	res := c.state[ids[len(ids)-1]]
 
 	for _, id := range ids {
-		fmt.Printf("advancing %d\n", id)
 		c.advanceInner(id)
 	}
 
@@ -175,7 +173,6 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 func (c *CursorSet) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	fmt.Printf("advance result: %s - %v", k, v)
 	if err == NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
