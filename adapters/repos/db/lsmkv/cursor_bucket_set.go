@@ -44,13 +44,34 @@ func (c *CursorSet) Next() ([]byte, [][]byte) {
 }
 
 func (c *CursorSet) First() ([]byte, [][]byte) {
-	return nil, nil
+	c.firstAll()
+	return c.serveCurrentStateAndAdvance()
 }
 
 func (c *CursorSet) seekAll(target []byte) {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
+		if err == NotFound {
+			state[i].err = err
+			continue
+		}
+
+		if err != nil {
+			panic(errors.Wrap(err, "unexpected error in seek"))
+		}
+
+		state[i].key = key
+		state[i].value = value
+	}
+
+	c.state = state
+}
+
+func (c *CursorSet) firstAll() {
+	state := make([]cursorStateCollection, len(c.innerCursors))
+	for i, cur := range c.innerCursors {
+		key, value, err := cur.first()
 		if err == NotFound {
 			state[i].err = err
 			continue

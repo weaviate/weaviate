@@ -27,17 +27,15 @@ func (l *Memtable) newCollectionCursor() innerCursorCollection {
 }
 
 func (c *memtableCursorCollection) first() ([]byte, []value, error) {
-	panic("not implemented")
-	// if len(c.data) == 0 {
-	// 	return nil, nil, NotFound
-	// }
+	if len(c.data) == 0 {
+		return nil, nil, NotFound
+	}
 
-	// c.current = 0
+	c.current = 0
 
-	// if c.data[c.current].tombstone {
-	// 	return c.data[c.current].key, nil, Deleted
-	// }
-	// return c.data[c.current].key, c.data[c.current].value, nil
+	// there is no key-level tombstone, only individual values can have
+	// tombstones
+	return c.data[c.current].key, c.data[c.current].values, nil
 }
 
 func (c *memtableCursorCollection) seek(key []byte) ([]byte, []value, error) {

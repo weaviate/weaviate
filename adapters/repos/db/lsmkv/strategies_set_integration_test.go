@@ -740,6 +740,32 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
+		t.Run("start from the beginning", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-000"),
+				[]byte("key-001"),
+				[]byte("key-002"),
+			}
+			expectedValues := [][][]byte{
+				[][]byte{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
+				[][]byte{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
+				[][]byte{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
+			}
+
+			var retrievedKeys [][]byte
+			var retrievedValues [][][]byte
+			c := b.SetCursor()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
+
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+
 		// t.Run("set original values and verify", func(t *testing.T) {
 		// 	orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
 		// 	orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
