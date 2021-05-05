@@ -41,17 +41,15 @@ func (c *memtableCursorCollection) first() ([]byte, []value, error) {
 }
 
 func (c *memtableCursorCollection) seek(key []byte) ([]byte, []value, error) {
-	panic("not implemented")
-	// pos := c.posLargerThanEqual(key)
-	// if pos == -1 {
-	// 	return nil, nil, NotFound
-	// }
+	pos := c.posLargerThanEqual(key)
+	if pos == -1 {
+		return nil, nil, NotFound
+	}
 
-	// c.current = pos
-	// if c.data[c.current].tombstone {
-	// 	return c.data[c.current].key, nil, Deleted
-	// }
-	// return c.data[pos].key, c.data[pos].value, nil
+	c.current = pos
+	// there is no key-level tombstone, only individual values can have
+	// tombstones
+	return c.data[pos].key, c.data[pos].values, nil
 }
 
 func (c *memtableCursorCollection) posLargerThanEqual(key []byte) int {
@@ -65,14 +63,12 @@ func (c *memtableCursorCollection) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursorCollection) next() ([]byte, []value, error) {
-	panic("not implemented")
-	// c.current++
-	// if c.current >= len(c.data) {
-	// 	return nil, nil, NotFound
-	// }
+	c.current++
+	if c.current >= len(c.data) {
+		return nil, nil, NotFound
+	}
 
-	// if c.data[c.current].tombstone {
-	// 	return c.data[c.current].key, nil, Deleted
-	// }
-	// return c.data[c.current].key, c.data[c.current].value, nil
+	// there is no key-level tombstone, only individual values can have
+	// tombstones
+	return c.data[c.current].key, c.data[c.current].values, nil
 }
