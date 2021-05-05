@@ -7,25 +7,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-type CursorSet struct {
+type CursorMap struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
 }
 
-type innerCursorCollection interface {
-	first() ([]byte, []value, error)
-	next() ([]byte, []value, error)
-	seek([]byte) ([]byte, []value, error)
-}
-
-type cursorStateCollection struct {
-	key   []byte
-	value []value
-	err   error
-}
-
-func (b *Bucket) SetCursor() *CursorSet {
-	return &CursorSet{
+func (b *Bucket) MapCursor() *CursorMap {
+	return &CursorMap{
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: append(
@@ -33,21 +21,21 @@ func (b *Bucket) SetCursor() *CursorSet {
 	}
 }
 
-func (c *CursorSet) Seek(key []byte) ([]byte, [][]byte) {
+func (c *CursorMap) Seek(key []byte) ([]byte, []MapPair) {
 	c.seekAll(key)
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *CursorSet) Next() ([]byte, [][]byte) {
+func (c *CursorMap) Next() ([]byte, []MapPair) {
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *CursorSet) First() ([]byte, [][]byte) {
+func (c *CursorMap) First() ([]byte, []MapPair) {
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance()
 }
 
-func (c *CursorSet) seekAll(target []byte) {
+func (c *CursorMap) seekAll(target []byte) {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
@@ -67,7 +55,7 @@ func (c *CursorSet) seekAll(target []byte) {
 	c.state = state
 }
 
-func (c *CursorSet) firstAll() {
+func (c *CursorMap) firstAll() {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
@@ -87,7 +75,7 @@ func (c *CursorSet) firstAll() {
 	c.state = state
 }
 
-func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
+func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
 		if err == NotFound {
@@ -106,7 +94,7 @@ func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
 	}
 }
 
-func (c *CursorSet) cursorWithLowestKey() (int, error) {
+func (c *CursorMap) cursorWithLowestKey() (int, error) {
 	err := NotFound
 	pos := -1
 	var lowest []byte
@@ -130,7 +118,7 @@ func (c *CursorSet) cursorWithLowestKey() (int, error) {
 	return pos, nil
 }
 
-func (c *CursorSet) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
+func (c *CursorMap) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 	key := c.state[idWithLowestKey].key
 
 	var idsFound []int
@@ -151,29 +139,26 @@ func (c *CursorSet) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 
 // if there are no duplicates present it will still work as returning the
 // latest result is the same as returning the only result
-func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, [][]byte) {
-	res := c.state[ids[len(ids)-1]]
+func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []MapPair) {
+	// take the key from any of the results, we have the guarantee that they're
+	// all the same
+	key := c.state[ids[0]].key
 
+	var raw []value
 	for _, id := range ids {
-		fmt.Printf("advancing %d\n", id)
+		raw = append(raw, c.state[id].value...)
 		c.advanceInner(id)
 	}
 
-	// if res.err == Deleted {
-	// 	// element was deleted, proceed with next round
-	// 	return c.Next()
-	// }
-
-	// TODO, this is temporary nonsense logic
-	values := make([][]byte, len(res.value))
-	for i, value := range res.value {
-		values[i] = value.value
+	values, err := newMapDecoder().Do(raw)
+	if err != nil {
+		panic(errors.Wrap(err, "unexpected error decoding map values"))
 	}
 
-	return res.key, values
+	return key, values
 }
 
-func (c *CursorSet) advanceInner(id int) {
+func (c *CursorMap) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
 	fmt.Printf("advance result: %s - %v", k, v)
 	if err == NotFound {
