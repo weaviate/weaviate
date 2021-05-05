@@ -210,7 +210,7 @@ type ClassificationFilters struct {
 	// limit the objects to be classified
 	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
 
-	// Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
+	// Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
 	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
 
 	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -71,6 +72,14 @@ func (h *hnsw) restoreFromDisk() error {
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
 	h.tombstones = state.Tombstones
+
+	// make sure the cache fits the current size
+	h.cache.grow(uint64(len(h.nodes)))
+
+	// make sure the visited list pool fits the current size
+	h.visitedListPool.Destroy()
+	h.visitedListPool = nil
+	h.visitedListPool = visited.NewPool(1, len(h.nodes)+500)
 
 	return nil
 }

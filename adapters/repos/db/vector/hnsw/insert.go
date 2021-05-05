@@ -17,6 +17,9 @@ import (
 	"math/rand"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
@@ -26,6 +29,12 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 
 	node := &vertex{
 		id: id,
+	}
+
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		vector = distancer.Normalize(vector)
 	}
 
 	return h.insert(node, vector)
@@ -76,29 +85,34 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
 
-	targetLevel := int(math.Floor(-math.Log(rand.Float64()*h.levelNormalizer))) - 1
+	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
 
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
 	node.connections = map[int][]uint64{}
 
+	if err := h.commitLog.AddNode(node); err != nil {
+		h.Unlock()
+		return err
+	}
+
+	nodeId := node.id
+
 	// before = time.Now()
 	h.Lock()
 	// m.addBuildingLocking(before)
-	nodeId := node.id
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
-	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
-		return err
-	}
-
 	h.Unlock()
+
+	// // make sure this new vec is immediately present in the cache, so we don't
+	// // have to read it from disk again
+	h.cache.preload(node.id, nodeVec)
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
@@ -116,16 +130,68 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	if targetLevel > h.currentMaximumLayer {
 		// before = time.Now()
-		h.Lock()
 		// m.addBuildingLocking(before)
 		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
 			h.Unlock()
 			return err
 		}
 
+		h.Lock()
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
+	}
+
+	return nil
+}
+
+func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
+	max int, denyList helpers.AllowList) error {
+	if input.Len() < max {
+		return nil
+	}
+
+	closestFirst := priorityqueue.NewMin(input.Len())
+	for input.Len() > 0 {
+		elem := input.Pop()
+		closestFirst.Insert(elem.ID, elem.Dist)
+	}
+
+	returnList := []priorityqueue.Item{}
+
+	for closestFirst.Len() > 0 && len(returnList) < max {
+		curr := closestFirst.Pop()
+		if denyList != nil && denyList.Contains(curr.ID) {
+			continue
+		}
+		distToQuery := curr.Dist
+
+		good := true
+		for _, item := range returnList {
+
+			peerDist, ok, err := h.distBetweenNodes(curr.ID, item.ID)
+			if err != nil {
+				return errors.Wrapf(err, "distance between %d and %d", curr.ID, item.ID)
+			}
+
+			if !ok {
+				continue
+			}
+
+			if peerDist < distToQuery {
+				good = false
+				break
+			}
+		}
+
+		if good {
+			returnList = append(returnList, curr)
+		}
+
+	}
+
+	for _, retElem := range returnList {
+		input.Insert(retElem.ID, retElem.Dist)
 	}
 
 	return nil

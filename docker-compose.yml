@@ -1,6 +1,9 @@
 ##
-# This docker-compose is used in development of Weaviate. To run a stable
-# version see the docker-compose files in ./docker-compose/runtime/{language}
+# This docker-compose is used for developing Weaviate, i.e. for contributors. 
+# THIS IS NOT INTENDED FOR USERS !!
+#
+# To get a docker-compose file to run Weaviate, please follow the instructions at
+# https://www.semi.technology/developers/weaviate/current/getting-started/installation.html#customize-your-weaviate-setup
 ##
 version: '3.4'
 services:
@@ -24,6 +27,14 @@ services:
     ports:
       - "9090:8080"
   t2v-transformers:
-    image: semitechnologies/transformers-inference:distilbert-base-uncased
+    image: semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0
     ports: 
       - "8000:8080"
+  qna-transformers:
+    image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
+    ports:
+      - "8001:8080"
+  i2v-keras:
+    image: semitechnologies/img2vec-keras:resnet50-61dcbf8
+    ports:
+      - "8002:8080"

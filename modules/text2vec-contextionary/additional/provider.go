@@ -21,7 +21,8 @@ import (
 
 type AdditionalProperty interface {
 	AdditionalPropertyFn(ctx context.Context,
-		in []search.Result, params interface{}, limit *int) ([]search.Result, error)
+		in []search.Result, params interface{}, limit *int,
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	ExtractAdditionalFn(param []*ast.Argument) interface{}
 	AdditonalPropertyDefaultValue() interface{}
 }

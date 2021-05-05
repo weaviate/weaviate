@@ -49,7 +49,7 @@ func (o *WeaviateWellknownReadinessOK) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateWellknownReadinessServiceUnavailableCode is the HTTP code returned for type WeaviateWellknownReadinessServiceUnavailable
 const WeaviateWellknownReadinessServiceUnavailableCode int = 503
 
-/*WeaviateWellknownReadinessServiceUnavailable The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead.
+/*WeaviateWellknownReadinessServiceUnavailable The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 
 swagger:response weaviateWellknownReadinessServiceUnavailable
 */

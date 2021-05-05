@@ -22,17 +22,21 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/sirupsen/logrus"
 )
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
-	sync.RWMutex
+	sync.Mutex
 
 	// certain operations related to deleting, such as finding a new entrypoint
 	// can only run sequentially, this separate lock helps assuring this without
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
+
+	tombstoneLock *sync.RWMutex
 
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
@@ -59,6 +63,9 @@ type hnsw struct {
 	// ef parameter used in construction phases, should be higher than ef during querying
 	efConstruction int
 
+	// ef at search time
+	ef int64
+
 	levelNormalizer float64
 
 	nodes []*vertex
@@ -66,8 +73,6 @@ type hnsw struct {
 	vectorForID VectorForID
 
 	cache cache
-
-	vectorCacheDrop func()
 
 	commitLog CommitLogger
 
@@ -90,12 +95,13 @@ type hnsw struct {
 	distancerProvider distancer.Provider
 
 	cleanupInterval time.Duration
+
+	visitedListPool *visited.Pool
 }
 
 type CommitLogger interface {
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
-	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error
@@ -107,6 +113,7 @@ type CommitLogger interface {
 }
 
 type BufferedLinksLogger interface {
+	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
 	Close() error // Close should Flush and Close
 }
@@ -132,8 +139,14 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cfg.Logger = logger
 	}
 
-	vectorCache := newCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger)
+	normalizeOnRead := false
+	if cfg.DistanceProvider.Type() == "cosine-dot" {
+		normalizeOnRead = true
+	}
+
+	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+		cfg.Logger, normalizeOnRead)
+
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -143,10 +156,10 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:    uc.EFConstruction,
+		ef:                int64(uc.EF),
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
-		vectorCacheDrop:   vectorCache.drop,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
 		tombstones:        map[uint64]struct{}{},
@@ -154,8 +167,10 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		distancerProvider: cfg.DistanceProvider,
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
+		tombstoneLock:     &sync.RWMutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+		visitedListPool:   visited.NewPool(1, initialSize+500),
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -269,7 +284,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
-		tmpBST := &binarySearchTreeGeneric{}
+		eps := priorityqueue.NewMin(1)
 		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return 0, errors.Wrapf(err,
@@ -279,18 +294,19 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			continue
 		}
 
-		tmpBST.insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
+		eps.Insert(entryPointID, dist)
+		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
-		if res.root != nil {
+		if res.Len() > 0 {
 			// if we could find a new entrypoint, use it
 			// in case everything was tombstoned, stick with the existing one
-			if !h.nodeByID(res.root.index).isUnderMaintenance() {
+			elem := res.Pop()
+			if !h.nodeByID(elem.ID).isUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
-				entryPointID = res.minimum().index
+				entryPointID = elem.ID
 			}
 		}
 	}
@@ -300,7 +316,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 type vertex struct {
 	id uint64
-	sync.RWMutex
+	sync.Mutex
 	level       int
 	connections map[int][]uint64 // map[level][]connectedId
 	maintenance bool
@@ -321,16 +337,13 @@ func (v *vertex) unmarkAsMaintenance() {
 }
 
 func (v *vertex) isUnderMaintenance() bool {
-	v.RLock()
-	defer v.RUnlock()
+	v.Lock()
+	defer v.Unlock()
 
 	return v.maintenance
 }
 
-func (v *vertex) connectionsAtLevel(level int) []uint64 {
-	v.RLock()
-	defer v.RUnlock()
-
+func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 	return v.connections[level]
 }
 
@@ -338,6 +351,10 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.Lock()
 	defer v.Unlock()
 
+	v.connections[level] = connections
+}
+
+func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
 	v.connections[level] = connections
 }
 
@@ -445,8 +462,8 @@ func (h *hnsw) Stats() {
 }
 
 func (h *hnsw) isEmpty() bool {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	for _, node := range h.nodes {
 		if node != nil {
@@ -458,8 +475,8 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
-	h.RLock()
-	defer h.RUnlock()
+	h.Lock()
+	defer h.Unlock()
 
 	return h.nodes[id]
 }
@@ -471,7 +488,7 @@ func (h *hnsw) Drop() error {
 		return errors.Wrap(err, "commit log drop")
 	}
 	// cancel vector cache goroutine
-	h.vectorCacheDrop()
+	h.cache.drop()
 	// cancel tombstone cleanup goroutine
 	h.cancel <- struct{}{}
 	return nil

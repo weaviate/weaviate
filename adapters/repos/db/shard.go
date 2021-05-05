@@ -76,7 +76,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 				index.logger)
 		},
 		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distancer.NewCosineProvider(),
+		DistanceProvider: distancer.NewDotProductProvider(),
 	}, hnswUserConfig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -263,4 +263,9 @@ func (s *Shard) startPeriodicCleanup() {
 			}
 		}
 	}(batchSize, batchCleanupInterval, t, s.cleanupCancel)
+}
+
+func (s *Shard) updateVectorIndexConfig(ctx context.Context,
+	updated schema.VectorIndexConfig) error {
+	return s.vectorIndex.UpdateUserConfig(updated)
 }

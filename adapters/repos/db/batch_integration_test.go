@@ -412,7 +412,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					Properties: map[string]interface{}{
 						"location": randGeoCoordinates(),
 					},
-					Vector: []float32{0.123, 0.234, 0.345}, // does not matter for this test
+					Vector: []float32{0.123, 0.234, rand.Float32()}, // does not matter for this test
 				}
 			}
 		})

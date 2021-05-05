@@ -27,6 +27,11 @@ type vectorCachePrefiller struct {
 type cache interface {
 	get(ctx context.Context, id uint64) ([]float32, error)
 	len() int32
+	preload(id uint64, vec []float32)
+	prefetch(id uint64)
+	grow(size uint64)
+	drop()
+	updateMaxSize(size int64)
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,
@@ -58,8 +63,10 @@ func (pf *vectorCachePrefiller) Prefill(ctx context.Context, limit int) error {
 // returns false if the max has been reached, true otherwise
 func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 	level, limit int) (bool, error) {
-	pf.index.RLock()
-	defer pf.index.RUnlock()
+	// TODO: this makes zero sense, just copy the lists, don't actually block
+	//  !!!!
+	pf.index.Lock()
+	defer pf.index.Unlock()
 
 	before := time.Now()
 	layerCount := 0
@@ -118,8 +125,8 @@ func levelOfNode(node *vertex) int {
 }
 
 func (pf *vectorCachePrefiller) maxLevel() int {
-	pf.index.RLock()
-	defer pf.index.RUnlock()
+	pf.index.Lock()
+	defer pf.index.Unlock()
 
 	return pf.index.currentMaximumLayer
 }

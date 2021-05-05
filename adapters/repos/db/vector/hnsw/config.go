@@ -96,7 +96,8 @@ const (
 	DefaultCleanupIntervalSeconds = 5 * 60
 	DefaultMaxConnections         = 64
 	DefaultEFConstruction         = 128
-	DefaultVectorCacheMaxObjects  = 500000
+	DefaultEF                     = -1 // indicates "let Weaviate pick"
+	DefaultVectorCacheMaxObjects  = 2000000
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -104,6 +105,7 @@ type UserConfig struct {
 	CleanupIntervalSeconds int `json:"cleanupIntervalSeconds"`
 	MaxConnections         int `json:"maxConnections"`
 	EFConstruction         int `json:"efConstruction"`
+	EF                     int `json:"ef"`
 	VectorCacheMaxObjects  int `json:"vectorCacheMaxObjects"`
 }
 
@@ -119,6 +121,7 @@ func (c *UserConfig) SetDefaults() {
 	c.EFConstruction = DefaultEFConstruction
 	c.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
 	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
+	c.EF = DefaultEF
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -150,6 +153,12 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 
 	if err := optionalIntFromMap(asMap, "efConstruction", func(v int) {
 		uc.EFConstruction = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "ef", func(v int) {
+		uc.EF = v
 	}); err != nil {
 		return uc, err
 	}

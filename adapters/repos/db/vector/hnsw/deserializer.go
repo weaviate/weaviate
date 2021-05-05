@@ -105,12 +105,14 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, id, c.logger)
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, c.logger)
 	if err != nil {
 		return err
 	}
 
-	res.Nodes = newNodes
+	if changed {
+		res.Nodes = newNodes
+	}
 
 	if res.Nodes[id] == nil {
 		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make(map[int][]uint64)}
@@ -150,12 +152,14 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
 
-	res.Nodes = newNodes
+	if changed {
+		res.Nodes = newNodes
+	}
 
 	if res.Nodes[int(source)] == nil {
 		res.Nodes[int(source)] = &vertex{id: source, connections: make(map[int][]uint64)}
@@ -186,12 +190,14 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
 
-	res.Nodes = newNodes
+	if changed {
+		res.Nodes = newNodes
+	}
 
 	if res.Nodes[int(source)] == nil {
 		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}

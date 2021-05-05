@@ -548,6 +548,54 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
+	t.Run("when the vector _additional prop is set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: AdditionalProperties{
+				Vector: true,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				Vector: []float32{0.1, -0.3},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		search.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain vector", func(t *testing.T) {
+			require.Len(t, res, 1)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"vector": []float32{0.1, -0.3},
+					},
+				}, res[0])
+		})
+	})
+
 	t.Run("when the nearestNeighbors prop is set", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",
@@ -1922,12 +1970,14 @@ func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}
 }
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32) ([]search.Result, error) {
+	moduleParams map[string]interface{}, searchVector []float32,
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
 }
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}) ([]search.Result, error) {
+	moduleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
 }
 
@@ -1944,7 +1994,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 					searchVectorValue.SetSearchVector(searchVector)
 					searchValue = searchVectorValue
 				}
-				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil)
+				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil)
 				if err != nil {
 					return nil, err
 				}

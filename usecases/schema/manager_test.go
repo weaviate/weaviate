@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -25,8 +26,6 @@ import (
 
 // TODO: These tests don't match the overall testing style in Weaviate.
 // Refactor!
-
-// The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class) error {
@@ -57,6 +56,14 @@ func (n *NilMigrator) DropProperty(ctx context.Context, className string, propNa
 	return nil
 }
 
+func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
@@ -70,14 +77,10 @@ var schemaTests = []struct {
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
-	{name: "UpdateClassName", fn: testUpdateClassName},
-	{name: "UpdateClassNameCollision", fn: testUpdateClassNameCollision},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
-	{name: "UpdatePropertyName", fn: testUpdatePropertyName},
-	{name: "UpdatePropertyNameCollision", fn: testUpdatePropertyNameCollision},
 	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
 	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
 }
@@ -111,7 +114,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 			DataType: []string{"string"},
 			Name:     "dummy",
 		}},
-		VectorIndexConfig: "this should be replaced by the parser",
+		VectorIndexConfig: "this should be parsed",
 	})
 
 	assert.Nil(t, err)
@@ -122,7 +125,9 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	objectClasses := testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
-	assert.Equal(t, fakeVectorConfig{}, objectClasses[0].VectorIndexConfig)
+	assert.Equal(t, fakeVectorConfig{
+		raw: "this should be parsed",
+	}, objectClasses[0].VectorIndexConfig)
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
 }
@@ -304,58 +309,6 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	assert.NotNil(t, err)
 }
 
-func testUpdateClassName(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a simple class.
-	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			Class:      "InitialName",
-			Vectorizer: "text2vec-contextionary",
-		}))
-
-	// Rename it
-	updated := models.Class{
-		Class:      "NewName",
-		Vectorizer: "text2vec-contextionary",
-	}
-	assert.Nil(t, lsm.UpdateObject(context.Background(), nil, "InitialName", &updated))
-
-	objectClasses := testGetClassNames(lsm)
-	require.Len(t, objectClasses, 1)
-	assert.Equal(t, objectClasses[0], "NewName")
-}
-
-func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class to rename
-	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{Class: "InitialName"}))
-
-	// Create another class, that we'll collide names with.
-	// For some extra action, use a Action class here.
-	assert.Nil(t, lsm.AddObject(context.Background(), nil,
-		&models.Class{Class: "ExistingClass"}))
-
-	// Try to rename a class to one that already exists
-	update := &models.Class{Class: "ExistingClass"}
-	err := lsm.UpdateObject(context.Background(), nil, "InitialName", update)
-	// Should fail
-	assert.NotNil(t, err)
-
-	// Should not change the original name
-	objectClasses := testGetClassNames(lsm)
-	require.Len(t, objectClasses, 2)
-	assert.Equal(t, objectClasses[0], "InitialName")
-	assert.Equal(t, objectClasses[1], "ExistingClass")
-}
-
 // TODO: parts of this test contain text2vec-contextionary logic, but parts are
 // also general logic
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
@@ -476,65 +429,6 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 	assert.Len(t, objectClasses[0].Properties, 0)
 }
 
-func testUpdatePropertyName(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class & property
-	var properties []*models.Property = []*models.Property{
-		{Name: "color", DataType: []string{"string"}},
-	}
-
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
-
-	// Update the property name
-	updated := &models.Property{
-		Name: "smell",
-	}
-	err = lsm.UpdateObjectProperty(context.Background(), nil, "Car", "color", updated)
-	assert.Nil(t, err)
-
-	// Check that the name is updated
-	objectClasses := testGetClasses(lsm)
-	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 1)
-	assert.Equal(t, objectClasses[0].Properties[0].Name, "smell")
-	assert.Equal(t, objectClasses[0].Properties[0].DataType, []string{"string"})
-}
-
-func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class & property
-	var properties []*models.Property = []*models.Property{
-		{Name: "color", DataType: []string{"string"}},
-		{Name: "smell", DataType: []string{"string"}},
-	}
-
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
-
-	// Update the property name
-	updated := &models.Property{
-		Name: "smell",
-	}
-	err = lsm.UpdateObjectProperty(context.Background(), nil, "Car", "color", updated)
-	assert.NotNil(t, err)
-
-	// Check that the name is updated
-	objectClasses := testGetClasses(lsm)
-	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 2)
-	assert.Equal(t, objectClasses[0].Properties[0].Name, "color")
-	assert.Equal(t, objectClasses[0].Properties[1].Name, "smell")
-}
-
 func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
@@ -610,7 +504,7 @@ func TestSchema(t *testing.T) {
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
-		valid: config.VectorizerModuleText2VecContextionary,
+		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
@@ -653,7 +547,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",
-				VectorIndexConfig: "replace me through parsing",
+				VectorIndexConfig: "parse me, i should be in some sort of an object",
 				VectorIndexType:   "hnsw", // will always be set when loading from disk
 			}},
 		},
@@ -666,5 +560,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	require.Nil(t, err)
 
 	classes := sm.GetSchemaSkipAuth().Objects.Classes
-	assert.Equal(t, fakeVectorConfig{}, classes[0].VectorIndexConfig)
+	assert.Equal(t, fakeVectorConfig{
+		raw: "parse me, i should be in some sort of an object",
+	}, classes[0].VectorIndexConfig)
 }

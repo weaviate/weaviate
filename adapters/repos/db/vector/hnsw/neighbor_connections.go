@@ -12,38 +12,10 @@
 package hnsw
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
-
-func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) error {
-	v.Lock()
-	defer v.Unlock()
-
-	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
-		return err
-	}
-
-	if targetContained(v.connections[level], target) {
-		// already linked, nothing to do
-		return nil
-	}
-
-	v.connections[level] = append(v.connections[level], target)
-	return nil
-}
-
-func targetContained(haystack []uint64, needle uint64) bool {
-	for _, candidate := range haystack {
-		if candidate == needle {
-			return true
-		}
-	}
-
-	return false
-}
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
@@ -58,12 +30,12 @@ type neighborFinderConnector struct {
 	graph           *hnsw
 	node            *vertex
 	entryPointID    uint64
+	entryPointDist  float32
 	nodeVec         []float32
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	bufLinksLog     BufferedLinksLogger
-	results         *binarySearchTreeGeneric
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -81,7 +53,6 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 }
 
 func (n *neighborFinderConnector) Do() error {
-	n.results = &binarySearchTreeGeneric{}
 	n.bufLinksLog = n.graph.commitLog.NewBufferedLinksLogger()
 
 	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
@@ -89,12 +60,11 @@ func (n *neighborFinderConnector) Do() error {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object store, " +
+		return errors.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
-	n.results.insert(n.entryPointID, dist)
-	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
+	n.entryPointDist = dist
 
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
 		err := n.doAtLevel(level)
@@ -111,19 +81,32 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
-	results, err := n.graph.searchLayerByVector(n.nodeVec, *n.results, n.graph.efConstruction,
+	eps := priorityqueue.NewMin(1)
+	eps.Insert(n.entryPointID, n.entryPointDist)
+
+	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	n.removeSelfFromResults()
-
-	neighbors := n.graph.selectNeighborsSimple(*results, n.graph.maximumConnections,
-		n.denyList)
+	max := n.maximumConnections(level)
+	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+		return err
+	}
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
+
+	neighbors := make([]uint64, 0, results.Len())
+	for results.Len() > 0 {
+		id := results.Pop().ID
+		neighbors = append(neighbors, id)
+	}
+
+	// set all outoing in one go
+	n.node.setConnectionsAtLevel(level, neighbors)
+	n.bufLinksLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
@@ -131,37 +114,47 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 	}
 
+	if len(neighbors) > 0 {
+		// there could be no neighbors left, if all are marked deleted, in this
+		// case, don't change the entrypoint
+		n.entryPointID = neighbors[len(neighbors)-1]
+		dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+		}
+		if !ok {
+			return errors.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
+
+		n.entryPointDist = dist
+	}
+
 	return nil
 }
 
 func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
-	if n.node.isUnderMaintenance() {
-		haveAlternative := false
-		for i, ep := range n.results.flattenInOrder() {
-			if haveAlternative {
-				break
-			}
-			if i == 0 {
-				continue
-			}
+	node := n.graph.nodeByID(n.entryPointID)
+	if node.isUnderMaintenance() {
+		alternativeEP := n.graph.entryPointID
+		if alternativeEP == n.node.id || alternativeEP == n.entryPointID {
+			tmpDenyList := n.denyList.DeepCopy()
+			tmpDenyList.Insert(alternativeEP)
 
-			if !n.graph.nodeByID(ep.index).isUnderMaintenance() {
-				haveAlternative = true
-			}
+			alternative, _ := n.graph.findNewLocalEntrypoint(tmpDenyList, n.graph.currentMaximumLayer,
+				n.entryPointID)
+			alternativeEP = alternative
 		}
-
-		if !haveAlternative {
-			globalEP := n.graph.entryPointID
-			dist, ok, err := n.graph.distBetweenNodeAndVec(globalEP, n.nodeVec)
-			if err != nil {
-				return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-			}
-			if !ok {
-				return fmt.Errorf("entrypoint was deleted in the object store, " +
-					"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-			}
-			n.results.insert(globalEP, dist)
+		dist, ok, err := n.graph.distBetweenNodeAndVec(alternativeEP, n.nodeVec)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 		}
+		if !ok {
+			return errors.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
+		n.entryPointID = alternativeEP
+		n.entryPointDist = dist
 	}
 
 	return nil
@@ -174,25 +167,54 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return nil
 	}
 
-	if err := neighbor.linkAtLevel(level, n.node.id, n.graph.commitLog); err != nil {
-		return err
-	}
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
-	if err := n.node.linkAtLevel(level, neighbor.id, n.graph.commitLog); err != nil {
-		return err
-	}
-
-	currentConnections := neighbor.connectionsAtLevel(level)
 	maximumConnections := n.maximumConnections(level)
-	if len(currentConnections) <= maximumConnections {
-		// nothing to do, skip
-		return nil
-	}
+	updatedConnections := make([]uint64, 0, maximumConnections)
+	if len(currentConnections) < maximumConnections {
+		// we can simply append
+		updatedConnections = append(currentConnections, n.node.id)
+	} else {
+		// we need to run the heurisitc
 
-	updatedConnections, err := n.graph.selectNeighborsSimpleFromId(n.node.id,
-		currentConnections, maximumConnections, n.denyList)
-	if err != nil {
-		return errors.Wrap(err, "connect neighbors")
+		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
+		}
+
+		if !ok {
+			// it seems either the node or the neighbor were deleted in the meantime,
+			// there is nothing we can do now
+			return nil
+		}
+
+		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
+		candidates.Insert(n.node.id, dist)
+
+		for _, existingConnection := range currentConnections {
+			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
+			}
+
+			if !ok {
+				// was deleted in the meantime
+				continue
+			}
+
+			candidates.Insert(existingConnection, dist)
+		}
+
+		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		if err != nil {
+			return errors.Wrap(err, "connect neighbors")
+		}
+
+		for candidates.Len() > 0 {
+			updatedConnections = append(updatedConnections, candidates.Pop().ID)
+		}
 	}
 
 	if err := n.bufLinksLog.ReplaceLinksAtLevel(neighbor.id, level,
@@ -200,7 +222,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		return err
 	}
 
-	neighbor.setConnectionsAtLevel(level, updatedConnections)
+	neighbor.setConnectionsAtLevelNoLock(level, updatedConnections)
 	return nil
 }
 
@@ -220,30 +242,6 @@ func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {
 	}
 
 	return false
-}
-
-func (n *neighborFinderConnector) removeSelfFromResults() {
-	if n.results.contains(n.node.id, 0) {
-		// Make sure we don't get the node we're currently assigning on the
-		// result list. This could lead to a self-link, but far worse it could
-		// lead to using ourself as an entry point on the next lower level. In
-		// the process of (re)-assigning edges it would be fatal to use ourselves
-		// as an entrypoint, as there are only two possible scenarios: 1. This is
-		// a new insert, so we don't have edges yet. 2. This is a re-assign after
-		// a delete, so we did originally have edges, but they were cleared in
-		// preparation for the re-assignment.
-		//
-		// So why is it so bad to have ourselves (without connections) as an
-		// entrypoint? Because the exit condition in searchLayerByVector is if
-		// the candidates distance is worse than the current worst distance.
-		// Naturally, the node itself has the best distance (=0) to itself, so
-		// we'd ignore all other elements. However, since the node - as outlined
-		// before - has no nodes, the search wouldn't find any results. Thus we
-		// also can't add any new connections, leading to an isolated node in the
-		// grapn.graph. If that isolated node were to become the graphs entrypoint, the
-		// graph is basically unusable.
-		n.results.delete(n.node.id, 0)
-	}
 }
 
 func (n *neighborFinderConnector) maximumConnections(level int) int {

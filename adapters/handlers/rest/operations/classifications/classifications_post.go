@@ -46,7 +46,7 @@ func NewClassificationsPost(ctx *middleware.Context, handler ClassificationsPost
 
 Starts a classification.
 
-Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.
+Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
 
 */
 type ClassificationsPost struct {

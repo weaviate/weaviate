@@ -31,6 +31,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modkeras "github.com/semi-technologies/weaviate/modules/img2vec-keras"
+	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -42,8 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
-
-	_ "net/http/pprof"
+	// _ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -295,6 +296,14 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["text2vec-transformers"]; ok {
 		appState.Modules.Register(modtransformers.New())
+	}
+
+	if _, ok := enabledModules["qna-transformers"]; ok {
+		appState.Modules.Register(modqna.New())
+	}
+
+	if _, ok := enabledModules["img2vec-keras"]; ok {
+		appState.Modules.Register(modkeras.New())
 	}
 
 	return nil
