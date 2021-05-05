@@ -3,6 +3,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -29,7 +30,15 @@ type Bucket struct {
 func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
 	// TODO: check if there are open commit logs: recover
 
-	// TODO: create folder if not exists
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+
+	if strategy != StrategyReplace &&
+		strategy != StrategySetCollection &&
+		strategy != StrategyMapCollection {
+		return nil, errors.Errorf("unknown strategy %q", strategy)
+	}
 
 	sg, err := newSegmentGroup(dir)
 	if err != nil {
