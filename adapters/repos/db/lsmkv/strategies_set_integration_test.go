@@ -766,51 +766,39 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 
-		// t.Run("set original values and verify", func(t *testing.T) {
-		// 	orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
-		// 	orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
-		// 	orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
+		t.Run("extend an existing key", func(t *testing.T) {
+			key := []byte("key-002")
+			extend := [][]byte{[]byte("value-002.3")}
 
-		// 	err = b.SetAdd(key1, orig1)
-		// 	require.Nil(t, err)
-		// 	err = b.SetAdd(key2, orig2)
-		// 	require.Nil(t, err)
-		// 	err = b.SetAdd(key3, orig3)
-		// 	require.Nil(t, err)
+			require.Nil(t, b.SetAdd(key, extend))
+		})
 
-		// 	res, err := b.SetList(key1)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, orig1)
-		// 	res, err = b.SetList(key2)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, orig2)
-		// 	res, err = b.SetList(key3)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, res, orig3)
-		// })
+		t.Run("verify the extension is contained", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-001"),
+				[]byte("key-002"),
+			}
+			expectedValues := [][][]byte{
+				[][]byte{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
+				[][]byte{
+					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
+					[]byte("value-002.3"),
+				},
+			}
 
-		// t.Run("replace some, keep one", func(t *testing.T) {
-		// 	orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
-		// 	orig2 := [][]byte{[]byte("value 2.1"), []byte("value 2.2")}
-		// 	orig3 := [][]byte{[]byte("value 3.1"), []byte("value 3.2")}
-		// 	append2 := [][]byte{[]byte("value 2.3")}
-		// 	append3 := [][]byte{[]byte("value 3.3")}
+			var retrievedKeys [][]byte
+			var retrievedValues [][][]byte
+			c := b.SetCursor()
+			retrieved := 0
+			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
 
-		// 	err = b.SetAdd(key2, append2)
-		// 	require.Nil(t, err)
-		// 	err = b.SetAdd(key3, append3)
-		// 	require.Nil(t, err)
-
-		// 	res, err := b.SetList(key1)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, orig1, res)
-		// 	res, err = b.SetList(key2)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, append(orig2, append2...), res)
-		// 	res, err = b.SetList(key3)
-		// 	require.Nil(t, err)
-		// 	assert.Equal(t, append(orig3, append3...), res)
-		// })
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
 	})
 
 	// t.Run("with a single flush between updates", func(t *testing.T) {
