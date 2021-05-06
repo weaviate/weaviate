@@ -742,6 +742,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -766,6 +767,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -800,6 +802,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
@@ -947,6 +950,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -971,6 +975,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -1013,6 +1018,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
@@ -1048,6 +1054,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][][]byte
 			c := b.SetCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++

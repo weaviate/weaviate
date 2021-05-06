@@ -20,6 +20,7 @@ import (
 type CursorSet struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
+	unlock       func()
 }
 
 type innerCursorCollection interface {
@@ -34,12 +35,31 @@ type cursorStateCollection struct {
 	err   error
 }
 
+// SetCursor holds a RLock for the flushing state. It needs to be closed using the
+// .Close() methods or otherwise the lock will never be relased
 func (b *Bucket) SetCursor() *CursorSet {
+	b.flushLock.RLock()
+
+	if b.strategy != StrategySetCollection {
+		panic("SetCursor() called on strategy other than 'set'")
+	}
+
+	innerCursors := b.disk.newCollectionCursors()
+
+	// we have a flush-RLock, so we have the guarantee that the flushing state
+	// will not change for the lifetime of the cursor, thus there can only be two
+	// states: either a flushing memtable currently exists - or it doesn't
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCollectionCursor())
+	}
+
+	innerCursors = append(innerCursors, b.active.newCollectionCursor())
+
 	return &CursorSet{
+		unlock: b.flushLock.RUnlock,
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
-		innerCursors: append(
-			b.disk.newCollectionCursors(), b.active.newCollectionCursor()),
+		innerCursors: innerCursors,
 	}
 }
 
@@ -55,6 +75,10 @@ func (c *CursorSet) Next() ([]byte, [][]byte) {
 func (c *CursorSet) First() ([]byte, [][]byte) {
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance()
+}
+
+func (c *CursorSet) Close() {
+	c.unlock()
 }
 
 func (c *CursorSet) seekAll(target []byte) {

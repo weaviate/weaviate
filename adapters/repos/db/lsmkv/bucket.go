@@ -34,6 +34,8 @@ type Bucket struct {
 
 	memTableThreshold uint64
 	strategy          string
+
+	stopFlushCycle chan struct{}
 }
 
 func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
@@ -65,6 +67,7 @@ func NewBucketWithStrategyAndThreshold(dir, strategy string,
 		disk:              sg,
 		memTableThreshold: threshold,
 		strategy:          strategy,
+		stopFlushCycle:    make(chan struct{}),
 	}
 
 	if err := b.setNewActiveMemtable(); err != nil {
@@ -138,6 +141,17 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 		}
 	}
 	out = append(out, v...)
+
+	if b.flushing != nil {
+		v, err = b.flushing.getCollection(key)
+		if err != nil {
+			if err != nil && err != NotFound {
+				return nil, err
+			}
+		}
+		out = append(out, v...)
+
+	}
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
@@ -251,6 +265,8 @@ func (b *Bucket) setNewActiveMemtable() error {
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
+	b.stopFlushCycle <- struct{}{}
+
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		return err
@@ -281,11 +297,15 @@ func (b *Bucket) initFlushCycle() {
 	go func() {
 		t := time.Tick(100 * time.Millisecond)
 		for {
-			<-t
-			if b.active.Size() >= b.memTableThreshold {
-				if err := b.FlushAndSwitch(); err != nil {
-					// TODO: structured logging
-					fmt.Printf("Error flush and switch: %v\n", err)
+			select {
+			case <-b.stopFlushCycle:
+				return
+			case <-t:
+				if b.active.Size() >= b.memTableThreshold {
+					if err := b.FlushAndSwitch(); err != nil {
+						// TODO: structured logging
+						fmt.Printf("Error flush and switch: %v\n", err)
+					}
 				}
 			}
 		}
@@ -299,15 +319,15 @@ func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
 	fmt.Printf("start flush and switch\n")
 	if err := b.atomicallySwitchMemtable(); err != nil {
-		return err
+		return errors.Wrap(err, "switch active memtable")
 	}
 
 	if err := b.flushing.flush(); err != nil {
-		return err
+		return errors.Wrap(err, "flush")
 	}
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
-		return err
+		return errors.Wrap(err, "add segment and remove flushing")
 	}
 
 	fmt.Printf("flush and switch took %s\n", time.Since(before))
