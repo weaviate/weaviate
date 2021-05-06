@@ -23,7 +23,7 @@ import (
 func (l *Memtable) flush() error {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
-	// not only be deleted at the very end, if the flush was successful
+	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 	if err := l.commitlog.close(); err != nil {

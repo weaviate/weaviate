@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
@@ -31,7 +32,11 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 
 	node, err := i.index.Get(key)
 	if err != nil {
-		return nil, err
+		if err == segmentindex.NotFound {
+			return nil, NotFound
+		} else {
+			return nil, err
+		}
 	}
 
 	return i.collectionStratParseData(i.contents[node.Start:node.End])
