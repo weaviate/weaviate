@@ -165,49 +165,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 	return errs
 }
 
-func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
-	batchId int, batch objects.BatchReferences) ([]int, error) {
-	var affectedIndices []int
-
-	for i := range batch {
-		// so we can reference potential errors
-		affectedIndices = append(affectedIndices, batchId+i)
-	}
-
-	invertedMerger := inverted.NewDeltaMerger()
-
-	for _, ref := range batch {
-		uuidParsed, err := uuid.Parse(ref.From.TargetID.String())
-		if err != nil {
-			return affectedIndices, errors.Wrap(err, "invalid id")
-		}
-
-		idBytes, err := uuidParsed.MarshalBinary()
-		if err != nil {
-			return affectedIndices, err
-		}
-
-		mergeDoc := mergeDocFromBatchReference(ref)
-		res, err := b.shard.mutableMergeObjectInTx(tx, mergeDoc, idBytes)
-		if err != nil {
-			return affectedIndices, err
-		}
-
-		// generally the batch ref is an append only change which does not alter
-		// the vector position. There is however one inverted index link that needs
-		// to be cleanup: the ref count
-		if err := b.analyzeInverted(tx, invertedMerger, res, ref); err != nil {
-			return affectedIndices, errors.Wrap(err, "determine ref count cleanup")
-		}
-	}
-
-	if err := b.writeInverted(tx, invertedMerger.Merge()); err != nil {
-		return affectedIndices, err
-	}
-
-	return affectedIndices, nil
-}
-
+// nolint // TODO
 func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
 	ref objects.BatchReference) error {
@@ -228,6 +186,7 @@ func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
 	return nil
 }
 
+// nolint // TODO
 func (b *referencesBatcher) writeInverted(tx *bolt.Tx,
 	in inverted.DeltaMergeResult) error {
 	before := time.Now()
@@ -245,6 +204,7 @@ func (b *referencesBatcher) writeInverted(tx *bolt.Tx,
 	return nil
 }
 
+// nolint // TODO
 func (b *referencesBatcher) writeInvertedDeletions(tx *bolt.Tx,
 	in []inverted.MergeProperty) error {
 	for _, prop := range in {
@@ -265,6 +225,7 @@ func (b *referencesBatcher) writeInvertedDeletions(tx *bolt.Tx,
 	return nil
 }
 
+// nolint // TODO
 func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
 	in []inverted.MergeProperty) error {
 	for _, prop := range in {
@@ -284,6 +245,7 @@ func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
 	return nil
 }
 
+// nolint // TODO
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	ref objects.BatchReference) ([]inverted.Property, error) {
 	props := obj.Properties()
@@ -330,16 +292,6 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 		Items:        valueItems,
 		HasFrequency: false,
 	}}, nil
-}
-
-func (b *referencesBatcher) setErrorsForIndices(err error, affectedIndices []int) {
-	b.Lock()
-	defer b.Unlock()
-
-	err = errors.Wrap(err, "bolt batch tx")
-	for _, affected := range affectedIndices {
-		b.errs[affected] = err
-	}
 }
 
 func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
