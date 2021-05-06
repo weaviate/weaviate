@@ -318,6 +318,7 @@ func (s *Shard) checksum(in []byte) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+// nolint // TODO
 // batchExtendInvertedIndexItems is similar to the regular
 // extendInvertedIndexItem..., but instead of writing a single docid+frequency
 // it supports n docid/frequency pairs

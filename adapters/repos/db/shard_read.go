@@ -71,6 +71,10 @@ func (s *Shard) multiObjectByID(ctx context.Context,
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
+		if err != nil {
+			return nil, err
+		}
+
 		if bytes == nil {
 			continue
 		}
