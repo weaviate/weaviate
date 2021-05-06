@@ -86,6 +86,12 @@ func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
 			if err == NotFound {
 				continue
 			}
+
+			if err == Deleted {
+				return nil, nil
+			}
+
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
 		}
 
 		return v, nil

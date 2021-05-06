@@ -22,8 +22,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// TODO: are all the methods in here missing flushLock.RLock()??
-
 type Bucket struct {
 	dir      string
 	active   *Memtable
@@ -39,6 +37,12 @@ type Bucket struct {
 }
 
 func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
+	threshold := uint64(10 * 10 * 1024)
+	return NewBucketWithStrategyAndThreshold(dir, strategy, threshold)
+}
+
+func NewBucketWithStrategyAndThreshold(dir, strategy string,
+	threshold uint64) (*Bucket, error) {
 	// TODO: check if there are open commit logs: recover
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -59,7 +63,7 @@ func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
 	b := &Bucket{
 		dir:               dir,
 		disk:              sg,
-		memTableThreshold: 10 * 1024 * 1024,
+		memTableThreshold: threshold,
 		strategy:          strategy,
 	}
 
@@ -79,25 +83,52 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memTableThreshold = size
 }
 
+// TODO: this needs to be refactored
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	v, err := b.active.get(key)
-	switch err {
-	case nil:
+	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
 		return v, nil
-	case Deleted:
+	}
+	if err == Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
-	case NotFound:
-		return b.disk.get(key)
-	default:
-		panic("unsupported error in memtable.Get")
 	}
+
+	if err != NotFound {
+		panic("unsupported error in bucket.Get")
+	}
+
+	if b.flushing != nil {
+		v, err := b.flushing.get(key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, nil
+		}
+		if err == Deleted {
+			// deleted in the now most recent memtable  means we don't have to check
+			// the disk segments, return nil now
+			return nil, nil
+		}
+
+		if err != NotFound {
+			panic("unsupported error in bucket.Get")
+		}
+	}
+
+	return b.disk.get(key)
 }
 
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	var out []value
 
 	v, err := b.disk.getCollection(key)
@@ -120,14 +151,23 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 }
 
 func (b *Bucket) Put(key, value []byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	return b.active.put(key, value)
 }
 
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	return b.active.append(key, newSetEncoder().Do(values))
 }
 
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	return b.active.append(key, []value{
 		{
 			value:     valueToDelete,
@@ -137,6 +177,9 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 }
 
 func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	var raw []value
 
 	v, err := b.disk.getCollection(key)
@@ -159,6 +202,9 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	v, err := newMapEncoder().Do(kv)
 	if err != nil {
 		return err
@@ -168,6 +214,9 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 }
 
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	kv := MapPair{
 		Key:       mapKey,
 		Tombstone: true,
@@ -182,6 +231,9 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 }
 
 func (b *Bucket) Delete(key []byte) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	return b.active.setTombstone(key)
 }
 
