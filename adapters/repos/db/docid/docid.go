@@ -190,6 +190,48 @@ func MarkDeletedInTx(tx *bolt.Tx, docID uint64) error {
 	return nil
 }
 
+// TODO: we should not need this anymore as we could just deleted from the
+// inverted index directly
+func MarkDeletedLSM(store *lsmkv.Store, docID uint64) error {
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	key := keyBuf.Bytes()
+
+	b := store.Bucket(helpers.DocIDBucketLSM)
+	if b == nil {
+		return fmt.Errorf("no index id bucket found")
+	}
+
+	v, err := b.Get(key)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		// already deleted, nothing to mark
+		return nil
+	}
+
+	parsed, err := LookupFromBinary(v)
+	if err != nil {
+		return errors.Wrap(err, "unmarshal existing row")
+	}
+
+	parsed.Deleted = true
+	now := time.Now()
+	parsed.DeletionTime = &now
+
+	bytes, err := parsed.MarshalBinary()
+	if err != nil {
+		return errors.Wrap(err, "marshal updated row")
+	}
+
+	if err := b.Put(key, bytes); err != nil {
+		return errors.Wrap(err, "write row to bolt")
+	}
+
+	return nil
+}
+
 func RemoveInTx(tx *bolt.Tx, docID uint64) error {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)

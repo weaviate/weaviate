@@ -290,16 +290,15 @@ func (s *Shard) updateDocIDLookup(tx *bolt.Tx, newID []byte,
 func (s *Shard) updateDocIDLookupLSM(newID []byte,
 	status objectInsertStatus) error {
 	if status.docIDChanged {
-		// // clean up old docId first
+		// clean up old docId first
 
-		// // in-mem
-		// s.deletedDocIDs.Add(status.oldDocID)
+		// in-mem
+		s.deletedDocIDs.Add(status.oldDocID)
 
-		// // on-disk
-		// if err := docid.MarkDeletedInTx(tx, status.oldDocID); err != nil {
-		// 	return errors.Wrap(err, "remove docID->UUID index")
-		// }
-		return errors.Errorf("update not supported yet")
+		// on-disk
+		if err := docid.MarkDeletedLSM(s.store, status.oldDocID); err != nil {
+			return errors.Wrap(err, "remove docID->UUID index")
+		}
 	}
 
 	if err := docid.AddLookupInLSM(s.store, docid.Lookup{
