@@ -54,7 +54,6 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
 	return obj, nil
 }
 
-// TODO
 func (s *Shard) multiObjectByID(ctx context.Context,
 	query []multi.Identifier) ([]*storobj.Object, error) {
 	objects := make([]*storobj.Object, len(query))
@@ -69,23 +68,18 @@ func (s *Shard) multiObjectByID(ctx context.Context,
 		ids[i] = idBytes
 	}
 
-	err := s.db.View(func(tx *bolt.Tx) error {
-		for i, id := range ids {
-			bytes := tx.Bucket(helpers.ObjectsBucket).Get(id)
-			if bytes == nil {
-				continue
-			}
-
-			obj, err := storobj.FromBinary(bytes)
-			if err != nil {
-				return errors.Wrap(err, "unmarshal kind object")
-			}
-			objects[i] = obj
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	for i, id := range ids {
+		bytes, err := bucket.Get(id)
+		if bytes == nil {
+			continue
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "bolt view tx")
+
+		obj, err := storobj.FromBinary(bytes)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshal kind object")
+		}
+		objects[i] = obj
 	}
 
 	return objects, nil

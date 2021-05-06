@@ -62,33 +62,107 @@ func (b *referencesBatcher) init(refs objects.BatchReferences) {
 
 func (b *referencesBatcher) storeInObjectStore(
 	ctx context.Context) {
-	maxPerTransaction := 30
+	// maxPerTransaction := 30
 
-	wg := &sync.WaitGroup{}
-	for i := 0; i < len(b.refs); i += maxPerTransaction {
-		end := i + maxPerTransaction
-		if end > len(b.refs) {
-			end = len(b.refs)
+	// wg := &sync.WaitGroup{}
+	// for i := 0; i < len(b.refs); i += maxPerTransaction {
+	// 	end := i + maxPerTransaction
+	// 	if end > len(b.refs) {
+	// 		end = len(b.refs)
+	// 	}
+
+	// 	batch := b.refs[i:end]
+	// 	wg.Add(1)
+	// 	go func(i int, batch objects.BatchReferences) {
+	// 		defer wg.Done()
+	// 		var affectedIndices []int
+	// 		if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
+	// 			var err error
+	// 			affectedIndices, err = b.storeSingleBatchInTx(ctx, tx, i, batch)
+	// 			return err
+	// 		}); err != nil {
+	// 			b.setErrorsForIndices(err, affectedIndices)
+	// 		}
+	// 	}(i, batch)
+	// }
+	// wg.Wait()
+
+	errs := b.storeSingleBatchInLSM(ctx, b.refs)
+	for i, err := range errs {
+		if err != nil {
+			b.setErrorAtIndex(err, i)
 		}
-
-		batch := b.refs[i:end]
-		wg.Add(1)
-		go func(i int, batch objects.BatchReferences) {
-			defer wg.Done()
-			var affectedIndices []int
-			if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
-				var err error
-				affectedIndices, err = b.storeSingleBatchInTx(ctx, tx, i, batch)
-				return err
-			}); err != nil {
-				b.setErrorsForIndices(err, affectedIndices)
-			}
-		}(i, batch)
 	}
-	wg.Wait()
 
 	// adding references can not alter the vector position, so no need to alter
 	// the vector index
+}
+
+func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
+	batch objects.BatchReferences) []error {
+	errs := make([]error, len(batch))
+	errLock := &sync.Mutex{}
+
+	// if the context is expired fail all
+	if err := ctx.Err(); err != nil {
+		for i := range errs {
+			errs[i] = errors.Wrap(err, "begin batch")
+		}
+		return errs
+	}
+
+	// invertedMerger := inverted.NewDeltaMerger()
+
+	// TODO: is there any benefit in having this parallelized? if so, don't forget to lock before assigning errors
+	// If we want them to run in parallel we need to look individual objects,
+	// otherwise we have a race inside the merge functions
+	// wg := &sync.WaitGroup{}
+	for i, ref := range batch {
+		// wg.Add(1)
+		// go func(index int, reference objects.BatchReference) {
+		// 	defer wg.Done()
+		uuidParsed, err := uuid.Parse(ref.From.TargetID.String())
+		if err != nil {
+			errLock.Lock()
+			errs[i] = errors.Wrap(err, "invalid id")
+			errLock.Unlock()
+		}
+
+		idBytes, err := uuidParsed.MarshalBinary()
+		if err != nil {
+			errLock.Lock()
+			errs[i] = err
+			errLock.Unlock()
+		}
+
+		mergeDoc := mergeDocFromBatchReference(ref)
+		res, err := b.shard.mutableMergeObjectLSM(mergeDoc, idBytes)
+		if err != nil {
+			errLock.Lock()
+			errs[i] = err
+			errLock.Unlock()
+		}
+
+		_ = res
+
+		// TODO: inverted
+		// // generally the batch ref is an append only change which does not alter
+		// // the vector position. There is however one inverted index link that needs
+		// // to be cleanup: the ref count
+		// if err := b.analyzeInverted(tx, invertedMerger, res, ref); err != nil {
+		// 	return affectedIndices, errors.Wrap(err, "determine ref count cleanup")
+		// }
+		// }(i, ref)
+	}
+
+	// wg.Wait()
+
+	// TODO: inverted
+	// if err := b.writeInverted(tx, invertedMerger.Merge()); err != nil {
+	// 	return affectedIndices, err
+	// }
+
+	return errs
 }
 
 func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
@@ -266,6 +340,14 @@ func (b *referencesBatcher) setErrorsForIndices(err error, affectedIndices []int
 	for _, affected := range affectedIndices {
 		b.errs[affected] = err
 	}
+}
+
+func (b *referencesBatcher) setErrorAtIndex(err error, i int) {
+	b.Lock()
+	defer b.Unlock()
+
+	err = errors.Wrap(err, "ref batch")
+	b.errs[i] = err
 }
 
 func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocument {
