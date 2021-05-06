@@ -80,8 +80,6 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 func (b *Bucket) Get(key []byte) ([]byte, error) {
-	// TODO: allow other strategies than latest
-
 	v, err := b.active.get(key)
 	switch err {
 	case nil:
@@ -232,7 +230,6 @@ func (b *Bucket) initFlushCycle() {
 		t := time.Tick(100 * time.Millisecond)
 		for {
 			<-t
-			fmt.Printf("current size: %d\nthreshold: %d\n\n", b.active.Size(), b.memTableThreshold)
 			if b.active.Size() >= b.memTableThreshold {
 				if err := b.FlushAndSwitch(); err != nil {
 					// TODO: structured logging

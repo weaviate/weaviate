@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	bolt "go.etcd.io/bbolt"
 )
@@ -31,16 +32,21 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	var status objectInsertStatus
 
-	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		s, err := s.putObjectInTx(tx, object, idBytes, false)
-		if err != nil {
-			return err
-		}
+	// if err := s.db.Batch(func(tx *bolt.Tx) error {
+	// 	s, err := s.putObjectInTx(tx, object, idBytes, false)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		status = s
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	// 	status = s
+	// 	return nil
+	// }); err != nil {
+	// 	return errors.Wrap(err, "bolt batch tx")
+	// }
+
+	status, err = s.putObjectLSM(object, idBytes, false)
+	if err != nil {
+		return errors.Wrap(err, "store object in LSM store")
 	}
 
 	if err := s.updateVectorIndex(object.Vector, status); err != nil {
@@ -69,13 +75,58 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
+// func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
+// 	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
+// 	before := time.Now()
+// 	defer s.metrics.PutObject(before)
+
+// 	bucket := tx.Bucket(helpers.ObjectsBucket)
+// 	previous := bucket.Get([]byte(idBytes))
+
+// 	status, err := s.determineInsertStatus(previous, object)
+// 	if err != nil {
+// 		return status, errors.Wrap(err, "check insert/update status")
+// 	}
+
+// 	object.SetDocID(status.docID)
+// 	data, err := object.MarshalBinary()
+// 	if err != nil {
+// 		return status, errors.Wrapf(err, "marshal object %s to binary", object.ID())
+// 	}
+
+// 	before = time.Now()
+// 	if err := s.upsertObjectData(bucket, idBytes, data); err != nil {
+// 		return status, errors.Wrap(err, "upsert object data")
+// 	}
+// 	s.metrics.PutObjectUpsertObject(before)
+
+// 	before = time.Now()
+// 	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
+// 		return status, errors.Wrap(err, "add/update docID->UUID index")
+// 	}
+// 	s.metrics.PutObjectUpdateDocID(before)
+
+// 	if !skipInverted {
+// 		before = time.Now()
+// 		if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
+// 			return status, errors.Wrap(err, "update inverted indices")
+// 		}
+// 		s.metrics.PutObjectUpdateInverted(before)
+// 	}
+
+// 	return status, nil
+// }
+
+func (s *Shard) putObjectLSM(object *storobj.Object,
 	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
-	bucket := tx.Bucket(helpers.ObjectsBucket)
-	previous := bucket.Get([]byte(idBytes))
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	previous, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return objectInsertStatus{}, err
+	}
 
 	status, err := s.determineInsertStatus(previous, object)
 	if err != nil {
@@ -89,24 +140,25 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	}
 
 	before = time.Now()
-	if err := s.upsertObjectData(bucket, idBytes, data); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, data); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
 	s.metrics.PutObjectUpsertObject(before)
 
 	before = time.Now()
-	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
+	if err := s.updateDocIDLookupLSM(idBytes, status); err != nil {
 		return status, errors.Wrap(err, "add/update docID->UUID index")
 	}
 	s.metrics.PutObjectUpdateDocID(before)
 
-	if !skipInverted {
-		before = time.Now()
-		if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
-			return status, errors.Wrap(err, "update inverted indices")
-		}
-		s.metrics.PutObjectUpdateInverted(before)
-	}
+	// TODO: inverted
+	// if !skipInverted {
+	// 	before = time.Now()
+	// 	if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
+	// 		return status, errors.Wrap(err, "update inverted indices")
+	// 	}
+	// 	s.metrics.PutObjectUpdateInverted(before)
+	// }
 
 	return status, nil
 }
@@ -184,6 +236,10 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 	return bucket.Put(id, data)
 }
 
+func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte) error {
+	return bucket.Put(id, data)
+}
+
 // updateInvertedIndex is write-only for performance reasons. This means new
 // doc IDs can be appended to existing rows. If an old doc ID is no longer
 // valid it is not immediately cleaned up. Instead it is in the responsibility
@@ -222,6 +278,31 @@ func (s *Shard) updateDocIDLookup(tx *bolt.Tx, newID []byte,
 	}
 
 	if err := docid.AddLookupInTx(tx, docid.Lookup{
+		PointsTo: newID,
+		DocID:    status.docID,
+	}); err != nil {
+		return errors.Wrap(err, "add docID->UUID index")
+	}
+
+	return nil
+}
+
+func (s *Shard) updateDocIDLookupLSM(newID []byte,
+	status objectInsertStatus) error {
+	if status.docIDChanged {
+		// // clean up old docId first
+
+		// // in-mem
+		// s.deletedDocIDs.Add(status.oldDocID)
+
+		// // on-disk
+		// if err := docid.MarkDeletedInTx(tx, status.oldDocID); err != nil {
+		// 	return errors.Wrap(err, "remove docID->UUID index")
+		// }
+		return errors.Errorf("update not supported yet")
+	}
+
+	if err := docid.AddLookupInLSM(s.store, docid.Lookup{
 		PointsTo: newID,
 		DocID:    status.docID,
 	}); err != nil {

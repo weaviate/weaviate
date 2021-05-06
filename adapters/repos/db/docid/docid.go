@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -42,6 +43,28 @@ func AddLookupInTx(tx *bolt.Tx, info Lookup) error {
 	key := keyBuf.Bytes()
 
 	b := tx.Bucket(helpers.DocIDBucket)
+	if b == nil {
+		return fmt.Errorf("no index id bucket found")
+	}
+
+	value, err := info.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	if err := b.Put(key, value); err != nil {
+		return errors.Wrap(err, "store docId lookup info")
+	}
+
+	return nil
+}
+
+func AddLookupInLSM(store *lsmkv.Store, info Lookup) error {
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &info.DocID)
+	key := keyBuf.Bytes()
+
+	b := store.Bucket(helpers.DocIDBucketLSM)
 	if b == nil {
 		return fmt.Errorf("no index id bucket found")
 	}

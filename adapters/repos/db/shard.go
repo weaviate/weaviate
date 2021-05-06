@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -39,6 +40,7 @@ type Shard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	name             string
 	db               *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	store            *lsmkv.Store
 	counter          *indexcounter.Counter
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
@@ -117,6 +119,10 @@ func (s *Shard) DBPath() string {
 	return fmt.Sprintf("%s/%s.db", s.index.Config.RootPath, s.ID())
 }
 
+func (s *Shard) DBPathLSM() string {
+	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
+}
+
 func (s *Shard) initDBFile() error {
 	boltdb, err := bolt.Open(s.DBPath(), 0o600, nil)
 	if err != nil {
@@ -139,6 +145,26 @@ func (s *Shard) initDBFile() error {
 	}
 
 	s.db = boltdb
+
+	// lsm
+
+	store, err := lsmkv.New(s.DBPathLSM())
+	if err != nil {
+		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
+	}
+
+	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM, lsmkv.StrategyReplace)
+	if err != nil {
+		return errors.Wrap(err, "create objects bucket")
+	}
+
+	err = store.CreateOrLoadBucket(helpers.DocIDBucketLSM, lsmkv.StrategyReplace)
+	if err != nil {
+		return errors.Wrap(err, "create doc id bucket")
+	}
+
+	s.store = store
+
 	return nil
 }
 

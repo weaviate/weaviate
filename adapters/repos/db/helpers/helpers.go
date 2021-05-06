@@ -18,8 +18,10 @@ const (
 )
 
 var (
-	ObjectsBucket []byte = []byte("objects")
-	DocIDBucket   []byte = []byte("doc_ids")
+	ObjectsBucket    []byte = []byte("objects")
+	ObjectsBucketLSM        = "objects"
+	DocIDBucket      []byte = []byte("doc_ids")
+	DocIDBucketLSM          = "doc_ids"
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name

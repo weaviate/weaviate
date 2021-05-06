@@ -18,9 +18,30 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	bolt "go.etcd.io/bbolt"
 )
+
+func ObjectsLSM(store *lsmkv.Store, pointers []uint64) ([]*storobj.Object, error) {
+	// at most the resulting array can have the length of the input pointers,
+	// however it could also be smaller if one (or more) of the pointers resolve
+	// to nil-ids or nil-objects
+	out := make([]*storobj.Object, len(pointers))
+
+	i := 0
+	err := ScanObjectsLSM(store, pointers,
+		func(obj *storobj.Object) (bool, error) {
+			out[i] = obj
+			i++
+			return true, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return out[:i], nil
+}
 
 // ObjectsinTx resolves all the specified pointers to actual objects.  This
 // should only be called if the intent is to return those objects to the user,
@@ -147,6 +168,125 @@ func (os *objectScanner) resolveDocIDs() ([][]byte, error) {
 func (os *objectScanner) scan(uuidKeys [][]byte) error {
 	for i, uuid := range uuidKeys {
 		elem, err := storobj.FromBinary(os.objectsBucket.Get(uuid))
+		if err != nil {
+			return errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		continueScan, err := os.scanFn(elem)
+		if err != nil {
+			return errors.Wrapf(err, "scanFn at position %d", i)
+		}
+
+		if !continueScan {
+			break
+		}
+	}
+
+	return nil
+}
+
+// ScanObjectsLSM calls the provided scanFn on each object for the
+// specified pointer. If a pointer does not resolve to an object-id, the item
+// will be skipped. The number of times scanFn is called can therefore be
+// smaller than the input length of pointers.
+func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn) error {
+	return newObjectScannerLSM(store, pointers, scan).Do()
+}
+
+type objectScannerLSM struct {
+	store         *lsmkv.Store
+	pointers      []uint64
+	scanFn        ObjectScanFn
+	lookupBucket  *lsmkv.Bucket
+	objectsBucket *lsmkv.Bucket
+}
+
+func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
+	scan ObjectScanFn) *objectScannerLSM {
+	return &objectScannerLSM{
+		store:    store,
+		pointers: pointers,
+		scanFn:   scan,
+	}
+}
+
+func (os *objectScannerLSM) Do() error {
+	if err := os.init(); err != nil {
+		return errors.Wrap(err, "init object scanner")
+	}
+
+	uuidKeys, err := os.resolveDocIDs()
+	if err != nil {
+		return errors.Wrap(err, "resolve docid pointers")
+	}
+
+	if err := os.scan(uuidKeys); err != nil {
+		return errors.Wrap(err, "scan")
+	}
+
+	return nil
+}
+
+func (os *objectScannerLSM) init() error {
+	lookup := os.store.Bucket(helpers.DocIDBucketLSM)
+	if lookup == nil {
+		return fmt.Errorf("doc id lookup bucket not found")
+	}
+	os.lookupBucket = lookup
+
+	objects := os.store.Bucket(helpers.ObjectsBucketLSM)
+	if objects == nil {
+		return fmt.Errorf("objects bucket not found")
+	}
+	os.objectsBucket = objects
+
+	return nil
+}
+
+func (os *objectScannerLSM) resolveDocIDs() ([][]byte, error) {
+	uuidKeys := make([][]byte, len(os.pointers))
+
+	uuidIndex := 0
+	for _, pointer := range os.pointers {
+		keyBuf := bytes.NewBuffer(nil)
+		pointerUint64 := uint64(pointer)
+		binary.Write(keyBuf, binary.LittleEndian, &pointerUint64)
+		key := keyBuf.Bytes()
+		docIDLookup, err := os.lookupBucket.Get(key)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(docIDLookup) == 0 {
+			// we received a doc id that was marked as deleted and cleaned up
+			continue
+		}
+
+		lookup, err := LookupFromBinary(docIDLookup)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshal doc id lookup")
+		}
+
+		if lookup.Deleted {
+			// marked as deleted, but not cleaned up yet, skip
+			continue
+		}
+
+		uuidKeys[uuidIndex] = lookup.PointsTo
+		uuidIndex++
+	}
+
+	return uuidKeys[:uuidIndex], nil
+}
+
+func (os *objectScannerLSM) scan(uuidKeys [][]byte) error {
+	for i, uuid := range uuidKeys {
+		raw, err := os.objectsBucket.Get(uuid)
+		if err != nil {
+			return err
+		}
+
+		elem, err := storobj.FromBinary(raw)
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
