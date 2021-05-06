@@ -114,6 +114,8 @@ func (ind *segment) initBloomFilter() error {
 		return err
 	}
 
+	fmt.Printf("new segment has %d keys\n", len(keys))
+
 	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
 	for _, key := range keys {
 		ind.bloomFilter.Add(key)

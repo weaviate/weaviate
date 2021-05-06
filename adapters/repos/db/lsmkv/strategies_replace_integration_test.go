@@ -509,6 +509,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -533,6 +534,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -563,6 +565,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
@@ -634,6 +637,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -658,6 +662,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -798,6 +803,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -825,6 +831,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
@@ -859,6 +866,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -885,6 +893,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
@@ -917,6 +926,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -943,6 +953,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]byte
 			c := b.Cursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++

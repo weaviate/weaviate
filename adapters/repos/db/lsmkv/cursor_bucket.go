@@ -20,6 +20,7 @@ import (
 type CursorReplace struct {
 	innerCursors []innerCursorReplace
 	state        []cursorStateReplace
+	unlock       func()
 }
 
 type innerCursorReplace interface {
@@ -34,16 +35,36 @@ type cursorStateReplace struct {
 	err   error
 }
 
+// Cursor holds a RLock for the flushing state. It needs to be closed using the
+// .Close() methods or otherwise the lock will never be relased
 func (b *Bucket) Cursor() *CursorReplace {
+	b.flushLock.RLock()
+
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
 	}
 
+	innerCursors := b.disk.newCursors()
+
+	// we have a flush-RLock, so we have the guarantee that the flushing state
+	// will not change for the lifetime of the cursor, thus there can only be two
+	// states: either a flushing memtable currently exists - or it doesn't
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCursor())
+	}
+
+	innerCursors = append(innerCursors, b.active.newCursor())
+
 	return &CursorReplace{
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
-		innerCursors: append(b.disk.newCursors(), b.active.newCursor()),
+		innerCursors: innerCursors,
+		unlock:       b.flushLock.RUnlock,
 	}
+}
+
+func (c *CursorReplace) Close() {
+	c.unlock()
 }
 
 func (c *CursorReplace) seekAll(target []byte) {
