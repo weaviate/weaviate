@@ -14,7 +14,6 @@ package nearImage
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -52,18 +51,10 @@ func (s *Searcher) vectorFromNearImageParam(ctx context.Context,
 	cfg moduletools.ClassConfig) ([]float32, error) {
 	// find vector for given search query
 	searchID := fmt.Sprintf("search_%v", time.Now().UnixNano())
-	image := s.prepareImage(params.Image)
-
-	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, image)
+	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, params.Image)
 	if err != nil {
 		return nil, errors.Errorf("vectorize image: %v", err)
 	}
 
 	return vector, nil
-}
-
-func (s *Searcher) prepareImage(image string) string {
-	base64 := "base64,"
-	indx := strings.LastIndex(image, base64)
-	return image[indx+len(base64):]
 }
