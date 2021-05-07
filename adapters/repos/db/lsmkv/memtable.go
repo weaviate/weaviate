@@ -126,10 +126,9 @@ func (l *Memtable) append(key []byte, values []value) error {
 
 	l.Lock()
 	defer l.Unlock()
-	// TODO: commit log
-	// if err := l.commitlog.put(key, value); err != nil {
-	// 	return errors.Wrap(err, "write into commit log")
-	// }
+	if err := l.commitlog.append(key, values); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
 
 	l.keyMulti.insert(key, values)
 	l.size += uint64(len(key))
