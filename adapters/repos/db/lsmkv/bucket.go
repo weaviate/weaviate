@@ -39,7 +39,7 @@ type Bucket struct {
 }
 
 func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
-	threshold := uint64(10 * 10 * 1024)
+	threshold := uint64(10 * 1024 * 1024)
 	return NewBucketWithStrategyAndThreshold(dir, strategy, threshold)
 }
 
@@ -203,6 +203,16 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 		}
 	}
 	raw = append(raw, v...)
+
+	if b.flushing != nil {
+		v, err := b.flushing.getCollection(key)
+		if err != nil {
+			if err != nil && err != NotFound {
+				return nil, err
+			}
+		}
+		raw = append(raw, v...)
+	}
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
