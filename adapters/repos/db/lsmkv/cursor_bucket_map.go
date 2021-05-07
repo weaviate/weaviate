@@ -20,14 +20,28 @@ import (
 type CursorMap struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
+	unlock       func()
 }
 
 func (b *Bucket) MapCursor() *CursorMap {
+	b.flushLock.RLock()
+
+	innerCursors := b.disk.newCollectionCursors()
+
+	// we have a flush-RLock, so we have the guarantee that the flushing state
+	// will not change for the lifetime of the cursor, thus there can only be two
+	// states: either a flushing memtable currently exists - or it doesn't
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCollectionCursor())
+	}
+
+	innerCursors = append(innerCursors, b.active.newCollectionCursor())
+
 	return &CursorMap{
+		unlock: b.flushLock.RUnlock,
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
-		innerCursors: append(
-			b.disk.newCollectionCursors(), b.active.newCollectionCursor()),
+		innerCursors: innerCursors,
 	}
 }
 
@@ -43,6 +57,10 @@ func (c *CursorMap) Next() ([]byte, []MapPair) {
 func (c *CursorMap) First() ([]byte, []MapPair) {
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance()
+}
+
+func (c *CursorMap) Close() {
+	c.unlock()
 }
 
 func (c *CursorMap) seekAll(target []byte) {

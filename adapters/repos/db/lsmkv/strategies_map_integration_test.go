@@ -794,6 +794,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("row-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -834,6 +835,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -885,6 +887,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
@@ -1076,6 +1079,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			for k, v := c.Seek([]byte("row-016")); k != nil; k, v = c.Next() {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -1116,6 +1120,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
@@ -1167,6 +1172,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
@@ -1207,6 +1213,7 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 			var retrievedKeys [][]byte
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
+			defer c.Close()
 			retrieved := 0
 			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
