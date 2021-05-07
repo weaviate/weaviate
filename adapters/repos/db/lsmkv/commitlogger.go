@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"encoding/binary"
 	"os"
+
+	"github.com/pkg/errors"
 )
 
 type commitLogger struct {
@@ -24,8 +26,12 @@ type commitLogger struct {
 type CommitType uint16
 
 const (
-	CommitTypePut CommitType = iota
-	CommitTypeSetTombstone
+	CommitTypePut          CommitType = iota // replace strat
+	CommitTypeSetTombstone                   // replace strat
+
+	// collection strat - this can handle all cases as updates and deletes are
+	// only appends in a colleciton strat
+	CommitTypeAppend
 )
 
 func newCommitLogger(path string) (*commitLogger, error) {
@@ -82,6 +88,45 @@ func (cl *commitLogger) setTombstone(key []byte) error {
 
 	if _, err := cl.file.Write(key); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (cl *commitLogger) append(key []byte, values []value) error {
+	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
+	if err := binary.Write(cl.file, binary.LittleEndian, CommitTypeAppend); err != nil {
+		return err
+	}
+
+	keyLen := uint32(len(key))
+	if err := binary.Write(cl.file, binary.LittleEndian, &keyLen); err != nil {
+		return err
+	}
+
+	if _, err := cl.file.Write(key); err != nil {
+		return err
+	}
+
+	valuesLen := uint64(len(values))
+	if err := binary.Write(cl.file, binary.LittleEndian, &valuesLen); err != nil {
+		return err
+	}
+
+	for _, value := range values {
+		if err := binary.Write(cl.file, binary.LittleEndian, value.tombstone); err != nil {
+			return errors.Wrap(err, "write tombstone for value")
+		}
+
+		valueLen := uint64(len(value.value))
+		if err := binary.Write(cl.file, binary.LittleEndian, valueLen); err != nil {
+			return errors.Wrap(err, "write len of value")
+		}
+
+		_, err := cl.file.Write(value.value)
+		if err != nil {
+			return errors.Wrap(err, "write value")
+		}
 	}
 
 	return nil
