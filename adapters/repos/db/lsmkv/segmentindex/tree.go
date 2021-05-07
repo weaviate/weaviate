@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/pkg/errors"
 )
@@ -34,6 +35,33 @@ func NewTree(capacity int) Tree {
 	return Tree{
 		nodes: make([]*Node, 0, capacity),
 	}
+}
+
+func NewBalanced(nodes []Node) Tree {
+	t := Tree{nodes: make([]*Node, len(nodes))}
+
+	// sort the slice just once
+	sort.Slice(nodes, func(a, b int) bool {
+		return bytes.Compare(nodes[a].Key, nodes[b].Key) < 0
+	})
+
+	t.buildBalanced(nodes, 0, 0, len(nodes)-1)
+
+	return t
+}
+
+func (t *Tree) buildBalanced(nodes []Node, targetPos, leftBound, rightBound int) {
+	t.grow(targetPos)
+
+	if leftBound > rightBound {
+		return
+	}
+
+	mid := (leftBound + rightBound) / 2
+	t.nodes[targetPos] = &nodes[mid]
+
+	t.buildBalanced(nodes, t.left(targetPos), leftBound, mid-1)
+	t.buildBalanced(nodes, t.right(targetPos), mid+1, rightBound)
 }
 
 func (t *Tree) Insert(key []byte, start, end uint64) {
@@ -142,6 +170,10 @@ func (t *Tree) grow(i int) {
 
 	newNodes := make([]*Node, newSize)
 	copy(newNodes, t.nodes)
+	for i := range t.nodes {
+		t.nodes[i] = nil
+	}
+
 	t.nodes = newNodes
 }
 
@@ -213,4 +245,16 @@ func (t *Tree) calculateDiskOffsets() ([]int, int) {
 	}
 
 	return out, current
+}
+
+func (t *Tree) Height() int {
+	var highestElem int
+	for i := len(t.nodes) - 1; i >= 0; i-- {
+		if t.nodes[i] != nil {
+			highestElem = i
+			break
+		}
+	}
+
+	return int(math.Ceil(math.Log2(float64(highestElem))))
 }

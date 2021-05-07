@@ -1,0 +1,138 @@
+package db
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
+)
+
+func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
+	item inverted.Countable, docID uint64, frequency float64) error {
+	if b.Strategy() != lsmkv.StrategyMapCollection {
+		panic("prop has frequency, but bucket does not have 'Map' strategy")
+	}
+
+	hash, err := generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	if err := hashBucket.Put(item.Data, hash); err != nil {
+		return err
+	}
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+	var freqBuf bytes.Buffer
+	if err := binary.Write(&freqBuf, binary.LittleEndian, &item.TermFrequency); err != nil {
+		return err
+	}
+
+	pair := lsmkv.MapPair{
+		Key:   docIDBytes,
+		Value: freqBuf.Bytes(),
+	}
+
+	return b.MapSet(item.Data, pair)
+}
+
+func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
+	item inverted.Countable, docID uint64) error {
+	if b.Strategy() != lsmkv.StrategySetCollection {
+		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	}
+
+	hash, err := generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	if err := hashBucket.Put(item.Data, hash); err != nil {
+		return err
+	}
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+	return b.SetAdd(item.Data, [][]byte{docIDBytes})
+}
+
+func (s *Shard) batchExtendInvertedIndexItemsLSM(b, hashBucket *lsmkv.Bucket,
+	item inverted.MergeItem, hasFrequency bool) error {
+	if hasFrequency {
+		return s.batchExtendInvertedIndexItemsLSMWithFrequency(b, hashBucket, item)
+	} else {
+		return s.batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket, item)
+	}
+}
+
+func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
+	item inverted.MergeItem) error {
+	if b.Strategy() != lsmkv.StrategySetCollection {
+		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	}
+
+	hash, err := generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	if err := hashBucket.Put(item.Data, hash); err != nil {
+		return err
+	}
+
+	docIDs := make([][]byte, len(item.DocIDs))
+	for i, idTuple := range item.DocIDs {
+		docIDs[i] = make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDs[i], idTuple.DocID)
+	}
+
+	return b.SetAdd(item.Data, docIDs)
+}
+
+func (s *Shard) batchExtendInvertedIndexItemsLSMWithFrequency(b, hashBucket *lsmkv.Bucket,
+	item inverted.MergeItem) error {
+	if b.Strategy() != lsmkv.StrategyMapCollection {
+		panic("prop has no frequency, but bucket does not have 'Map' strategy")
+	}
+
+	hash, err := generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	if err := hashBucket.Put(item.Data, hash); err != nil {
+		return err
+	}
+
+	pairs := make([]lsmkv.MapPair, len(item.DocIDs))
+	for i, idTuple := range item.DocIDs {
+		key := make([]byte, 8)
+		binary.LittleEndian.PutUint64(key, idTuple.DocID)
+
+		var freqBuf bytes.Buffer
+		if err := binary.Write(&freqBuf, binary.LittleEndian, &idTuple.Frequency); err != nil {
+			return err
+		}
+
+		pairs[i] = lsmkv.MapPair{Key: key, Value: freqBuf.Bytes()}
+	}
+
+	return b.MapSetMulti(item.Data, pairs)
+}
+
+// the row hash isn't actually a hash at this point, it is just a random
+// sequence of bytes. The important thing is that every new write into this row
+// replaces the hash as the read cacher will make a decision based on the hash
+// if it should read the row again from cache. So changing the "hash" (by
+// replacing it with other random bytes) is essentially just a signal to the
+// read-time cacher to invalidate its entry
+func generateRowHash() ([]byte, error) {
+	out := make([]byte, 8)
+	_, err := rand.Read(out)
+	return out, err
+}

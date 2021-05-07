@@ -12,8 +12,9 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
-	"math/rand"
+	"io"
 	"os"
 
 	"github.com/pkg/errors"
@@ -26,8 +27,14 @@ func (l *Memtable) flush() error {
 	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
+
 	if err := l.commitlog.close(); err != nil {
 		return errors.Wrap(err, "close commit log file")
+	}
+
+	if l.Size() == 0 {
+		// this is an empty memtable, nothing to do
+		return nil
 	}
 
 	f, err := os.Create(l.path + ".db")
@@ -35,35 +42,42 @@ func (l *Memtable) flush() error {
 		return err
 	}
 
+	w := bufio.NewWriterSize(f, int(float64(l.size)*1.3)) // calculate 30% overhead for disk representation
+
 	var keys []keyIndex
 	switch l.strategy {
 	case StrategyReplace:
-		if keys, err = l.flushDataReplace(f); err != nil {
+		if keys, err = l.flushDataReplace(w); err != nil {
 			return err
 		}
 
 	case StrategySetCollection, StrategyMapCollection:
-		if keys, err = l.flushDataCollection(f); err != nil {
+		if keys, err = l.flushDataCollection(w); err != nil {
 			return err
 		}
 
 	}
 
-	// shuffle keys so we don't end up with an unbalanced binary tree, as we
-	// would if they were perfectly ordered
-	rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
-
-	index := segmentindex.NewTree(len(keys))
-	for _, key := range keys {
-		index.Insert(key.key, uint64(key.valueStart), uint64(key.valueEnd))
+	keyNodes := make([]segmentindex.Node, len(keys))
+	for i, key := range keys {
+		keyNodes[i] = segmentindex.Node{
+			Key:   key.key,
+			Start: uint64(key.valueStart),
+			End:   uint64(key.valueEnd),
+		}
 	}
+	index := segmentindex.NewBalanced(keyNodes)
 
 	indexBytes, err := index.MarshalBinary()
 	if err != nil {
 		return err
 	}
 
-	if _, err := f.Write(indexBytes); err != nil {
+	if _, err := w.Write(indexBytes); err != nil {
+		return err
+	}
+
+	if err := w.Flush(); err != nil {
 		return err
 	}
 
@@ -82,7 +96,7 @@ func (l *Memtable) flush() error {
 // for the pointer to the index part
 const SegmentHeaderSize = 12
 
-func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
+func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	flat := l.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
@@ -146,7 +160,7 @@ func (l *Memtable) flushDataReplace(f *os.File) ([]keyIndex, error) {
 	return keys, nil
 }
 
-func (l *Memtable) flushDataCollection(f *os.File) ([]keyIndex, error) {
+func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 	flat := l.keyMulti.flattenInOrder()
 
 	totalDataLength := totalValueSizeCollection(flat)

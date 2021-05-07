@@ -13,10 +13,13 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	_ "net/http/pprof"
 
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -44,7 +47,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
-	// _ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -71,6 +73,9 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+	go func() {
+		fmt.Println(http.ListenAndServe(":6060", nil))
+	}()
 	ctx := context.Background()
 	// abort startup if it does not complete within 120s
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)

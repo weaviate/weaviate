@@ -36,3 +36,15 @@ func BucketFromPropName(propName string) []byte {
 func MetaCountProp(propName string) string {
 	return fmt.Sprintf("%s__meta_count", propName)
 }
+
+// BucketFromPropName creates the byte-representation used as the bucket name
+// for a partiular prop in the inverted index
+func BucketFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property_%s", propName)
+}
+
+// HashBucketFromPropName creates the byte-representation used as the bucket name
+// for the status information of a partiular prop in the inverted index
+func HashBucketFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("hash_property_%s", propName)
+}

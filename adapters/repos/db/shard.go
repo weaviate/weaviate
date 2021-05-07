@@ -195,43 +195,57 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.PropertyNameID))
-		if err != nil {
-			return err
-		}
+	err := s.store.CreateOrLoadBucket(
+		helpers.BucketFromPropNameLSM(helpers.PropertyNameID), lsmkv.StrategySetCollection)
+	if err != nil {
+		return err
+	}
 
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt update tx")
+	err = s.store.CreateOrLoadBucket(
+		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID), lsmkv.StrategyReplace)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
+	if schema.IsRefDataType(prop.DataType) {
+		err := s.store.CreateOrLoadBucket(
+			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
+			lsmkv.StrategySetCollection) // ref props do not have frequencies -> Set
 		if err != nil {
 			return err
 		}
 
-		if schema.IsRefDataType(prop.DataType) {
-			_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.MetaCountProp(prop.Name)))
-			if err != nil {
-				return err
-			}
+		err = s.store.CreateOrLoadBucket(
+			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
+			lsmkv.StrategyReplace)
+		if err != nil {
+			return err
 		}
+	}
 
-		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-			if err := s.initGeoProp(prop); err != nil {
-				return err
-			}
-		}
+	if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+		return s.initGeoProp(prop)
+	}
 
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt update tx")
+	strat := lsmkv.StrategySetCollection
+	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
+		strat = lsmkv.StrategyMapCollection
+	}
+
+	err := s.store.CreateOrLoadBucket(helpers.BucketFromPropNameLSM(prop.Name),
+		strat)
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(helpers.HashBucketFromPropNameLSM(prop.Name),
+		lsmkv.StrategyReplace)
+	if err != nil {
+		return err
 	}
 
 	return nil
