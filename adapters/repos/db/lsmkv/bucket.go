@@ -237,6 +237,18 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	return b.active.append(rowKey, v)
 }
 
+func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	v, err := newMapEncoder().DoMulti(kvs)
+	if err != nil {
+		return err
+	}
+
+	return b.active.append(rowKey, v)
+}
+
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -327,6 +339,9 @@ func (b *Bucket) initFlushCycle() {
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
+	// b.flushLock.Lock()
+	// defer b.flushLock.Unlock()
+
 	fmt.Printf("start flush and switch\n")
 	if err := b.atomicallySwitchMemtable(); err != nil {
 		return errors.Wrap(err, "switch active memtable")
@@ -364,4 +379,8 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 	b.flushing = b.active
 	return b.setNewActiveMemtable()
+}
+
+func (b *Bucket) Strategy() string {
+	return b.strategy
 }

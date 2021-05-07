@@ -151,14 +151,13 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	}
 	s.metrics.PutObjectUpdateDocID(before)
 
-	// TODO: inverted
-	// if !skipInverted {
-	// 	before = time.Now()
-	// 	if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
-	// 		return status, errors.Wrap(err, "update inverted indices")
-	// 	}
-	// 	s.metrics.PutObjectUpdateInverted(before)
-	// }
+	if !skipInverted {
+		before = time.Now()
+		if err := s.updateInvertedIndexLSM(object, status.docID); err != nil {
+			return status, errors.Wrap(err, "update inverted indices")
+		}
+		s.metrics.PutObjectUpdateInverted(before)
+	}
 
 	return status, nil
 }
@@ -255,6 +254,23 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 
 	before := time.Now()
 	err = s.extendInvertedIndices(tx, props, docID)
+	if err != nil {
+		return errors.Wrap(err, "put inverted indices props")
+	}
+	s.metrics.InvertedExtend(before, len(props))
+
+	return nil
+}
+
+func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
+	docID uint64) error {
+	props, err := s.analyzeObject(object)
+	if err != nil {
+		return errors.Wrap(err, "analyze next object")
+	}
+
+	before := time.Now()
+	err = s.extendInvertedIndicesLSM(props, docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}

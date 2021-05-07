@@ -97,6 +97,7 @@ func (l *Memtable) setTombstone(key []byte) error {
 	}
 
 	l.key.setTombstone(key)
+	l.size += uint64(len(key)) + 1 // 1 byte for tombstone
 
 	return nil
 }

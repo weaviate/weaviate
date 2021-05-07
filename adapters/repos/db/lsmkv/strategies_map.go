@@ -165,3 +165,21 @@ func (m *mapEncoder) Do(kv MapPair) ([]value, error) {
 
 	return out, nil
 }
+
+func (m *mapEncoder) DoMulti(kvs []MapPair) ([]value, error) {
+	out := make([]value, len(kvs))
+
+	for i, kv := range kvs {
+		v, err := kv.Bytes()
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = value{
+			tombstone: kv.Tombstone,
+			value:     v,
+		}
+	}
+
+	return out, nil
+}

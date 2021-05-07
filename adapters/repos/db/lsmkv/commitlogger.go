@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
 	"os"
 
@@ -19,8 +20,9 @@ import (
 )
 
 type commitLogger struct {
-	file *os.File
-	path string
+	file   *os.File
+	writer *bufio.Writer
+	path   string
 }
 
 type CommitType uint16
@@ -45,30 +47,32 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	}
 
 	out.file = f
+
+	out.writer = bufio.NewWriter(f)
 	return out, nil
 }
 
 func (cl *commitLogger) put(key, value []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.file, binary.LittleEndian, CommitTypePut); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypePut); err != nil {
 		return err
 	}
 
 	keyLen := uint32(len(key))
-	if err := binary.Write(cl.file, binary.LittleEndian, &keyLen); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
 		return err
 	}
 
-	if _, err := cl.file.Write(key); err != nil {
+	if _, err := cl.writer.Write(key); err != nil {
 		return err
 	}
 
 	valueLen := uint32(len(value))
-	if err := binary.Write(cl.file, binary.LittleEndian, &valueLen); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, &valueLen); err != nil {
 		return err
 	}
 
-	if _, err := cl.file.Write(value); err != nil {
+	if _, err := cl.writer.Write(value); err != nil {
 		return err
 	}
 
@@ -77,16 +81,16 @@ func (cl *commitLogger) put(key, value []byte) error {
 
 func (cl *commitLogger) setTombstone(key []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.file, binary.LittleEndian, CommitTypeSetTombstone); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeSetTombstone); err != nil {
 		return err
 	}
 
 	keyLen := uint32(len(key))
-	if err := binary.Write(cl.file, binary.LittleEndian, &keyLen); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
 		return err
 	}
 
-	if _, err := cl.file.Write(key); err != nil {
+	if _, err := cl.writer.Write(key); err != nil {
 		return err
 	}
 
@@ -95,35 +99,35 @@ func (cl *commitLogger) setTombstone(key []byte) error {
 
 func (cl *commitLogger) append(key []byte, values []value) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.file, binary.LittleEndian, CommitTypeAppend); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeAppend); err != nil {
 		return err
 	}
 
 	keyLen := uint32(len(key))
-	if err := binary.Write(cl.file, binary.LittleEndian, &keyLen); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
 		return err
 	}
 
-	if _, err := cl.file.Write(key); err != nil {
+	if _, err := cl.writer.Write(key); err != nil {
 		return err
 	}
 
 	valuesLen := uint64(len(values))
-	if err := binary.Write(cl.file, binary.LittleEndian, &valuesLen); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, &valuesLen); err != nil {
 		return err
 	}
 
 	for _, value := range values {
-		if err := binary.Write(cl.file, binary.LittleEndian, value.tombstone); err != nil {
+		if err := binary.Write(cl.writer, binary.LittleEndian, value.tombstone); err != nil {
 			return errors.Wrap(err, "write tombstone for value")
 		}
 
 		valueLen := uint64(len(value.value))
-		if err := binary.Write(cl.file, binary.LittleEndian, valueLen); err != nil {
+		if err := binary.Write(cl.writer, binary.LittleEndian, valueLen); err != nil {
 			return errors.Wrap(err, "write len of value")
 		}
 
-		_, err := cl.file.Write(value.value)
+		_, err := cl.writer.Write(value.value)
 		if err != nil {
 			return errors.Wrap(err, "write value")
 		}
@@ -133,6 +137,10 @@ func (cl *commitLogger) append(key []byte, values []value) error {
 }
 
 func (cl *commitLogger) close() error {
+	if err := cl.writer.Flush(); err != nil {
+		return err
+	}
+
 	return cl.file.Close()
 }
 
