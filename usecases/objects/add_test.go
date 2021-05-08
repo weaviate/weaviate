@@ -123,7 +123,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, class)
-		assert.Equal(t, NewErrInvalidUserInput("invalid object: uuid: incorrect UUID length: %s", id), err)
+		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
 	})
 
 	t.Run("without a vector", func(t *testing.T) {
@@ -240,6 +240,6 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, class)
-		assert.Equal(t, NewErrInvalidUserInput("invalid object: uuid: incorrect UUID length: %s", id), err)
+		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
 	})
 }

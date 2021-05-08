@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -193,7 +193,7 @@ func extractFilters(params models.Classification) (Filters, error) {
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {
-	id, err := uuid.NewV4()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		return err
 	}

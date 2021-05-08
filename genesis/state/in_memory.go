@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -38,24 +38,24 @@ func (im *inMemoryState) RegisterPeer(name string, uri strfmt.URI) (*Peer, error
 	im.Lock()
 	defer im.Unlock()
 
-	uuid, err := uuid.NewV4()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		panic(err)
 	}
 
-	id := strfmt.UUID(uuid.String())
+	peerId := strfmt.UUID(id.String())
 
 	log.Debugf("Registering peer '%v' with id '%v'", name, id)
 	peer := Peer{
 		PeerInfo: PeerInfo{
-			Id:            id,
+			Id:            peerId,
 			LastContactAt: time.Now(),
 		},
 		name: name,
 		uri:  uri,
 	}
 
-	im.peers[id] = peer
+	im.peers[peerId] = peer
 	go im.broadcast_update()
 	return &peer, nil
 }
