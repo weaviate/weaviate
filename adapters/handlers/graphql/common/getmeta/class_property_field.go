@@ -28,7 +28,7 @@ import (
 func ClassPropertyField(dataType schema.DataType, class *models.Class,
 	property *models.Property, prefix string) (*graphql.Field, error) {
 	switch dataType {
-	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeDate:
+	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeDate, schema.DataTypeBlob:
 		return makePropertyField(class, property, stringPropertyFields, prefix)
 	case schema.DataTypeInt, schema.DataTypeNumber:
 		return makePropertyField(class, property, numericalPropertyField, prefix)

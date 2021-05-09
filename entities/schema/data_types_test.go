@@ -74,7 +74,7 @@ func TestGetPropertyDataType(t *testing.T) {
 	class := &models.Class{Class: "TestClass"}
 	dataTypes := []string{
 		"string", "text", "int", "number", "boolean",
-		"date", "geoCoordinates", "phoneNumber", "Ref", "invalid",
+		"date", "geoCoordinates", "phoneNumber", "blob", "Ref", "invalid",
 	}
 	class.Properties = make([]*models.Property, len(dataTypes))
 	for i, dtString := range dataTypes {
@@ -122,6 +122,10 @@ func TestGetPropertyDataType(t *testing.T) {
 		test{
 			propName:         "geoCoordinatesProp",
 			expectedDataType: ptDataType(DataTypeGeoCoordinates),
+		},
+		test{
+			propName:         "blobProp",
+			expectedDataType: ptDataType(DataTypeBlob),
 		},
 		test{
 			propName:         "RefProp",
