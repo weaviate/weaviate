@@ -110,7 +110,7 @@ before_script:
     # This used to be part of the deploy step, but since dockerhub introduced rate limiting
     # we now need to be logged in also for all pull steps, thus it is now at the beginning
     # of the pipeline
-    if [ "$TRAVIS_REPO_SLUG" = "semi-technologies/weaviate" ]; then
+    if [ -n "$DOCKER_PASSWORD" ]; then
       echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
     else
       echo "Cannot login to Dockerhub, as this is an external PR. There is a risk that the build will fail due to rate limiting"
