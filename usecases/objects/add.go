@@ -15,8 +15,8 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -160,7 +160,7 @@ func (m *Manager) validateVectorPresent(class *models.Object) error {
 
 func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, class *models.Object) error {
 	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.FromString(class.ID.String()); err != nil {
+	if _, err := uuid.Parse(class.ID.String()); err != nil {
 		return err
 	}
 

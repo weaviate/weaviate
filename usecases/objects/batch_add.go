@@ -18,9 +18,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -100,12 +101,13 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 	if concept.ID == "" {
 		// Generate UUID for the new object
-		uuid, err := generateUUID()
-		id = uuid
+		uid, err := generateUUID()
+		id = uid
 		ec.add(err)
 	} else {
-		_, err := uuid.FromString(concept.ID.String())
-		ec.add(err)
+		if _, err := uuid.Parse(concept.ID.String()); err != nil {
+			ec.add(err)
+		}
 		id = concept.ID
 	}
 

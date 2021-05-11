@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -136,7 +136,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 }
 
 func mustNewUUID() strfmt.UUID {
-	id, err := uuid.NewV4()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		panic(err)
 	}
