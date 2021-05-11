@@ -20,7 +20,7 @@ import (
 	"sync"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -153,7 +153,7 @@ func testDataAlreadyClassified() search.Results {
 }
 
 func mustUUID() strfmt.UUID {
-	id, err := uuid.NewV4()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		panic(err)
 	}

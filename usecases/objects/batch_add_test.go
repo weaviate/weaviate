@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -156,7 +157,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
-		assert.Equal(t, repoCalledWithObjects[0].Err.Error(), "uuid: incorrect UUID length: invalid")
+		assert.Equal(t, repoCalledWithObjects[0].Err.Error(), fmt.Sprintf("invalid UUID length: %d", len(id1)))
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 	})
 }
@@ -279,7 +280,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
-		assert.Equal(t, repoCalledWithObjects[0].Err.Error(), "uuid: incorrect UUID length: invalid")
+		assert.Equal(t, repoCalledWithObjects[0].Err.Error(), fmt.Sprintf("invalid UUID length: %d", len(id1)))
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 	})
 }
