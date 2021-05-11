@@ -13,9 +13,7 @@ package vectorizer
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -81,11 +79,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	vectors := [][]float32{}
 	for i, image := range images {
 		imgID := fmt.Sprintf("%s_%v", id, i)
-		img, err := v.prepareImage(image)
-		if err != nil {
-			return nil, err
-		}
-		vector, err := v.VectorizeImage(ctx, imgID, img)
+		vector, err := v.VectorizeImage(ctx, imgID, image)
 		if err != nil {
 			return nil, err
 		}
@@ -93,13 +87,4 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	}
 
 	return libvectorizer.CombineVectors(vectors), nil
-}
-
-func (v *Vectorizer) prepareImage(image string) (string, error) {
-	if len(image) < 22 || !strings.HasPrefix(image, "data:") {
-		return "", errors.New("not base64 encoded image")
-	}
-	base64 := "base64,"
-	indx := strings.LastIndex(image, base64)
-	return image[indx+len(base64):], nil
 }

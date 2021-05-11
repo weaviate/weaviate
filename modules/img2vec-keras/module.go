@@ -63,9 +63,9 @@ func (m *KerasModule) Init(ctx context.Context,
 func (m *KerasModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
 	// TODO: proper config management
-	uri := os.Getenv("IMAGE_VECTORIZER_URL")
+	uri := os.Getenv("IMAGE_INFERENCE_API")
 	if uri == "" {
-		return errors.Errorf("required variable IMAGE_VECTORIZER_URL is not set")
+		return errors.Errorf("required variable IMAGE_INFERENCE_API is not set")
 	}
 
 	client := clients.New(uri, logger)
