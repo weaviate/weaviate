@@ -21,10 +21,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus"
 )
 
 type ConfigValidator struct {
 	remote RemoteClient
+	logger logrus.FieldLogger
 }
 
 type IndexChecker interface {
@@ -38,8 +40,9 @@ type RemoteClient interface {
 	IsWordPresent(ctx context.Context, word string) (bool, error)
 }
 
-func NewConfigValidator(rc RemoteClient) *ConfigValidator {
-	return &ConfigValidator{remote: rc}
+func NewConfigValidator(rc RemoteClient,
+	logger logrus.FieldLogger) *ConfigValidator {
+	return &ConfigValidator{remote: rc, logger: logger}
 }
 
 func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
@@ -64,6 +67,8 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 	if err := cv.validateIndexState(ctx, class, icheck); err != nil {
 		return errors.Errorf("invalid combination of properties")
 	}
+
+	cv.checkForPossibilityOfDuplicateVectors(ctx, class, icheck)
 
 	return nil
 }
@@ -188,4 +193,38 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing.")
+}
+
+func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(
+	ctx context.Context, class *models.Class, icheck IndexChecker) {
+	if !icheck.VectorizeClassName() {
+		// if the user choses not to vectorize the class name, this means they must
+		// have chosen something else to vectorize, otherwise the validation would
+		// have error'd before we ever got here. We can skip further checking.
+
+		return
+	}
+
+	// search if there is at least one indexed, string/text prop. If found exit
+	for _, prop := range class.Properties {
+		// length check skipped, because validation has already passed
+		if prop.DataType[0] != string(schema.DataTypeString) &&
+			prop.DataType[0] != string(schema.DataTypeText) {
+			// we can only vectorize text-like props
+			continue
+		}
+
+		if icheck.PropertyIndexed(prop.Name) {
+			// found at least one
+			return
+		}
+	}
+
+	cv.logger.WithField("module", "text2vec-contextionary").
+		WithField("class", class.Class).
+		Warnf("text2vec-contextionary: Class %q does not have any properties"+
+			"indexed (or only non text-properties indexed) and the vector position is"+
+			"only determined by the class name. Each object will end up with the same"+
+			"vector which leads to a severe performance penalty on imports. Consider"+
+			"setting vectorIndexConfig.skip=true for this property", class.Class)
 }
