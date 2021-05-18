@@ -65,7 +65,7 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 	cfg moduletools.ClassConfig, settings ClassSettings) error {
 	// In text2vec-transformers (as opposed to e.g. text2vec-contextionary) the
 	// assumption is that the models will be able to deal with any words, even
-	// previoulsy unseen ones. Therefore we do not need to validate individual
+	// previously unseen ones. Therefore we do not need to validate individual
 	// properties, but only the overall "index state"
 
 	if err := cv.validateIndexState(ctx, class, settings); err != nil {
