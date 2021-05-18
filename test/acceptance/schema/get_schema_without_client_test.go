@@ -38,6 +38,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				"properties":      (interface{})(nil),
 				"vectorIndexType": "hnsw", // from default
 				"vectorIndexConfig": map[string]interface{}{ // from default
+					"skip":                   false,
 					"cleanupIntervalSeconds": float64(300),
 					"efConstruction":         float64(128),
 					"ef":                     float64(-1),

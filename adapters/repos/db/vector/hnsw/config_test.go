@@ -102,6 +102,7 @@ func Test_UserConfig(t *testing.T) {
 				EFConstruction:         DefaultEFConstruction,
 				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
 			},
 		},
 
@@ -127,6 +128,7 @@ func Test_UserConfig(t *testing.T) {
 				"efConstruction":         json.Number("13"),
 				"vectorCacheMaxObjects":  json.Number("14"),
 				"ef":                     json.Number("15"),
+				"skip":                   true,
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -134,6 +136,7 @@ func Test_UserConfig(t *testing.T) {
 				EFConstruction:         13,
 				VectorCacheMaxObjects:  14,
 				EF:                     15,
+				Skip:                   true,
 			},
 		},
 
