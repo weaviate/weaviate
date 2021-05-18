@@ -33,6 +33,7 @@ import (
 	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
@@ -57,6 +58,7 @@ type ContextionaryModule struct {
 	searcher                     modulecapabilities.Searcher
 	remote                       remoteClient
 	classifierContextual         modulecapabilities.Classifier
+	logger                       logrus.FieldLogger
 }
 
 type remoteClient interface {
@@ -87,8 +89,10 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 		return errors.Errorf("appState is not a *state.State")
 	}
 
+	m.logger = appState.Logger
+
 	url := appState.ServerConfig.Config.Contextionary.URL
-	remote, err := client.NewClient(url, appState.Logger)
+	remote, err := client.NewClient(url, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "init remote client")
 	}
@@ -147,7 +151,7 @@ func (m *ContextionaryModule) initConcepts() error {
 
 func (m *ContextionaryModule) initVectorizer() error {
 	m.vectorizer = localvectorizer.New(m.remote)
-	m.configValidator = localvectorizer.NewConfigValidator(m.remote)
+	m.configValidator = localvectorizer.NewConfigValidator(m.remote, m.logger)
 
 	m.searcher = text2vecneartext.NewSearcher(m.vectorizer)
 
