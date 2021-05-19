@@ -14,6 +14,7 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/fatih/camelcase"
@@ -55,6 +56,16 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
+func sortStringKeys(schema_map map[string]interface{}) []string {
+
+	keys := make([]string, 0, len(schema_map))
+	for k := range schema_map {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, icheck ClassSettings) ([]float32, error) {
 	var corpi []string
@@ -64,12 +75,13 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	if schema != nil {
-		for prop, value := range schema.(map[string]interface{}) {
+		schemamap := schema.(map[string]interface{})
+		for _, prop := range sortStringKeys(schemamap) {
 			if !icheck.PropertyIndexed(prop) {
 				continue
 			}
 
-			valueString, ok := value.(string)
+			valueString, ok := schemamap[prop].(string)
 			if ok {
 				if icheck.VectorizePropertyName(prop) {
 					// use prop and value
