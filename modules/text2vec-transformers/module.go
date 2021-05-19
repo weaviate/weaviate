@@ -35,6 +35,7 @@ type TransformersModule struct {
 	metaProvider    metaProvider
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
+	logger          logrus.FieldLogger
 }
 
 type textVectorizer interface {
@@ -60,7 +61,9 @@ func (m *TransformersModule) Name() string {
 
 func (m *TransformersModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
-	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
+	m.logger = params.GetLogger()
+
+	if err := m.initVectorizer(ctx, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
