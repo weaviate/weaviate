@@ -45,6 +45,15 @@ type ClassSettings interface {
 	PoolingStrategy() string
 }
 
+func sortStringKeys(schema_map map[string]interface{}) []string {
+	keys := make([]string, 0, len(schema_map))
+	for k := range schema_map {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	settings ClassSettings) error {
 	vec, err := v.object(ctx, object.Class, object.Properties, settings)
@@ -54,15 +63,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 	object.Vector = vec
 	return nil
-}
-
-func sortStringKeys(schema_map map[string]interface{}) []string {
-	keys := make([]string, 0, len(schema_map))
-	for k := range schema_map {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
