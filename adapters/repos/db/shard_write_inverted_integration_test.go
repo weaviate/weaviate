@@ -38,190 +38,192 @@ func getDocumentFrequencyValue(documentID uint64, frequency []byte) []byte {
 	return keyBuf.Bytes()
 }
 
-func TestExtendInvertedIndexWithFrequency(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, ClassName: "Test",
-	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
-	require.Nil(t, err)
-	shard, err := NewShard("extend_invert_benchmark", index)
-	require.Nil(t, err)
+// TODO: do we need to replace this or can we delete it without replacement?
+// my assumption is that it can go entirely as this logic is now tested within the LSM implementation
+// func TestExtendInvertedIndexWithFrequency(t *testing.T) {
+// 	rand.Seed(time.Now().UnixNano())
+// 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+// 	os.MkdirAll(dirName, 0o777)
+// 	defer func() {
+// 		err := os.RemoveAll(dirName)
+// 		fmt.Println(err)
+// 	}()
+// 	index, err := NewIndex(IndexConfig{
+// 		RootPath: dirName, ClassName: "Test",
+// 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+// 	require.Nil(t, err)
+// 	shard, err := NewShard("extend_invert_benchmark", index)
+// 	require.Nil(t, err)
 
-	prop := []byte("testprop")
-	var before []byte
+// 	prop := []byte("testprop")
+// 	var before []byte
 
-	err = shard.db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("testbucket"))
-		if err != nil {
-			return err
-		}
+// 	err = shard.db.Update(func(tx *bolt.Tx) error {
+// 		bucket, err := tx.CreateBucketIfNotExists([]byte("testbucket"))
+// 		if err != nil {
+// 			return err
+// 		}
 
-		b := bytes.NewBuffer(nil)
+// 		b := bytes.NewBuffer(nil)
 
-		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
-		if err != nil {
-			return err
-		}
+// 		// checksum
+// 		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
+// 		if err != nil {
+// 			return err
+// 		}
 
-		fakeEntries := 625000
-		// doc count
-		count := uint64(fakeEntries)
-		err = binary.Write(b, binary.LittleEndian, &count)
-		if err != nil {
-			return err
-		}
+// 		fakeEntries := 625000
+// 		// doc count
+// 		count := uint64(fakeEntries)
+// 		err = binary.Write(b, binary.LittleEndian, &count)
+// 		if err != nil {
+// 			return err
+// 		}
 
-		for i := 0; i < fakeEntries; i++ {
-			// doc id
-			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
-			if err != nil {
-				return err
-			}
-			// frequency
-			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
-			if err != nil {
-				return err
-			}
+// 		for i := 0; i < fakeEntries; i++ {
+// 			// doc id
+// 			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
+// 			if err != nil {
+// 				return err
+// 			}
+// 			// frequency
+// 			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
+// 			if err != nil {
+// 				return err
+// 			}
 
-		}
+// 		}
 
-		before = b.Bytes()
-		bucket.Put(prop, before)
-		return nil
-	})
-	require.Nil(t, err)
+// 		before = b.Bytes()
+// 		bucket.Put(prop, before)
+// 		return nil
+// 	})
+// 	require.Nil(t, err)
 
-	var after []byte
-	err = shard.db.Update(func(tx *bolt.Tx) error {
-		// before := time.Now()
-		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.extendInvertedIndexItemWithFrequency(bucket, inverted.Countable{Data: prop}, 15, 0.5)
-		if err != nil {
-			return err
-		}
+// 	var after []byte
+// 	err = shard.db.Update(func(tx *bolt.Tx) error {
+// 		// before := time.Now()
+// 		bucket := tx.Bucket([]byte("testbucket"))
+// 		err := shard.extendInvertedIndexItemWithFrequency(bucket, inverted.Countable{Data: prop}, 15, 0.5)
+// 		if err != nil {
+// 			return err
+// 		}
 
-		after = bucket.Get(prop)
+// 		after = bucket.Get(prop)
 
-		return nil
-	})
-	require.Nil(t, err)
+// 		return nil
+// 	})
+// 	require.Nil(t, err)
 
-	var updatedDocCount uint64
-	r := bytes.NewReader(after[8:])
-	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
-	require.Nil(t, err)
+// 	var updatedDocCount uint64
+// 	r := bytes.NewReader(after[8:])
+// 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
+// 	require.Nil(t, err)
 
-	assert.Equal(t, uint64(625001), updatedDocCount)
+// 	assert.Equal(t, uint64(625001), updatedDocCount)
 
-	assert.Equal(t, before[16:], after[16:(len(after))-16],
-		"without the meta and the extension, the rest should be unchanged")
+// 	assert.Equal(t, before[16:], after[16:(len(after))-16],
+// 		"without the meta and the extension, the rest should be unchanged")
 
-	r = bytes.NewReader(after[len(after)-16:])
-	var newDocID uint64
-	var newFrequency float64
-	err = binary.Read(r, binary.LittleEndian, &newDocID)
-	require.Nil(t, err)
-	err = binary.Read(r, binary.LittleEndian, &newFrequency)
-	require.Nil(t, err)
+// 	r = bytes.NewReader(after[len(after)-16:])
+// 	var newDocID uint64
+// 	var newFrequency float64
+// 	err = binary.Read(r, binary.LittleEndian, &newDocID)
+// 	require.Nil(t, err)
+// 	err = binary.Read(r, binary.LittleEndian, &newFrequency)
+// 	require.Nil(t, err)
 
-	assert.Equal(t, uint64(15), newDocID)
-	assert.Equal(t, float64(0.5), newFrequency)
-}
+// 	assert.Equal(t, uint64(15), newDocID)
+// 	assert.Equal(t, float64(0.5), newFrequency)
+// }
 
-func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+// func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
+// 	rand.Seed(time.Now().UnixNano())
+// 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+// 	os.MkdirAll(dirName, 0o777)
+// 	defer func() {
+// 		err := os.RemoveAll(dirName)
+// 		fmt.Println(err)
+// 	}()
 
-	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, ClassName: "Test",
-	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
-	require.Nil(t, err)
-	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
-	require.Nil(t, err)
+// 	index, err := NewIndex(IndexConfig{
+// 		RootPath: dirName, ClassName: "Test",
+// 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+// 	require.Nil(t, err)
+// 	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
+// 	require.Nil(t, err)
 
-	prop := []byte("testprop")
-	var before []byte
+// 	prop := []byte("testprop")
+// 	var before []byte
 
-	err = shard.db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists([]byte("testbucket"))
-		if err != nil {
-			return err
-		}
+// 	err = shard.db.Update(func(tx *bolt.Tx) error {
+// 		bucket, err := tx.CreateBucketIfNotExists([]byte("testbucket"))
+// 		if err != nil {
+// 			return err
+// 		}
 
-		b := bytes.NewBuffer(nil)
+// 		b := bytes.NewBuffer(nil)
 
-		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
-		if err != nil {
-			return err
-		}
+// 		// checksum
+// 		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
+// 		if err != nil {
+// 			return err
+// 		}
 
-		fakeEntries := 625000
-		// doc count
-		count := uint64(fakeEntries)
-		err = binary.Write(b, binary.LittleEndian, &count)
-		if err != nil {
-			return err
-		}
+// 		fakeEntries := 625000
+// 		// doc count
+// 		count := uint64(fakeEntries)
+// 		err = binary.Write(b, binary.LittleEndian, &count)
+// 		if err != nil {
+// 			return err
+// 		}
 
-		for i := 0; i < fakeEntries; i++ {
-			// doc id
-			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
-			if err != nil {
-				return err
-			}
-		}
+// 		for i := 0; i < fakeEntries; i++ {
+// 			// doc id
+// 			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
+// 			if err != nil {
+// 				return err
+// 			}
+// 		}
 
-		before = b.Bytes()
-		bucket.Put(prop, before)
-		return nil
-	})
-	require.Nil(t, err)
+// 		before = b.Bytes()
+// 		bucket.Put(prop, before)
+// 		return nil
+// 	})
+// 	require.Nil(t, err)
 
-	var after []byte
-	err = shard.db.Update(func(tx *bolt.Tx) error {
-		// before := time.Now()
-		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.extendInvertedIndexItem(bucket, inverted.Countable{Data: prop}, 32)
-		if err != nil {
-			return err
-		}
+// 	var after []byte
+// 	err = shard.db.Update(func(tx *bolt.Tx) error {
+// 		// before := time.Now()
+// 		bucket := tx.Bucket([]byte("testbucket"))
+// 		err := shard.extendInvertedIndexItem(bucket, inverted.Countable{Data: prop}, 32)
+// 		if err != nil {
+// 			return err
+// 		}
 
-		after = bucket.Get(prop)
+// 		after = bucket.Get(prop)
 
-		return nil
-	})
-	require.Nil(t, err)
+// 		return nil
+// 	})
+// 	require.Nil(t, err)
 
-	var updatedDocCount uint64
-	r := bytes.NewReader(after[8:])
-	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
-	require.Nil(t, err)
+// 	var updatedDocCount uint64
+// 	r := bytes.NewReader(after[8:])
+// 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
+// 	require.Nil(t, err)
 
-	assert.Equal(t, uint64(625001), updatedDocCount)
+// 	assert.Equal(t, uint64(625001), updatedDocCount)
 
-	assert.Equal(t, before[16:], after[16:(len(after))-8],
-		"without the meta and the extension, the rest should be unchanged")
+// 	assert.Equal(t, before[16:], after[16:(len(after))-8],
+// 		"without the meta and the extension, the rest should be unchanged")
 
-	r = bytes.NewReader(after[len(after)-8:])
-	var newDocID uint64
-	err = binary.Read(r, binary.LittleEndian, &newDocID)
-	require.Nil(t, err)
+// 	r = bytes.NewReader(after[len(after)-8:])
+// 	var newDocID uint64
+// 	err = binary.Read(r, binary.LittleEndian, &newDocID)
+// 	require.Nil(t, err)
 
-	assert.Equal(t, uint64(32), newDocID)
-}
+// 	assert.Equal(t, uint64(32), newDocID)
+// }
 
 func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())

@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
@@ -29,20 +28,9 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	var status objectInsertStatus
-	var next *storobj.Object
-
-	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		n, s, err := s.mergeObjectInTx(tx, merge, idBytes)
-		if err != nil {
-			return err
-		}
-
-		status = s
-		next = n
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	next, status, err := s.mergeObjectInStorage(merge, idBytes)
+	if err != nil {
+		return err
 	}
 
 	if err := s.updateVectorIndex(next.Vector, status); err != nil {
@@ -52,10 +40,13 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	return nil
 }
 
-func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
+func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 	idBytes []byte) (*storobj.Object, objectInsertStatus, error) {
-	bucket := tx.Bucket(helpers.ObjectsBucket)
-	previous := bucket.Get([]byte(idBytes))
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	previous, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return nil, objectInsertStatus{}, errors.Wrap(err, "get bucket")
+	}
 
 	nextObj, _, err := s.mergeObjectData(previous, merge)
 	if err != nil {
@@ -73,15 +64,15 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
-	if err := s.upsertObjectData(bucket, idBytes, nextBytes); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes); err != nil {
 		return nil, status, errors.Wrap(err, "upsert object data")
 	}
 
-	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
+	if err := s.updateDocIDLookupLSM(idBytes, status); err != nil {
 		return nil, status, errors.Wrap(err, "add docID->UUID index")
 	}
 
-	if err := s.updateInvertedIndex(tx, nextObj, status.docID); err != nil {
+	if err := s.updateInvertedIndexLSM(nextObj, status.docID); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
