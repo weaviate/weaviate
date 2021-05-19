@@ -57,7 +57,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
-
 	keys := make([]string, 0, len(schema_map))
 	for k := range schema_map {
 		keys = append(keys, k)
