@@ -245,22 +245,22 @@ func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte)
 // of the caller to make sure that doc IDs are treated as immutable and any
 // outdated doc IDs have been marked as deleted, so they can be cleaned up in
 // async batches
-func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
-	docID uint64) error {
-	props, err := s.analyzeObject(object)
-	if err != nil {
-		return errors.Wrap(err, "analyze next object")
-	}
+// func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
+// 	docID uint64) error {
+// 	props, err := s.analyzeObject(object)
+// 	if err != nil {
+// 		return errors.Wrap(err, "analyze next object")
+// 	}
 
-	before := time.Now()
-	err = s.extendInvertedIndices(tx, props, docID)
-	if err != nil {
-		return errors.Wrap(err, "put inverted indices props")
-	}
-	s.metrics.InvertedExtend(before, len(props))
+// 	before := time.Now()
+// 	err = s.extendInvertedIndices(tx, props, docID)
+// 	if err != nil {
+// 		return errors.Wrap(err, "put inverted indices props")
+// 	}
+// 	s.metrics.InvertedExtend(before, len(props))
 
-	return nil
-}
+// 	return nil
+// }
 
 func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
 	docID uint64) error {
