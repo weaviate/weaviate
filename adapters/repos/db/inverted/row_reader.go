@@ -136,7 +136,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
-		fmt.Printf("in cursor v==%v\n", v)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
