@@ -40,26 +40,74 @@ func (fs *Searcher) docPointers(prop string,
 func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair) (docPointers, error) {
 	if pv.hasFrequency {
-		panic("prop with frequency not supported yet")
+		return fs.docPointersInvertedFrequency(prop, b, limit, pv)
 	}
 
+	return fs.docPointersInvertedNoFrequency(prop, b, limit, pv)
+}
+
+func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
+	pv *propValuePair) (docPointers, error) {
 	rr := NewRowReader(b, pv.value, pv.operator)
 
 	var pointers docPointers
 	var hashes [][]byte
 
 	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
-		// curr, err := fs.parseInvertedIndexRow(rowID(prop, k), v, limit, pv.hasFrequency)
-		// if err != nil {
-		// 	return false, errors.Wrap(err, "parse inverted index row")
-		// }
-
 		currentDocIDs := make([]docPointer, len(ids))
 		for i, asBytes := range ids {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(asBytes)
 		}
 
 		pointers.count += uint64(len(ids))
+		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+
+		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
+		if b == nil {
+			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
+		}
+
+		currHash, err := hashBucket.Get(pv.value)
+		if err != nil {
+			return false, errors.Wrap(err, "get hash")
+		}
+
+		hashes = append(hashes, currHash)
+		if limit > 0 && pointers.count >= uint64(limit) {
+			return false, nil
+		}
+
+		return true, nil
+	}); err != nil {
+		return pointers, errors.Wrap(err, "read row")
+	}
+
+	newChecksum, err := combineChecksums(hashes)
+	if err != nil {
+		return pointers, errors.Wrap(err, "calculate new checksum")
+	}
+
+	pointers.checksum = newChecksum
+	return pointers, nil
+}
+
+func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
+	pv *propValuePair) (docPointers, error) {
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator)
+
+	var pointers docPointers
+	var hashes [][]byte
+
+	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
+		currentDocIDs := make([]docPointer, len(pairs))
+		for i, pair := range pairs {
+			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
+
+			r := bytes.NewReader(pair.Value)
+			binary.Read(r, binary.LittleEndian, &currentDocIDs[i].frequency)
+		}
+
+		pointers.count += uint64(len(pairs))
 		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
 
 		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
