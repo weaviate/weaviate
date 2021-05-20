@@ -18,10 +18,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -69,25 +67,27 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
-	s := g.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil,
-		g.classSearcher, g.deletedDocIDs).
-		DocIDs(ctx, g.params.Filters, traverser.AdditionalProperties{},
-			g.params.ClassName)
-	if err != nil {
-		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
-	}
+	return nil, nil
+	// TODO
+	// s := g.getSchema.GetSchemaSkipAuth()
+	// ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil,
+	// 	g.classSearcher, g.deletedDocIDs).
+	// 	DocIDs(ctx, g.params.Filters, traverser.AdditionalProperties{},
+	// 		g.params.ClassName)
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+	// }
 
-	if err := g.db.View(func(tx *bolt.Tx) error {
-		return docid.ScanObjectsInTx(tx, flattenAllowList(ids),
-			func(obj *storobj.Object) (bool, error) {
-				return true, g.addElement(obj)
-			})
-	}); err != nil {
-		return nil, errors.Wrap(err, "properties view tx")
-	}
+	// if err := g.db.View(func(tx *bolt.Tx) error {
+	// 	return docid.ScanObjectsInTx(tx, flattenAllowList(ids),
+	// 		func(obj *storobj.Object) (bool, error) {
+	// 			return true, g.addElement(obj)
+	// 		})
+	// }); err != nil {
+	// 	return nil, errors.Wrap(err, "properties view tx")
+	// }
 
-	return g.aggregateAndSelect()
+	// return g.aggregateAndSelect()
 }
 
 func (g *grouper) addElement(obj *storobj.Object) error {

@@ -21,17 +21,17 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Searcher struct {
-	db            *bolt.DB
+	store         *lsmkv.Store
 	schema        schema.Schema
 	rowCache      *RowCacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
@@ -43,11 +43,11 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(db *bolt.DB, schema schema.Schema,
+func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache *RowCacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
 	return &Searcher{
-		db:            db,
+		store:         store,
 		schema:        schema,
 		rowCache:      rowCache,
 		propIndices:   propIndices,
@@ -66,32 +66,26 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	var out []*storobj.Object
-	if err := f.db.View(func(tx *bolt.Tx) error {
-		if err := pv.fetchDocIDs(tx, f, limit); err != nil {
-			return errors.Wrap(err, "fetch doc ids for prop/value pair")
-		}
-
-		pointers, err := pv.mergeDocIDs()
-		if err != nil {
-			return errors.Wrap(err, "merge doc ids by operator")
-		}
-
-		// cutoff if required, e.g. after merging unlimted filters
-		if len(pointers.docIDs) > limit {
-			pointers.docIDs = pointers.docIDs[:limit]
-		}
-
-		res, err := docid.ObjectsInTx(tx, pointers.IDs())
-		if err != nil {
-			return errors.Wrap(err, "resolve doc ids to objects")
-		}
-
-		out = res
-		return nil
-	}); err != nil {
-		return nil, errors.Wrap(err, "object filter search bolt view tx")
+	if err := pv.fetchDocIDs(f, limit); err != nil {
+		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
+	pointers, err := pv.mergeDocIDs()
+	if err != nil {
+		return nil, errors.Wrap(err, "merge doc ids by operator")
+	}
+
+	// cutoff if required, e.g. after merging unlimted filters
+	if len(pointers.docIDs) > limit {
+		pointers.docIDs = pointers.docIDs[:limit]
+	}
+
+	res, err := docid.ObjectsLSM(f.store, pointers.IDs())
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve doc ids to objects")
+	}
+
+	out = res
 	return out, nil
 }
 
@@ -112,14 +106,8 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := f.db.View(func(tx *bolt.Tx) error {
-		if err := pv.fetchDocIDs(tx, f, -1); err != nil {
-			return errors.Wrap(err, "fetch doc ids for prop/value pair")
-		}
-
-		return nil
-	}); err != nil {
-		return nil, errors.Wrap(err, "doc id filter search bolt view tx")
+	if err := pv.fetchDocIDs(f, -1); err != nil {
+		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
 	pointers, err := pv.mergeDocIDs()
