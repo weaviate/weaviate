@@ -40,7 +40,10 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		b := s.store.Bucket(id)
-		if b == nil {
+		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
+			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
+			// served by the inverted index, but propagated to a secondary index in
+			// .docPointers()
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
