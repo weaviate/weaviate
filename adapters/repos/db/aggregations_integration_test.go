@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build integrationTestTodo
+// +build integrationTest
 
 package db
 

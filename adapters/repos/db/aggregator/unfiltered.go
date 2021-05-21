@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 // unfilteredAggregator allows for relatively efficient whole-dataset
@@ -64,14 +63,22 @@ func (ua *unfilteredAggregator) Do(ctx context.Context) (*aggregation.Result, er
 
 func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 	out *aggregation.Result) error {
-	if err := ua.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.ObjectsBucket)
-		out.Groups[0].Count = b.Stats().KeyN
+	var count int
 
-		return nil
-	}); err != nil {
-		return err
+	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return errors.Errorf("objects bucket is nil")
 	}
+
+	c := b.Cursor()
+	defer c.Close()
+
+	// TODO: can this be optimized?
+	for k, _ := c.First(); k != nil; k, _ = c.Next() {
+		count++
+	}
+
+	out.Groups[0].Count = count
 
 	return nil
 }

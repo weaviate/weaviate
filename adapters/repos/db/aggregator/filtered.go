@@ -17,11 +17,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 type filteredAggregator struct {
@@ -33,35 +33,33 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 }
 
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
-	// TODO
-	return nil, nil
-	// out := aggregation.Result{}
+	out := aggregation.Result{}
 
-	// // without grouping there is always exactly one group
-	// out.Groups = make([]aggregation.Group, 1)
+	// without grouping there is always exactly one group
+	out.Groups = make([]aggregation.Group, 1)
 
-	// s := fa.getSchema.GetSchemaSkipAuth()
-	// ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache, nil,
-	// 	fa.Aggregator.classSearcher, fa.deletedDocIDs).
-	// 	DocIDs(ctx, fa.params.Filters, traverser.AdditionalProperties{},
-	// 		fa.params.ClassName)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
-	// }
+	s := fa.getSchema.GetSchemaSkipAuth()
+	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
+		fa.Aggregator.classSearcher, fa.deletedDocIDs).
+		DocIDs(ctx, fa.params.Filters, traverser.AdditionalProperties{},
+			fa.params.ClassName)
+	if err != nil {
+		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+	}
 
-	// if fa.params.IncludeMetaCount {
-	// 	out.Groups[0].Count = len(ids)
-	// }
+	if fa.params.IncludeMetaCount {
+		out.Groups[0].Count = len(ids)
+	}
 
-	// idsList := flattenAllowList(ids)
-	// props, err := fa.properties(ctx, idsList)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "aggregate properties")
-	// }
+	idsList := flattenAllowList(ids)
+	props, err := fa.properties(ctx, idsList)
+	if err != nil {
+		return nil, errors.Wrap(err, "aggregate properties")
+	}
 
-	// out.Groups[0].Properties = props
+	out.Groups[0].Properties = props
 
-	// return &out, nil
+	return &out, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
@@ -78,9 +76,8 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return true, nil
 	}
 
-	if err := fa.db.View(func(tx *bolt.Tx) error {
-		return docid.ScanObjectsInTx(tx, ids, scan)
-	}); err != nil {
+	err = docid.ScanObjectsLSM(fa.store, ids, scan)
+	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
 

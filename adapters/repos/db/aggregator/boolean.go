@@ -28,9 +28,7 @@ type boolAggregator struct {
 	countFalse uint64
 }
 
-func (a *boolAggregator) AddBoolRow(value, count []byte) error {
-	var countParsed uint64
-
+func (a *boolAggregator) AddBoolRow(value []byte, count uint64) error {
 	var valueParsed bool
 
 	if err := binary.Read(bytes.NewReader(value), binary.LittleEndian,
@@ -38,20 +36,15 @@ func (a *boolAggregator) AddBoolRow(value, count []byte) error {
 		return errors.Wrap(err, "read bool")
 	}
 
-	if err := binary.Read(bytes.NewReader(count), binary.LittleEndian,
-		&countParsed); err != nil {
-		return errors.Wrap(err, "read doc count")
-	}
-
-	if countParsed == 0 {
+	if count == 0 {
 		// skip
 		return nil
 	}
 
 	if valueParsed {
-		a.countTrue += countParsed
+		a.countTrue += count
 	} else {
-		a.countFalse += countParsed
+		a.countFalse += count
 	}
 
 	return nil
