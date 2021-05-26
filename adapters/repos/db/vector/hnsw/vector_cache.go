@@ -82,7 +82,7 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 
 func (n *shardedLockCache) prefetch(id uint64) {
 	// TODO
-// 	asm.Prefetch(uintptr(unsafe.Pointer(&n.cache[id])))
+	// 	asm.Prefetch(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
 func (n *shardedLockCache) preload(id uint64, vec []float32) {
