@@ -12,17 +12,15 @@
 package distancer
 
 import (
-	"golang.org/x/sys/cpu"
-
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
-func init() {
-	if cpu.X86.HasAVX2 {
-		dotProductImplementation = asm.Dot
-	} else {
-		dotProductImplementation = func(a, b []float32) float32 {
+// can be set depending on architecture, e.g. pure go, AVX-enabled assembly, etc.
+// Warning: This is not the dot product distance, but the pure product.
+//
+// This default will always work, regardless of architecture. An init function
+// will overwrite it on amd64 if AVX is present.
+var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32) float32 {
 			var sum float32
 			for i := range a {
 				sum += a[i] * b[i]
@@ -30,12 +28,6 @@ func init() {
 
 			return sum
 		}
-	}
-}
-
-// can be set depending on architecture, e.g. pure go, AVX-enabled assembly, etc.
-// Warning: This is not the dot product distance, but the pure product.
-var dotProductImplementation func(a, b []float32) float32
 
 type DotProduct struct {
 	a []float32
