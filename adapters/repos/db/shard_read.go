@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
@@ -89,29 +88,27 @@ func (s *Shard) multiObjectByID(ctx context.Context,
 	return objects, nil
 }
 
-// TODO
+// TODO: This does an actual read which is not really needed, if we see this
+// come up in profiling, we could optimize this by adding an explicit Exists()
+// on the LSMKV which only checks the bloom filters, which at least in the case
+// of a true negative would be considerably faster. For a (false) positive,
+// we'd still need to check, though.
 func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	var ok bool
-
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
 	}
 
-	err = s.db.View(func(tx *bolt.Tx) error {
-		bytes := tx.Bucket(helpers.ObjectsBucket).Get(idBytes)
-		if bytes == nil {
-			return nil
-		}
-
-		ok = true
-		return nil
-	})
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
 	if err != nil {
-		return false, errors.Wrap(err, "bolt view tx")
+		return false, errors.Wrap(err, "read request")
 	}
 
-	return ok, nil
+	if bytes == nil {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
