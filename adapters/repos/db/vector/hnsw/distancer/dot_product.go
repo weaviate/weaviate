@@ -21,13 +21,13 @@ import (
 // This default will always work, regardless of architecture. An init function
 // will overwrite it on amd64 if AVX is present.
 var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32) float32 {
-			var sum float32
-			for i := range a {
-				sum += a[i] * b[i]
-			}
+	var sum float32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
 
-			return sum
-		}
+	return sum
+}
 
 type DotProduct struct {
 	a []float32
