@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -58,7 +57,6 @@ func NewCommitLogger(rootPath, name string,
 		return nil, err
 	}
 	l.logFile = fd
-	l.logFileWriter = bufio.NewWriterSize(fd, 1*1024*1024)
 
 	l.StartLogging()
 	return l, nil
@@ -183,7 +181,6 @@ type hnswCommitLogger struct {
 	sync.Mutex
 	cancel               chan struct{}
 	logFile              *os.File
-	logFileWriter        *bufio.Writer
 	rootPath             string
 	id                   string
 	condensor            condensor
@@ -212,9 +209,9 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, AddNode))
-	ec.add(l.writeUint64(l.logFileWriter, node.id))
-	ec.add(l.writeUint16(l.logFileWriter, uint16(node.level)))
+	ec.add(l.writeCommitType(l.logFile, AddNode))
+	ec.add(l.writeUint64(l.logFile, node.id))
+	ec.add(l.writeUint16(l.logFile, uint16(node.level)))
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err, "write node %d to commit log", node.id)
@@ -228,9 +225,9 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, SetEntryPointMaxLevel))
-	ec.add(l.writeUint64(l.logFileWriter, id))
-	ec.add(l.writeUint16(l.logFileWriter, uint16(level)))
+	ec.add(l.writeCommitType(l.logFile, SetEntryPointMaxLevel))
+	ec.add(l.writeUint64(l.logFile, id))
+	ec.add(l.writeUint16(l.logFile, uint16(level)))
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err, "write entrypoint %d (%d) to commit log", id, level)
@@ -244,9 +241,9 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, ReplaceLinksAtLevel))
-	ec.add(l.writeUint64(l.logFileWriter, nodeid))
-	ec.add(l.writeUint16(l.logFileWriter, uint16(level)))
+	ec.add(l.writeCommitType(l.logFile, ReplaceLinksAtLevel))
+	ec.add(l.writeUint64(l.logFile, nodeid))
+	ec.add(l.writeUint16(l.logFile, uint16(level)))
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
 		// TODO: investigate why we get such massive connections
@@ -257,8 +254,8 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 			WithField("maximum_length", targetLength).
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
-	ec.add(l.writeUint16(l.logFileWriter, uint16(targetLength)))
-	ec.add(l.writeUint64Slice(l.logFileWriter, targets[:targetLength]))
+	ec.add(l.writeUint16(l.logFile, uint16(targetLength)))
+	ec.add(l.writeUint64Slice(l.logFile, targets[:targetLength]))
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
@@ -274,8 +271,8 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, AddTombstone))
-	ec.add(l.writeUint64(l.logFileWriter, nodeid))
+	ec.add(l.writeCommitType(l.logFile, AddTombstone))
+	ec.add(l.writeUint64(l.logFile, nodeid))
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
@@ -290,8 +287,8 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, RemoveTombstone))
-	ec.add(l.writeUint64(l.logFileWriter, nodeid))
+	ec.add(l.writeCommitType(l.logFile, RemoveTombstone))
+	ec.add(l.writeUint64(l.logFile, nodeid))
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
@@ -306,8 +303,8 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, ClearLinks))
-	ec.add(l.writeUint64(l.logFileWriter, nodeid))
+	ec.add(l.writeCommitType(l.logFile, ClearLinks))
+	ec.add(l.writeUint64(l.logFile, nodeid))
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
 			"write clear links of node %d to commit log", nodeid)
@@ -321,8 +318,8 @@ func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	defer l.Unlock()
 
 	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logFileWriter, DeleteNode))
-	ec.add(l.writeUint64(l.logFileWriter, nodeid))
+	ec.add(l.writeCommitType(l.logFile, DeleteNode))
+	ec.add(l.writeUint64(l.logFile, nodeid))
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
 			"write delete node %d to commit log", nodeid)
@@ -335,7 +332,7 @@ func (l *hnswCommitLogger) Reset() error {
 	l.Lock()
 	defer l.Unlock()
 
-	err := l.writeCommitType(l.logFileWriter, ResetIndex)
+	err := l.writeCommitType(l.logFile, ResetIndex)
 	if err != nil {
 		return errors.Wrap(err, "reset to commit log")
 	}
@@ -428,9 +425,9 @@ func (l *hnswCommitLogger) maintenance() error {
 	}
 
 	if i.Size() > l.maxSize {
-		if err := l.logFileWriter.Flush(); err != nil {
-			return err
-		}
+		// if err := l.logFile.Flush(); err != nil {
+		// 	return err
+		// }
 
 		if err := l.logFile.Close(); err != nil {
 			return err
@@ -453,7 +450,6 @@ func (l *hnswCommitLogger) maintenance() error {
 		}
 
 		l.logFile = fd
-		l.logFileWriter = bufio.NewWriter(fd)
 	}
 
 	return nil
