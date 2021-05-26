@@ -14,12 +14,12 @@ COPY go.mod .
 COPY go.sum .
 RUN go mod download
 
-
 ###############################################################################
 # This image builds the weavaite server
 FROM build_base AS server_builder
+ARG TARGETARCH
 COPY . .
-RUN go build -ldflags '-w -extldflags "-static"' -o /weaviate-server ./cmd/weaviate-server 
+RUN GOOS=linux GOARCH=$TARGETARCH go build  -ldflags '-w -extldflags "-static"' -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
