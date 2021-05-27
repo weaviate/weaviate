@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -70,5 +71,15 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 		return errors.Wrapf(err, "drop index %s", id)
 	}
 	delete(d.indices, id)
+	return nil
+}
+
+func (d *DB) Shutdown(ctx context.Context) error {
+	for id, index := range d.indices {
+		if err := index.Shutdown(ctx); err != nil {
+			return errors.Wrapf(err, "shutdown index %q", id)
+		}
+	}
+
 	return nil
 }

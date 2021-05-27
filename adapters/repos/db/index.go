@@ -262,3 +262,13 @@ func (i *Index) drop() error {
 	}
 	return nil
 }
+
+func (i *Index) Shutdown(ctx context.Context) error {
+	for id, shard := range i.Shards {
+		if err := shard.shutdown(ctx); err != nil {
+			return errors.Wrapf(err, "shutdown shard %q", id)
+		}
+	}
+
+	return nil
+}

@@ -96,7 +96,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 
 	s.counter = counter
 
-	if err := s.initPerPropertyIndices(); err != nil {
+	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
@@ -264,4 +264,8 @@ func (s *Shard) findDeletedDocs() error {
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
 	return s.vectorIndex.UpdateUserConfig(updated)
+}
+
+func (s *Shard) shutdown(ctx context.Context) error {
+	return s.store.Shutdown(ctx)
 }
