@@ -97,15 +97,6 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 	return b.SetAdd(item.Data, [][]byte{docIDBytes})
 }
 
-func (s *Shard) batchExtendInvertedIndexItemsLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.MergeItem, hasFrequency bool) error {
-	if hasFrequency {
-		return s.batchExtendInvertedIndexItemsLSMWithFrequency(b, hashBucket, item)
-	} else {
-		return s.batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket, item)
-	}
-}
-
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
 	item inverted.MergeItem) error {
 	if b.Strategy() != lsmkv.StrategySetCollection {
@@ -128,37 +119,6 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 	}
 
 	return b.SetAdd(item.Data, docIDs)
-}
-
-func (s *Shard) batchExtendInvertedIndexItemsLSMWithFrequency(b, hashBucket *lsmkv.Bucket,
-	item inverted.MergeItem) error {
-	if b.Strategy() != lsmkv.StrategyMapCollection {
-		panic("prop has frequency, but bucket does not have 'Map' strategy")
-	}
-
-	hash, err := generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucket.Put(item.Data, hash); err != nil {
-		return err
-	}
-
-	pairs := make([]lsmkv.MapPair, len(item.DocIDs))
-	for i, idTuple := range item.DocIDs {
-		key := make([]byte, 8)
-		binary.LittleEndian.PutUint64(key, idTuple.DocID)
-
-		var freqBuf bytes.Buffer
-		if err := binary.Write(&freqBuf, binary.LittleEndian, &idTuple.Frequency); err != nil {
-			return err
-		}
-
-		pairs[i] = lsmkv.MapPair{Key: key, Value: freqBuf.Bytes()}
-	}
-
-	return b.MapSetMulti(item.Data, pairs)
 }
 
 // the row hash isn't actually a hash at this point, it is just a random
