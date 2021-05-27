@@ -32,18 +32,6 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	var status objectInsertStatus
 
-	// if err := s.db.Batch(func(tx *bolt.Tx) error {
-	// 	s, err := s.putObjectInTx(tx, object, idBytes, false)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-
-	// 	status = s
-	// 	return nil
-	// }); err != nil {
-	// 	return errors.Wrap(err, "bolt batch tx")
-	// }
-
 	status, err = s.putObjectLSM(object, idBytes, false)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -153,7 +141,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 
 	if !skipInverted {
 		before = time.Now()
-		if err := s.updateInvertedIndexLSM(object, status.docID); err != nil {
+		if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
 			return status, errors.Wrap(err, "update inverted indices")
 		}
 		s.metrics.PutObjectUpdateInverted(before)
@@ -239,42 +227,56 @@ func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte)
 	return bucket.Put(id, data)
 }
 
-// updateInvertedIndex is write-only for performance reasons. This means new
-// doc IDs can be appended to existing rows. If an old doc ID is no longer
-// valid it is not immediately cleaned up. Instead it is in the responsibility
-// of the caller to make sure that doc IDs are treated as immutable and any
-// outdated doc IDs have been marked as deleted, so they can be cleaned up in
-// async batches
-// func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
-// 	docID uint64) error {
-// 	props, err := s.analyzeObject(object)
-// 	if err != nil {
-// 		return errors.Wrap(err, "analyze next object")
-// 	}
-
-// 	before := time.Now()
-// 	err = s.extendInvertedIndices(tx, props, docID)
-// 	if err != nil {
-// 		return errors.Wrap(err, "put inverted indices props")
-// 	}
-// 	s.metrics.InvertedExtend(before, len(props))
-
-// 	return nil
-// }
-
 func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
-	docID uint64) error {
+	status objectInsertStatus, previous []byte) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// TODO: metrics
+	if err := s.updateInvertedIndexCleanupOldLSM(status, previous); err != nil {
+		return errors.Wrap(err, "analyze and cleanup previous")
+	}
+
 	before := time.Now()
-	err = s.extendInvertedIndicesLSM(props, docID)
+	err = s.extendInvertedIndicesLSM(props, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
 	s.metrics.InvertedExtend(before, len(props))
+
+	return nil
+}
+
+func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
+	previous []byte) error {
+	if !status.docIDChanged {
+		// nothing to do
+		return nil
+	}
+
+	// The doc id changed, so we need to analyze the previous and delete all
+	// entries (immediately - since the async part is now handled inside the
+	// LSMKV store, as part of merging/compaction)
+	//
+	// NOTE: Since Doc IDs are immutable, there is no need to use a
+	// DeltaAnalyzer. docIDChanged==true, therefore the old docID is
+	// "worthless" and can be cleaned up in the inverted index fully.
+	previousObject, err := storobj.FromBinary(previous)
+	if err != nil {
+		return errors.Wrap(err, "unmarshal previous object")
+	}
+
+	previousInvertProps, err := s.analyzeObject(previousObject)
+	if err != nil {
+		return errors.Wrap(err, "analyze previous object")
+	}
+
+	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
+	if err != nil {
+		return errors.Wrap(err, "put inverted indices props")
+	}
 
 	return nil
 }

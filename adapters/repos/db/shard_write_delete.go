@@ -34,38 +34,37 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	var docID uint64
-	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(helpers.ObjectsBucket)
-		existing := bucket.Get([]byte(idBytes))
-		if existing == nil {
-			// nothing to do
-			return nil
-		}
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	existing, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return errors.Wrap(err, "unexpected error on previous lookup")
+	}
 
-		// we need the doc ID so we can clean up inverted indices currently
-		// pointing to this object
-		docID, err = storobj.DocIDFromBinary(existing)
-		if err != nil {
-			return errors.Wrap(err, "get existing doc id from object binary")
-		}
-
-		err = bucket.Delete(idBytes)
-		if err != nil {
-			return errors.Wrap(err, "delete object from bucket")
-		}
-
-		// in-mem
-		s.deletedDocIDs.Add(docID)
-
-		// on disk
-		err = docid.MarkDeletedInTx(tx, docID)
-		if err != nil {
-			return errors.Wrap(err, "delete docID->uuid lookup")
-		}
-
+	if existing == nil {
+		// nothing to do
 		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	}
+
+	// we need the doc ID so we can clean up inverted indices currently
+	// pointing to this object
+	docID, err = storobj.DocIDFromBinary(existing)
+	if err != nil {
+		return errors.Wrap(err, "get existing doc id from object binary")
+	}
+
+	err = bucket.Delete(idBytes)
+	if err != nil {
+		return errors.Wrap(err, "delete object from bucket")
+	}
+
+	// in-mem
+	// TODO: do we still need this?
+	s.deletedDocIDs.Add(docID)
+
+	// on disk
+	err = docid.MarkDeletedLSM(s.store, docID)
+	if err != nil {
+		return errors.Wrap(err, "delete docID->uuid lookup")
 	}
 
 	if err := s.vectorIndex.Delete(docID); err != nil {
