@@ -157,10 +157,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		{"name": "two"},
 	}
 
-	index.addProperty(context.TODO(), &models.Property{
-		Name:     "id",
-		DataType: []string{"string"},
-	})
+	index.addUUIDProperty(context.TODO())
 
 	index.addProperty(context.TODO(), &models.Property{
 		Name:     "name",
@@ -201,11 +198,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
 
-	index.addProperty(context.TODO(), &models.Property{
-		Name:     "id",
-		DataType: []string{"string"},
-	})
-
+	index.addUUIDProperty(context.TODO())
 	index.addProperty(context.TODO(), &models.Property{
 		Name:     "name",
 		DataType: []string{"string"},

@@ -39,6 +39,12 @@ type propValuePair struct {
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
+		if pv.prop == "id" {
+			// the user-specified ID prop has a special internal name
+			id = helpers.BucketFromPropNameLSM(helpers.PropertyNameID)
+			pv.prop = helpers.PropertyNameID
+			pv.hasFrequency = false
+		}
 		b := s.store.Bucket(id)
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
