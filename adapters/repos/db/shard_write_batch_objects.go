@@ -165,8 +165,6 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	// classSchema := b.shard.index.getSchema.GetSchemaSkipAuth()
 
 	wg := &sync.WaitGroup{}
-	// TODO: delta merger is currently not thread-safe, if we want to enable
-	// concurrency here, it needs to be made thread-safe
 	for j, object := range batch {
 		wg.Add(1)
 		go func(index int, object *storobj.Object) {
@@ -177,32 +175,9 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 				errs[index] = err
 				errLock.Unlock()
 			}
-
-			if err := b.shard.updateInvertedIndexLSM(object, object.DocID()); err != nil {
-				errLock.Lock()
-				errs[index] = err
-				errLock.Unlock()
-			}
-
-			// // TODO: does it still make sense to use the merger here? wouldn't it be
-			// // faster if we just had individual concurrent writes?
-			// if err := b.analyzeObjectAndStoreInvertedIndex(classSchema,
-			// 	object); err != nil {
-			// 	errLock.Lock()
-			// 	errs[j] = errors.Wrapf(err, "analyze object %d", j)
-			// 	errLock.Unlock()
-			// }
 		}(j, object)
 	}
 	wg.Wait()
-
-	// before := time.Now()
-	// if err := b.writeInvertedAdditions(invertedMerger.Merge().Additions); err != nil {
-	// 	for i := range errs {
-	// 		errs[i] = errors.Wrap(err, "updated inverted index")
-	// 	}
-	// }
-	// b.shard.metrics.PutObjectUpdateInverted(before)
 
 	return errs
 }
@@ -338,7 +313,7 @@ func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	status, err := b.shard.putObjectLSM(object, idBytes, true)
+	status, err := b.shard.putObjectLSM(object, idBytes, false)
 	if err != nil {
 		return err
 	}

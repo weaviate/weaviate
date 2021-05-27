@@ -72,7 +72,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "add docID->UUID index")
 	}
 
-	if err := s.updateInvertedIndexLSM(nextObj, status.docID); err != nil {
+	if err := s.updateInvertedIndexLSM(nextObj, status, previous); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
