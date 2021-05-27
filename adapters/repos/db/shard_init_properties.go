@@ -28,5 +28,9 @@ func (s *Shard) initProperties() error {
 			}
 		}
 	}
+
+	if err := s.addIDProperty(context.TODO()); err != nil {
+		return errors.Wrap(err, "init id property")
+	}
 	return nil
 }
