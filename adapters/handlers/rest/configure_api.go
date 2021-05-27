@@ -65,6 +65,7 @@ type vectorRepo interface {
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(time.Duration) error
+	Shutdown(ctx context.Context) error
 }
 
 type explorer interface {
@@ -187,7 +188,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 
-	api.ServerShutdown = func() {}
+	api.ServerShutdown = func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := repo.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+	}
 	configureServer = makeConfigureServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
