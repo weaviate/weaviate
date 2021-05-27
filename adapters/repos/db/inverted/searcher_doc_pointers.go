@@ -174,10 +174,6 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 	return out, nil
 }
 
-func rowID(prop, value []byte) []byte {
-	return append(prop, value...)
-}
-
 // why is there a need to combine checksums prior to merging?
 // on Operators GreaterThan (Equal) & LessThan (Equal), we don't just read a
 // single row in the inverted index, but several (e.g. for greater than 5, we

@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -219,10 +218,6 @@ func (s Shard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) error {
-	return bucket.Put(id, data)
-}
-
 func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte) error {
 	return bucket.Put(id, data)
 }
@@ -276,30 +271,6 @@ func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
-	}
-
-	return nil
-}
-
-func (s *Shard) updateDocIDLookup(tx *bolt.Tx, newID []byte,
-	status objectInsertStatus) error {
-	if status.docIDChanged {
-		// clean up old docId first
-
-		// in-mem
-		s.deletedDocIDs.Add(status.oldDocID)
-
-		// on-disk
-		if err := docid.MarkDeletedInTx(tx, status.oldDocID); err != nil {
-			return errors.Wrap(err, "remove docID->UUID index")
-		}
-	}
-
-	if err := docid.AddLookupInTx(tx, docid.Lookup{
-		PointsTo: newID,
-		DocID:    status.docID,
-	}); err != nil {
-		return errors.Wrap(err, "add docID->UUID index")
 	}
 
 	return nil

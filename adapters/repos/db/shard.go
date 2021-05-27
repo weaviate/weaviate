@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"time"
@@ -29,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	bolt "go.etcd.io/bbolt"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
@@ -38,7 +36,6 @@ import (
 type Shard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	name             string
-	db               *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
 	store            *lsmkv.Store
 	counter          *indexcounter.Counter
 	vectorIndex      VectorIndex
@@ -210,13 +207,13 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	strat := lsmkv.StrategySetCollection
+	strategy := lsmkv.StrategySetCollection
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		strat = lsmkv.StrategyMapCollection
+		strategy = lsmkv.StrategyMapCollection
 	}
 
 	err := s.store.CreateOrLoadBucket(helpers.BucketFromPropNameLSM(prop.Name),
-		strat)
+		strategy)
 	if err != nil {
 		return err
 	}
@@ -225,37 +222,6 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		lsmkv.StrategyReplace)
 	if err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (s *Shard) findDeletedDocs() error {
-	err := s.db.View(func(tx *bolt.Tx) error {
-		docIDs := tx.Bucket(helpers.DocIDBucket)
-		if docIDs == nil {
-			return nil
-		}
-
-		err := docIDs.ForEach(func(documentID, v []byte) error {
-			lookup, err := docid.LookupFromBinary(v)
-			if err != nil {
-				return errors.Wrap(err, "lookup from binary")
-			}
-			if lookup.Deleted {
-				// TODO: gh-1282
-				s.deletedDocIDs.Add(binary.LittleEndian.Uint64(documentID))
-			}
-			return nil
-		})
-		if err != nil {
-			return errors.Wrap(err, "search for deleted documents")
-		}
-
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "find deleted ids")
 	}
 
 	return nil

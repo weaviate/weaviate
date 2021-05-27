@@ -28,11 +28,11 @@ type commitLogger struct {
 type CommitType uint16
 
 const (
-	CommitTypePut          CommitType = iota // replace strat
-	CommitTypeSetTombstone                   // replace strat
+	CommitTypePut          CommitType = iota // replace strategy
+	CommitTypeSetTombstone                   // replace strategy
 
-	// collection strat - this can handle all cases as updates and deletes are
-	// only appends in a colleciton strat
+	// collection strategy - this can handle all cases as updates and deletes are
+	// only appends in a collection strategy
 	CommitTypeAppend
 )
 

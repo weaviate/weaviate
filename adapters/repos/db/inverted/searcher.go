@@ -12,11 +12,8 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
@@ -118,80 +115,6 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
-	}
-
-	return out, nil
-}
-
-func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
-	hasFrequency bool) (docPointers, error) {
-	out := docPointers{
-		checksum: make([]byte, 8),
-	}
-
-	// 0 is a non-existing row, 8 is one that only contains a checksum, but no content
-	if len(in) == 0 || len(in) == 8 {
-		return out, nil
-	}
-
-	r := bytes.NewReader(in)
-	if _, err := r.Read(out.checksum); err != nil {
-		return out, errors.Wrap(err, "read checksum")
-	}
-
-	// only use cache on unlimited searches, e.g. when building allow lists
-	if limit < 0 {
-		cached, ok := fs.rowCache.Load(id, out.checksum)
-		if ok {
-			return *cached, nil
-		}
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.count); err != nil {
-		return out, errors.Wrap(err, "read doc count")
-	}
-
-	read := 0
-	for {
-		// limit >0 allows us to specify -1 to mean unlimited
-		if limit > 0 && read >= limit {
-			// we are done because the user specified limit is reached
-			break
-		}
-
-		var docID uint64
-		if err := binary.Read(r, binary.LittleEndian, &docID); err != nil {
-			if err == io.EOF {
-				// we are done, because all entries are read
-				break
-			}
-
-			return out, errors.Wrap(err, "read doc id")
-		}
-
-		var frequency float64
-
-		if hasFrequency {
-			if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
-				// EOF would be unexpected here, so any error including EOF is an error
-				return out, errors.Wrap(err, "read doc frequency")
-			}
-		}
-
-		if fs.deletedDocIDs.Contains(docID) {
-			// make sure a deleted docID does not count into the limit, otherwise we
-			// will return 0 results with a limit of n if the first n doc ids are
-			// marked as deleted (gh-1308)
-			continue
-		}
-
-		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: &frequency})
-		read++
-	}
-
-	// only write into cache on unlimited requests of a certain length
-	if limit < 0 && read > 500 { // TODO: what's a realistic cutoff?
-		fs.rowCache.Store(id, &out)
 	}
 
 	return out, nil

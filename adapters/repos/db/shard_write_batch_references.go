@@ -216,7 +216,7 @@ func (b *referencesBatcher) writeInvertedDeletions(
 		}
 
 		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if b == nil {
+		if hashBucket == nil {
 			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
@@ -246,7 +246,7 @@ func (b *referencesBatcher) writeInvertedAdditions(
 		}
 
 		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if b == nil {
+		if hashBucket == nil {
 			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
