@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -17,12 +16,12 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 	for _, prop := range props {
 		b := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 		if b == nil {
-			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
+			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 		}
 
 		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
 		if b == nil {
-			return fmt.Errorf("no hash bucket for prop '%s' found", prop.Name)
+			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
 		if prop.HasFrequency {
@@ -134,7 +133,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 func (s *Shard) batchExtendInvertedIndexItemsLSMWithFrequency(b, hashBucket *lsmkv.Bucket,
 	item inverted.MergeItem) error {
 	if b.Strategy() != lsmkv.StrategyMapCollection {
-		panic("prop has no frequency, but bucket does not have 'Map' strategy")
+		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
 
 	hash, err := generateRowHash()

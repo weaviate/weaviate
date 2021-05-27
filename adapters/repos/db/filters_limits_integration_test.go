@@ -221,13 +221,6 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 	})
 
-	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(schema.ClassName(companyClass.Class)).Shards["single"]
-		docIDs := s.deletedDocIDs.GetAll()
-		err := s.performCleanup(docIDs)
-		require.Nil(t, err)
-	})
-
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("makesProduct", 0, eq, dtInt)
@@ -353,13 +346,6 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 			require.Len(t, res.Groups, 1)
 			assert.Equal(t, res.Groups[0].Count, 100)
 		})
-
-	t.Run("manually trigger a clean up", func(t *testing.T) {
-		s := repo.GetIndex(schema.ClassName(companyClass.Class)).Shards["single"]
-		docIDs := s.deletedDocIDs.GetAll()
-		err := s.performCleanup(docIDs)
-		require.Nil(t, err)
-	})
 
 	t.Run("verify all with ref count 0 are correctly aggregated",
 		func(t *testing.T) {

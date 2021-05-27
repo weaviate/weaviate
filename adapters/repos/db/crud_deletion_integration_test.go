@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build integrationTestSlow
+// +build integrationTest
 
 package db
 
@@ -126,18 +126,12 @@ func TestDeleteJourney(t *testing.T) {
 			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 		})
 
-	t.Run("delete element-0 and verify that there's 1 document flagged for deletion",
+	t.Run("delete element-0",
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
 			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
-
-			index := repo.GetIndex("UpdateTestClass")
-			require.NotNil(t, index)
-
-			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
-			assert.Equal(t, 1, deletedIDsCount)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
@@ -174,18 +168,12 @@ func TestDeleteJourney(t *testing.T) {
 		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-	t.Run("delete element-1 and verify that there are 2 documents flagged for deletion",
+	t.Run("delete element-1",
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
 			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
-
-			index := repo.GetIndex("UpdateTestClass")
-			require.NotNil(t, index)
-
-			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
-			assert.Equal(t, 2, deletedIDsCount)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
@@ -219,18 +207,7 @@ func TestDeleteJourney(t *testing.T) {
 		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
-	t.Run("wait until the cleanup is done and verify that it has performed", func(t *testing.T) {
-		index := repo.GetIndex("UpdateTestClass")
-		require.NotNil(t, index)
-
-		ticker := time.Tick(index.Shards["single"].cleanupInterval + 1*time.Second)
-		<-ticker
-
-		deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
-		assert.Equal(t, 0, deletedIDsCount)
-	})
-
-	t.Run("delete the index and verify that there are no deleted doc ids remaining", func(t *testing.T) {
+	t.Run("delete the index", func(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
@@ -255,12 +232,7 @@ func TestDeleteJourney(t *testing.T) {
 		index := repo.GetIndex("UpdateTestClass")
 		require.NotNil(t, index)
 
-		deletedIDsCountBeforeDeleteIndex := len(index.Shards["single"].deletedDocIDs.GetAll())
-		assert.Equal(t, 1, deletedIDsCountBeforeDeleteIndex)
-
 		err = repo.DeleteIndex("UpdateTestClass")
-
-		deletedIDsCountAfterDeleteIndex := len(index.Shards["single"].deletedDocIDs.GetAll())
-		assert.Equal(t, 0, deletedIDsCountAfterDeleteIndex)
+		assert.Nil(t, err)
 	})
 }

@@ -29,7 +29,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -101,11 +100,11 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	if err := s.findDeletedDocs(); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
-	}
+	// TODO
+	// if err := s.findDeletedDocs(); err != nil {
+	// 	return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
+	// }
 
-	s.startPeriodicCleanup()
 	vi.PostStartup()
 
 	return s, nil
@@ -124,30 +123,6 @@ func (s *Shard) DBPathLSM() string {
 }
 
 func (s *Shard) initDBFile() error {
-	boltdb, err := bolt.Open(s.DBPath(), 0o600, nil)
-	if err != nil {
-		return errors.Wrapf(err, "open bolt at %s", s.DBPath())
-	}
-
-	err = boltdb.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(helpers.ObjectsBucket); err != nil {
-			return errors.Wrapf(err, "create objects bucket '%s'", string(helpers.ObjectsBucket))
-		}
-
-		if _, err := tx.CreateBucketIfNotExists(helpers.DocIDBucket); err != nil {
-			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.DocIDBucket))
-		}
-
-		return nil
-	})
-	if err != nil {
-		return errors.Wrapf(err, "create bolt buckets")
-	}
-
-	s.db = boltdb
-
-	// lsm
-
 	store, err := lsmkv.New(s.DBPathLSM())
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
@@ -169,10 +144,15 @@ func (s *Shard) initDBFile() error {
 }
 
 func (s *Shard) drop() error {
-	// delete bolt if exists
-	s.db.Close()
-	if _, err := os.Stat(s.DBPath()); err == nil {
-		err := os.Remove(s.DBPath())
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+
+	if err := s.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "stop lsmkv store")
+	}
+
+	if _, err := os.Stat(s.DBPathLSM()); err == nil {
+		err := os.RemoveAll(s.DBPathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove bolt at %s", s.DBPath())
 		}
@@ -187,9 +167,8 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPath())
 	}
-	// clean up deleted doc ids map because there's all of the documents have been deleted
+	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
-	s.cleanupCancel <- struct{}{}
 
 	return nil
 }
@@ -280,29 +259,6 @@ func (s *Shard) findDeletedDocs() error {
 	}
 
 	return nil
-}
-
-func (s *Shard) startPeriodicCleanup() {
-	t := time.Tick(s.cleanupInterval)
-	batchCleanupInterval := 5 * time.Second
-	batchSize := 1000
-	go func(batchSize int, batchCleanupInterval time.Duration,
-		ticker <-chan time.Time, cancel <-chan struct{}) {
-		for {
-			select {
-			case <-cancel:
-				return
-			case <-ticker:
-				err := s.periodicCleanup(batchSize, batchCleanupInterval)
-				if err != nil {
-					s.index.logger.WithFields(logrus.Fields{
-						"action": "shard_doc_id_periodic_cleanup",
-						"class":  s.index.Config.ClassName,
-					}).WithError(err).Error("periodic cleanup error")
-				}
-			}
-		}
-	}(batchSize, batchCleanupInterval, t, s.cleanupCancel)
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
