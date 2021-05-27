@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	bolt "go.etcd.io/bbolt"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -111,7 +110,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 		return errs
 	}
 
-	// invertedMerger := inverted.NewDeltaMerger()
+	invertedMerger := inverted.NewDeltaMerger()
 
 	// TODO: is there any benefit in having this parallelized? if so, don't forget to lock before assigning errors
 	// If we want them to run in parallel we need to look individual objects,
@@ -145,28 +144,30 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 
 		_ = res
 
-		// TODO: inverted
-		// // generally the batch ref is an append only change which does not alter
-		// // the vector position. There is however one inverted index link that needs
-		// // to be cleanup: the ref count
-		// if err := b.analyzeInverted(tx, invertedMerger, res, ref); err != nil {
-		// 	return affectedIndices, errors.Wrap(err, "determine ref count cleanup")
-		// }
-		// }(i, ref)
+		// generally the batch ref is an append only change which does not alter
+		// the vector position. There is however one inverted index link that needs
+		// to be cleanup: the ref count
+		if err := b.analyzeInverted(invertedMerger, res, ref); err != nil {
+			if err != nil {
+				errLock.Lock()
+				errs[i] = err
+				errLock.Unlock()
+			}
+		}
 	}
 
-	// wg.Wait()
-
-	// TODO: inverted
-	// if err := b.writeInverted(tx, invertedMerger.Merge()); err != nil {
-	// 	return affectedIndices, err
-	// }
+	if err := b.writeInverted(invertedMerger.Merge()); err != nil {
+		for i := range errs {
+			errs[i] = errors.Wrap(err, "write inverted batch")
+		}
+		return errs
+	}
 
 	return errs
 }
 
 // nolint // TODO
-func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
+func (b *referencesBatcher) analyzeInverted(
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
 	ref objects.BatchReference) error {
 	prevProps, err := b.analyzeRef(mergeResult.previous, ref)
@@ -187,16 +188,15 @@ func (b *referencesBatcher) analyzeInverted(tx *bolt.Tx,
 }
 
 // nolint // TODO
-func (b *referencesBatcher) writeInverted(tx *bolt.Tx,
-	in inverted.DeltaMergeResult) error {
+func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 	before := time.Now()
-	if err := b.writeInvertedAdditions(tx, in.Additions); err != nil {
+	if err := b.writeInvertedAdditions(in.Additions); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
 	b.shard.metrics.InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
-	if err := b.writeInvertedDeletions(tx, in.Deletions); err != nil {
+	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
 	b.shard.metrics.InvertedDeleteDelta(before)
@@ -204,18 +204,55 @@ func (b *referencesBatcher) writeInverted(tx *bolt.Tx,
 	return nil
 }
 
-// nolint // TODO
-func (b *referencesBatcher) writeInvertedDeletions(tx *bolt.Tx,
+func (b *referencesBatcher) writeInvertedDeletions(
 	in []inverted.MergeProperty) error {
+	// in the references batcher we can only ever write ref count entires which
+	// are guaranteed to be not have a frequency, meaning they will use the
+	// "Set" strategy in the lsmkv store
 	for _, prop := range in {
-		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
+		bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 		if bucket == nil {
 			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 		}
 
+		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
+		if b == nil {
+			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
+		}
+
 		for _, item := range prop.MergeItems {
-			err := b.shard.tryDeleteFromInvertedIndicesProp(bucket, item.Countable(),
-				item.IDs(), false)
+			for _, id := range item.DocIDs {
+				err := b.shard.deleteInvertedIndexItemLSM(bucket, hashBucket,
+					inverted.Countable{Data: item.Data}, id.DocID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (b *referencesBatcher) writeInvertedAdditions(
+	in []inverted.MergeProperty) error {
+	// in the references batcher we can only ever write ref count entires which
+	// are guaranteed to be not have a frequency, meaning they will use the
+	// "Set" strategy in the lsmkv store
+	for _, prop := range in {
+		bucket := b.shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+		if bucket == nil {
+			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
+		}
+
+		hashBucket := b.shard.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
+		if b == nil {
+			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
+		}
+
+		for _, item := range prop.MergeItems {
+			err := b.shard.batchExtendInvertedIndexItemsLSMNoFrequency(bucket, hashBucket,
+				item)
 			if err != nil {
 				return err
 			}
@@ -225,27 +262,6 @@ func (b *referencesBatcher) writeInvertedDeletions(tx *bolt.Tx,
 	return nil
 }
 
-// nolint // TODO
-func (b *referencesBatcher) writeInvertedAdditions(tx *bolt.Tx,
-	in []inverted.MergeProperty) error {
-	for _, prop := range in {
-		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
-		if bucket == nil {
-			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
-		for _, item := range prop.MergeItems {
-			err := b.shard.batchExtendInvertedIndexItems(bucket, item, false)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// nolint // TODO
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 	ref objects.BatchReference) ([]inverted.Property, error) {
 	props := obj.Properties()
