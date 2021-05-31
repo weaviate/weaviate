@@ -204,8 +204,9 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Vectorizer: config.VectorizerModuleText2VecContextionary,
-					Class:      "Foo",
+					Vectorizer:        config.VectorizerModuleText2VecContextionary,
+					VectorIndexConfig: hnsw.UserConfig{},
+					Class:             "Foo",
 				},
 			},
 		},

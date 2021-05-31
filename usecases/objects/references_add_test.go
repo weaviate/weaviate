@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -80,7 +81,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
-					Class: "ZooAction",
+					Class:             "ZooAction",
+					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "name",
@@ -109,7 +111,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 					},
 				},
 				&models.Class{
-					Class: "AnimalAction",
+					Class:             "AnimalAction",
+					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "name",
@@ -118,7 +121,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 					},
 				},
 				&models.Class{
-					Class: "Zoo",
+					Class:             "Zoo",
+					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "name",
@@ -147,7 +151,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 					},
 				},
 				&models.Class{
-					Class: "Animal",
+					Class:             "Animal",
+					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "name",
