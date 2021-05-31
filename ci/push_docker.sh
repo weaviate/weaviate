@@ -3,10 +3,11 @@
 DOCKER_REPO="semitechnologies/weaviate"
 
 function release() {
-  # for multi-platform build
-  docker buildx create --use
 
-  docker run --rm --privileged multiarch/qemu-user-static:register
+
+  # for multi-platform build
+  docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+  docker buildx create --use
 
   if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
     # only run on non-pr builds, otherwise we have duplicates
