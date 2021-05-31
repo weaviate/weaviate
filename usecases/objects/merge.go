@@ -122,7 +122,8 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	}
 
 	obj := &models.Object{Class: className, Properties: merged}
-	if err := m.obtainVector(ctx, obj, principal); err != nil {
+	if err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
+		m.logger).Do(ctx, obj, principal); err != nil {
 		return nil, err
 	}
 

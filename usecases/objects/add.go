@@ -16,11 +16,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 )
 
@@ -92,51 +89,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	return class, nil
 }
 
-func (m *Manager) getVectorizerOfClass(className string,
-	principal *models.Principal) (string, interface{}, error) {
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return "", nil, err
-	}
-
-	class := s.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		// this should be impossible by the time this method gets called, but let's
-		// be 100% certain
-		return "", nil, errors.Errorf("class %s not present", className)
-	}
-
-	return class.Vectorizer, class.VectorIndexConfig, nil
-}
-
-func (m *Manager) obtainVector(ctx context.Context, class *models.Object,
-	principal *models.Principal) error {
-	vectorizerName, cfg, err := m.getVectorizerOfClass(class.Class, principal)
-	if err != nil {
-		return err
-	}
-
-	if vectorizerName == config.VectorizerModuleNone {
-		if err := m.validateVectorPresent(class, cfg); err != nil {
-			return NewErrInvalidUserInput("%v", err)
-		}
-	} else {
-		vectorizer, err := m.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
-		if err != nil {
-			return err
-		}
-
-		if err := vectorizer.UpdateObject(ctx, class); err != nil {
-			return NewErrInternal("%v", err)
-		}
-	}
-
-	return nil
-}
-
 func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object,
 	principal *models.Principal) error {
-	err := m.obtainVector(ctx, class, principal)
+	err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
+		m.logger).Do(ctx, class, principal)
 	if err != nil {
 		return err
 	}
@@ -144,23 +100,6 @@ func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Objec
 	err = m.vectorRepo.PutObject(ctx, class, class.Vector)
 	if err != nil {
 		return NewErrInternal("store: %v", err)
-	}
-
-	return nil
-}
-
-func (m *Manager) validateVectorPresent(class *models.Object,
-	config interface{}) error {
-	hnswConfig, ok := config.(hnsw.UserConfig)
-	if !ok {
-		return errors.Errorf("vector index config (%T) is not of type HNSW, "+
-			"but objects manager is restricted to HNSW", config)
-	}
-
-	if !hnswConfig.Skip && len(class.Vector) == 0 {
-		return errors.Errorf("this class is configured to use vectorizer 'none' " +
-			"thus a vector must be present when importing, got: field 'vector' is empty " +
-			"or contains a zero-length vector")
 	}
 
 	return nil
