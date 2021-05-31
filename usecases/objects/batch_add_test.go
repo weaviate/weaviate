@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -36,8 +37,16 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
+					Vectorizer:        config.VectorizerModuleNone,
+					Class:             "Foo",
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+				{
 					Vectorizer: config.VectorizerModuleNone,
-					Class:      "Foo",
+					Class:      "FooSkipped",
+					VectorIndexConfig: hnsw.UserConfig{
+						Skip: true,
+					},
 				},
 			},
 		},
@@ -159,6 +168,29 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		require.Len(t, repoCalledWithObjects, 2)
 		assert.Equal(t, repoCalledWithObjects[0].Err.Error(), fmt.Sprintf("invalid UUID length: %d", len(id1)))
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
+	})
+
+	t.Run("without any vectors", func(t *testing.T) {
+		// note that this should fail on class Foo, but be accepted on class
+		// FooSkipped
+		reset()
+		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objects := []*models.Object{
+			{
+				Class: "Foo",
+			},
+			{
+				Class: "FooSkipped",
+			},
+		}
+
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
+		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+
+		assert.Nil(t, err)
+		require.Len(t, repoCalledWithObjects, 2)
+		assert.Contains(t, repoCalledWithObjects[0].Err.Error(), "vector must be present")
+		assert.Nil(t, repoCalledWithObjects[1].Err)
 	})
 }
 
