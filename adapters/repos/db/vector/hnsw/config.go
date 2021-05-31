@@ -211,13 +211,11 @@ func optionalBoolFromMap(in map[string]interface{}, name string,
 	setFn func(v bool)) error {
 	value, ok := in[name]
 	if !ok {
-		fmt.Printf("not present\n")
 		return nil
 	}
 
 	asBool, ok := value.(bool)
 	if !ok {
-		fmt.Printf("not a bool\n")
 		return nil
 	}
 
