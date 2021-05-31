@@ -76,8 +76,8 @@ func (h *hnsw) reset() error {
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	deleteList := helpers.AllowList{}
-	h.Lock()
-	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	tombstones := h.tombstones
 	for id := range tombstones {
@@ -95,8 +95,8 @@ func (h *hnsw) getEntrypoint() uint64 {
 }
 
 func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
-	h.Lock()
-	defer h.Unlock()
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
 
 	deleteList := helpers.AllowList{}
 	lenOfNodes := uint64(len(h.nodes))
