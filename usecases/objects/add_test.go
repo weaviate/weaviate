@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -35,8 +36,16 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:      "Foo",
+					Class:             "Foo",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+				{
+					Class:      "FooSkipped",
 					Vectorizer: config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{
+						Skip: true,
+					},
 				},
 			},
 		},
@@ -139,6 +148,18 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		assert.True(t, ok)
 		assert.Contains(t, err.Error(), "vector must be present")
 	})
+
+	t.Run("without a vector, but indexing skipped", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		class := &models.Object{
+			Class: "FooSkipped",
+		}
+
+		_, err := manager.AddObject(ctx, nil, class)
+		assert.Nil(t, err)
+	})
 }
 
 // TODO: This currently always assumes the text2vec-vectorizer, but this could
@@ -153,8 +174,9 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:      "Foo",
-					Vectorizer: config.VectorizerModuleText2VecContextionary,
+					Class:             "Foo",
+					Vectorizer:        config.VectorizerModuleText2VecContextionary,
+					VectorIndexConfig: hnsw.UserConfig{},
 				},
 			},
 		},
@@ -185,9 +207,10 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		res, err := manager.AddObject(ctx, nil, class)
+		require.Nil(t, err)
+
 		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Object).ID
 
-		assert.Nil(t, err)
 		assert.Len(t, uuidDuringCreation, 36, "check that a uuid was assigned")
 		assert.Equal(t, uuidDuringCreation, res.ID, "check that connector add ID and user response match")
 	})
