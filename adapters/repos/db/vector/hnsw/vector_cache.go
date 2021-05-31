@@ -19,7 +19,6 @@ import (
 	"unsafe"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/sirupsen/logrus"
 )
 
@@ -82,8 +81,13 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	return vec, nil
 }
 
+var prefetchFunc func(in uintptr) = func(in uintptr) {
+	// do nothing on default arch
+	// this function will be overridden for amd64
+}
+
 func (n *shardedLockCache) prefetch(id uint64) {
-	asm.Prefetch(uintptr(unsafe.Pointer(&n.cache[id])))
+	prefetchFunc(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
 func (n *shardedLockCache) preload(id uint64, vec []float32) {
