@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -35,8 +36,16 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class:      "Foo",
+					Class:             "Foo",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+				{
+					Class:      "FooSkipped",
 					Vectorizer: config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{
+						Skip: true,
+					},
 				},
 			},
 		},
@@ -138,6 +147,18 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		_, ok := err.(ErrInvalidUserInput)
 		assert.True(t, ok)
 		assert.Contains(t, err.Error(), "vector must be present")
+	})
+
+	t.Run("without a vector, but indexing skipped", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		class := &models.Object{
+			Class: "FooSkipped",
+		}
+
+		_, err := manager.AddObject(ctx, nil, class)
+		assert.Nil(t, err)
 	})
 }
 
