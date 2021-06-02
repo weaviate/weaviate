@@ -576,6 +576,120 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
+
+		t.Run("delete a key", func(t *testing.T) {
+			key := []byte("key-002")
+
+			err = b.Delete(key)
+			require.Nil(t, err)
+
+			t.Run("seek to a specific key", func(t *testing.T) {
+				expectedKeys := [][]byte{
+					[]byte("key-001"),
+					[]byte("key-003"),
+				}
+				expectedValues := [][]byte{
+					[]byte("value-001"),
+					[]byte("value-003"),
+				}
+				var retrievedKeys [][]byte
+				var retrievedValues [][]byte
+				c := b.Cursor()
+				defer c.Close()
+				retrieved := 0
+				for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
+					retrieved++
+					retrievedKeys = append(retrievedKeys, k)
+					retrievedValues = append(retrievedValues, v)
+				}
+
+				assert.Equal(t, expectedKeys, retrievedKeys)
+				assert.Equal(t, expectedValues, retrievedValues)
+			})
+
+			t.Run("seek to first key", func(t *testing.T) {
+				expectedKeys := [][]byte{
+					[]byte("key-000"),
+					[]byte("key-001"),
+					[]byte("key-003"),
+				}
+				expectedValues := [][]byte{
+					[]byte("value-000"),
+					[]byte("value-001"),
+					[]byte("value-003"),
+				}
+
+				var retrievedKeys [][]byte
+				var retrievedValues [][]byte
+				c := b.Cursor()
+				defer c.Close()
+				retrieved := 0
+				for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+					retrieved++
+					retrievedKeys = append(retrievedKeys, k)
+					retrievedValues = append(retrievedValues, v)
+				}
+
+				assert.Equal(t, expectedKeys, retrievedKeys)
+				assert.Equal(t, expectedValues, retrievedValues)
+			})
+		})
+
+		t.Run("delete the first key", func(t *testing.T) {
+			key := []byte("key-000")
+
+			err = b.Delete(key)
+			require.Nil(t, err)
+
+			t.Run("seek to a specific key", func(t *testing.T) {
+				expectedKeys := [][]byte{
+					[]byte("key-001"),
+					[]byte("key-003"),
+				}
+				expectedValues := [][]byte{
+					[]byte("value-001"),
+					[]byte("value-003"),
+				}
+				var retrievedKeys [][]byte
+				var retrievedValues [][]byte
+				c := b.Cursor()
+				defer c.Close()
+				retrieved := 0
+				for k, v := c.Seek([]byte("key-000")); k != nil && retrieved < 2; k, v = c.Next() {
+					retrieved++
+					retrievedKeys = append(retrievedKeys, k)
+					retrievedValues = append(retrievedValues, v)
+				}
+
+				assert.Equal(t, expectedKeys, retrievedKeys)
+				assert.Equal(t, expectedValues, retrievedValues)
+			})
+
+			t.Run("seek to first key", func(t *testing.T) {
+				expectedKeys := [][]byte{
+					[]byte("key-001"),
+					[]byte("key-003"),
+				}
+				expectedValues := [][]byte{
+					[]byte("value-001"),
+					[]byte("value-003"),
+				}
+
+				var retrievedKeys [][]byte
+				var retrievedValues [][]byte
+				c := b.Cursor()
+				defer c.Close()
+				retrieved := 0
+				for k, v := c.First(); k != nil && retrieved < 2; k, v = c.Next() {
+					retrieved++
+					retrievedKeys = append(retrievedKeys, k)
+					retrievedValues = append(retrievedValues, v)
+				}
+
+				assert.Equal(t, expectedKeys, retrievedKeys)
+				assert.Equal(t, expectedValues, retrievedValues)
+			})
+		})
 	})
 
 	t.Run("with a single flush", func(t *testing.T) {
