@@ -221,6 +221,7 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 	out := make([]*storobj.Object, limit)
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	defer cursor.Close()
 
 	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
