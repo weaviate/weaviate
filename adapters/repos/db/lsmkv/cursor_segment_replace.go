@@ -81,7 +81,7 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
-		return nil, nil, err
+		return parsed.key, nil, err
 	}
 
 	s.nextOffset = s.nextOffset + uint64(parsed.read)

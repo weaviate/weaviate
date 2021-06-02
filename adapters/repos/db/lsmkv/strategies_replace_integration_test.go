@@ -1080,77 +1080,71 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 		})
 	})
 
-	// t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-	// 	b, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 	require.Nil(t, err)
+	// This test is inspired by unusual behavior encountered as part of the
+	// evaluation of gh-1569 where a delete could sometimes lead to no data after
+	// a restart which was caused by the disk segment cursor's .first() method
+	// not returuning the correct key. Thus we'd have a null-key with a tombstone
+	// which would override whatever is the real "first" key, since null is
+	// always smaller
+	t.Run("with deletes as latest in some segments", func(t *testing.T) {
+		rand.Seed(time.Now().UnixNano())
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			err := os.RemoveAll(dirName)
+			fmt.Println(err)
+		}()
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		require.Nil(t, err)
 
-	// 	t.Run("set original values and verify", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		orig2 := []byte("original value for key2")
-	// 		orig3 := []byte("original value for key3")
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
 
-	// 		err = b.Put(key1, orig1)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key2, orig2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, orig3)
-	// 		require.Nil(t, err)
-	// 	})
+		t.Run("add new datapoint", func(t *testing.T) {
+			err := b.Put([]byte("key-1"), []byte("value-1"))
+			require.Nil(t, err)
+		})
 
-	// 	t.Run("replace some, keep one", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+		t.Run("add datapoint and flush", func(t *testing.T) {
+			err := b.Put([]byte("key-8"), []byte("value-8"))
+			require.Nil(t, err)
 
-	// 		err = b.Put(key2, replaced2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, replaced3)
-	// 		require.Nil(t, err)
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced3)
-	// 	})
+		t.Run("delete datapoint and flush", func(t *testing.T) {
+			err := b.Delete([]byte("key-8"))
+			// note that we are deleting the key with the 'higher' key, so a missing
+			// key on the delete would definitely be mismatched. If we had instead
+			// the deleted the first key, the incorrect tombstone would have been
+			// correct by coincidence
+			require.Nil(t, err)
 
-	// 	t.Run("orderly shutdown", func(t *testing.T) {
-	// 		b.Shutdown(context.Background())
-	// 	})
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 	t.Run("init another bucket on the same files", func(t *testing.T) {
-	// 		b2, err := NewBucketWithStrategy(dirName, StrategyReplace)
-	// 		require.Nil(t, err)
+		t.Run("verify", func(t *testing.T) {
+			expectedKeys := [][]byte{
+				[]byte("key-1"),
+			}
+			expectedValues := [][]byte{
+				[]byte("value-1"),
+			}
 
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+			var retrievedKeys [][]byte
+			var retrievedValues [][]byte
+			c := b.Cursor()
+			defer c.Close()
+			retrieved := 0
+			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
+				retrieved++
+				retrievedKeys = append(retrievedKeys, k)
+				retrievedValues = append(retrievedValues, v)
+			}
 
-	// 		res, err := b2.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b2.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced2)
-	// 		res, err = b2.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, replaced3)
-	// 	})
-	// })
+			assert.Equal(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, expectedValues, retrievedValues)
+		})
+	})
 }
