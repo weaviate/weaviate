@@ -17,6 +17,10 @@ func (s *Shard) initProperties() error {
 	}
 
 	for _, prop := range c.Properties {
+		if prop.IndexInverted != nil && !*prop.IndexInverted {
+			continue
+		}
+
 		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
 			if err := s.initGeoProp(prop); err != nil {
 				return errors.Wrapf(err, "init property %s", prop.Name)
