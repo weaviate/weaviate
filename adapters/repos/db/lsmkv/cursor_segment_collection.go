@@ -80,7 +80,7 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
-		return nil, nil, err
+		return parsed.key, nil, err
 	}
 
 	s.nextOffset = s.nextOffset + uint64(parsed.read)
