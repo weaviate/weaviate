@@ -76,8 +76,14 @@ func (c *CursorReplace) seekAll(target []byte) {
 			continue
 		}
 
+		if err == Deleted {
+			state[i].err = err
+			state[i].key = key
+			continue
+		}
+
 		if err != nil {
-			panic(errors.Wrap(err, "unexpected error in seek"))
+			panic(errors.Wrap(err, "unexpected error in seek (cursor type 'replace')"))
 		}
 
 		state[i].key = key
@@ -211,9 +217,14 @@ func (c *CursorReplace) firstAll() {
 			state[i].err = err
 			continue
 		}
+		if err == Deleted {
+			state[i].err = err
+			state[i].key = key
+			continue
+		}
 
 		if err != nil {
-			panic(errors.Wrap(err, "unexpected error in seek"))
+			panic(errors.Wrap(err, "unexpected error in first (cursor type 'replace')"))
 		}
 
 		state[i].key = key
