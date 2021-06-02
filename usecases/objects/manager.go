@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -107,12 +107,12 @@ func NewManager(locks locks, schemaManager schemaManager,
 }
 
 func generateUUID() (strfmt.UUID, error) {
-	uuid, err := uuid.NewV4()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		return "", fmt.Errorf("could not generate uuid v4: %v", err)
 	}
 
-	return strfmt.UUID(fmt.Sprintf("%v", uuid)), nil
+	return strfmt.UUID(id.String()), nil
 }
 
 type defaultTimeSource struct{}

@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -103,7 +103,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
 					fixture := models.Object{
 						Class:      companyClass.Class,
-						ID:         strfmt.UUID(uuid.Must(uuid.NewV4()).String()),
+						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
 						Properties: schema,
 					}
 					require.Nil(t,

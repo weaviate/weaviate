@@ -122,6 +122,8 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeGeoCoordinates
 		} else if dt == string(DataTypePhoneNumber) {
 			returnDataType = DataTypePhoneNumber
+		} else if dt == string(DataTypeBlob) {
+			returnDataType = DataTypeBlob
 		}
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
@@ -141,7 +143,8 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeBoolean),
 		string(DataTypeDate),
 		string(DataTypeGeoCoordinates),
-		string(DataTypePhoneNumber):
+		string(DataTypePhoneNumber),
+		string(DataTypeBlob):
 		return true
 	}
 	return false
@@ -150,4 +153,13 @@ func IsValidValueDataType(dt string) bool {
 func IsRefDataType(dt []string) bool {
 	firstLetter := string(dt[0][0])
 	return strings.ToUpper(firstLetter) == firstLetter
+}
+
+func IsBlobDataType(dt []string) bool {
+	for i := range dt {
+		if dt[i] == string(DataTypeBlob) {
+			return true
+		}
+	}
+	return false
 }

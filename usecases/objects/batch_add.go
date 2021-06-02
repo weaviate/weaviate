@@ -18,12 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -100,12 +99,13 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 	if concept.ID == "" {
 		// Generate UUID for the new object
-		uuid, err := generateUUID()
-		id = uuid
+		uid, err := generateUUID()
+		id = uid
 		ec.add(err)
 	} else {
-		_, err := uuid.FromString(concept.ID.String())
-		ec.add(err)
+		if _, err := uuid.Parse(concept.ID.String()); err != nil {
+			ec.add(err)
+		}
 		id = concept.ID
 	}
 
@@ -132,7 +132,8 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.exists, b.config).Object(ctx, object)
 	ec.add(err)
 
-	err = b.obtainVector(ctx, object, principal)
+	err = newVectorObtainer(b.vectorizerProvider, b.schemaManager,
+		b.logger).Do(ctx, object, principal)
 	ec.add(err)
 
 	*resultsC <- BatchObject{
@@ -147,60 +148,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 func (b *BatchManager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.AdditionalProperties{})
 	return res != nil, err
-}
-
-func (b *BatchManager) getVectorizerOfClass(className string,
-	principal *models.Principal) (string, error) {
-	s, err := b.schemaManager.GetSchema(principal)
-	if err != nil {
-		return "", err
-	}
-
-	class := s.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		// this should be impossible by the time this method gets called, but let's
-		// be 100% certain
-		return "", errors.Errorf("class %s not present", className)
-	}
-
-	return class.Vectorizer, nil
-}
-
-// TODO: too much repitition between here and add.go. Vector obtainer should be
-// outscoped to be its own type used by both
-func (b *BatchManager) obtainVector(ctx context.Context, class *models.Object,
-	principal *models.Principal) error {
-	vectorizerName, err := b.getVectorizerOfClass(class.Class, principal)
-	if err != nil {
-		return err
-	}
-
-	if vectorizerName == config.VectorizerModuleNone {
-		if err := b.validateVectorPresent(class); err != nil {
-			return NewErrInvalidUserInput("%v", err)
-		}
-	} else {
-		vectorizer, err := b.vectorizerProvider.Vectorizer(vectorizerName, class.Class)
-		if err != nil {
-			return err
-		}
-
-		if err := vectorizer.UpdateObject(ctx, class); err != nil {
-			return NewErrInternal("%v", err)
-		}
-	}
-
-	return nil
-}
-
-func (b *BatchManager) validateVectorPresent(class *models.Object) error {
-	if len(class.Vector) == 0 {
-		return errors.Errorf("this class is configured to use vectorizer 'none' " +
-			"thus a vector must be present when importing, got: field 'vector' is empty " +
-			"or contains a zero-length vector")
-	}
-
-	return nil
 }
 
 func objectsChanToSlice(c chan BatchObject) BatchObjects {

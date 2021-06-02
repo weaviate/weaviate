@@ -13,8 +13,21 @@ package distancer
 
 import (
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
+
+// can be set depending on architecture, e.g. pure go, AVX-enabled assembly, etc.
+// Warning: This is not the dot product distance, but the pure product.
+//
+// This default will always work, regardless of architecture. An init function
+// will overwrite it on amd64 if AVX is present.
+var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+
+	return sum
+}
 
 type DotProduct struct {
 	a []float32
@@ -26,7 +39,7 @@ func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
 			len(d.a), len(b))
 	}
 
-	dist := 1 - asm.Dot(d.a, b)
+	dist := 1 - dotProductImplementation(d.a, b)
 	return dist, true, nil
 }
 
@@ -51,7 +64,7 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 			len(a), len(b))
 	}
 
-	prod := 1 - asm.Dot(a, b)
+	prod := 1 - dotProductImplementation(a, b)
 
 	return prod, true, nil
 }
