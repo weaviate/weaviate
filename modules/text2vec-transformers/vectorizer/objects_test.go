@@ -166,7 +166,7 @@ func TestVectorizingObjects(t *testing.T) {
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
 			expected := strings.Split(test.expectedClientCall, " ")
 			actual := strings.Split(client.lastInput, " ")
-			assert.ElementsMatch(t, expected, actual)
+			assert.Equal(t, expected, actual)
 			assert.Equal(t, client.lastConfig.PoolingStrategy, test.expectedPoolingStrategy)
 		})
 	}

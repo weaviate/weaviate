@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -65,23 +66,29 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 			index.vectorIndexUserConfig)
 	}
 
-	vi, err := hnsw.New(hnsw.Config{
-		Logger:   index.logger,
-		RootPath: s.index.Config.RootPath,
-		ID:       s.ID(),
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
-				index.logger)
-		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distancer.NewDotProductProvider(),
-	}, hnswUserConfig)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-	}
-	s.vectorIndex = vi
+	if hnswUserConfig.Skip {
+		s.vectorIndex = noop.NewIndex()
+	} else {
+		vi, err := hnsw.New(hnsw.Config{
+			Logger:   index.logger,
+			RootPath: s.index.Config.RootPath,
+			ID:       s.ID(),
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
+					index.logger)
+			},
+			VectorForIDThunk: s.vectorByIndexID,
+			DistanceProvider: distancer.NewDotProductProvider(),
+		}, hnswUserConfig)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+		}
+		s.vectorIndex = vi
 
-	err = s.initDBFile()
+		defer vi.PostStartup()
+	}
+
+	err := s.initDBFile()
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -101,8 +108,6 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	// if err := s.findDeletedDocs(); err != nil {
 	// 	return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
 	// }
-
-	vi.PostStartup()
 
 	return s, nil
 }

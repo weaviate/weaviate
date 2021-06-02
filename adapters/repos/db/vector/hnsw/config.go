@@ -98,15 +98,17 @@ const (
 	DefaultEFConstruction         = 128
 	DefaultEF                     = -1 // indicates "let Weaviate pick"
 	DefaultVectorCacheMaxObjects  = 2000000
+	DefaultSkip                   = false
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	CleanupIntervalSeconds int `json:"cleanupIntervalSeconds"`
-	MaxConnections         int `json:"maxConnections"`
-	EFConstruction         int `json:"efConstruction"`
-	EF                     int `json:"ef"`
-	VectorCacheMaxObjects  int `json:"vectorCacheMaxObjects"`
+	Skip                   bool `json:"skip"`
+	CleanupIntervalSeconds int  `json:"cleanupIntervalSeconds"`
+	MaxConnections         int  `json:"maxConnections"`
+	EFConstruction         int  `json:"efConstruction"`
+	EF                     int  `json:"ef"`
+	VectorCacheMaxObjects  int  `json:"vectorCacheMaxObjects"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -122,6 +124,7 @@ func (c *UserConfig) SetDefaults() {
 	c.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
 	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
 	c.EF = DefaultEF
+	c.Skip = DefaultSkip
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -169,6 +172,12 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 		return uc, err
 	}
 
+	if err := optionalBoolFromMap(asMap, "skip", func(v bool) {
+		uc.Skip = v
+	}); err != nil {
+		return uc, err
+	}
+
 	return uc, nil
 }
 
@@ -195,6 +204,22 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 	}
 
 	setFn(int(asInt64))
+	return nil
+}
+
+func optionalBoolFromMap(in map[string]interface{}, name string,
+	setFn func(v bool)) error {
+	value, ok := in[name]
+	if !ok {
+		return nil
+	}
+
+	asBool, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+
+	setFn(asBool)
 	return nil
 }
 

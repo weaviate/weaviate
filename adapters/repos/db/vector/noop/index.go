@@ -1,0 +1,47 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+package noop
+
+import (
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/entities/schema"
+)
+
+type Index struct{}
+
+func NewIndex() *Index {
+	return &Index{}
+}
+
+func (i *Index) Add(id uint64, vector []float32) error {
+	// silently ignore
+	return nil
+}
+
+func (i *Index) Delete(id uint64) error {
+	// silently ignore
+	return nil
+}
+
+func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, error) {
+	return nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+}
+
+func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
+}
+
+func (i *Index) Drop() error {
+	// silently ignore
+	return nil
+}

@@ -88,6 +88,12 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Type:        obj,
 			Resolve:     resolvePhoneNumber,
 		}
+	case schema.DataTypeBlob:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.String,
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
 			className, property.Name, propertyType.AsPrimitive()))

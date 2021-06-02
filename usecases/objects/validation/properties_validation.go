@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -136,6 +137,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		data, err = phoneNumber(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid phoneNumber property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeBlob:
+		data, err = blobVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %s", propertyName, className, err)
 		}
 
 	default:
@@ -343,6 +349,21 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	default:
 		return 0, fmt.Errorf("must be json.Number or float, but got %T", raw)
 	}
+}
+
+func blobVal(val interface{}) (string, error) {
+	typed, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("not a blob base64 string, but %T", val)
+	}
+
+	base64Regex := regexp.MustCompile(`^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$`)
+	ok = base64Regex.MatchString(typed)
+	if !ok {
+		return "", fmt.Errorf("not a valid blob base64 string")
+	}
+
+	return typed, nil
 }
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,

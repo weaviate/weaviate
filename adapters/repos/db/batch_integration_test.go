@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -269,9 +269,9 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			// add 50 more nonsensical items, so we cross the transaction threshold
 
 			for i := 1; i < 51; i++ {
-				uuid, err := uuid.NewV4()
+				uid, err := uuid.NewRandom()
 				require.Nil(t, err)
-				id := strfmt.UUID(uuid.String())
+				id := strfmt.UUID(uid.String())
 				batch[i] = objects.BatchObject{
 					OriginalIndex: i,
 					Err:           nil,
@@ -351,9 +351,9 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			// add 50 more nonsensical items, so we cross the transaction threshold
 
 			for i := 0; i < size; i++ {
-				uuid, err := uuid.NewV4()
+				uid, err := uuid.NewRandom()
 				require.Nil(t, err)
-				id := strfmt.UUID(uuid.String())
+				id := strfmt.UUID(uid.String())
 				batch[i] = objects.BatchObject{
 					Err:    nil,
 					Vector: []float32{0.05, 0.1, 0.2},
@@ -405,7 +405,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 
 		t.Run("generate random vectors", func(t *testing.T) {
 			for i := 0; i < size; i++ {
-				id, _ := uuid.NewV4()
+				id, _ := uuid.NewRandom()
 				objs[i] = &models.Object{
 					Class: "ThingForBatching",
 					ID:    strfmt.UUID(id.String()),

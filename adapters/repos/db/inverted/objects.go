@@ -54,6 +54,10 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
+		if schema.IsBlobDataType(prop.DataType) {
+			continue
+		}
+
 		if schema.IsRefDataType(prop.DataType) {
 			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
 				return nil, err

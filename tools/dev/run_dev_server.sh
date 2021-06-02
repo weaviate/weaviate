@@ -81,7 +81,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
-      IMAGE_VECTORIZER_URL="http://localhost:8002" \
+      IMAGE_INFERENCE_API="http://localhost:8002" \
       ENABLE_MODULES="text2vec-contextionary,img2vec-keras" \
       go run ./cmd/weaviate-server \
         --scheme http \
