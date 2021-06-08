@@ -160,6 +160,17 @@ func zooAnimalSchemaForTest() schema.Schema {
 						},
 					},
 				},
+				&models.Class{
+					Class:             "NotVectorized",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "description",
+							DataType: []string{"text"},
+						},
+					},
+					Vectorizer: "none",
+				},
 			},
 		},
 	}

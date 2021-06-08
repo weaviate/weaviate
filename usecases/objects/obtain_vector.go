@@ -45,6 +45,7 @@ func (vo *vectorObtainer) Do(ctx context.Context, obj *models.Object,
 	if err != nil {
 		return err
 	}
+
 	hnswConfig, ok := cfg.(hnsw.UserConfig)
 	if !ok {
 		return errors.Errorf("vector index config (%T) is not of type HNSW, "+
