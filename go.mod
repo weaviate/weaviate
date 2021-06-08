@@ -10,7 +10,7 @@ require (
 	github.com/fatih/camelcase v1.0.0
 	github.com/go-openapi/errors v0.20.0
 	github.com/go-openapi/loads v0.19.5
-	github.com/go-openapi/runtime v0.19.28
+	github.com/go-openapi/runtime v0.19.29
 	github.com/go-openapi/spec v0.19.8
 	github.com/go-openapi/strfmt v0.20.1
 	github.com/go-openapi/swag v0.19.15
