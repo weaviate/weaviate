@@ -44,11 +44,16 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
+
+	if updated.Properties == nil {
+		updated.Properties = map[string]interface{}{}
+	}
+
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Properties.(map[string]interface{}),
 		updated.Class, id)
 
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, previous.ClassName, previous.Schema,
-		primitive, principal)
+		primitive, principal, previous.Vector, updated.Vector)
 	if err != nil {
 		return NewErrInternal("vectorize merged: %v", err)
 	}
@@ -104,10 +109,12 @@ func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, pr
 
 func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
 	old interface{}, new map[string]interface{},
-	principal *models.Principal) (*models.Object, error) {
+	principal *models.Principal, oldVec, newVec []float32) (*models.Object, error) {
 	var merged map[string]interface{}
+	var vector []float32
 	if old == nil {
 		merged = new
+		vector = newVec
 	} else {
 		oldMap, ok := old.(map[string]interface{})
 		if !ok {
@@ -119,9 +126,16 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		}
 
 		merged = oldMap
+		if newVec != nil {
+			vector = newVec
+		} else {
+			vector = oldVec
+		}
 	}
 
-	obj := &models.Object{Class: className, Properties: merged}
+	// Note: vector could be a nil vector in case a vectorizer is configered,
+	// then the obtainer will set it
+	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
 	if err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
 		m.logger).Do(ctx, obj, principal); err != nil {
 		return nil, err

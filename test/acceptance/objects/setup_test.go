@@ -55,6 +55,17 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
+
+		createObjectClass(t, &models.Class{
+			Class:      "TestObjectCustomVector",
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "description",
+					DataType: []string{"text"},
+				},
+			},
+		})
 	})
 
 	// tests
@@ -63,8 +74,10 @@ func Test_Objects(t *testing.T) {
 	t.Run("running a feature projection", featureProjection)
 	t.Run("creating objects", creatingObjects)
 
+	t.Run("custom vector journey", customVectors)
 	// tear down
 	deleteObjectClass(t, "TestObject")
+	deleteObjectClass(t, "TestObjectCustomVector")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
