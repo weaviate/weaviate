@@ -30,6 +30,8 @@ var (
 )
 
 type segment struct {
+	path            string
+	level           uint16
 	segmentStartPos uint64
 	segmentEndPos   uint64
 	dataStartPos    uint64
@@ -69,6 +71,12 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Wrap(err, "mmap file")
 	}
 
+	var level uint16
+	if err := binary.Read(bytes.NewReader(content[0:2]), binary.LittleEndian,
+		&level); err != nil {
+		return nil, err
+	}
+
 	var strategy SegmentStrategy
 	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
 		&strategy); err != nil {
@@ -91,6 +99,8 @@ func newSegment(path string) (*segment, error) {
 	diskIndex := segmentindex.NewDiskTree(content[indexStartPos:])
 
 	ind := &segment{
+		level:           level,
+		path:            path,
 		contents:        content,
 		segmentStartPos: indexStartPos,
 		segmentEndPos:   uint64(len(content)),
