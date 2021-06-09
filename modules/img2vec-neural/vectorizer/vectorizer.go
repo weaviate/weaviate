@@ -17,7 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/ent"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/ent"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 

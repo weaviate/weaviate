@@ -58,7 +58,7 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-  local-keras)
+  local-image)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
@@ -66,7 +66,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
       IMAGE_INFERENCE_API="http://localhost:8002" \
-      ENABLE_MODULES="text2vec-contextionary,img2vec-keras" \
+      ENABLE_MODULES="text2vec-contextionary,img2vec-neural" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
