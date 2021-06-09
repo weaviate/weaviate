@@ -9,24 +9,24 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modkeras
+package modimage
 
 import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/nearImage"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/nearImage"
 )
 
-func (m *KerasModule) initNearImage() error {
+func (m *ImageModule) initNearImage() error {
 	m.searcher = nearImage.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearImage.New()
 	return nil
 }
 
-func (m *KerasModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+func (m *ImageModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *KerasModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *ImageModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return m.searcher.VectorSearches()
 }
 

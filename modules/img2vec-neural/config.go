@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modkeras
+package modimage
 
 import (
 	"context"
@@ -18,19 +18,19 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/vectorizer"
 )
 
-func (m *KerasModule) ClassConfigDefaults() map[string]interface{} {
+func (m *ImageModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *KerasModule) PropertyConfigDefaults(
+func (m *ImageModule) PropertyConfigDefaults(
 	dt *schema.DataType) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *KerasModule) ValidateClass(ctx context.Context,
+func (m *ImageModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return icheck.Validate()

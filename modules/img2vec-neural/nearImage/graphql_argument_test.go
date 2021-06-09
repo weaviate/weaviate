@@ -33,7 +33,7 @@ func TestNearImageGraphQLArgument(t *testing.T) {
 		//   certainty: 0.9
 		// }
 		assert.NotNil(t, nearImage)
-		assert.Equal(t, "Img2VecKerasPrefixClassNearImageInpObj", nearImage.Type.Name())
+		assert.Equal(t, "Img2VecImagePrefixClassNearImageInpObj", nearImage.Type.Name())
 		answerFields, ok := nearImage.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
