@@ -34,7 +34,7 @@ services:
     image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
       - "8001:8080"
-  i2v-keras:
-    image: semitechnologies/img2vec-keras:resnet50-61dcbf8
+  i2v-neural:
+    image: semitechnologies/img2vec-pytorch:resnet50-07dd697
     ports:
       - "8002:8080"
