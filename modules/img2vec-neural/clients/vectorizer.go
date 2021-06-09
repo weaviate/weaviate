@@ -20,7 +20,7 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/ent"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/ent"
 	"github.com/sirupsen/logrus"
 )
 
