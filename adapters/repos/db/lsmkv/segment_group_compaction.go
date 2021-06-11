@@ -1,8 +1,10 @@
 package lsmkv
 
 import (
+	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 )
@@ -78,13 +80,19 @@ func (ig *SegmentGroup) compactOnce() error {
 		return errors.Errorf("only replace supported at the moment")
 	}
 
-	f, err := os.Create("todobar")
+	path := fmt.Sprintf("%s.tmp", ig.segments[pair[1]].path)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
+	// the assumption is that both pairs are of the same level, so we can just
+	// take either value. If we want to support asymmetric compaction, then we
+	// might have to choose this value more intelligently
+	level := ig.segments[pair[0]].level
+
 	c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
-		ig.segments[pair[1]].newCursor())
+		ig.segments[pair[1]].newCursor(), level)
 
 	if err := c.do(); err != nil {
 		return err
@@ -94,5 +102,67 @@ func (ig *SegmentGroup) compactOnce() error {
 		return errors.Wrap(err, "close compacted segment file")
 	}
 
+	if err := ig.replaceCompactedSegments(pair[0], pair[1], path); err != nil {
+		return errors.Wrap(err, "replace compacted segments")
+	}
+
 	return nil
+}
+
+func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
+	newPathTmp string) error {
+	ig.maintenanceLock.Lock()
+	defer ig.maintenanceLock.Unlock()
+
+	if err := ig.segments[old1].close(); err != nil {
+		return errors.Wrap(err, "close disk segment")
+	}
+
+	if err := ig.segments[old2].close(); err != nil {
+		return errors.Wrap(err, "close disk segment")
+	}
+
+	if err := ig.segments[old1].drop(); err != nil {
+		return errors.Wrap(err, "drop disk segment")
+	}
+
+	if err := ig.segments[old2].drop(); err != nil {
+		return errors.Wrap(err, "drop disk segment")
+	}
+
+	ig.segments[old1] = nil
+	ig.segments[old2] = nil
+
+	// the old segments have been deletd, we can now safely remove the .tmp
+	// extension from the new segment which carried the name of the second old
+	// segment
+	newPath, err := ig.stripTmpExtension(newPathTmp)
+	if err != nil {
+		return errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+
+	seg, err := newSegment(newPath)
+	if err != nil {
+		return errors.Wrap(err, "create new segment")
+	}
+
+	ig.segments[old2] = seg
+
+	ig.segments = append(ig.segments[:old1], ig.segments[old1+1:]...)
+
+	return nil
+}
+
+func (ig *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
+	ext := filepath.Ext(oldPath)
+	if ext != ".tmp" {
+		return "", errors.Errorf("segment %q did not have .tmp extension", oldPath)
+	}
+	newPath := oldPath[:len(oldPath)-len(ext)]
+
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
+	}
+
+	return newPath, nil
 }

@@ -384,3 +384,10 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 func (b *Bucket) Strategy() string {
 	return b.strategy
 }
+
+// TODO: replace with periodic compaction
+func (b *Bucket) Compact() {
+	if b.disk.eligbleForCompaction() {
+		b.disk.compactOnce()
+	}
+}

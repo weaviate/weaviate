@@ -26,6 +26,7 @@ type SegmentGroup struct {
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
 	maintenanceLock sync.RWMutex
+	dir             string
 }
 
 func newSegmentGroup(dir string) (*SegmentGroup, error) {
@@ -36,11 +37,11 @@ func newSegmentGroup(dir string) (*SegmentGroup, error) {
 
 	out := &SegmentGroup{
 		segments: make([]*segment, len(list)),
+		dir:      dir,
 	}
 
 	segmentIndex := 0
 	for _, fileInfo := range list {
-		fmt.Printf("%v\n", fileInfo.Name())
 		if filepath.Ext(fileInfo.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
