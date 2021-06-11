@@ -102,7 +102,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			continue
 		}
 
-		if key1 != nil && bytes.Compare(key1, key2) == -1 {
+		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
 			ki, err := c.writeIndividualNode(offset, key1, value1, err1 == Deleted)
 			if err != nil {
@@ -112,7 +112,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			offset = ki.valueEnd
 			kis = append(kis, ki)
 			key1, value1, err1 = c.c1.next()
-		} else if key2 != nil {
+		} else {
 			// key 2 is smaller
 			ki, err := c.writeIndividualNode(offset, key2, value2, err2 == Deleted)
 			if err != nil {

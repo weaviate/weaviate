@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -165,4 +166,29 @@ func (ig *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	}
 
 	return newPath, nil
+}
+
+func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
+	if interval == 0 {
+		return
+	}
+
+	go func() {
+		t := time.Tick(interval)
+		for {
+			select {
+			case <-ig.stopCompactionCycle:
+				return
+			case <-t:
+				if ig.eligbleForCompaction() {
+					if err := ig.compactOnce(); err != nil {
+						// TODO: structured logging
+						fmt.Printf("Error compact: %v\n", err)
+					}
+				} else {
+					fmt.Printf("no segment eligble for compaction\n")
+				}
+			}
+		}
+	}()
 }
