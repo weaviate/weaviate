@@ -57,7 +57,7 @@ func NewBucketWithStrategyAndThreshold(dir, strategy string,
 		return nil, errors.Errorf("unknown strategy %q", strategy)
 	}
 
-	sg, err := newSegmentGroup(dir)
+	sg, err := newSegmentGroup(dir, 15*time.Second)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -383,11 +383,4 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 func (b *Bucket) Strategy() string {
 	return b.strategy
-}
-
-// TODO: replace with periodic compaction
-func (b *Bucket) Compact() {
-	if b.disk.eligbleForCompaction() {
-		b.disk.compactOnce()
-	}
 }

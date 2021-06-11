@@ -1,5 +1,3 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
@@ -16,6 +14,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -27,9 +26,12 @@ type SegmentGroup struct {
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
+
+	stopCompactionCycle chan struct{} // TODO: send on this channel on close
 }
 
-func newSegmentGroup(dir string) (*SegmentGroup, error) {
+func newSegmentGroup(dir string,
+	compactionCycle time.Duration) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -57,6 +59,8 @@ func newSegmentGroup(dir string) (*SegmentGroup, error) {
 	}
 
 	out.segments = out.segments[:segmentIndex]
+
+	out.initCompactionCycle(compactionCycle)
 	return out, nil
 }
 
