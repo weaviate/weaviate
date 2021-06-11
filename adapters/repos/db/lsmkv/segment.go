@@ -133,3 +133,11 @@ func (ind *segment) initBloomFilter() error {
 	fmt.Printf("building bloom filter took %s\n", took)
 	return nil
 }
+
+func (ind *segment) close() error {
+	return syscall.Munmap(ind.contents)
+}
+
+func (ind *segment) drop() error {
+	return os.Remove(ind.path)
+}

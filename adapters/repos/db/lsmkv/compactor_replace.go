@@ -16,17 +16,21 @@ type compactorReplace struct {
 	c1 *segmentCursorReplace
 	c2 *segmentCursorReplace
 
+	// the level matching those of the cursors
+	currentLevel uint16
+
 	w    io.WriteSeeker
 	bufw *bufio.Writer
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 *segmentCursorReplace) *compactorReplace {
+	c1, c2 *segmentCursorReplace, level uint16) *compactorReplace {
 	return &compactorReplace{
-		c1:   c1,
-		c2:   c2,
-		w:    w,
-		bufw: bufio.NewWriterSize(w, 1e6),
+		c1:           c1,
+		c2:           c2,
+		w:            w,
+		bufw:         bufio.NewWriterSize(w, 1e6),
+		currentLevel: level,
 	}
 }
 
@@ -49,7 +53,9 @@ func (c *compactorReplace) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	if err := c.writeHeader(); err != nil {
+	dataEnd := uint64(kis[len(kis)-1].valueEnd)
+
+	if err := c.writeHeader(c.currentLevel+1, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
@@ -192,9 +198,19 @@ func (c *compactorReplace) writeIndex(keys []keyIndex) error {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorReplace) writeHeader() error {
+func (c *compactorReplace) writeHeader(level uint16, startOfIndex uint64) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
+	}
+
+	if err := binary.Write(c.w, binary.LittleEndian, &level); err != nil {
+		return err
+	}
+	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategyReplace); err != nil {
+		return err
+	}
+	if err := binary.Write(c.w, binary.LittleEndian, &startOfIndex); err != nil {
+		return err
 	}
 
 	return nil

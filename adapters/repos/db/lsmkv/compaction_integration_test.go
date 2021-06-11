@@ -192,11 +192,25 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
 	})
 
-	t.Run("compact", func(t *testing.T) {
-		assert.Nil(t, bucket.disk.compactOnce())
+	t.Run("compact until no longer eligble", func(t *testing.T) {
+		for bucket.disk.eligbleForCompaction() {
+			require.Nil(t, bucket.disk.compactOnce())
+		}
 	})
 
-	t.Run("verify after compaction", func(t *testing.T) {
-		assert.False(t, bucket.disk.eligbleForCompaction(), "check eligle after")
+	t.Run("verify control after compaction", func(t *testing.T) {
+		var retrieved []kv
+
+		c := bucket.Cursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			retrieved = append(retrieved, kv{
+				key:   k,
+				value: v,
+			})
+		}
+
+		assert.Equal(t, expected, retrieved)
 	})
 }
