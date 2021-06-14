@@ -77,10 +77,6 @@ func (ig *SegmentGroup) compactOnce() error {
 		return nil
 	}
 
-	if ig.segments[pair[0]].strategy != SegmentStrategyReplace {
-		return errors.Errorf("only replace supported at the moment")
-	}
-
 	path := fmt.Sprintf("%s.tmp", ig.segments[pair[1]].path)
 	f, err := os.Create(path)
 	if err != nil {
@@ -92,11 +88,25 @@ func (ig *SegmentGroup) compactOnce() error {
 	// might have to choose this value more intelligently
 	level := ig.segments[pair[0]].level
 
-	c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
-		ig.segments[pair[1]].newCursor(), level)
+	strategy := ig.segments[pair[0]].strategy
+	switch strategy {
+	case SegmentStrategyReplace:
+		c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
+			ig.segments[pair[1]].newCursor(), level)
 
-	if err := c.do(); err != nil {
-		return err
+		if err := c.do(); err != nil {
+			return err
+		}
+	case SegmentStrategyMapCollection, SegmentStrategySetCollection:
+		c := newCompactorSetCollection(f, ig.segments[pair[0]].newCollectionCursor(),
+			ig.segments[pair[1]].newCollectionCursor(), level)
+
+		if err := c.do(); err != nil {
+			return err
+		}
+
+	default:
+		return errors.Errorf("unrecognized strategy %v", strategy)
 	}
 
 	if err := f.Close(); err != nil {

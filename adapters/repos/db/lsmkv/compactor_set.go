@@ -10,11 +10,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-type compactorReplace struct {
+type compactorSet struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorReplace
-	c2 *segmentCursorReplace
+	c1 *segmentCursorCollection
+	c2 *segmentCursorCollection
 
 	// the level matching those of the cursors
 	currentLevel uint16
@@ -23,9 +23,9 @@ type compactorReplace struct {
 	bufw *bufio.Writer
 }
 
-func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 *segmentCursorReplace, level uint16) *compactorReplace {
-	return &compactorReplace{
+func newCompactorSetCollection(w io.WriteSeeker,
+	c1, c2 *segmentCursorCollection, level uint16) *compactorSet {
+	return &compactorSet{
 		c1:           c1,
 		c2:           c2,
 		w:            w,
@@ -34,7 +34,7 @@ func newCompactorReplace(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorReplace) do() error {
+func (c *compactorSet) do() error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -62,7 +62,7 @@ func (c *compactorReplace) do() error {
 	return nil
 }
 
-func (c *compactorReplace) init() error {
+func (c *compactorSet) init() error {
 	// write a dummy header, we don't know the contents of the actual header yet,
 	// we will seek to the beginning and overwrite the actual header at the very
 	// end
@@ -74,9 +74,9 @@ func (c *compactorReplace) init() error {
 	return nil
 }
 
-func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
-	key1, value1, err1 := c.c1.first()
-	key2, value2, err2 := c.c2.first()
+func (c *compactorSet) writeKeys() ([]keyIndex, error) {
+	key1, value1, _ := c.c1.first()
+	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := SegmentHeaderSize
@@ -88,7 +88,18 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			ki, err := c.writeIndividualNode(offset, key2, value2, err2 == Deleted)
+			values := append(value1, value2...)
+			valuesMergedRaw := newSetDecoder().Do(values)
+			valuesMerged := make([]value, len(valuesMergedRaw))
+			for i, v := range valuesMergedRaw {
+				valuesMerged[i] = value{
+					value: v,
+					// TODO: keep tombstone
+
+				}
+			}
+
+			ki, err := c.writeIndividualNode(offset, key2, valuesMerged)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
@@ -97,24 +108,24 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			kis = append(kis, ki)
 
 			// advance both!
-			key1, value1, err1 = c.c1.next()
-			key2, value2, err2 = c.c2.next()
+			key1, value1, _ = c.c1.next()
+			key2, value2, _ = c.c2.next()
 			continue
 		}
 
 		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
 			// key 1 is smaller
-			ki, err := c.writeIndividualNode(offset, key1, value1, err1 == Deleted)
+			ki, err := c.writeIndividualNode(offset, key1, value1)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (key1 smaller)")
 			}
 
 			offset = ki.valueEnd
 			kis = append(kis, ki)
-			key1, value1, err1 = c.c1.next()
+			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
-			ki, err := c.writeIndividualNode(offset, key2, value2, err2 == Deleted)
+			ki, err := c.writeIndividualNode(offset, key2, value2)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (key2 smaller)")
 			}
@@ -122,34 +133,42 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			offset = ki.valueEnd
 			kis = append(kis, ki)
 
-			key2, value2, err2 = c.c2.next()
+			key2, value2, _ = c.c2.next()
 		}
 	}
 
 	return kis, nil
 }
 
-func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
-	tombstone bool) (keyIndex, error) {
+func (c *compactorSet) writeIndividualNode(offset int, key []byte,
+	values []value) (keyIndex, error) {
 	out := keyIndex{}
 
 	writtenForNode := 0
-	if err := binary.Write(c.bufw, binary.LittleEndian, tombstone); err != nil {
-		return out, errors.Wrap(err, "write tombstone for node")
-	}
-	writtenForNode += 1
-
-	valueLength := uint64(len(value))
-	if err := binary.Write(c.bufw, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrap(err, "write value length encoding for node")
+	valueLen := uint64(len(values))
+	if err := binary.Write(c.bufw, binary.LittleEndian, &valueLen); err != nil {
+		return out, errors.Wrapf(err, "write values len for node")
 	}
 	writtenForNode += 8
 
-	n, err := c.bufw.Write(value)
-	if err != nil {
-		return out, errors.Wrap(err, "write node")
+	for i, value := range values {
+		if err := binary.Write(c.bufw, binary.LittleEndian, value.tombstone); err != nil {
+			return out, errors.Wrapf(err, "write tombstone for value %d", i)
+		}
+		writtenForNode += 1
+
+		valueLen := uint64(len(value.value))
+		if err := binary.Write(c.bufw, binary.LittleEndian, valueLen); err != nil {
+			return out, errors.Wrapf(err, "write len of value %d", i)
+		}
+		writtenForNode += 8
+
+		n, err := c.bufw.Write(value.value)
+		if err != nil {
+			return out, errors.Wrapf(err, "write value %d", i)
+		}
+		writtenForNode += n
 	}
-	writtenForNode += n
 
 	keyLength := uint32(len(key))
 	if err := binary.Write(c.bufw, binary.LittleEndian, &keyLength); err != nil {
@@ -157,7 +176,7 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	}
 	writtenForNode += 4
 
-	n, err = c.bufw.Write(key)
+	n, err := c.bufw.Write(key)
 	if err != nil {
 		return out, errors.Wrapf(err, "write node")
 	}
@@ -172,7 +191,7 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	return out, nil
 }
 
-func (c *compactorReplace) writeIndex(keys []keyIndex) error {
+func (c *compactorSet) writeIndex(keys []keyIndex) error {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	for i, key := range keys {
 		keyNodes[i] = segmentindex.Node{
@@ -198,7 +217,7 @@ func (c *compactorReplace) writeIndex(keys []keyIndex) error {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorReplace) writeHeader(level uint16, startOfIndex uint64) error {
+func (c *compactorSet) writeHeader(level uint16, startOfIndex uint64) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
@@ -206,7 +225,7 @@ func (c *compactorReplace) writeHeader(level uint16, startOfIndex uint64) error 
 	if err := binary.Write(c.w, binary.LittleEndian, &level); err != nil {
 		return err
 	}
-	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategyReplace); err != nil {
+	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategySetCollection); err != nil {
 		return err
 	}
 	if err := binary.Write(c.w, binary.LittleEndian, &startOfIndex); err != nil {

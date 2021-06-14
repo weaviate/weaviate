@@ -9,7 +9,6 @@
 //  CONTACT: hello@semi.technology
 //
 
-//nolint // TODO
 package lsmkv
 
 import "github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
