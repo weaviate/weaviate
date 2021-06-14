@@ -11,7 +11,9 @@
 
 package lsmkv
 
-import "github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+import (
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+)
 
 type segmentCursorCollection struct {
 	segment    *segment

@@ -218,13 +218,18 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 }
 
 func Test_CompactionSetStrategy(t *testing.T) {
-	size := 20
+	size := 30
 
 	type kv struct {
 		key    []byte
 		values [][]byte
 		delete bool
 	}
+	// this segment is not part of the merge, but might still play a role in
+	// overall results. For example if one of the later segments has a tombstone
+	// for it
+	var previous1 []kv
+	var previous2 []kv
 
 	var segment1 []kv
 	var segment2 []kv
@@ -247,6 +252,8 @@ func Test_CompactionSetStrategy(t *testing.T) {
 		// 3.) created in the first segment, first element deleted in the second
 		// 3.) created in the first segment, second element deleted in the second
 		// 4.) not present in the first segment, created in the second
+		// 5.) present in an unrelated previous segment, deleted in the first
+		// 6.) present in an unrelated previous segment, deleted in the second
 		for i := 0; i < size; i++ {
 			key := []byte(fmt.Sprintf("key-%2d", i))
 
@@ -254,7 +261,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 			value2 := []byte(fmt.Sprintf("value-%2d-02", i))
 			values := [][]byte{value1, value2}
 
-			switch i % 4 {
+			switch i % 7 {
 			case 0:
 				// add to segment 1
 				segment1 = append(segment1, kv{
@@ -337,6 +344,64 @@ func Test_CompactionSetStrategy(t *testing.T) {
 					key:    key,
 					values: values,
 				})
+
+			case 5:
+				// only part of a previous segment, which is not part of the merge
+				previous1 = append(previous1, kv{
+					key:    key,
+					values: values[:1],
+				})
+				previous2 = append(previous2, kv{
+					key:    key,
+					values: values[1:],
+				})
+
+				// delete in segment 1
+				segment1 = append(segment1, kv{
+					key:    key,
+					values: values[:1],
+					delete: true,
+				})
+				segment1 = append(segment1, kv{
+					key:    key,
+					values: values[1:],
+					delete: true,
+				})
+
+				// should not have any values in expected at all
+				expected = append(expected, kv{
+					key:    key,
+					values: [][]byte{},
+				})
+
+			case 6:
+				// only part of a previous segment, which is not part of the merge
+				previous1 = append(previous1, kv{
+					key:    key,
+					values: values[:1],
+				})
+				previous2 = append(previous2, kv{
+					key:    key,
+					values: values[1:],
+				})
+
+				// delete in segment 2
+				segment2 = append(segment2, kv{
+					key:    key,
+					values: values[:1],
+					delete: true,
+				})
+				segment2 = append(segment2, kv{
+					key:    key,
+					values: values[1:],
+					delete: true,
+				})
+
+				// should not have any values in expected at all
+				expected = append(expected, kv{
+					key:    key,
+					values: [][]byte{},
+				})
 			}
 		}
 	})
@@ -361,14 +426,30 @@ func Test_CompactionSetStrategy(t *testing.T) {
 		bucket = b
 	})
 
+	t.Run("import and flush previous segments", func(t *testing.T) {
+		for _, pair := range previous1 {
+			err := bucket.SetAdd(pair.key, pair.values)
+			require.Nil(t, err)
+		}
+
+		require.Nil(t, bucket.FlushAndSwitch())
+
+		for _, pair := range previous2 {
+			err := bucket.SetAdd(pair.key, pair.values)
+			require.Nil(t, err)
+		}
+
+		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
 	t.Run("import segment 1", func(t *testing.T) {
 		for _, pair := range segment1 {
 			if !pair.delete {
 				err := bucket.SetAdd(pair.key, pair.values)
 				require.Nil(t, err)
 			} else {
-				// err := bucket.SetDeleteSingle(pair.key, pair.values[0])
-				// require.Nil(t, err)
+				err := bucket.SetDeleteSingle(pair.key, pair.values[0])
+				require.Nil(t, err)
 			}
 		}
 	})
