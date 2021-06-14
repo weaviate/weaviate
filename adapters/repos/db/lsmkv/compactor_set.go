@@ -89,15 +89,7 @@ func (c *compactorSet) writeKeys() ([]keyIndex, error) {
 		}
 		if bytes.Equal(key1, key2) {
 			values := append(value1, value2...)
-			valuesMergedRaw := newSetDecoder().Do(values)
-			valuesMerged := make([]value, len(valuesMergedRaw))
-			for i, v := range valuesMergedRaw {
-				valuesMerged[i] = value{
-					value: v,
-					// TODO: keep tombstone
-
-				}
-			}
+			valuesMerged := newSetDecoder().DoPartial(values)
 
 			ki, err := c.writeIndividualNode(offset, key2, valuesMerged)
 			if err != nil {

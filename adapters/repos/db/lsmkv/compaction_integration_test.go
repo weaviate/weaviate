@@ -516,3 +516,108 @@ func Test_CompactionSetStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 }
+
+func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
+	// in this test each segment reverses the action of the previous segment so
+	// that in the end a lot of information is present in the indivudal segments
+	// which is no longer needed. We then verify that after all compaction this
+	// information is gone, thus freeing up disk space
+	size := 100
+
+	type kv struct {
+		key    []byte
+		values [][]byte
+	}
+
+	key := []byte("my-key")
+
+	var bucket *Bucket
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	t.Run("init bucket", func(t *testing.T) {
+		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
+		require.Nil(t, err)
+
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
+
+		bucket = b
+	})
+
+	t.Run("write segments", func(t *testing.T) {
+		for i := 0; i < size; i++ {
+			if i != 0 {
+				// we can only delete an existing value if this isn't the first write
+				value := []byte(fmt.Sprintf("value-%05d", i-1))
+				err := bucket.SetDeleteSingle(key, value)
+				require.Nil(t, err)
+			}
+
+			value := []byte(fmt.Sprintf("value-%05d", i))
+			err := bucket.SetAdd(key, [][]byte{value})
+			require.Nil(t, err)
+
+			require.Nil(t, bucket.FlushAndSwitch())
+		}
+	})
+
+	t.Run("verify control before compaction", func(t *testing.T) {
+		var retrieved []kv
+		expected := []kv{
+			{
+				key:    key,
+				values: [][]byte{[]byte(fmt.Sprintf("value-%05d", size-1))},
+			},
+		}
+
+		c := bucket.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			retrieved = append(retrieved, kv{
+				key:    k,
+				values: v,
+			})
+		}
+
+		assert.Equal(t, expected, retrieved)
+	})
+
+	t.Run("check if eligble for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	})
+
+	t.Run("compact until no longer eligble", func(t *testing.T) {
+		for bucket.disk.eligbleForCompaction() {
+			require.Nil(t, bucket.disk.compactOnce())
+		}
+	})
+
+	t.Run("verify control before compaction", func(t *testing.T) {
+		var retrieved []kv
+		expected := []kv{
+			{
+				key:    key,
+				values: [][]byte{[]byte(fmt.Sprintf("value-%05d", size-1))},
+			},
+		}
+
+		c := bucket.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			retrieved = append(retrieved, kv{
+				key:    k,
+				values: v,
+			})
+		}
+
+		assert.Equal(t, expected, retrieved)
+	})
+}
