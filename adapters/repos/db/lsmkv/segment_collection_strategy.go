@@ -81,16 +81,12 @@ func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 	return values, nil
 }
 
-// TODO
-// nolint:unused
 type segmentCollectionParseResult struct {
 	key    []byte
 	values []value
 	read   int // so that the cursor and calculate its offset for the next round
 }
 
-// TODO
-// nolint:unused
 func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionParseResult, error) {
 	out := segmentCollectionParseResult{}
 
