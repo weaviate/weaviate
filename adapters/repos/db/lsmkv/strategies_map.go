@@ -62,6 +62,40 @@ func (m *mapDecoder) Do(in []value) ([]MapPair, error) {
 	return out[:i], nil
 }
 
+// DoPartial keeps "unused" tombstones
+func (m *mapDecoder) DoPartial(in []value) ([]MapPair, error) {
+	seenKeys := map[string]uint{}
+	kvs := make([]MapPair, len(in))
+
+	for i, pair := range in {
+		kv := MapPair{}
+		err := kv.FromBytes(pair.value, pair.tombstone)
+		if err != nil {
+			return nil, err
+		}
+		kv.Tombstone = pair.tombstone
+		kvs[i] = kv
+		count := seenKeys[string(kv.Key)]
+		seenKeys[string(kv.Key)] = count + 1
+	}
+
+	out := make([]MapPair, len(in))
+	i := 0
+	for _, pair := range kvs {
+		count := seenKeys[string(pair.Key)]
+		if count != 1 {
+			seenKeys[string(pair.Key)] = count - 1
+			continue
+
+		}
+
+		out[i] = pair
+		i++
+	}
+
+	return out[:i], nil
+}
+
 type MapPair struct {
 	Key       []byte
 	Value     []byte
