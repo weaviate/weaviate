@@ -18,7 +18,6 @@ import (
 	"math/rand"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +37,6 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
@@ -236,7 +234,6 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
@@ -532,7 +529,6 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
