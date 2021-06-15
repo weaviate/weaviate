@@ -120,7 +120,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	migrator = vectorMigrator
 	explorer = traverser.NewExplorer(repo, libvectorizer.NormalizedDistance,
 		appState.Logger, appState.Modules)
-	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
+	schemaRepo, err = schemarepo.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -128,7 +129,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
+	classifierRepo, err = classifications.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
