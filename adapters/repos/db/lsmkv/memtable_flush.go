@@ -92,9 +92,10 @@ func (l *Memtable) flush() error {
 }
 
 // SegmentOffset describes the general offset in a segment until the data
-// starts, it is comprised of 2 bytes for level, 2 bytes for strategy, 8 bytes
+// starts, it is comprised of 2 bytes for level, 2 bytes for version,
+// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
 // for the pointer to the index part
-const SegmentHeaderSize = 12
+const SegmentHeaderSize = 16
 
 func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	flat := l.key.flattenInOrder()
@@ -103,9 +104,17 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	perObjectAdditions := len(flat) * (1 + 8 + 4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding
 	headerSize := SegmentHeaderSize
 	indexPos := uint64(totalDataLength + perObjectAdditions + headerSize)
-	level := uint16(0) // always level zero on a new one
+	level := uint16(0)               // always level zero on a new one
+	version := uint16(0)             // always version 0 for now
+	secondaryIndexCount := uint16(0) // TODO
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(f, binary.LittleEndian, &version); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(f, binary.LittleEndian, &secondaryIndexCount); err != nil {
 		return nil, err
 	}
 	if err := binary.Write(f, binary.LittleEndian, SegmentStrategyReplace); err != nil {
@@ -166,9 +175,18 @@ func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 	totalDataLength := totalValueSizeCollection(flat)
 	headerSize := SegmentHeaderSize
 	indexPos := uint64(totalDataLength + headerSize)
-	level := uint16(0) // always level zero on a new one
+	level := uint16(0)               // always level zero on a new one
+	version := uint16(0)             // always version 0 for now
+	secondaryIndexCount := uint16(0) // TODO
 
 	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(f, binary.LittleEndian, &version); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(f, binary.LittleEndian, &secondaryIndexCount); err != nil {
 		return nil, err
 	}
 
