@@ -103,24 +103,16 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding
 	headerSize := SegmentHeaderSize
-	indexPos := uint64(totalDataLength + perObjectAdditions + headerSize)
-	level := uint16(0)               // always level zero on a new one
-	version := uint16(0)             // always version 0 for now
-	secondaryIndexCount := uint16(0) // TODO
+	header := segmentHeader{
+		indexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
+		level:            0, // always level zero on a new one
+		version:          0, // always version 0 for now
+		secondaryIndices: 0, // TODO
+		strategy:         SegmentStrategyFromString(l.strategy),
+	}
 
-	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, &version); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, &secondaryIndexCount); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, SegmentStrategyReplace); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, &indexPos); err != nil {
+	headerSize, err := header.WriteTo(f)
+	if err != nil {
 		return nil, err
 	}
 	keys := make([]keyIndex, len(flat))
@@ -173,28 +165,16 @@ func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 	flat := l.keyMulti.flattenInOrder()
 
 	totalDataLength := totalValueSizeCollection(flat)
-	headerSize := SegmentHeaderSize
-	indexPos := uint64(totalDataLength + headerSize)
-	level := uint16(0)               // always level zero on a new one
-	version := uint16(0)             // always version 0 for now
-	secondaryIndexCount := uint16(0) // TODO
-
-	if err := binary.Write(f, binary.LittleEndian, &level); err != nil {
-		return nil, err
+	header := segmentHeader{
+		indexStart:       uint64(totalDataLength + SegmentHeaderSize),
+		level:            0, // always level zero on a new one
+		version:          0, // always version 0 for now
+		secondaryIndices: 0, // TODO
+		strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, &version); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, &secondaryIndexCount); err != nil {
-		return nil, err
-	}
-
-	segStrat := SegmentStrategyFromString(l.strategy)
-	if err := binary.Write(f, binary.LittleEndian, &segStrat); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(f, binary.LittleEndian, &indexPos); err != nil {
+	headerSize, err := header.WriteTo(f)
+	if err != nil {
 		return nil, err
 	}
 	keys := make([]keyIndex, len(flat))

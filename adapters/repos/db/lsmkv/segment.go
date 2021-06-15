@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"syscall"
@@ -73,60 +72,31 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Wrap(err, "mmap file")
 	}
 
-	var level uint16
-	if err := binary.Read(bytes.NewReader(content[0:2]), binary.LittleEndian,
-		&level); err != nil {
-		return nil, err
+	header, err := parseSegmentHeader(bytes.NewReader(content[:SegmentHeaderSize]))
+	if err != nil {
+		return nil, errors.Wrap(err, "parse header")
 	}
 
-	var version uint16
-	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
-		&version); err != nil {
-		return nil, err
-	}
-
-	var secondaryIndexCount uint16
-	if err := binary.Read(bytes.NewReader(content[4:6]), binary.LittleEndian,
-		&version); err != nil {
-		return nil, err
-	}
-
-	if version != 0 {
-		return nil, errors.Errorf("unsupported version %d", version)
-	}
-
-	var strategy SegmentStrategy
-	if err := binary.Read(bytes.NewReader(content[6:8]), binary.LittleEndian,
-		&strategy); err != nil {
-		return nil, err
-	}
-
-	switch strategy {
+	switch header.strategy {
 	case SegmentStrategyReplace, SegmentStrategySetCollection,
 		SegmentStrategyMapCollection:
 	default:
 		return nil, errors.Errorf("unsupported strategy in segment")
 	}
 
-	var indexStartPos uint64
-	if err := binary.Read(bytes.NewReader(content[8:16]), binary.LittleEndian,
-		&indexStartPos); err != nil {
-		return nil, err
-	}
-
-	diskIndex := segmentindex.NewDiskTree(content[indexStartPos:])
+	diskIndex := segmentindex.NewDiskTree(content[header.indexStart:])
 
 	ind := &segment{
-		level:               level,
+		level:               header.level,
 		path:                path,
 		contents:            content,
-		version:             version,
-		secondaryIndexCount: secondaryIndexCount,
-		segmentStartPos:     indexStartPos,
+		version:             header.version,
+		secondaryIndexCount: header.secondaryIndices,
+		segmentStartPos:     header.indexStart,
 		segmentEndPos:       uint64(len(content)),
-		strategy:            strategy,
+		strategy:            header.strategy,
 		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          indexStartPos,
+		dataEndPos:          header.indexStart,
 		index:               diskIndex,
 	}
 

@@ -201,25 +201,21 @@ func (c *compactorReplace) writeIndex(keys []keyIndex) error {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorReplace) writeHeader(level, version, secIndexCount uint16,
+func (c *compactorReplace) writeHeader(level, version, secondaryIndices uint16,
 	startOfIndex uint64) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
-	if err := binary.Write(c.w, binary.LittleEndian, &level); err != nil {
-		return err
+	h := &segmentHeader{
+		level:            level,
+		version:          version,
+		secondaryIndices: secondaryIndices,
+		strategy:         SegmentStrategyReplace,
+		indexStart:       startOfIndex,
 	}
-	if err := binary.Write(c.w, binary.LittleEndian, &version); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, &secIndexCount); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategyReplace); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, &startOfIndex); err != nil {
+
+	if _, err := h.WriteTo(c.w); err != nil {
 		return err
 	}
 
