@@ -84,7 +84,12 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Errorf("unsupported strategy in segment")
 	}
 
-	diskIndex := segmentindex.NewDiskTree(content[header.indexStart:])
+	primaryIndex, err := header.PrimaryIndex(content)
+	if err != nil {
+		return nil, errors.Wrap(err, "extract primary index position")
+	}
+
+	diskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	ind := &segment{
 		level:               header.level,

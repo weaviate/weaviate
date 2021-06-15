@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 
@@ -58,6 +59,9 @@ func (l *Memtable) flush() error {
 
 	}
 
+	currentOffset := uint64(keys[len(keys)-1].valueEnd)
+
+	// build primary index
 	keyNodes := make([]segmentindex.Node, len(keys))
 	for i, key := range keys {
 		keyNodes[i] = segmentindex.Node{
@@ -73,6 +77,24 @@ func (l *Memtable) flush() error {
 		return err
 	}
 
+	if l.secondaryIndices > 0 {
+		// build secondary indices
+		// TODO
+
+		// write secondary index offsets
+		offsets := make([]uint64, l.secondaryIndices)
+		// TODO: fill with actual values
+		for i := range offsets {
+			offsets[i] = currentOffset + uint64(len(indexBytes)) + uint64(l.secondaryIndices)*8
+		}
+
+		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
+			return err
+		}
+	}
+
+	// write primary index
+
 	if _, err := w.Write(indexBytes); err != nil {
 		return err
 	}
@@ -84,6 +106,9 @@ func (l *Memtable) flush() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
+
+	// write secondary indices
+	// TODO
 
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
@@ -107,14 +132,17 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 		indexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		level:            0, // always level zero on a new one
 		version:          0, // always version 0 for now
-		secondaryIndices: 0, // TODO
+		secondaryIndices: l.secondaryIndices,
 		strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
-	headerSize, err := header.WriteTo(f)
+	fmt.Printf("when writing, indexstart is at %d\n", header.indexStart)
+
+	n, err := header.WriteTo(f)
 	if err != nil {
 		return nil, err
 	}
+	headerSize = int(n)
 	keys := make([]keyIndex, len(flat))
 
 	totalWritten := headerSize
@@ -169,14 +197,15 @@ func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 		indexStart:       uint64(totalDataLength + SegmentHeaderSize),
 		level:            0, // always level zero on a new one
 		version:          0, // always version 0 for now
-		secondaryIndices: 0, // TODO
+		secondaryIndices: l.secondaryIndices,
 		strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
-	headerSize, err := header.WriteTo(f)
+	n, err := header.WriteTo(f)
 	if err != nil {
 		return nil, err
 	}
+	headerSize := int(n)
 	keys := make([]keyIndex, len(flat))
 
 	totalWritten := headerSize

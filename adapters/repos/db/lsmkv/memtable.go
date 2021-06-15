@@ -19,13 +19,14 @@ import (
 
 type Memtable struct {
 	sync.RWMutex
-	key          *binarySearchTree
-	keyMulti     *binarySearchTreeMulti
-	primaryIndex *binarySearchTree
-	commitlog    *commitLogger
-	size         uint64
-	path         string
-	strategy     string
+	key              *binarySearchTree
+	keyMulti         *binarySearchTreeMulti
+	primaryIndex     *binarySearchTree
+	commitlog        *commitLogger
+	size             uint64
+	path             string
+	strategy         string
+	secondaryIndices uint16
 }
 
 func newMemtable(path string, strategy string) (*Memtable, error) {
