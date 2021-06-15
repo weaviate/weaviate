@@ -105,6 +105,34 @@ func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
 	return nil, nil
 }
 
+func (ig *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	// assumes "replace" strategy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := len(ig.segments) - 1; i >= 0; i-- {
+		v, err := ig.segments[i].getBySecondary(pos, key)
+		if err != nil {
+			if err == NotFound {
+				continue
+			}
+
+			if err == Deleted {
+				return nil, nil
+			}
+
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+		}
+
+		return v, nil
+	}
+
+	return nil, nil
+}
+
 func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()

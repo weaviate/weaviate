@@ -13,10 +13,12 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -77,15 +79,41 @@ func (l *Memtable) flush() error {
 		return err
 	}
 
-	if l.secondaryIndices > 0 {
-		// build secondary indices
-		// TODO
+	// pretend that primary index was already written
+	currentOffset = currentOffset + uint64(len(indexBytes)) + uint64(l.secondaryIndices)*8
 
-		// write secondary index offsets
+	secondaryIndicesBytes := bytes.NewBuffer(nil)
+
+	// TODO: this is in desperate need of a refactor
+	if l.secondaryIndices > 0 {
 		offsets := make([]uint64, l.secondaryIndices)
-		// TODO: fill with actual values
 		for i := range offsets {
-			offsets[i] = currentOffset + uint64(len(indexBytes)) + uint64(l.secondaryIndices)*8
+			secondaryKeyNodes := make([]segmentindex.Node, len(keys))
+			for j, key := range keys {
+				secondaryKeyNodes[j] = segmentindex.Node{
+					Key:   key.secondaryKeys[i],
+					Start: uint64(key.valueStart),
+					End:   uint64(key.valueEnd),
+				}
+			}
+
+			sort.Slice(secondaryKeyNodes, func(a, b int) bool {
+				return bytes.Compare(secondaryKeyNodes[a].Key, secondaryKeyNodes[b].Key) < 0
+			})
+
+			secondaryIndex := segmentindex.NewBalanced(secondaryKeyNodes)
+
+			secondaryIndexBytes, err := secondaryIndex.MarshalBinary()
+			if err != nil {
+				return err
+			}
+
+			if _, err := secondaryIndicesBytes.Write(secondaryIndexBytes); err != nil {
+				return err
+			}
+
+			offsets[i] = currentOffset
+			currentOffset = offsets[i] + uint64(len(secondaryIndexBytes))
 		}
 
 		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
@@ -94,8 +122,12 @@ func (l *Memtable) flush() error {
 	}
 
 	// write primary index
-
 	if _, err := w.Write(indexBytes); err != nil {
+		return err
+	}
+
+	// write secondary indices
+	if _, err := secondaryIndicesBytes.WriteTo(w); err != nil {
 		return err
 	}
 
@@ -106,9 +138,6 @@ func (l *Memtable) flush() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-
-	// write secondary indices
-	// TODO
 
 	// only now that the file has been flushed is it safe to delete the commit log
 	// TODO: there might be an interest in keeping the commit logs around for
@@ -178,9 +207,10 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 		writtenForNode += n
 
 		keys[i] = keyIndex{
-			valueStart: totalWritten,
-			valueEnd:   totalWritten + writtenForNode,
-			key:        node.key,
+			valueStart:    totalWritten,
+			valueEnd:      totalWritten + writtenForNode,
+			key:           node.key,
+			secondaryKeys: node.secondaryKeys,
 		}
 
 		totalWritten += writtenForNode

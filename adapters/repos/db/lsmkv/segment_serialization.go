@@ -3,7 +3,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -39,7 +38,6 @@ func (h *segmentHeader) WriteTo(w io.Writer) (int64, error) {
 
 func (h *segmentHeader) PrimaryIndex(source []byte) ([]byte, error) {
 	if h.secondaryIndices == 0 {
-		fmt.Printf("read segment has no secondaries\n")
 		return source[h.indexStart:], nil
 	}
 
@@ -51,8 +49,6 @@ func (h *segmentHeader) PrimaryIndex(source []byte) ([]byte, error) {
 
 	// the beginning of the first secondary is also the end of the primary
 	end := offsets[0]
-	fmt.Printf("primary index from to %d-%d\n", h.secondaryIndexOffsetsEnd(), end)
-	fmt.Printf("theoretical end would be %d\n", len(source))
 	return source[h.secondaryIndexOffsetsEnd():end], nil
 }
 

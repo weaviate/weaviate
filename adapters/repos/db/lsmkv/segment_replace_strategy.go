@@ -40,6 +40,31 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
 
+func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
+	if i.strategy != SegmentStrategyReplace {
+		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
+	}
+
+	if pos > len(i.secondaryIndices) || i.secondaryIndices[pos] == nil {
+		return nil, errors.Errorf("no secondary index at pos %d", pos)
+	}
+
+	if !i.secondaryBloomFilters[pos].Test(key) {
+		return nil, NotFound
+	}
+
+	node, err := i.secondaryIndices[pos].Get(key)
+	if err != nil {
+		if err == segmentindex.NotFound {
+			return nil, NotFound
+		} else {
+			return nil, err
+		}
+	}
+
+	return i.replaceStratParseData(i.contents[node.Start:node.End])
+}
+
 func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
 		return nil, NotFound

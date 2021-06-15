@@ -29,18 +29,20 @@ var (
 )
 
 type segment struct {
-	path                string
-	level               uint16
-	secondaryIndexCount uint16
-	version             uint16
-	segmentStartPos     uint64
-	segmentEndPos       uint64
-	dataStartPos        uint64
-	dataEndPos          uint64
-	contents            []byte
-	bloomFilter         *bloom.BloomFilter
-	strategy            SegmentStrategy
-	index               diskIndex
+	path                  string
+	level                 uint16
+	secondaryIndexCount   uint16
+	version               uint16
+	segmentStartPos       uint64
+	segmentEndPos         uint64
+	dataStartPos          uint64
+	dataEndPos            uint64
+	contents              []byte
+	bloomFilter           *bloom.BloomFilter
+	secondaryBloomFilters []*bloom.BloomFilter
+	strategy              SegmentStrategy
+	index                 diskIndex
+	secondaryIndices      []diskIndex
 }
 
 type diskIndex interface {
@@ -89,7 +91,7 @@ func newSegment(path string) (*segment, error) {
 		return nil, errors.Wrap(err, "extract primary index position")
 	}
 
-	diskIndex := segmentindex.NewDiskTree(primaryIndex)
+	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	ind := &segment{
 		level:               header.level,
@@ -102,7 +104,23 @@ func newSegment(path string) (*segment, error) {
 		strategy:            header.strategy,
 		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.indexStart,
-		index:               diskIndex,
+		index:               primaryDiskIndex,
+	}
+
+	if ind.secondaryIndexCount > 0 {
+		ind.secondaryIndices = make([]diskIndex, ind.secondaryIndexCount)
+		ind.secondaryBloomFilters = make([]*bloom.BloomFilter, ind.secondaryIndexCount)
+		for i := range ind.secondaryIndices {
+			secondary, err := header.SecondaryIndex(content, uint16(i))
+			if err != nil {
+				return nil, errors.Wrapf(err, "get position for secondary index at %d", i)
+			}
+
+			ind.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			if err := ind.initSecondaryBloomFilter(i); err != nil {
+				return nil, errors.Wrapf(err, "init bloom filter for secondary index at %d", i)
+			}
+		}
 	}
 
 	if err := ind.initBloomFilter(); err != nil {
@@ -126,6 +144,23 @@ func (ind *segment) initBloomFilter() error {
 	took := time.Since(before)
 
 	fmt.Printf("building bloom filter took %s\n", took)
+	return nil
+}
+
+func (ind *segment) initSecondaryBloomFilter(pos int) error {
+	before := time.Now()
+	keys, err := ind.secondaryIndices[pos].AllKeys()
+	if err != nil {
+		return err
+	}
+
+	ind.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+	for _, key := range keys {
+		ind.secondaryBloomFilters[pos].Add(key)
+	}
+	took := time.Since(before)
+
+	fmt.Printf("building secondary bloom filter took %s\n", took)
 	return nil
 }
 

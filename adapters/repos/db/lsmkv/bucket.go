@@ -137,31 +137,29 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	return nil, nil
+	if err != NotFound {
+		panic("unsupported error in bucket.Get")
+	}
 
-	// if err != NotFound {
-	// 	panic("unsupported error in bucket.Get")
-	// }
+	if b.flushing != nil {
+		v, err := b.flushing.getBySecondary(pos, key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, nil
+		}
+		if err == Deleted {
+			// deleted in the now most recent memtable  means we don't have to check
+			// the disk segments, return nil now
+			return nil, nil
+		}
 
-	// if b.flushing != nil {
-	// 	v, err := b.flushing.get(key)
-	// 	if err == nil {
-	// 		// item found and no error, return and stop searching, since the strategy
-	// 		// is replace
-	// 		return v, nil
-	// 	}
-	// 	if err == Deleted {
-	// 		// deleted in the now most recent memtable  means we don't have to check
-	// 		// the disk segments, return nil now
-	// 		return nil, nil
-	// 	}
+		if err != NotFound {
+			panic("unsupported error in bucket.Get")
+		}
+	}
 
-	// 	if err != NotFound {
-	// 		panic("unsupported error in bucket.Get")
-	// 	}
-	// }
-
-	// return b.disk.get(key)
+	return b.disk.getBySecondary(pos, key)
 }
 
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {

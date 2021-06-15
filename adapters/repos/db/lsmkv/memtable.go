@@ -58,9 +58,10 @@ func newMemtable(path string, strategy string,
 }
 
 type keyIndex struct {
-	key        []byte
-	valueStart int
-	valueEnd   int
+	key           []byte
+	secondaryKeys [][]byte
+	valueStart    int
+	valueEnd      int
 }
 
 func (l *Memtable) get(key []byte) ([]byte, error) {
@@ -107,6 +108,7 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	l.Lock()
 	defer l.Unlock()
+	// TODO: reflect secondary key in commit log
 	if err := l.commitlog.put(key, value); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
