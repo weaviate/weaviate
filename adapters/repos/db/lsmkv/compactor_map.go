@@ -231,19 +231,15 @@ func (c *compactorMap) writeHeader(level, version, secondaryIndices uint16,
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
-	if err := binary.Write(c.w, binary.LittleEndian, &level); err != nil {
-		return err
+	h := &segmentHeader{
+		level:            level,
+		version:          version,
+		secondaryIndices: secondaryIndices,
+		strategy:         SegmentStrategyMapCollection,
+		indexStart:       startOfIndex,
 	}
-	if err := binary.Write(c.w, binary.LittleEndian, &version); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, &secondaryIndices); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategyMapCollection); err != nil {
-		return err
-	}
-	if err := binary.Write(c.w, binary.LittleEndian, &startOfIndex); err != nil {
+
+	if _, err := h.WriteTo(c.w); err != nil {
 		return err
 	}
 
