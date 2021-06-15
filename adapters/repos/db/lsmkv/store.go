@@ -51,8 +51,8 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.rootDir, bucketName)
 }
 
-func (s *Store) CreateOrLoadBucket(bucketName string, strategy string) error {
-	b, err := NewBucketWithStrategy(s.bucketDir(bucketName), strategy)
+func (s *Store) CreateOrLoadBucket(bucketName string, opts ...BucketOption) error {
+	b, err := NewBucket(s.bucketDir(bucketName), opts...)
 	if err != nil {
 		return err
 	}

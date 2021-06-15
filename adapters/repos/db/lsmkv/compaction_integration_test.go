@@ -129,7 +129,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -238,7 +238,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -335,7 +335,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyReplace)
+		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -602,7 +602,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
+		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -725,7 +725,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategySetCollection)
+		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1075,7 +1075,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyMapCollection)
+		b, err := NewBucket(dirName, WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1196,7 +1196,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketWithStrategy(dirName, StrategyMapCollection)
+		b, err := NewBucket(dirName, WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
