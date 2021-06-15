@@ -27,7 +27,7 @@ func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) {
 		return
 	}
 
-	t.root.insert(key, value)
+	t.root.insert(key, value, secondaryKeys)
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -72,9 +72,11 @@ type binarySearchNode struct {
 	tombstone     bool
 }
 
-func (n *binarySearchNode) insert(key, value []byte) {
+func (n *binarySearchNode) insert(key, value []byte,
+	secondaryKeys [][]byte) {
 	if bytes.Equal(key, n.key) {
 		n.value = value
+		n.secondaryKeys = secondaryKeys
 
 		// reset tombstone in case it had one
 		n.tombstone = false
@@ -83,23 +85,25 @@ func (n *binarySearchNode) insert(key, value []byte) {
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, value)
+			n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
-				key:   key,
-				value: value,
+				key:           key,
+				value:         value,
+				secondaryKeys: secondaryKeys,
 			}
 			return
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, value)
+			n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{
-				key:   key,
-				value: value,
+				key:           key,
+				value:         value,
+				secondaryKeys: secondaryKeys,
 			}
 			return
 		}

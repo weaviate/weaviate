@@ -367,69 +367,93 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
+
+		t.Run("replace the secondary keys on an update", func(t *testing.T) {
+			key2 := []byte("key-2")
+			key3 := []byte("key-3")
+			secondaryKey1 := []byte("secondary-key-1")
+			secondaryKey2 := []byte("secondary-key-2-updated")
+			secondaryKey3 := []byte("secondary-key-3-updated")
+			orig1 := []byte("original value for key1")
+			replaced2 := []byte("twice updated value for key2")
+			replaced3 := []byte("twice updated value for key3")
+
+			err = b.Put(key2, replaced2, WithSecondaryKey(0, secondaryKey2))
+			require.Nil(t, err)
+			err = b.Put(key3, replaced3, WithSecondaryKey(0, secondaryKey3))
+			require.Nil(t, err)
+
+			// verify you can find by updated secondary keys
+			res, err := b.GetBySecondary(0, secondaryKey1)
+			require.Nil(t, err)
+			assert.Equal(t, res, orig1)
+			res, err = b.GetBySecondary(0, secondaryKey2)
+			require.Nil(t, err)
+			assert.Equal(t, res, replaced2)
+			res, err = b.GetBySecondary(0, secondaryKey3)
+			require.Nil(t, err)
+			assert.Equal(t, res, replaced3)
+		})
 	})
 
-	// t.Run("with single flush in between updates", func(t *testing.T) {
-	// 	b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
-	// 	require.Nil(t, err)
+	t.Run("with single flush in between updates", func(t *testing.T) {
+		b, err := NewBucket(dirName, WithStrategy(StrategyReplace),
+			WithSecondaryIndicies(1))
+		require.Nil(t, err)
 
-	// 	// so big it effectively never triggers as part of this test
-	// 	b.SetMemtableThreshold(1e9)
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
 
-	// 	t.Run("set original values and verify", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		orig2 := []byte("original value for key2")
-	// 		orig3 := []byte("original value for key3")
+		t.Run("set original values", func(t *testing.T) {
+			key1 := []byte("key-1")
+			key2 := []byte("key-2")
+			key3 := []byte("key-3")
+			secondaryKey1 := []byte("secondary-key-1")
+			secondaryKey2 := []byte("secondary-key-2")
+			secondaryKey3 := []byte("secondary-key-3")
+			orig1 := []byte("original value for key1")
+			orig2 := []byte("original value for key2")
+			orig3 := []byte("original value for key3")
 
-	// 		err = b.Put(key1, orig1)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key2, orig2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, orig3)
-	// 		require.Nil(t, err)
+			err = b.Put(key1, orig1, WithSecondaryKey(0, secondaryKey1))
+			require.Nil(t, err)
+			err = b.Put(key2, orig2, WithSecondaryKey(0, secondaryKey2))
+			require.Nil(t, err)
+			err = b.Put(key3, orig3, WithSecondaryKey(0, secondaryKey3))
+			require.Nil(t, err)
+		})
 
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig1)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig2)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, res, orig3)
-	// 	})
+		t.Run("flush memtable to disk", func(t *testing.T) {
+			require.Nil(t, b.FlushAndSwitch())
+		})
 
-	// 	t.Run("flush memtable to disk", func(t *testing.T) {
-	// 		require.Nil(t, b.FlushAndSwitch())
-	// 	})
+		t.Run("replace the secondary keys on an update", func(t *testing.T) {
+			key2 := []byte("key-2")
+			key3 := []byte("key-3")
+			secondaryKey1 := []byte("secondary-key-1")
+			secondaryKey2 := []byte("secondary-key-2-updated")
+			secondaryKey3 := []byte("secondary-key-3-updated")
+			orig1 := []byte("original value for key1")
+			replaced2 := []byte("twice updated value for key2")
+			replaced3 := []byte("twice updated value for key3")
 
-	// 	t.Run("replace some, keep one", func(t *testing.T) {
-	// 		key1 := []byte("key-1")
-	// 		key2 := []byte("key-2")
-	// 		key3 := []byte("key-3")
-	// 		orig1 := []byte("original value for key1")
-	// 		replaced2 := []byte("updated value for key2")
-	// 		replaced3 := []byte("updated value for key3")
+			err = b.Put(key2, replaced2, WithSecondaryKey(0, secondaryKey2))
+			require.Nil(t, err)
+			err = b.Put(key3, replaced3, WithSecondaryKey(0, secondaryKey3))
+			require.Nil(t, err)
 
-	// 		err = b.Put(key2, replaced2)
-	// 		require.Nil(t, err)
-	// 		err = b.Put(key3, replaced3)
-	// 		require.Nil(t, err)
-
-	// 		res, err := b.Get(key1)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, orig1, res)
-	// 		res, err = b.Get(key2)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced2, res)
-	// 		res, err = b.Get(key3)
-	// 		require.Nil(t, err)
-	// 		assert.Equal(t, replaced3, res)
-	// 	})
-	// })
+			// verify you can find by updated secondary keys
+			res, err := b.GetBySecondary(0, secondaryKey1)
+			require.Nil(t, err)
+			assert.Equal(t, res, orig1)
+			res, err = b.GetBySecondary(0, secondaryKey2)
+			require.Nil(t, err)
+			assert.Equal(t, res, replaced2)
+			res, err = b.GetBySecondary(0, secondaryKey3)
+			require.Nil(t, err)
+			assert.Equal(t, res, replaced3)
+		})
+	})
 
 	// t.Run("with a flush after the initial write and after the update", func(t *testing.T) {
 	// 	b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
