@@ -130,12 +130,14 @@ func (s *Shard) initDBFile() error {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
 
-	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM, lsmkv.StrategyReplace)
+	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
 	}
 
-	err = store.CreateOrLoadBucket(helpers.DocIDBucketLSM, lsmkv.StrategyReplace)
+	err = store.CreateOrLoadBucket(helpers.DocIDBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return errors.Wrap(err, "create doc id bucket")
 	}
@@ -177,13 +179,15 @@ func (s *Shard) drop() error {
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(
-		helpers.BucketFromPropNameLSM(helpers.PropertyNameID), lsmkv.StrategySetCollection)
+		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(
-		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID), lsmkv.StrategyReplace)
+		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
 	}
@@ -195,14 +199,14 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.StrategySetCollection) // ref props do not have frequencies -> Set
+			lsmkv.WithStrategy(lsmkv.StrategySetCollection)) // ref props do not have frequencies -> Set
 		if err != nil {
 			return err
 		}
 
 		err = s.store.CreateOrLoadBucket(
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.StrategyReplace)
+			lsmkv.WithStrategy(lsmkv.StrategyReplace))
 		if err != nil {
 			return err
 		}
@@ -218,13 +222,13 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	}
 
 	err := s.store.CreateOrLoadBucket(helpers.BucketFromPropNameLSM(prop.Name),
-		strategy)
+		lsmkv.WithStrategy(strategy))
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(helpers.HashBucketFromPropNameLSM(prop.Name),
-		lsmkv.StrategyReplace)
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
 	}

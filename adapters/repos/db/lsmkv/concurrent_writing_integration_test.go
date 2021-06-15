@@ -34,7 +34,9 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	bucket, err := NewBucketWithStrategyAndThreshold(dirName, StrategyReplace, 10000)
+	bucket, err := NewBucket(dirName,
+		WithStrategy(StrategyReplace),
+		WithMemtableThreshold(10000))
 	require.Nil(t, err)
 
 	t.Run("generate random data", func(t *testing.T) {
@@ -129,7 +131,9 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][][]byte, amount)
 
-	bucket, err := NewBucketWithStrategyAndThreshold(dirName, StrategySetCollection, 10000)
+	bucket, err := NewBucket(dirName,
+		WithStrategy(StrategySetCollection),
+		WithMemtableThreshold(10000))
 	require.Nil(t, err)
 
 	t.Run("generate random data", func(t *testing.T) {
@@ -222,7 +226,9 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]MapPair, amount)
 
-	bucket, err := NewBucketWithStrategyAndThreshold(dirName, StrategyMapCollection, 5000)
+	bucket, err := NewBucket(dirName,
+		WithStrategy(StrategyMapCollection),
+		WithMemtableThreshold(5000))
 	require.Nil(t, err)
 
 	t.Run("generate random data", func(t *testing.T) {

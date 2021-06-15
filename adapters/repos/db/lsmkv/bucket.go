@@ -38,23 +38,14 @@ type Bucket struct {
 	stopFlushCycle chan struct{}
 }
 
-func NewBucketWithStrategy(dir, strategy string) (*Bucket, error) {
-	threshold := uint64(10 * 1024 * 1024)
-	return NewBucketWithStrategyAndThreshold(dir, strategy, threshold)
-}
+func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
+	defaultThreshold := uint64(10 * 1024 * 1024)
+	defaultStrategy := StrategyReplace
 
-func NewBucketWithStrategyAndThreshold(dir, strategy string,
-	threshold uint64) (*Bucket, error) {
 	// TODO: check if there are open commit logs: recover
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
-	}
-
-	if strategy != StrategyReplace &&
-		strategy != StrategySetCollection &&
-		strategy != StrategyMapCollection {
-		return nil, errors.Errorf("unknown strategy %q", strategy)
 	}
 
 	sg, err := newSegmentGroup(dir, 15*time.Second)
@@ -65,9 +56,15 @@ func NewBucketWithStrategyAndThreshold(dir, strategy string,
 	b := &Bucket{
 		dir:               dir,
 		disk:              sg,
-		memTableThreshold: threshold,
-		strategy:          strategy,
+		memTableThreshold: defaultThreshold,
+		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
+	}
+
+	for _, opt := range opts {
+		if err := opt(b); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := b.setNewActiveMemtable(); err != nil {
@@ -76,10 +73,6 @@ func NewBucketWithStrategyAndThreshold(dir, strategy string,
 	b.initFlushCycle()
 
 	return b, nil
-}
-
-func NewBucket(dir string) (*Bucket, error) {
-	return NewBucketWithStrategy(dir, StrategyReplace)
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
