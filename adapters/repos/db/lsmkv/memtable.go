@@ -19,30 +19,42 @@ import (
 
 type Memtable struct {
 	sync.RWMutex
-	key              *binarySearchTree
-	keyMulti         *binarySearchTreeMulti
-	primaryIndex     *binarySearchTree
-	commitlog        *commitLogger
-	size             uint64
-	path             string
-	strategy         string
-	secondaryIndices uint16
+	key                *binarySearchTree
+	keyMulti           *binarySearchTreeMulti
+	primaryIndex       *binarySearchTree
+	commitlog          *commitLogger
+	size               uint64
+	path               string
+	strategy           string
+	secondaryIndices   uint16
+	secondaryToPrimary []map[string][]byte
 }
 
-func newMemtable(path string, strategy string) (*Memtable, error) {
+func newMemtable(path string, strategy string,
+	secondaryIndices uint16) (*Memtable, error) {
 	cl, err := newCommitLogger(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	return &Memtable{
-		key:          &binarySearchTree{},
-		keyMulti:     &binarySearchTreeMulti{},
-		primaryIndex: &binarySearchTree{}, // todo, sort upfront
-		commitlog:    cl,
-		path:         path,
-		strategy:     strategy,
-	}, nil
+	m := &Memtable{
+		key:              &binarySearchTree{},
+		keyMulti:         &binarySearchTreeMulti{},
+		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
+		commitlog:        cl,
+		path:             path,
+		strategy:         strategy,
+		secondaryIndices: secondaryIndices,
+	}
+
+	if m.secondaryIndices > 0 {
+		m.secondaryToPrimary = make([]map[string][]byte, m.secondaryIndices)
+		for i := range m.secondaryToPrimary {
+			m.secondaryToPrimary[i] = map[string][]byte{}
+		}
+	}
+
+	return m, nil
 }
 
 type keyIndex struct {
@@ -67,7 +79,28 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (l *Memtable) put(key, value []byte) error {
+func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
+	if l.strategy != StrategyReplace {
+		return nil, errors.Errorf("get only possible with strategy 'replace'")
+	}
+
+	l.RLock()
+	defer l.RUnlock()
+
+	primary := l.secondaryToPrimary[pos][string(key)]
+	if primary == nil {
+		return nil, NotFound
+	}
+
+	v, err := l.key.get(primary)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
+func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	if l.strategy != StrategyReplace {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
@@ -78,9 +111,24 @@ func (l *Memtable) put(key, value []byte) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	l.key.insert(key, value)
+	var secondaryKeys [][]byte
+	if l.secondaryIndices > 0 {
+		secondaryKeys = make([][]byte, l.secondaryIndices)
+		for _, opt := range opts {
+			if err := opt(secondaryKeys); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	l.key.insert(key, value, secondaryKeys)
 	l.size += uint64(len(key))
 	l.size += uint64(len(value))
+
+	for i, sec := range secondaryKeys {
+		l.secondaryToPrimary[i][string(sec)] = key
+	}
 
 	return nil
 }
