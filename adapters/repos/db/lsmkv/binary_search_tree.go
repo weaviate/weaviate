@@ -17,11 +17,12 @@ type binarySearchTree struct {
 	root *binarySearchNode
 }
 
-func (t *binarySearchTree) insert(key, value []byte) {
+func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		t.root = &binarySearchNode{
-			key:   key,
-			value: value,
+			key:           key,
+			value:         value,
+			secondaryKeys: secondaryKeys,
 		}
 		return
 	}
@@ -63,11 +64,12 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 }
 
 type binarySearchNode struct {
-	key       []byte
-	value     []byte
-	left      *binarySearchNode
-	right     *binarySearchNode
-	tombstone bool
+	key           []byte
+	value         []byte
+	secondaryKeys [][]byte
+	left          *binarySearchNode
+	right         *binarySearchNode
+	tombstone     bool
 }
 
 func (n *binarySearchNode) insert(key, value []byte) {

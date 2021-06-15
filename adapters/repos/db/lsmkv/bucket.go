@@ -34,6 +34,7 @@ type Bucket struct {
 
 	memTableThreshold uint64
 	strategy          string
+	secondaryIndices  uint16
 
 	stopFlushCycle chan struct{}
 }
@@ -79,7 +80,6 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memTableThreshold = size
 }
 
-// TODO: this needs to be refactored
 func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -121,6 +121,49 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	return b.disk.get(key)
 }
 
+func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	v, err := b.active.getBySecondary(pos, key)
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, nil
+	}
+	if err == Deleted {
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return nil, nil
+	}
+
+	return nil, nil
+
+	// if err != NotFound {
+	// 	panic("unsupported error in bucket.Get")
+	// }
+
+	// if b.flushing != nil {
+	// 	v, err := b.flushing.get(key)
+	// 	if err == nil {
+	// 		// item found and no error, return and stop searching, since the strategy
+	// 		// is replace
+	// 		return v, nil
+	// 	}
+	// 	if err == Deleted {
+	// 		// deleted in the now most recent memtable  means we don't have to check
+	// 		// the disk segments, return nil now
+	// 		return nil, nil
+	// 	}
+
+	// 	if err != NotFound {
+	// 		panic("unsupported error in bucket.Get")
+	// 	}
+	// }
+
+	// return b.disk.get(key)
+}
+
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -157,11 +200,11 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	return newSetDecoder().Do(out), nil
 }
 
-func (b *Bucket) Put(key, value []byte) error {
+func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.put(key, value)
+	return b.active.put(key, value, opts...)
 }
 
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
@@ -270,7 +313,7 @@ func (b *Bucket) Delete(key []byte) error {
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
 	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())), b.strategy)
+		time.Now().UnixNano())), b.strategy, b.secondaryIndices)
 	if err != nil {
 		return err
 	}
