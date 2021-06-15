@@ -17,20 +17,22 @@ type compactorSet struct {
 	c2 *segmentCursorCollection
 
 	// the level matching those of the cursors
-	currentLevel uint16
+	currentLevel        uint16
+	secondaryIndexCount uint16
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level uint16) *compactorSet {
+	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16) *compactorSet {
 	return &compactorSet{
-		c1:           c1,
-		c2:           c2,
-		w:            w,
-		bufw:         bufio.NewWriterSize(w, 1e6),
-		currentLevel: level,
+		c1:                  c1,
+		c2:                  c2,
+		w:                   w,
+		bufw:                bufio.NewWriterSize(w, 1e6),
+		currentLevel:        level,
+		secondaryIndexCount: secondaryIndexCount,
 	}
 }
 
@@ -55,7 +57,8 @@ func (c *compactorSet) do() error {
 
 	dataEnd := uint64(kis[len(kis)-1].valueEnd)
 
-	if err := c.writeHeader(c.currentLevel+1, dataEnd); err != nil {
+	if err := c.writeHeader(c.currentLevel+1, 0, c.secondaryIndexCount,
+		dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
@@ -209,12 +212,19 @@ func (c *compactorSet) writeIndex(keys []keyIndex) error {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorSet) writeHeader(level uint16, startOfIndex uint64) error {
+func (c *compactorSet) writeHeader(level, version, secondaryIndices uint16,
+	startOfIndex uint64) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
 	if err := binary.Write(c.w, binary.LittleEndian, &level); err != nil {
+		return err
+	}
+	if err := binary.Write(c.w, binary.LittleEndian, &version); err != nil {
+		return err
+	}
+	if err := binary.Write(c.w, binary.LittleEndian, &secondaryIndices); err != nil {
 		return err
 	}
 	if err := binary.Write(c.w, binary.LittleEndian, SegmentStrategySetCollection); err != nil {

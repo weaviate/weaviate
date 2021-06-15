@@ -87,26 +87,27 @@ func (ig *SegmentGroup) compactOnce() error {
 	// take either value. If we want to support asymmetric compaction, then we
 	// might have to choose this value more intelligently
 	level := ig.segments[pair[0]].level
+	secondaryIndices := ig.segments[pair[0]].secondaryIndexCount
 
 	strategy := ig.segments[pair[0]].strategy
 	switch strategy {
 	case SegmentStrategyReplace:
 		c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
-			ig.segments[pair[1]].newCursor(), level)
+			ig.segments[pair[1]].newCursor(), level, secondaryIndices)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategySetCollection:
 		c := newCompactorSetCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level)
+			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategyMapCollection:
 		c := newCompactorMapCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level)
+			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices)
 
 		if err := c.do(); err != nil {
 			return err

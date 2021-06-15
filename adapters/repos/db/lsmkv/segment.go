@@ -30,16 +30,18 @@ var (
 )
 
 type segment struct {
-	path            string
-	level           uint16
-	segmentStartPos uint64
-	segmentEndPos   uint64
-	dataStartPos    uint64
-	dataEndPos      uint64
-	contents        []byte
-	bloomFilter     *bloom.BloomFilter
-	strategy        SegmentStrategy
-	index           diskIndex
+	path                string
+	level               uint16
+	secondaryIndexCount uint16
+	version             uint16
+	segmentStartPos     uint64
+	segmentEndPos       uint64
+	dataStartPos        uint64
+	dataEndPos          uint64
+	contents            []byte
+	bloomFilter         *bloom.BloomFilter
+	strategy            SegmentStrategy
+	index               diskIndex
 }
 
 type diskIndex interface {
@@ -77,8 +79,24 @@ func newSegment(path string) (*segment, error) {
 		return nil, err
 	}
 
-	var strategy SegmentStrategy
+	var version uint16
 	if err := binary.Read(bytes.NewReader(content[2:4]), binary.LittleEndian,
+		&version); err != nil {
+		return nil, err
+	}
+
+	var secondaryIndexCount uint16
+	if err := binary.Read(bytes.NewReader(content[4:6]), binary.LittleEndian,
+		&version); err != nil {
+		return nil, err
+	}
+
+	if version != 0 {
+		return nil, errors.Errorf("unsupported version %d", version)
+	}
+
+	var strategy SegmentStrategy
+	if err := binary.Read(bytes.NewReader(content[6:8]), binary.LittleEndian,
 		&strategy); err != nil {
 		return nil, err
 	}
@@ -91,7 +109,7 @@ func newSegment(path string) (*segment, error) {
 	}
 
 	var indexStartPos uint64
-	if err := binary.Read(bytes.NewReader(content[4:12]), binary.LittleEndian,
+	if err := binary.Read(bytes.NewReader(content[8:16]), binary.LittleEndian,
 		&indexStartPos); err != nil {
 		return nil, err
 	}
@@ -99,15 +117,17 @@ func newSegment(path string) (*segment, error) {
 	diskIndex := segmentindex.NewDiskTree(content[indexStartPos:])
 
 	ind := &segment{
-		level:           level,
-		path:            path,
-		contents:        content,
-		segmentStartPos: indexStartPos,
-		segmentEndPos:   uint64(len(content)),
-		strategy:        strategy,
-		dataStartPos:    SegmentHeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:      indexStartPos,
-		index:           diskIndex,
+		level:               level,
+		path:                path,
+		contents:            content,
+		version:             version,
+		secondaryIndexCount: secondaryIndexCount,
+		segmentStartPos:     indexStartPos,
+		segmentEndPos:       uint64(len(content)),
+		strategy:            strategy,
+		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:          indexStartPos,
+		index:               diskIndex,
 	}
 
 	if err := ind.initBloomFilter(); err != nil {
