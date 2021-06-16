@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -201,20 +200,42 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil
 	}
 
-	// var out []*storobj.Object
-	// if err := s.db.View(func(tx *bolt.Tx) error {
-	res, err := docid.ObjectsLSM(s.store, ids)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to objects")
+	return s.objectsByDocID(ids)
+}
+
+func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, len(ids))
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, errors.Errorf("objects bucket not found")
 	}
 
-	// out = res
-	// return nil
-	// }); err != nil {
-	// return nil, errors.Wrap(err, "docID to []*storobj.Object after vector search")
-	// }
+	i := 0
 
-	return res, nil
+	for _, id := range ids {
+		keyBuf := bytes.NewBuffer(nil)
+		binary.Write(keyBuf, binary.LittleEndian, &id)
+		docIDBytes := keyBuf.Bytes()
+		res, err := bucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if res == nil {
+			continue
+		}
+
+		unmarshalled, err := storobj.FromBinary(res)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+		i++
+	}
+
+	return out[:i], nil
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,

@@ -68,10 +68,6 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "upsert object data")
 	}
 
-	if err := s.updateDocIDLookupLSM(idBytes, status); err != nil {
-		return nil, status, errors.Wrap(err, "add docID->UUID index")
-	}
-
 	if err := s.updateInvertedIndexLSM(nextObj, status, previous); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
@@ -130,10 +126,6 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 
 	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
-	}
-
-	if err := s.updateDocIDLookupLSM(idBytes, status); err != nil {
-		return out, errors.Wrap(err, "add docID->UUID index")
 	}
 
 	// do not updated inverted index, since this requires delta analysis, which
