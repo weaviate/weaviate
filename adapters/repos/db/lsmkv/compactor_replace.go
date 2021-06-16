@@ -204,49 +204,13 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 }
 
 func (c *compactorReplace) writeIndices(keys []keyIndex) error {
-	currentOffset := uint64(keys[len(keys)-1].valueEnd)
-	indexBytes, err := buildAndMarshalPrimaryIndex(keys)
-	if err != nil {
-		return err
+	indices := &segmentIndices{
+		keys:                keys,
+		secondaryIndexCount: c.secondaryIndexCount,
 	}
 
-	// pretend that primary index was already written
-	currentOffset = currentOffset + uint64(len(indexBytes)) + uint64(c.secondaryIndexCount)*8
-
-	secondaryIndicesBytes := bytes.NewBuffer(nil)
-
-	if c.secondaryIndexCount > 0 {
-		offsets := make([]uint64, c.secondaryIndexCount)
-		for pos := range offsets {
-			secondaryBytes, err := buildAndMarshalSecondaryIndex(pos, keys)
-			if err != nil {
-				return err
-			}
-
-			if _, err := secondaryIndicesBytes.Write(secondaryBytes); err != nil {
-				return err
-			}
-
-			offsets[pos] = currentOffset
-			currentOffset = offsets[pos] + uint64(len(secondaryBytes))
-		}
-
-		if err := binary.Write(c.bufw, binary.LittleEndian, &offsets); err != nil {
-			return err
-		}
-	}
-
-	// write primary index
-	if _, err := c.bufw.Write(indexBytes); err != nil {
-		return err
-	}
-
-	// write secondary indices
-	if _, err := secondaryIndicesBytes.WriteTo(c.bufw); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := indices.WriteTo(c.bufw)
+	return err
 }
 
 // writeHeader assumes that everything has been written to the underlying
