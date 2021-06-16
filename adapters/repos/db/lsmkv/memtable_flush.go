@@ -109,69 +109,22 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 
 	totalWritten := headerSize
 	for i, node := range flat {
-		writtenForNode := 0
-		if err := binary.Write(f, binary.LittleEndian, node.tombstone); err != nil {
-			return nil, errors.Wrapf(err, "write tombstone for node %d", i)
+		segNode := &segmentReplaceNode{
+			initialOffset:       totalWritten,
+			tombstone:           node.tombstone,
+			value:               node.value,
+			primaryKey:          node.key,
+			secondaryKeys:       node.secondaryKeys,
+			secondaryIndexCount: l.secondaryIndices,
 		}
-		writtenForNode += 1
 
-		valueLength := uint64(len(node.value))
-		if err := binary.Write(f, binary.LittleEndian, &valueLength); err != nil {
-			return nil, errors.Wrapf(err, "write value length encoding for node %d", i)
-		}
-		writtenForNode += 8
-
-		n, err := f.Write(node.value)
+		ki, err := segNode.KeyIndexAndWriteTo(f)
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
-		writtenForNode += n
 
-		keyLength := uint32(len(node.key))
-		if err := binary.Write(f, binary.LittleEndian, &keyLength); err != nil {
-			return nil, errors.Wrapf(err, "write key length encoding for node %d", i)
-		}
-		writtenForNode += 4
-
-		n, err = f.Write(node.key)
-		if err != nil {
-			return nil, errors.Wrapf(err, "write node %d", i)
-		}
-		writtenForNode += n
-
-		for j := 0; j < int(l.secondaryIndices); j++ {
-			var secondaryKeyLength uint32
-			if j < len(node.secondaryKeys) {
-				secondaryKeyLength = uint32(len(node.secondaryKeys[j]))
-			}
-
-			// write the key length in any case
-			if err := binary.Write(f, binary.LittleEndian, &secondaryKeyLength); err != nil {
-				return nil, errors.Wrapf(err, "write secondary key length encoding for node %d", i)
-			}
-			writtenForNode += 4
-
-			if secondaryKeyLength == 0 {
-				// we're done here
-				continue
-			}
-
-			// only write the key if it exists
-			n, err = f.Write(node.secondaryKeys[j])
-			if err != nil {
-				return nil, errors.Wrapf(err, "write secondary key %d node %d", j, i)
-			}
-			writtenForNode += n
-		}
-
-		keys[i] = keyIndex{
-			valueStart:    totalWritten,
-			valueEnd:      totalWritten + writtenForNode,
-			key:           node.key,
-			secondaryKeys: node.secondaryKeys,
-		}
-
-		totalWritten += writtenForNode
+		keys[i] = ki
+		totalWritten = ki.valueEnd
 	}
 
 	return keys, nil

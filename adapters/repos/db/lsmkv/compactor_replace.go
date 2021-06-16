@@ -3,7 +3,6 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"io"
 
 	"github.com/pkg/errors"
@@ -136,71 +135,16 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 
 func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	secondaryKeys [][]byte, tombstone bool) (keyIndex, error) {
-	out := keyIndex{}
-
-	writtenForNode := 0
-	if err := binary.Write(c.bufw, binary.LittleEndian, tombstone); err != nil {
-		return out, errors.Wrap(err, "write tombstone for node")
-	}
-	writtenForNode += 1
-
-	valueLength := uint64(len(value))
-	if err := binary.Write(c.bufw, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrap(err, "write value length encoding for node")
-	}
-	writtenForNode += 8
-
-	n, err := c.bufw.Write(value)
-	if err != nil {
-		return out, errors.Wrap(err, "write node")
-	}
-	writtenForNode += n
-
-	keyLength := uint32(len(key))
-	if err := binary.Write(c.bufw, binary.LittleEndian, &keyLength); err != nil {
-		return out, errors.Wrapf(err, "write key length encoding for node")
-	}
-	writtenForNode += 4
-
-	n, err = c.bufw.Write(key)
-	if err != nil {
-		return out, errors.Wrapf(err, "write node")
-	}
-	writtenForNode += n
-
-	for j := 0; j < int(c.secondaryIndexCount); j++ {
-		var secondaryKeyLength uint32
-		if j < len(secondaryKeys) {
-			secondaryKeyLength = uint32(len(secondaryKeys[j]))
-		}
-
-		// write the key length in any case
-		if err := binary.Write(c.bufw, binary.LittleEndian, &secondaryKeyLength); err != nil {
-			return out, errors.Wrapf(err, "write secondary key length encoding for node")
-		}
-		writtenForNode += 4
-
-		if secondaryKeyLength == 0 {
-			// we're done here
-			continue
-		}
-
-		// only write the key if it exists
-		n, err = c.bufw.Write(secondaryKeys[j])
-		if err != nil {
-			return out, errors.Wrapf(err, "write secondary key %d for node", j)
-		}
-		writtenForNode += n
+	segNode := segmentReplaceNode{
+		initialOffset:       offset,
+		tombstone:           tombstone,
+		value:               value,
+		primaryKey:          key,
+		secondaryIndexCount: c.secondaryIndexCount,
+		secondaryKeys:       secondaryKeys,
 	}
 
-	out = keyIndex{
-		valueStart:    offset,
-		valueEnd:      offset + writtenForNode,
-		key:           key,
-		secondaryKeys: secondaryKeys,
-	}
-
-	return out, nil
+	return segNode.KeyIndexAndWriteTo(c.bufw)
 }
 
 func (c *compactorReplace) writeIndices(keys []keyIndex) error {

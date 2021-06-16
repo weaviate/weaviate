@@ -238,3 +238,79 @@ func (s *segmentIndices) buildAndMarshalPrimary(keys []keyIndex) ([]byte, error)
 
 	return indexBytes, nil
 }
+
+// a single node of strategy "replace"
+type segmentReplaceNode struct {
+	tombstone           bool
+	value               []byte
+	primaryKey          []byte
+	secondaryIndexCount uint16
+	secondaryKeys       [][]byte
+	initialOffset       int
+}
+
+func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
+	out := keyIndex{}
+
+	written := 0
+	if err := binary.Write(w, binary.LittleEndian, s.tombstone); err != nil {
+		return out, errors.Wrapf(err, "write tombstone")
+	}
+	written += 1
+
+	valueLength := uint64(len(s.value))
+	if err := binary.Write(w, binary.LittleEndian, &valueLength); err != nil {
+		return out, errors.Wrapf(err, "write value length encoding")
+	}
+	written += 8
+
+	n, err := w.Write(s.value)
+	if err != nil {
+		return out, errors.Wrapf(err, "write node value")
+	}
+	written += n
+
+	keyLength := uint32(len(s.primaryKey))
+	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
+		return out, errors.Wrapf(err, "write key length encoding")
+	}
+	written += 4
+
+	n, err = w.Write(s.primaryKey)
+	if err != nil {
+		return out, errors.Wrapf(err, "write node key")
+	}
+	written += n
+
+	for j := 0; j < int(s.secondaryIndexCount); j++ {
+		var secondaryKeyLength uint32
+		if j < len(s.secondaryKeys) {
+			secondaryKeyLength = uint32(len(s.secondaryKeys[j]))
+		}
+
+		// write the key length in any case
+		if err := binary.Write(w, binary.LittleEndian, &secondaryKeyLength); err != nil {
+			return out, errors.Wrapf(err, "write secondary key length encoding")
+		}
+		written += 4
+
+		if secondaryKeyLength == 0 {
+			// we're done here
+			continue
+		}
+
+		// only write the key if it exists
+		n, err = w.Write(s.secondaryKeys[j])
+		if err != nil {
+			return out, errors.Wrapf(err, "write secondary key %d", j)
+		}
+		written += n
+	}
+
+	return keyIndex{
+		valueStart:    s.initialOffset,
+		valueEnd:      s.initialOffset + written,
+		key:           s.primaryKey,
+		secondaryKeys: s.secondaryKeys,
+	}, nil
+}
