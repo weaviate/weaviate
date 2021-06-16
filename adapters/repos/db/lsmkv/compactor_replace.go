@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorReplace struct {
@@ -47,8 +46,8 @@ func (c *compactorReplace) do() error {
 		return errors.Wrap(err, "write keys")
 	}
 
-	if err := c.writeIndex(kis); err != nil {
-		return errors.Wrap(err, "write index")
+	if err := c.writeIndices(kis); err != nil {
+		return errors.Wrap(err, "write indices")
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
@@ -78,8 +77,8 @@ func (c *compactorReplace) init() error {
 }
 
 func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
-	key1, value1, err1 := c.c1.first()
-	key2, value2, err2 := c.c2.first()
+	res1, err1 := c.c1.firstWithAllKeys()
+	res2, err2 := c.c2.firstWithAllKeys()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := SegmentHeaderSize
@@ -87,11 +86,12 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 	var kis []keyIndex
 
 	for {
-		if key1 == nil && key2 == nil {
+		if res1.key == nil && res2.key == nil {
 			break
 		}
-		if bytes.Equal(key1, key2) {
-			ki, err := c.writeIndividualNode(offset, key2, value2, err2 == Deleted)
+		if bytes.Equal(res1.key, res2.key) {
+			ki, err := c.writeIndividualNode(offset, res2.key, res2.value,
+				res2.secondaryKeys, err2 == Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
@@ -100,32 +100,34 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			kis = append(kis, ki)
 
 			// advance both!
-			key1, value1, err1 = c.c1.next()
-			key2, value2, err2 = c.c2.next()
+			res1, err1 = c.c1.nextWithAllKeys()
+			res2, err2 = c.c2.nextWithAllKeys()
 			continue
 		}
 
-		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
+		if (res1.key != nil && bytes.Compare(res1.key, res2.key) == -1) || res2.key == nil {
 			// key 1 is smaller
-			ki, err := c.writeIndividualNode(offset, key1, value1, err1 == Deleted)
+			ki, err := c.writeIndividualNode(offset, res1.key, res1.value,
+				res1.secondaryKeys, err1 == Deleted)
 			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (key1 smaller)")
+				return nil, errors.Wrap(err, "write individual node (res1.key smaller)")
 			}
 
 			offset = ki.valueEnd
 			kis = append(kis, ki)
-			key1, value1, err1 = c.c1.next()
+			res1, err1 = c.c1.nextWithAllKeys()
 		} else {
 			// key 2 is smaller
-			ki, err := c.writeIndividualNode(offset, key2, value2, err2 == Deleted)
+			ki, err := c.writeIndividualNode(offset, res2.key, res2.value,
+				res2.secondaryKeys, err2 == Deleted)
 			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (key2 smaller)")
+				return nil, errors.Wrap(err, "write individual node (res2.key smaller)")
 			}
 
 			offset = ki.valueEnd
 			kis = append(kis, ki)
 
-			key2, value2, err2 = c.c2.next()
+			res2, err2 = c.c2.nextWithAllKeys()
 		}
 	}
 
@@ -133,7 +135,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 }
 
 func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
-	tombstone bool) (keyIndex, error) {
+	secondaryKeys [][]byte, tombstone bool) (keyIndex, error) {
 	out := keyIndex{}
 
 	writtenForNode := 0
@@ -166,32 +168,81 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	}
 	writtenForNode += n
 
+	for j := 0; j < int(c.secondaryIndexCount); j++ {
+		var secondaryKeyLength uint32
+		if j < len(secondaryKeys) {
+			secondaryKeyLength = uint32(len(secondaryKeys[j]))
+		}
+
+		// write the key length in any case
+		if err := binary.Write(c.bufw, binary.LittleEndian, &secondaryKeyLength); err != nil {
+			return out, errors.Wrapf(err, "write secondary key length encoding for node")
+		}
+		writtenForNode += 4
+
+		if secondaryKeyLength == 0 {
+			// we're done here
+			continue
+		}
+
+		// only write the key if it exists
+		n, err = c.bufw.Write(secondaryKeys[j])
+		if err != nil {
+			return out, errors.Wrapf(err, "write secondary key %d for node", j)
+		}
+		writtenForNode += n
+	}
+
 	out = keyIndex{
-		valueStart: offset,
-		valueEnd:   offset + writtenForNode,
-		key:        key,
+		valueStart:    offset,
+		valueEnd:      offset + writtenForNode,
+		key:           key,
+		secondaryKeys: secondaryKeys,
 	}
 
 	return out, nil
 }
 
-func (c *compactorReplace) writeIndex(keys []keyIndex) error {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-	}
-	index := segmentindex.NewBalanced(keyNodes)
-
-	indexBytes, err := index.MarshalBinary()
+func (c *compactorReplace) writeIndices(keys []keyIndex) error {
+	currentOffset := uint64(keys[len(keys)-1].valueEnd)
+	indexBytes, err := buildAndMarshalPrimaryIndex(keys)
 	if err != nil {
 		return err
 	}
 
+	// pretend that primary index was already written
+	currentOffset = currentOffset + uint64(len(indexBytes)) + uint64(c.secondaryIndexCount)*8
+
+	secondaryIndicesBytes := bytes.NewBuffer(nil)
+
+	if c.secondaryIndexCount > 0 {
+		offsets := make([]uint64, c.secondaryIndexCount)
+		for pos := range offsets {
+			secondaryBytes, err := buildAndMarshalSecondaryIndex(pos, keys)
+			if err != nil {
+				return err
+			}
+
+			if _, err := secondaryIndicesBytes.Write(secondaryBytes); err != nil {
+				return err
+			}
+
+			offsets[pos] = currentOffset
+			currentOffset = offsets[pos] + uint64(len(secondaryBytes))
+		}
+
+		if err := binary.Write(c.bufw, binary.LittleEndian, &offsets); err != nil {
+			return err
+		}
+	}
+
+	// write primary index
 	if _, err := c.bufw.Write(indexBytes); err != nil {
+		return err
+	}
+
+	// write secondary indices
+	if _, err := secondaryIndicesBytes.WriteTo(c.bufw); err != nil {
 		return err
 	}
 

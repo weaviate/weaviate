@@ -300,11 +300,11 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	return b.active.append(rowKey, v)
 }
 
-func (b *Bucket) Delete(key []byte) error {
+func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.setTombstone(key)
+	return b.active.setTombstone(key, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not

@@ -88,3 +88,35 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 
 	return parsed.key, parsed.value, nil
 }
+
+func (s *segmentCursorReplace) nextWithAllKeys() (segmentParseResult, error) {
+	out := segmentParseResult{}
+	if s.nextOffset >= s.segment.dataEndPos {
+		return out, NotFound
+	}
+
+	parsed, err := s.segment.replaceStratParseDataWithKey(
+		s.segment.contents[s.nextOffset:])
+
+	// make sure to set the next offset before checking the error. The error
+	// could be 'Deleted' which would require that the offset is still advanced
+	// for the next cycle
+	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	if err != nil {
+		return parsed, err
+	}
+
+	return parsed, nil
+}
+
+func (s *segmentCursorReplace) firstWithAllKeys() (segmentParseResult, error) {
+	s.nextOffset = s.segment.dataStartPos
+	parsed, err := s.segment.replaceStratParseDataWithKey(
+		s.segment.contents[s.nextOffset:])
+	if err != nil {
+		return parsed, err
+	}
+	s.nextOffset = s.nextOffset + uint64(parsed.read)
+
+	return parsed, nil
+}
