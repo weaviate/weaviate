@@ -12,11 +12,12 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
@@ -77,13 +78,48 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		pointers.docIDs = pointers.docIDs[:limit]
 	}
 
-	res, err := docid.ObjectsLSM(f.store, pointers.IDs())
+	res, err := f.objectsByDocID(pointers.IDs())
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
 
 	out = res
 	return out, nil
+}
+
+func (f *Searcher) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, len(ids))
+
+	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, errors.Errorf("objects bucket not found")
+	}
+
+	i := 0
+
+	for _, id := range ids {
+		keyBuf := bytes.NewBuffer(nil)
+		binary.Write(keyBuf, binary.LittleEndian, &id)
+		docIDBytes := keyBuf.Bytes()
+		res, err := bucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if res == nil {
+			continue
+		}
+
+		unmarshalled, err := storobj.FromBinary(res)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+		i++
+	}
+
+	return out[:i], nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to

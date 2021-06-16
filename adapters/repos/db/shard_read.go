@@ -117,28 +117,29 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
 
-	uuidLookup, err := s.store.Bucket(helpers.DocIDBucketLSM).Get(key)
-	if err != nil {
-		return nil, err
-	}
+	// uuidLookup, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, key)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	if uuidLookup == nil {
-		return nil, storobj.NewErrNotFoundf(indexID,
-			"doc id inverted resolved to a nil object, i.e. no uuid found")
-	}
+	// if uuidLookup == nil {
+	// 	return nil, storobj.NewErrNotFoundf(indexID,
+	// 		"doc id inverted resolved to a nil object, i.e. no uuid found")
+	// }
 
-	lookup, err := docid.LookupFromBinary(uuidLookup)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal docID lookup")
-	}
+	// lookup, err := docid.LookupFromBinary(uuidLookup)
+	// if err != nil {
+	// 	return nil, errors.Wrap(err, "unmarshal docID lookup")
+	// }
 
-	if lookup.Deleted && !acceptDeleted {
-		return nil, storobj.NewErrNotFoundf(indexID,
-			"doc id is marked as deleted at %s",
-			lookup.DeletionTime.String())
-	}
+	// if lookup.Deleted && !acceptDeleted {
+	// 	return nil, storobj.NewErrNotFoundf(indexID,
+	// 		"doc id is marked as deleted at %s",
+	// 		lookup.DeletionTime.String())
+	// }
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(lookup.PointsTo)
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondary(0, key)
 	if err != nil {
 		return nil, err
 	}
