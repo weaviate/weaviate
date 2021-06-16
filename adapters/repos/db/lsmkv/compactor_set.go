@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorSet struct {
@@ -46,7 +45,7 @@ func (c *compactorSet) do() error {
 		return errors.Wrap(err, "write keys")
 	}
 
-	if err := c.writeIndex(kis); err != nil {
+	if err := c.writeIndices(kis); err != nil {
 		return errors.Wrap(err, "write index")
 	}
 
@@ -186,27 +185,14 @@ func (c *compactorSet) writeIndividualNode(offset int, key []byte,
 	return out, nil
 }
 
-func (c *compactorSet) writeIndex(keys []keyIndex) error {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-	}
-	index := segmentindex.NewBalanced(keyNodes)
-
-	indexBytes, err := index.MarshalBinary()
-	if err != nil {
-		return err
+func (c *compactorSet) writeIndices(keys []keyIndex) error {
+	indices := &segmentIndices{
+		keys:                keys,
+		secondaryIndexCount: c.secondaryIndexCount,
 	}
 
-	if _, err := c.bufw.Write(indexBytes); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := indices.WriteTo(c.bufw)
+	return err
 }
 
 // writeHeader assumes that everything has been written to the underlying

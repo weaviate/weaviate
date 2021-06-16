@@ -13,14 +13,11 @@ package lsmkv
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"io"
 	"os"
-	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (l *Memtable) flush() error {
@@ -60,45 +57,12 @@ func (l *Memtable) flush() error {
 
 	}
 
-	currentOffset := uint64(keys[len(keys)-1].valueEnd)
-	indexBytes, err := buildAndMarshalPrimaryIndex(keys)
-	if err != nil {
-		return err
+	indices := &segmentIndices{
+		keys:                keys,
+		secondaryIndexCount: l.secondaryIndices,
 	}
 
-	// pretend that primary index was already written
-	currentOffset = currentOffset + uint64(len(indexBytes)) + uint64(l.secondaryIndices)*8
-
-	secondaryIndicesBytes := bytes.NewBuffer(nil)
-
-	if l.secondaryIndices > 0 {
-		offsets := make([]uint64, l.secondaryIndices)
-		for pos := range offsets {
-			secondaryBytes, err := buildAndMarshalSecondaryIndex(pos, keys)
-			if err != nil {
-				return err
-			}
-
-			if _, err := secondaryIndicesBytes.Write(secondaryBytes); err != nil {
-				return err
-			}
-
-			offsets[pos] = currentOffset
-			currentOffset = offsets[pos] + uint64(len(secondaryBytes))
-		}
-
-		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
-			return err
-		}
-	}
-
-	// write primary index
-	if _, err := w.Write(indexBytes); err != nil {
-		return err
-	}
-
-	// write secondary indices
-	if _, err := secondaryIndicesBytes.WriteTo(w); err != nil {
+	if _, err := indices.WriteTo(w); err != nil {
 		return err
 	}
 
@@ -114,61 +78,6 @@ func (l *Memtable) flush() error {
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
 	return l.commitlog.delete()
-}
-
-// pos indicates the position of a secondary index, assumes unsorted keys and
-// sorts them
-func buildAndMarshalSecondaryIndex(pos int, keys []keyIndex) ([]byte, error) {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	i := 0
-	for _, key := range keys {
-		if pos >= len(key.secondaryKeys) {
-			// a secondary key is not guaranteed to be present. For example, a delete
-			// operation could pe performed using only the primary key
-			continue
-		}
-
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.secondaryKeys[pos],
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-		i++
-	}
-
-	keyNodes = keyNodes[:i]
-
-	sort.Slice(keyNodes, func(a, b int) bool {
-		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
-	})
-
-	index := segmentindex.NewBalanced(keyNodes)
-	indexBytes, err := index.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	return indexBytes, nil
-}
-
-// assumes sorted keys and does NOT sort them again
-func buildAndMarshalPrimaryIndex(keys []keyIndex) ([]byte, error) {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-	}
-	index := segmentindex.NewBalanced(keyNodes)
-
-	indexBytes, err := index.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	return indexBytes, nil
 }
 
 // SegmentOffset describes the general offset in a segment until the data
