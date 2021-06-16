@@ -90,10 +90,11 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 }
 
 type segmentParseResult struct {
-	deleted bool
-	key     []byte
-	value   []byte
-	read    int // so that the cursor and calculate its offset for the next round
+	deleted       bool
+	key           []byte
+	value         []byte
+	read          int // so that the cursor and calculate its offset for the next round
+	secondaryKeys [][]byte
 }
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, error) {
@@ -134,6 +135,29 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, e
 		return out, errors.Wrap(err, "read key")
 	} else {
 		out.read += n
+	}
+
+	if i.secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, i.secondaryIndexCount)
+	}
+
+	for j := 0; j < int(i.secondaryIndexCount); j++ {
+		var secKeyLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+			return out, errors.Wrap(err, "read secondary key length encoding")
+		}
+		out.read += 4
+
+		if secKeyLen == 0 {
+			continue
+		}
+
+		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+			return out, errors.Wrap(err, "read secondary key")
+		} else {
+			out.read += n
+		}
 	}
 
 	if out.deleted {

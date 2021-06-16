@@ -121,7 +121,6 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 				return err
 			}
 		}
-
 	}
 
 	l.key.insert(key, value, secondaryKeys)
@@ -135,7 +134,7 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	return nil
 }
 
-func (l *Memtable) setTombstone(key []byte) error {
+func (l *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	if l.strategy != "replace" {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
@@ -147,7 +146,17 @@ func (l *Memtable) setTombstone(key []byte) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	l.key.setTombstone(key)
+	var secondaryKeys [][]byte
+	if l.secondaryIndices > 0 {
+		secondaryKeys = make([][]byte, l.secondaryIndices)
+		for _, opt := range opts {
+			if err := opt(secondaryKeys); err != nil {
+				return err
+			}
+		}
+	}
+
+	l.key.setTombstone(key, secondaryKeys)
 	l.size += uint64(len(key)) + 1 // 1 byte for tombstone
 
 	return nil

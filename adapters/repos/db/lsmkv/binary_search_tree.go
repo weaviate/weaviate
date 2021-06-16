@@ -38,21 +38,22 @@ func (t *binarySearchTree) get(key []byte) ([]byte, error) {
 	return t.root.get(key)
 }
 
-func (t *binarySearchTree) setTombstone(key []byte) {
+func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is
 		// not present because we still need to propagate the delete into the disk
 		// segments. It could refer to an entity which was created in a previous
 		// segment and is thus unknown to this memtable
 		t.root = &binarySearchNode{
-			key:       key,
-			value:     nil,
-			tombstone: true,
+			key:           key,
+			value:         nil,
+			tombstone:     true,
+			secondaryKeys: secondaryKeys,
 		}
 		return
 	}
 
-	t.root.setTombstone(key)
+	t.root.setTombstone(key, secondaryKeys)
 }
 
 func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
@@ -134,35 +135,38 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 	}
 }
 
-func (n *binarySearchNode) setTombstone(key []byte) {
+func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 	if bytes.Equal(n.key, key) {
 		n.value = nil
 		n.tombstone = true
+		n.secondaryKeys = secondaryKeys
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left == nil {
 			n.left = &binarySearchNode{
-				key:       key,
-				value:     nil,
-				tombstone: true,
+				key:           key,
+				value:         nil,
+				tombstone:     true,
+				secondaryKeys: secondaryKeys,
 			}
 			return
 		}
 
-		n.left.setTombstone(key)
+		n.left.setTombstone(key, secondaryKeys)
 		return
 	} else {
 		if n.right == nil {
 			n.right = &binarySearchNode{
-				key:       key,
-				value:     nil,
-				tombstone: true,
+				key:           key,
+				value:         nil,
+				tombstone:     true,
+				secondaryKeys: secondaryKeys,
 			}
 			return
 		}
 
-		n.right.setTombstone(key)
+		n.right.setTombstone(key, secondaryKeys)
 		return
 	}
 }

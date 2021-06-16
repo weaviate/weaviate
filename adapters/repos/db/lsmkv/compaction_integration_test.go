@@ -215,6 +215,220 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 }
 
+func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
+	size := 4
+
+	type kv struct {
+		key           []byte
+		value         []byte
+		secondaryKeys [][]byte
+		delete        bool
+	}
+
+	var segment1 []kv
+	var segment2 []kv
+	var expected []kv
+	var expectedNotPresent []kv
+	var bucket *Bucket
+
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	t.Run("create test data", func(t *testing.T) {
+		// The test data is split into 4 scenarios evenly:
+		//
+		// 1.) created in the first segment, never touched again
+		// 2.) created in the first segment, updated in the second
+		// 3.) created in the first segment, deleted in the second
+		// 4.) not present in the first segment, created in the second
+		for i := 0; i < size; i++ {
+			key := []byte(fmt.Sprintf("key-%02d", i))
+			secondaryKey := []byte(fmt.Sprintf("secondary-key-%02d", i))
+			originalValue := []byte(fmt.Sprintf("value-%2d-original", i))
+
+			switch i % 4 {
+			case 0:
+				// add to segment 1
+				segment1 = append(segment1, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					value:         originalValue,
+				})
+
+				// leave this element untouched in the second segment
+				expected = append(expected, kv{
+					key:   secondaryKey,
+					value: originalValue,
+				})
+			case 1:
+				// add to segment 1
+				segment1 = append(segment1, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					value:         originalValue,
+				})
+
+				// update in the second segment
+				updatedValue := []byte(fmt.Sprintf("value-%2d-updated", i))
+				segment2 = append(segment2, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					value:         updatedValue,
+				})
+
+				expected = append(expected, kv{
+					key:   secondaryKey,
+					value: updatedValue,
+				})
+			case 2:
+				// add to segment 1
+				segment1 = append(segment1, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					value:         originalValue,
+				})
+
+				// delete in the second segment
+				segment2 = append(segment2, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					delete:        true,
+				})
+
+				expectedNotPresent = append(expectedNotPresent, kv{
+					key: secondaryKey,
+				})
+
+			case 3:
+				// do not add to segment 1
+
+				// only add to segment 2 (first entry)
+				segment2 = append(segment2, kv{
+					key:           key,
+					secondaryKeys: [][]byte{secondaryKey},
+					value:         originalValue,
+				})
+
+				expected = append(expected, kv{
+					key:   secondaryKey,
+					value: originalValue,
+				})
+			}
+		}
+	})
+
+	t.Run("shuffle the import order for each segment", func(t *testing.T) {
+		// this is to make sure we don't accidentally rely on the import order
+		rand.Shuffle(len(segment1), func(i, j int) {
+			segment1[i], segment1[j] = segment1[j], segment1[i]
+		})
+		rand.Shuffle(len(segment2), func(i, j int) {
+			segment2[i], segment2[j] = segment2[j], segment2[i]
+		})
+	})
+
+	t.Run("init bucket", func(t *testing.T) {
+		b, err := NewBucket(dirName, WithStrategy(StrategyReplace),
+			WithSecondaryIndicies(1))
+		require.Nil(t, err)
+
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
+
+		bucket = b
+	})
+
+	t.Run("import segment 1", func(t *testing.T) {
+		for _, pair := range segment1 {
+			if !pair.delete {
+				err := bucket.Put(pair.key, pair.value,
+					WithSecondaryKey(0, pair.secondaryKeys[0]))
+				require.Nil(t, err)
+			} else {
+				err := bucket.Delete(pair.key,
+					WithSecondaryKey(0, pair.secondaryKeys[0]))
+				require.Nil(t, err)
+
+			}
+		}
+	})
+
+	t.Run("flush to disk", func(t *testing.T) {
+		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("import segment 2", func(t *testing.T) {
+		for _, pair := range segment2 {
+			if !pair.delete {
+				err := bucket.Put(pair.key, pair.value,
+					WithSecondaryKey(0, pair.secondaryKeys[0]))
+				require.Nil(t, err)
+			} else {
+				err := bucket.Delete(pair.key,
+					WithSecondaryKey(0, pair.secondaryKeys[0]))
+				require.Nil(t, err)
+
+			}
+		}
+	})
+
+	t.Run("flush to disk", func(t *testing.T) {
+		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("verify control before compaction", func(t *testing.T) {
+		t.Run("verify the ones that should exist", func(t *testing.T) {
+			for _, pair := range expected {
+				res, err := bucket.GetBySecondary(0, pair.key)
+				require.Nil(t, err)
+
+				assert.Equal(t, pair.value, res)
+			}
+		})
+
+		t.Run("verify the ones that should NOT exist", func(t *testing.T) {
+			for _, pair := range expectedNotPresent {
+				res, err := bucket.GetBySecondary(0, pair.key)
+				require.Nil(t, err)
+				assert.Nil(t, res)
+			}
+		})
+	})
+
+	t.Run("check if eligble for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	})
+
+	t.Run("compact until no longer eligble", func(t *testing.T) {
+		for bucket.disk.eligbleForCompaction() {
+			require.Nil(t, bucket.disk.compactOnce())
+		}
+	})
+
+	t.Run("verify control after compaction", func(t *testing.T) {
+		t.Run("verify the ones that should exist", func(t *testing.T) {
+			for _, pair := range expected {
+				res, err := bucket.GetBySecondary(0, pair.key)
+				require.Nil(t, err)
+
+				assert.Equal(t, pair.value, res)
+			}
+		})
+
+		t.Run("verify the ones that should NOT exist", func(t *testing.T) {
+			for _, pair := range expectedNotPresent {
+				res, err := bucket.GetBySecondary(0, pair.key)
+				require.Nil(t, err)
+				assert.Nil(t, res)
+			}
+		})
+	})
+}
+
 func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the indivudal segments

@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -121,13 +120,23 @@ func (l *Memtable) flush() error {
 // sorts them
 func buildAndMarshalSecondaryIndex(pos int, keys []keyIndex) ([]byte, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
-	for j, key := range keys {
-		keyNodes[j] = segmentindex.Node{
+	i := 0
+	for _, key := range keys {
+		if pos >= len(key.secondaryKeys) {
+			// a secondary key is not guaranteed to be present. For example, a delete
+			// operation could pe performed using only the primary key
+			continue
+		}
+
+		keyNodes[i] = segmentindex.Node{
 			Key:   key.secondaryKeys[pos],
 			Start: uint64(key.valueStart),
 			End:   uint64(key.valueEnd),
 		}
+		i++
 	}
+
+	keyNodes = keyNodes[:i]
 
 	sort.Slice(keyNodes, func(a, b int) bool {
 		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
@@ -172,7 +181,7 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	flat := l.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
-	perObjectAdditions := len(flat) * (1 + 8 + 4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding
+	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(l.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
 	headerSize := SegmentHeaderSize
 	header := segmentHeader{
 		indexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
@@ -181,8 +190,6 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 		secondaryIndices: l.secondaryIndices,
 		strategy:         SegmentStrategyFromString(l.strategy),
 	}
-
-	fmt.Printf("when writing, indexstart is at %d\n", header.indexStart)
 
 	n, err := header.WriteTo(f)
 	if err != nil {
@@ -222,6 +229,31 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
 		writtenForNode += n
+
+		for j := 0; j < int(l.secondaryIndices); j++ {
+			var secondaryKeyLength uint32
+			if j < len(node.secondaryKeys) {
+				secondaryKeyLength = uint32(len(node.secondaryKeys[j]))
+			}
+
+			// write the key length in any case
+			if err := binary.Write(f, binary.LittleEndian, &secondaryKeyLength); err != nil {
+				return nil, errors.Wrapf(err, "write secondary key length encoding for node %d", i)
+			}
+			writtenForNode += 4
+
+			if secondaryKeyLength == 0 {
+				// we're done here
+				continue
+			}
+
+			// only write the key if it exists
+			n, err = f.Write(node.secondaryKeys[j])
+			if err != nil {
+				return nil, errors.Wrapf(err, "write secondary key %d node %d", j, i)
+			}
+			writtenForNode += n
+		}
 
 		keys[i] = keyIndex{
 			valueStart:    totalWritten,
@@ -313,6 +345,9 @@ func totalKeyAndValueSize(in []*binarySearchNode) int {
 	for _, n := range in {
 		sum += len(n.value)
 		sum += len(n.key)
+		for _, sec := range n.secondaryKeys {
+			sum += len(sec)
+		}
 	}
 
 	return sum
