@@ -3,7 +3,6 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"io"
 
 	"github.com/pkg/errors"
@@ -136,53 +135,11 @@ func (c *compactorSet) writeKeys() ([]keyIndex, error) {
 
 func (c *compactorSet) writeIndividualNode(offset int, key []byte,
 	values []value) (keyIndex, error) {
-	out := keyIndex{}
-
-	writtenForNode := 0
-	valueLen := uint64(len(values))
-	if err := binary.Write(c.bufw, binary.LittleEndian, &valueLen); err != nil {
-		return out, errors.Wrapf(err, "write values len for node")
-	}
-	writtenForNode += 8
-
-	for i, value := range values {
-		if err := binary.Write(c.bufw, binary.LittleEndian, value.tombstone); err != nil {
-			return out, errors.Wrapf(err, "write tombstone for value %d", i)
-		}
-		writtenForNode += 1
-
-		valueLen := uint64(len(value.value))
-		if err := binary.Write(c.bufw, binary.LittleEndian, valueLen); err != nil {
-			return out, errors.Wrapf(err, "write len of value %d", i)
-		}
-		writtenForNode += 8
-
-		n, err := c.bufw.Write(value.value)
-		if err != nil {
-			return out, errors.Wrapf(err, "write value %d", i)
-		}
-		writtenForNode += n
-	}
-
-	keyLength := uint32(len(key))
-	if err := binary.Write(c.bufw, binary.LittleEndian, &keyLength); err != nil {
-		return out, errors.Wrapf(err, "write key length encoding for node")
-	}
-	writtenForNode += 4
-
-	n, err := c.bufw.Write(key)
-	if err != nil {
-		return out, errors.Wrapf(err, "write node")
-	}
-	writtenForNode += n
-
-	out = keyIndex{
-		valueStart: offset,
-		valueEnd:   offset + writtenForNode,
-		key:        key,
-	}
-
-	return out, nil
+	return (&segmentCollectionNode{
+		values:        values,
+		primaryKey:    key,
+		initialOffset: offset,
+	}).KeyIndexAndWriteTo(c.bufw)
 }
 
 func (c *compactorSet) writeIndices(keys []keyIndex) error {

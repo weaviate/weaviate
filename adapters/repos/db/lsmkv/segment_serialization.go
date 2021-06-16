@@ -314,3 +314,59 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 		secondaryKeys: s.secondaryKeys,
 	}, nil
 }
+
+// collection strategy does not support secondary keys at this time
+type segmentCollectionNode struct {
+	values        []value
+	primaryKey    []byte
+	initialOffset int
+}
+
+func (s *segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
+	out := keyIndex{}
+	written := 0
+	valueLen := uint64(len(s.values))
+	if err := binary.Write(w, binary.LittleEndian, &valueLen); err != nil {
+		return out, errors.Wrapf(err, "write values len for node")
+	}
+	written += 8
+
+	for i, value := range s.values {
+		if err := binary.Write(w, binary.LittleEndian, value.tombstone); err != nil {
+			return out, errors.Wrapf(err, "write tombstone for value %d", i)
+		}
+		written += 1
+
+		valueLen := uint64(len(value.value))
+		if err := binary.Write(w, binary.LittleEndian, valueLen); err != nil {
+			return out, errors.Wrapf(err, "write len of value %d", i)
+		}
+		written += 8
+
+		n, err := w.Write(value.value)
+		if err != nil {
+			return out, errors.Wrapf(err, "write value %d", i)
+		}
+		written += n
+	}
+
+	keyLength := uint32(len(s.primaryKey))
+	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
+		return out, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err := w.Write(s.primaryKey)
+	if err != nil {
+		return out, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	out = keyIndex{
+		valueStart: s.initialOffset,
+		valueEnd:   s.initialOffset + written,
+		key:        s.primaryKey,
+	}
+
+	return out, nil
+}
