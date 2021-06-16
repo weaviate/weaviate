@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -64,48 +63,6 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-// func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
-// 	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
-// 	before := time.Now()
-// 	defer s.metrics.PutObject(before)
-
-// 	bucket := tx.Bucket(helpers.ObjectsBucket)
-// 	previous := bucket.Get([]byte(idBytes))
-
-// 	status, err := s.determineInsertStatus(previous, object)
-// 	if err != nil {
-// 		return status, errors.Wrap(err, "check insert/update status")
-// 	}
-
-// 	object.SetDocID(status.docID)
-// 	data, err := object.MarshalBinary()
-// 	if err != nil {
-// 		return status, errors.Wrapf(err, "marshal object %s to binary", object.ID())
-// 	}
-
-// 	before = time.Now()
-// 	if err := s.upsertObjectData(bucket, idBytes, data); err != nil {
-// 		return status, errors.Wrap(err, "upsert object data")
-// 	}
-// 	s.metrics.PutObjectUpsertObject(before)
-
-// 	before = time.Now()
-// 	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-// 		return status, errors.Wrap(err, "add/update docID->UUID index")
-// 	}
-// 	s.metrics.PutObjectUpdateDocID(before)
-
-// 	if !skipInverted {
-// 		before = time.Now()
-// 		if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
-// 			return status, errors.Wrap(err, "update inverted indices")
-// 		}
-// 		s.metrics.PutObjectUpdateInverted(before)
-// 	}
-
-// 	return status, nil
-// }
-
 func (s *Shard) putObjectLSM(object *storobj.Object,
 	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
 	before := time.Now()
@@ -133,12 +90,6 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 		return status, errors.Wrap(err, "upsert object data")
 	}
 	s.metrics.PutObjectUpsertObject(before)
-
-	before = time.Now()
-	if err := s.updateDocIDLookupLSM(idBytes, status); err != nil {
-		return status, errors.Wrap(err, "add/update docID->UUID index")
-	}
-	s.metrics.PutObjectUpdateDocID(before)
 
 	if !skipInverted {
 		before = time.Now()
@@ -278,30 +229,6 @@ func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
-	}
-
-	return nil
-}
-
-func (s *Shard) updateDocIDLookupLSM(newID []byte,
-	status objectInsertStatus) error {
-	if status.docIDChanged {
-		// clean up old docId first
-
-		// in-mem
-		s.deletedDocIDs.Add(status.oldDocID)
-
-		// on-disk
-		if err := docid.MarkDeletedLSM(s.store, status.oldDocID); err != nil {
-			return errors.Wrap(err, "remove docID->UUID index")
-		}
-	}
-
-	if err := docid.AddLookupInLSM(s.store, docid.Lookup{
-		PointsTo: newID,
-		DocID:    status.docID,
-	}); err != nil {
-		return errors.Wrap(err, "add docID->UUID index")
 	}
 
 	return nil

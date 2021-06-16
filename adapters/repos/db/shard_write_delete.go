@@ -17,7 +17,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
@@ -55,12 +54,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	// in-mem
 	// TODO: do we still need this?
 	s.deletedDocIDs.Add(docID)
-
-	// on disk
-	err = docid.MarkDeletedLSM(s.store, docID)
-	if err != nil {
-		return errors.Wrap(err, "delete docID->uuid lookup")
-	}
 
 	if err := s.vectorIndex.Delete(docID); err != nil {
 		return errors.Wrap(err, "delete from vector index")
