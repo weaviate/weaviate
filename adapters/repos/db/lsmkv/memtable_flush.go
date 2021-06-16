@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"encoding/binary"
 	"io"
 	"os"
 
@@ -151,52 +150,17 @@ func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 
 	totalWritten := headerSize
 	for i, node := range flat {
-		writtenForNode := 0
-
-		valueLen := uint64(len(node.values))
-		if err := binary.Write(f, binary.LittleEndian, &valueLen); err != nil {
-			return nil, errors.Wrapf(err, "write values len for node %d", i)
-		}
-		writtenForNode += 8
-
-		for _, value := range node.values {
-			if err := binary.Write(f, binary.LittleEndian, value.tombstone); err != nil {
-				return nil, errors.Wrapf(err, "write tombstone for value on node %d", i)
-			}
-			writtenForNode += 1
-
-			valueLen := uint64(len(value.value))
-			if err := binary.Write(f, binary.LittleEndian, valueLen); err != nil {
-				return nil, errors.Wrapf(err, "write len of value on node %d", i)
-			}
-			writtenForNode += 8
-
-			n, err := f.Write(value.value)
-			if err != nil {
-				return nil, errors.Wrapf(err, "write value on node %d", i)
-			}
-			writtenForNode += n
+		ki, err := (&segmentCollectionNode{
+			values:        node.values,
+			primaryKey:    node.key,
+			initialOffset: totalWritten,
+		}).KeyIndexAndWriteTo(f)
+		if err != nil {
+			return nil, errors.Wrapf(err, "write node %d", i)
 		}
 
-		keyLen := uint32(len(node.key))
-		if err := binary.Write(f, binary.LittleEndian, &keyLen); err != nil {
-			return nil, errors.Wrapf(err, "write key len for node %d", i)
-		}
-		writtenForNode += 4
-
-		if n, err := f.Write(node.key); err != nil {
-			return nil, errors.Wrapf(err, "write key on node %d", i)
-		} else {
-			writtenForNode += n
-		}
-
-		keys[i] = keyIndex{
-			valueStart: totalWritten,
-			valueEnd:   totalWritten + writtenForNode,
-			key:        node.key,
-		}
-
-		totalWritten += writtenForNode
+		keys[i] = ki
+		totalWritten = ki.valueEnd
 	}
 
 	return keys, nil
