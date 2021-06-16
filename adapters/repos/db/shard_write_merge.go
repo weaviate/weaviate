@@ -64,7 +64,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
-	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return nil, status, errors.Wrap(err, "upsert object data")
 	}
 
@@ -128,7 +128,7 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 		return out, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
-	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
 	}
 

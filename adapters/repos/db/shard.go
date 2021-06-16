@@ -131,7 +131,8 @@ func (s *Shard) initDBFile() error {
 	}
 
 	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+		lsmkv.WithSecondaryIndicies(1))
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
 	}

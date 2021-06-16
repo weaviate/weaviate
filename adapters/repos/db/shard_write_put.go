@@ -12,7 +12,9 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"time"
 
 	"github.com/google/uuid"
@@ -127,7 +129,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	}
 
 	before = time.Now()
-	if err := s.upsertObjectDataLSM(bucket, idBytes, data); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, data, status.docID); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
 	s.metrics.PutObjectUpsertObject(before)
@@ -218,8 +220,13 @@ func (s Shard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte) error {
-	return bucket.Put(id, data)
+func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
+	docID uint64) error {
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	docIDBytes := keyBuf.Bytes()
+
+	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
 }
 
 func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
