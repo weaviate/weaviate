@@ -62,19 +62,7 @@ func (l *Memtable) flush() error {
 	}
 
 	currentOffset := uint64(keys[len(keys)-1].valueEnd)
-
-	// build primary index
-	keyNodes := make([]segmentindex.Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-	}
-	index := segmentindex.NewBalanced(keyNodes)
-
-	indexBytes, err := index.MarshalBinary()
+	indexBytes, err := buildAndMarshalPrimaryIndex(keys)
 	if err != nil {
 		return err
 	}
@@ -84,36 +72,20 @@ func (l *Memtable) flush() error {
 
 	secondaryIndicesBytes := bytes.NewBuffer(nil)
 
-	// TODO: this is in desperate need of a refactor
 	if l.secondaryIndices > 0 {
 		offsets := make([]uint64, l.secondaryIndices)
-		for i := range offsets {
-			secondaryKeyNodes := make([]segmentindex.Node, len(keys))
-			for j, key := range keys {
-				secondaryKeyNodes[j] = segmentindex.Node{
-					Key:   key.secondaryKeys[i],
-					Start: uint64(key.valueStart),
-					End:   uint64(key.valueEnd),
-				}
-			}
-
-			sort.Slice(secondaryKeyNodes, func(a, b int) bool {
-				return bytes.Compare(secondaryKeyNodes[a].Key, secondaryKeyNodes[b].Key) < 0
-			})
-
-			secondaryIndex := segmentindex.NewBalanced(secondaryKeyNodes)
-
-			secondaryIndexBytes, err := secondaryIndex.MarshalBinary()
+		for pos := range offsets {
+			secondaryBytes, err := buildAndMarshalSecondaryIndex(pos, keys)
 			if err != nil {
 				return err
 			}
 
-			if _, err := secondaryIndicesBytes.Write(secondaryIndexBytes); err != nil {
+			if _, err := secondaryIndicesBytes.Write(secondaryBytes); err != nil {
 				return err
 			}
 
-			offsets[i] = currentOffset
-			currentOffset = offsets[i] + uint64(len(secondaryIndexBytes))
+			offsets[pos] = currentOffset
+			currentOffset = offsets[pos] + uint64(len(secondaryBytes))
 		}
 
 		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
@@ -143,6 +115,51 @@ func (l *Memtable) flush() error {
 	// TODO: there might be an interest in keeping the commit logs around for
 	// longer as they might come in handy for replication
 	return l.commitlog.delete()
+}
+
+// pos indicates the position of a secondary index, assumes unsorted keys and
+// sorts them
+func buildAndMarshalSecondaryIndex(pos int, keys []keyIndex) ([]byte, error) {
+	keyNodes := make([]segmentindex.Node, len(keys))
+	for j, key := range keys {
+		keyNodes[j] = segmentindex.Node{
+			Key:   key.secondaryKeys[pos],
+			Start: uint64(key.valueStart),
+			End:   uint64(key.valueEnd),
+		}
+	}
+
+	sort.Slice(keyNodes, func(a, b int) bool {
+		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
+	})
+
+	index := segmentindex.NewBalanced(keyNodes)
+	indexBytes, err := index.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	return indexBytes, nil
+}
+
+// assumes sorted keys and does NOT sort them again
+func buildAndMarshalPrimaryIndex(keys []keyIndex) ([]byte, error) {
+	keyNodes := make([]segmentindex.Node, len(keys))
+	for i, key := range keys {
+		keyNodes[i] = segmentindex.Node{
+			Key:   key.key,
+			Start: uint64(key.valueStart),
+			End:   uint64(key.valueEnd),
+		}
+	}
+	index := segmentindex.NewBalanced(keyNodes)
+
+	indexBytes, err := index.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	return indexBytes, nil
 }
 
 // SegmentOffset describes the general offset in a segment until the data
