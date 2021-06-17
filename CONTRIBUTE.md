@@ -33,7 +33,7 @@ If you work on Weaviate but not need a database. You can run Weaviate like this:
 
 ### Contributor License Agreement
 
-Contributions to Weaviate must be accompanied by a Contributor License Agreement. You (or your employer) retain the copyright to your contribution; this simply gives us permission to use and redistribute your contributions as part of Weaviate. Go to [this page](https://www.semi.technology/playbook/contributor-license-agreement.html) to read the current agreement.
+Contributions to Weaviate must be accompanied by a Contributor License Agreement. You (or your employer) retain the copyright to your contribution; this simply gives us permission to use and redistribute your contributions as part of Weaviate. Go to [this page](https://www.semi.technology/playbooks/misc/contributor-license-agreement.html) to read the current agreement.
 
 The process works as follows:
 
