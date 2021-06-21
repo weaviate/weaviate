@@ -45,7 +45,7 @@ func (p *commitloggerParser) Do() error {
 			}
 		case CommitTypeCollection:
 			if err := p.parseCollectionNode(); err != nil {
-				return errors.Wrap(err, "read replace node")
+				return errors.Wrap(err, "read collection node")
 			}
 		}
 	}
@@ -73,5 +73,10 @@ func (p *commitloggerParser) parseReplaceNode() error {
 }
 
 func (p *commitloggerParser) parseCollectionNode() error {
-	return nil
+	n, err := ParseCollectionNode(p.reader)
+	if err != nil {
+		return err
+	}
+
+	return p.memtable.append(n.primaryKey, n.values)
 }
