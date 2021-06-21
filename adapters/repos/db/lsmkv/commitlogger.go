@@ -26,12 +26,11 @@ type commitLogger struct {
 type CommitType uint16
 
 const (
-	CommitTypePut          CommitType = iota // replace strategy
-	CommitTypeSetTombstone                   // replace strategy
+	CommitTypeReplace CommitType = iota // replace strategy
 
 	// collection strategy - this can handle all cases as updates and deletes are
 	// only appends in a collection strategy
-	CommitTypeAppend
+	CommitTypeCollection
 )
 
 func newCommitLogger(path string) (*commitLogger, error) {
@@ -52,7 +51,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 
 func (cl *commitLogger) put(node segmentReplaceNode) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypePut); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeReplace); err != nil {
 		return err
 	}
 
@@ -65,7 +64,7 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 
 func (cl *commitLogger) append(node segmentCollectionNode) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeAppend); err != nil {
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeCollection); err != nil {
 		return err
 	}
 
