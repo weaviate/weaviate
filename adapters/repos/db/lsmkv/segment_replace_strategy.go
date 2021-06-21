@@ -89,78 +89,19 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	return data, nil
 }
 
-type segmentParseResult struct {
-	deleted       bool
-	key           []byte
-	value         []byte
-	read          int // so that the cursor and calculate its offset for the next round
-	secondaryKeys [][]byte
-}
-
-func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentParseResult, error) {
-	out := segmentParseResult{}
-
+func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
 	if len(in) == 0 {
-		return out, NotFound
+		return segmentReplaceNode{}, NotFound
 	}
 
-	// check the tombstone byte
-	if in[0] == 0x01 {
-		out.deleted = true
-	}
-	out.read += 1
+	r := bytes.NewReader(in)
 
-	r := bytes.NewReader(in[1:])
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrap(err, "read value length encoding")
-	}
-	out.read += 8
-
-	out.value = make([]byte, valueLength)
-	if n, err := r.Read(out.value); err != nil {
-		return out, errors.Wrap(err, "read value")
-	} else {
-		out.read += n
+	out, err := ParseReplaceNode(r, i.secondaryIndexCount)
+	if err != nil {
+		return out, err
 	}
 
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
-		return out, errors.Wrap(err, "read key length encoding")
-	}
-	out.read += 4
-
-	out.key = make([]byte, keyLength)
-	if n, err := r.Read(out.key); err != nil {
-		return out, errors.Wrap(err, "read key")
-	} else {
-		out.read += n
-	}
-
-	if i.secondaryIndexCount > 0 {
-		out.secondaryKeys = make([][]byte, i.secondaryIndexCount)
-	}
-
-	for j := 0; j < int(i.secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
-			return out, errors.Wrap(err, "read secondary key length encoding")
-		}
-		out.read += 4
-
-		if secKeyLen == 0 {
-			continue
-		}
-
-		out.secondaryKeys[j] = make([]byte, secKeyLen)
-		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
-			return out, errors.Wrap(err, "read secondary key")
-		} else {
-			out.read += n
-		}
-	}
-
-	if out.deleted {
+	if out.tombstone {
 		return out, Deleted
 	}
 

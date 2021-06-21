@@ -108,10 +108,6 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	l.Lock()
 	defer l.Unlock()
-	// TODO: reflect secondary key in commit log
-	if err := l.commitlog.put(key, value); err != nil {
-		return errors.Wrap(err, "write into commit log")
-	}
 
 	var secondaryKeys [][]byte
 	if l.secondaryIndices > 0 {
@@ -121,6 +117,16 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 				return err
 			}
 		}
+	}
+
+	if err := l.commitlog.put(segmentReplaceNode{
+		primaryKey:          key,
+		value:               value,
+		secondaryIndexCount: l.secondaryIndices,
+		secondaryKeys:       secondaryKeys,
+		tombstone:           false,
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
 	}
 
 	l.key.insert(key, value, secondaryKeys)
@@ -142,10 +148,6 @@ func (l *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	l.Lock()
 	defer l.Unlock()
 
-	if err := l.commitlog.setTombstone(key); err != nil {
-		return errors.Wrap(err, "write into commit log")
-	}
-
 	var secondaryKeys [][]byte
 	if l.secondaryIndices > 0 {
 		secondaryKeys = make([][]byte, l.secondaryIndices)
@@ -154,6 +156,16 @@ func (l *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 				return err
 			}
 		}
+	}
+
+	if err := l.commitlog.put(segmentReplaceNode{
+		primaryKey:          key,
+		value:               nil,
+		secondaryIndexCount: l.secondaryIndices,
+		secondaryKeys:       secondaryKeys,
+		tombstone:           true,
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
 	}
 
 	l.key.setTombstone(key, secondaryKeys)
@@ -187,7 +199,10 @@ func (l *Memtable) append(key []byte, values []value) error {
 
 	l.Lock()
 	defer l.Unlock()
-	if err := l.commitlog.append(key, values); err != nil {
+	if err := l.commitlog.append(segmentCollectionNode{
+		primaryKey: key,
+		values:     values,
+	}); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -205,4 +220,17 @@ func (l *Memtable) Size() uint64 {
 	defer l.RUnlock()
 
 	return l.size
+}
+
+// the WAL uses a buffer and isn't written until the buffer size is crossed or
+// this function explicitly called. This allows to safge unnecessary disk
+// writes in larger operations, such as batches. It is sufficient to call write
+// on the WAL just once. This does not make a batch atomic, but it guarantees
+// that the WAL is written before a successful response is returned to the
+// user.
+func (l *Memtable) writeWAL() error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitlog.flushBuffers()
 }

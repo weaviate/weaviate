@@ -149,9 +149,9 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	values []value) (keyIndex, error) {
 	return (&segmentCollectionNode{
-		values:        values,
-		primaryKey:    key,
-		initialOffset: offset,
+		values:     values,
+		primaryKey: key,
+		offset:     offset,
 	}).KeyIndexAndWriteTo(c.bufw)
 }
 

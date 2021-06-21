@@ -109,7 +109,7 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	totalWritten := headerSize
 	for i, node := range flat {
 		segNode := &segmentReplaceNode{
-			initialOffset:       totalWritten,
+			offset:              totalWritten,
 			tombstone:           node.tombstone,
 			value:               node.value,
 			primaryKey:          node.key,
@@ -151,9 +151,9 @@ func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
 	totalWritten := headerSize
 	for i, node := range flat {
 		ki, err := (&segmentCollectionNode{
-			values:        node.values,
-			primaryKey:    node.key,
-			initialOffset: totalWritten,
+			values:     node.values,
+			primaryKey: node.key,
+			offset:     totalWritten,
 		}).KeyIndexAndWriteTo(f)
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)

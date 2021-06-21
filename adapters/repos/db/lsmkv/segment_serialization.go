@@ -246,7 +246,7 @@ type segmentReplaceNode struct {
 	primaryKey          []byte
 	secondaryIndexCount uint16
 	secondaryKeys       [][]byte
-	initialOffset       int
+	offset              int
 }
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
@@ -308,18 +308,78 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	}
 
 	return keyIndex{
-		valueStart:    s.initialOffset,
-		valueEnd:      s.initialOffset + written,
+		valueStart:    s.offset,
+		valueEnd:      s.offset + written,
 		key:           s.primaryKey,
 		secondaryKeys: s.secondaryKeys,
 	}, nil
 }
 
+func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNode, error) {
+	out := segmentReplaceNode{}
+
+	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
+		return out, errors.Wrap(err, "read tombstone")
+	}
+	out.offset += 1
+
+	var valueLength uint64
+	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
+		return out, errors.Wrap(err, "read value length encoding")
+	}
+	out.offset += 8
+
+	out.value = make([]byte, valueLength)
+	if n, err := r.Read(out.value); err != nil {
+		return out, errors.Wrap(err, "read value")
+	} else {
+		out.offset += n
+	}
+
+	var keyLength uint32
+	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+		return out, errors.Wrap(err, "read key length encoding")
+	}
+	out.offset += 4
+
+	out.primaryKey = make([]byte, keyLength)
+	if n, err := r.Read(out.primaryKey); err != nil {
+		return out, errors.Wrap(err, "read key")
+	} else {
+		out.offset += n
+	}
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		var secKeyLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+			return out, errors.Wrap(err, "read secondary key length encoding")
+		}
+		out.offset += 4
+
+		if secKeyLen == 0 {
+			continue
+		}
+
+		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+			return out, errors.Wrap(err, "read secondary key")
+		} else {
+			out.offset += n
+		}
+	}
+
+	return out, nil
+}
+
 // collection strategy does not support secondary keys at this time
 type segmentCollectionNode struct {
-	values        []value
-	primaryKey    []byte
-	initialOffset int
+	values     []value
+	primaryKey []byte
+	offset     int
 }
 
 func (s *segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
@@ -363,10 +423,55 @@ func (s *segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error
 	written += n
 
 	out = keyIndex{
-		valueStart: s.initialOffset,
-		valueEnd:   s.initialOffset + written,
+		valueStart: s.offset,
+		valueEnd:   s.offset + written,
 		key:        s.primaryKey,
 	}
+
+	return out, nil
+}
+
+func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
+	out := segmentCollectionNode{}
+	var valuesLen uint64
+	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
+		return out, errors.Wrap(err, "read values len")
+	}
+	out.offset += 8
+
+	out.values = make([]value, valuesLen)
+	for i := range out.values {
+		if err := binary.Read(r, binary.LittleEndian, &out.values[i].tombstone); err != nil {
+			return out, errors.Wrap(err, "read value tombstone")
+		}
+		out.offset += 1
+
+		var valueLen uint64
+		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
+			return out, errors.Wrap(err, "read value len")
+		}
+		out.offset += 8
+
+		out.values[i].value = make([]byte, valueLen)
+		n, err := r.Read(out.values[i].value)
+		if err != nil {
+			return out, errors.Wrap(err, "read value")
+		}
+		out.offset += n
+	}
+
+	var keyLen uint32
+	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
+		return out, errors.Wrap(err, "read key len")
+	}
+	out.offset += 4
+
+	out.primaryKey = make([]byte, keyLen)
+	n, err := r.Read(out.primaryKey)
+	if err != nil {
+		return out, errors.Wrap(err, "read key")
+	}
+	out.offset += n
 
 	return out, nil
 }

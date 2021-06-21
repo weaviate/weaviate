@@ -85,11 +85,11 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 	var kis []keyIndex
 
 	for {
-		if res1.key == nil && res2.key == nil {
+		if res1.primaryKey == nil && res2.primaryKey == nil {
 			break
 		}
-		if bytes.Equal(res1.key, res2.key) {
-			ki, err := c.writeIndividualNode(offset, res2.key, res2.value,
+		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
+			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
 				res2.secondaryKeys, err2 == Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
@@ -104,12 +104,12 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			continue
 		}
 
-		if (res1.key != nil && bytes.Compare(res1.key, res2.key) == -1) || res2.key == nil {
+		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
 			// key 1 is smaller
-			ki, err := c.writeIndividualNode(offset, res1.key, res1.value,
+			ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
 				res1.secondaryKeys, err1 == Deleted)
 			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (res1.key smaller)")
+				return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
 			}
 
 			offset = ki.valueEnd
@@ -117,10 +117,10 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 			res1, err1 = c.c1.nextWithAllKeys()
 		} else {
 			// key 2 is smaller
-			ki, err := c.writeIndividualNode(offset, res2.key, res2.value,
+			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
 				res2.secondaryKeys, err2 == Deleted)
 			if err != nil {
-				return nil, errors.Wrap(err, "write individual node (res2.key smaller)")
+				return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
 			}
 
 			offset = ki.valueEnd
@@ -136,7 +136,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	secondaryKeys [][]byte, tombstone bool) (keyIndex, error) {
 	segNode := segmentReplaceNode{
-		initialOffset:       offset,
+		offset:              offset,
 		tombstone:           tombstone,
 		value:               value,
 		primaryKey:          key,

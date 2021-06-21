@@ -43,8 +43,6 @@ func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
 	defaultThreshold := uint64(10 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
 
-	// TODO: check if there are open commit logs: recover
-
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -71,6 +69,11 @@ func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
 	if err := b.setNewActiveMemtable(); err != nil {
 		return nil, err
 	}
+
+	if err := b.recoverFromCommitLogs(); err != nil {
+		return nil, err
+	}
+
 	b.initFlushCycle()
 
 	return b, nil
@@ -417,4 +420,17 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 func (b *Bucket) Strategy() string {
 	return b.strategy
+}
+
+// the WAL uses a buffer and isn't written until the buffer size is crossed or
+// this function explicitly called. This allows to safge unnecessary disk
+// writes in larger operations, such as batches. It is sufficient to call write
+// on the WAL just once. This does not make a batch atomic, but it guarantees
+// that the WAL is written before a successful response is returned to the
+// user.
+func (b *Bucket) WriteWAL() error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.writeWAL()
 }
