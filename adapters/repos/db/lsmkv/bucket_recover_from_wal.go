@@ -2,6 +2,7 @@ package lsmkv
 
 import (
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -16,7 +17,12 @@ func (b *Bucket) recoverFromCommitLogs() error {
 	var walFileNames []string
 	for _, fileInfo := range list {
 		if filepath.Ext(fileInfo.Name()) != ".wal" {
-			// skip, this could be commit log, etc.
+			// skip, this could be disk segments, etc.
+			continue
+		}
+
+		if filepath.Join(b.dir, fileInfo.Name()) == b.active.path+".wal" {
+			// this is the new one which was just created
 			continue
 		}
 
@@ -39,9 +45,17 @@ func (b *Bucket) recoverFromCommitLogs() error {
 		return b.FlushAndSwitch()
 	}
 
+	// delete the commit logs as we can now be sure that they are part of a disk
+	// segment
+	for _, fname := range walFileNames {
+		if err := os.RemoveAll(filepath.Join(b.dir, fname)); err != nil {
+			return errors.Wrap(err, "clean up commit log")
+		}
+	}
+
 	return nil
 }
 
 func (b *Bucket) parseWALIntoMemtable(fname string) error {
-	return nil
+	return newCommitLoggerParser(fname, b.active).Do()
 }
