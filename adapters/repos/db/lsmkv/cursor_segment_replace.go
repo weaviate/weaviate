@@ -49,12 +49,12 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[node.Start:node.End])
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
 	s.nextOffset = node.End
 
-	return parsed.key, parsed.value, nil
+	return parsed.primaryKey, parsed.value, nil
 }
 
 func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
@@ -68,12 +68,12 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
-	return parsed.key, parsed.value, nil
+	return parsed.primaryKey, parsed.value, nil
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
@@ -81,16 +81,16 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 
-	return parsed.key, parsed.value, nil
+	return parsed.primaryKey, parsed.value, nil
 }
 
-func (s *segmentCursorReplace) nextWithAllKeys() (segmentParseResult, error) {
-	out := segmentParseResult{}
+func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
+	out := segmentReplaceNode{}
 	if s.nextOffset >= s.segment.dataEndPos {
 		return out, NotFound
 	}
@@ -101,7 +101,7 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentParseResult, error) {
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
 		return parsed, err
 	}
@@ -109,14 +109,14 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentParseResult, error) {
 	return parsed, nil
 }
 
-func (s *segmentCursorReplace) firstWithAllKeys() (segmentParseResult, error) {
+func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.segment.replaceStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
 		return parsed, err
 	}
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 
 	return parsed, nil
 }

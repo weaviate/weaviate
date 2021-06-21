@@ -15,8 +15,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"os"
-
-	"github.com/pkg/errors"
 )
 
 type commitLogger struct {
@@ -52,85 +50,27 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	return out, nil
 }
 
-func (cl *commitLogger) put(key, value []byte) error {
+func (cl *commitLogger) put(node segmentReplaceNode) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypePut); err != nil {
 		return err
 	}
 
-	keyLen := uint32(len(key))
-	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
-		return err
-	}
-
-	if _, err := cl.writer.Write(key); err != nil {
-		return err
-	}
-
-	valueLen := uint32(len(value))
-	if err := binary.Write(cl.writer, binary.LittleEndian, &valueLen); err != nil {
-		return err
-	}
-
-	if _, err := cl.writer.Write(value); err != nil {
+	if _, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (cl *commitLogger) setTombstone(key []byte) error {
-	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeSetTombstone); err != nil {
-		return err
-	}
-
-	keyLen := uint32(len(key))
-	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
-		return err
-	}
-
-	if _, err := cl.writer.Write(key); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (cl *commitLogger) append(key []byte, values []value) error {
+func (cl *commitLogger) append(node segmentCollectionNode) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeAppend); err != nil {
 		return err
 	}
 
-	keyLen := uint32(len(key))
-	if err := binary.Write(cl.writer, binary.LittleEndian, &keyLen); err != nil {
+	if _, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
 		return err
-	}
-
-	if _, err := cl.writer.Write(key); err != nil {
-		return err
-	}
-
-	valuesLen := uint64(len(values))
-	if err := binary.Write(cl.writer, binary.LittleEndian, &valuesLen); err != nil {
-		return err
-	}
-
-	for _, value := range values {
-		if err := binary.Write(cl.writer, binary.LittleEndian, value.tombstone); err != nil {
-			return errors.Wrap(err, "write tombstone for value")
-		}
-
-		valueLen := uint64(len(value.value))
-		if err := binary.Write(cl.writer, binary.LittleEndian, valueLen); err != nil {
-			return errors.Wrap(err, "write len of value")
-		}
-
-		_, err := cl.writer.Write(value.value)
-		if err != nil {
-			return errors.Wrap(err, "write value")
-		}
 	}
 
 	return nil
@@ -146,4 +86,8 @@ func (cl *commitLogger) close() error {
 
 func (cl *commitLogger) delete() error {
 	return os.Remove(cl.path)
+}
+
+func (cl *commitLogger) flushBuffers() error {
+	return cl.writer.Flush()
 }

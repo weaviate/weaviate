@@ -49,12 +49,12 @@ func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[node.Start:node.End])
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
 	s.nextOffset = node.End
 
-	return parsed.key, parsed.values, nil
+	return parsed.primaryKey, parsed.values, nil
 }
 
 func (s *segmentCursorCollection) next() ([]byte, []value, error) {
@@ -68,12 +68,12 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
-	return parsed.key, parsed.values, nil
+	return parsed.primaryKey, parsed.values, nil
 }
 
 func (s *segmentCursorCollection) first() ([]byte, []value, error) {
@@ -81,10 +81,10 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
-		return parsed.key, nil, err
+		return parsed.primaryKey, nil, err
 	}
 
-	s.nextOffset = s.nextOffset + uint64(parsed.read)
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 
-	return parsed.key, parsed.values, nil
+	return parsed.primaryKey, parsed.values, nil
 }

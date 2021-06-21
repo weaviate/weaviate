@@ -81,60 +81,12 @@ func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 	return values, nil
 }
 
-type segmentCollectionParseResult struct {
-	key    []byte
-	values []value
-	read   int // so that the cursor and calculate its offset for the next round
-}
-
-func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionParseResult, error) {
-	out := segmentCollectionParseResult{}
-
-	if len(in) == 0 {
-		return out, NotFound
-	}
-
+func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionNode, error) {
 	r := bytes.NewReader(in)
 
-	var valuesLen uint64
-	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
-		return out, errors.Wrap(err, "read values len")
-	}
-	out.read += 8
-
-	out.values = make([]value, valuesLen)
-	for i := range out.values {
-		if err := binary.Read(r, binary.LittleEndian, &out.values[i].tombstone); err != nil {
-			return out, errors.Wrap(err, "read value tombstone")
-		}
-		out.read += 1
-
-		var valueLen uint64
-		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-			return out, errors.Wrap(err, "read value len")
-		}
-		out.read += 8
-
-		out.values[i].value = make([]byte, valueLen)
-		n, err := r.Read(out.values[i].value)
-		if err != nil {
-			return out, errors.Wrap(err, "read value")
-		}
-		out.read += n
+	if len(in) == 0 {
+		return segmentCollectionNode{}, NotFound
 	}
 
-	var keyLen uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
-		return out, errors.Wrap(err, "read key len")
-	}
-	out.read += 4
-
-	out.key = make([]byte, keyLen)
-	n, err := r.Read(out.key)
-	if err != nil {
-		return out, errors.Wrap(err, "read key")
-	}
-	out.read += n
-
-	return out, nil
+	return ParseCollectionNode(r)
 }
