@@ -32,7 +32,9 @@ func (l *Memtable) flush() error {
 
 	if l.Size() == 0 {
 		// this is an empty memtable, nothing to do
-		return nil
+		// however, we still have to cleanup the commit log, otherwise we will
+		// attempt to recover from it on the next cycle
+		return l.commitlog.delete()
 	}
 
 	f, err := os.Create(l.path + ".db")

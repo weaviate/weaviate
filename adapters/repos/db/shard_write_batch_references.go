@@ -51,6 +51,7 @@ func (b *referencesBatcher) References(ctx context.Context,
 	refs objects.BatchReferences) map[int]error {
 	b.init(refs)
 	b.storeInObjectStore(ctx)
+	b.flushWALs(ctx)
 	return b.errs
 }
 
@@ -61,31 +62,6 @@ func (b *referencesBatcher) init(refs objects.BatchReferences) {
 
 func (b *referencesBatcher) storeInObjectStore(
 	ctx context.Context) {
-	// maxPerTransaction := 30
-
-	// wg := &sync.WaitGroup{}
-	// for i := 0; i < len(b.refs); i += maxPerTransaction {
-	// 	end := i + maxPerTransaction
-	// 	if end > len(b.refs) {
-	// 		end = len(b.refs)
-	// 	}
-
-	// 	batch := b.refs[i:end]
-	// 	wg.Add(1)
-	// 	go func(i int, batch objects.BatchReferences) {
-	// 		defer wg.Done()
-	// 		var affectedIndices []int
-	// 		if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
-	// 			var err error
-	// 			affectedIndices, err = b.storeSingleBatchInTx(ctx, tx, i, batch)
-	// 			return err
-	// 		}); err != nil {
-	// 			b.setErrorsForIndices(err, affectedIndices)
-	// 		}
-	// 	}(i, batch)
-	// }
-	// wg.Wait()
-
 	errs := b.storeSingleBatchInLSM(ctx, b.refs)
 	for i, err := range errs {
 		if err != nil {
@@ -166,7 +142,6 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 	return errs
 }
 
-// nolint // TODO
 func (b *referencesBatcher) analyzeInverted(
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
 	ref objects.BatchReference) error {
@@ -187,7 +162,6 @@ func (b *referencesBatcher) analyzeInverted(
 	return nil
 }
 
-// nolint // TODO
 func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 	before := time.Now()
 	if err := b.writeInvertedAdditions(in.Additions); err != nil {
@@ -324,5 +298,13 @@ func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocumen
 		ID:         ref.From.TargetID,
 		UpdateTime: time.Now().UnixNano(),
 		References: objects.BatchReferences{ref},
+	}
+}
+
+func (b *referencesBatcher) flushWALs(ctx context.Context) {
+	if err := b.shard.store.WriteWALs(); err != nil {
+		for i := range b.refs {
+			b.setErrorAtIndex(err, i)
+		}
 	}
 }

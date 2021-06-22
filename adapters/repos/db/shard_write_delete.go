@@ -59,6 +59,10 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "delete from vector index")
 	}
 
+	if err := s.store.WriteWALs(); err != nil {
+		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
 	return nil
 }
 

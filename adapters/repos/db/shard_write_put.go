@@ -45,6 +45,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
+	if err := s.store.WriteWALs(); err != nil {
+		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
 	return nil
 }
 
