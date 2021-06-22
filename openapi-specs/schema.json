@@ -1062,7 +1062,7 @@
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.4.0-rc.4"
+    "version": "1.4.1"
   },
   "parameters": {
     "CommonLimitParameterQuery": {

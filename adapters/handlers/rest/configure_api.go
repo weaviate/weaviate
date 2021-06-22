@@ -34,7 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modkeras "github.com/semi-technologies/weaviate/modules/img2vec-keras"
+	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
@@ -126,7 +126,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	migrator = vectorMigrator
 	explorer = traverser.NewExplorer(repo, libvectorizer.NormalizedDistance,
 		appState.Logger, appState.Modules)
-	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
+	schemaRepo, err = schemarepo.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -134,7 +135,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
+	classifierRepo, err = classifications.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -315,8 +317,8 @@ func registerModules(appState *state.State) error {
 		appState.Modules.Register(modqna.New())
 	}
 
-	if _, ok := enabledModules["img2vec-keras"]; ok {
-		appState.Modules.Register(modkeras.New())
+	if _, ok := enabledModules["img2vec-neural"]; ok {
+		appState.Modules.Register(modimage.New())
 	}
 
 	return nil

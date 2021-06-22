@@ -18,8 +18,8 @@ fi
 if [[ "$*" == *--qna* ]]; then
   ADDITIONAL_SERVICES+=('qna-transformers')
 fi
-if [[ "$*" == *--keras* ]]; then
-  ADDITIONAL_SERVICES+=('i2v-keras')
+if [[ "$*" == *--image* ]]; then
+  ADDITIONAL_SERVICES+=('i2v-neural')
 fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
@@ -47,9 +47,9 @@ if [[ "$*" == *--transformers* ]]; then
   echo "the text2vec-transformers model container"
 fi
 
-if [[ "$*" == *--keras* ]]; then
-  echo "You have specified the --keras option. Starting up"
-  echo "the text2vec-contextionary model container with img2vec-keras module"
+if [[ "$*" == *--image* ]]; then
+  echo "You have specified the --image option. Starting up"
+  echo "the text2vec-contextionary model container with img2vec-image module"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"

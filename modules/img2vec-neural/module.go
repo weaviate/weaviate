@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modkeras
+package modimage
 
 import (
 	"context"
@@ -21,16 +21,16 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/clients"
-	"github.com/semi-technologies/weaviate/modules/img2vec-keras/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/clients"
+	"github.com/semi-technologies/weaviate/modules/img2vec-neural/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
-func New() *KerasModule {
-	return &KerasModule{}
+func New() *ImageModule {
+	return &ImageModule{}
 }
 
-type KerasModule struct {
+type ImageModule struct {
 	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
@@ -43,11 +43,11 @@ type imageVectorizer interface {
 		id, image string) ([]float32, error)
 }
 
-func (m *KerasModule) Name() string {
-	return "img2vec-keras"
+func (m *ImageModule) Name() string {
+	return "img2vec-neural"
 }
 
-func (m *KerasModule) Init(ctx context.Context,
+func (m *ImageModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
@@ -60,7 +60,7 @@ func (m *KerasModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *KerasModule) initVectorizer(ctx context.Context,
+func (m *ImageModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
 	// TODO: proper config management
 	uri := os.Getenv("IMAGE_INFERENCE_API")
@@ -78,18 +78,18 @@ func (m *KerasModule) initVectorizer(ctx context.Context,
 	return nil
 }
 
-func (m *KerasModule) RootHandler() http.Handler {
+func (m *ImageModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *KerasModule) VectorizeObject(ctx context.Context,
+func (m *ImageModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
-func (m *KerasModule) MetaInfo() (map[string]interface{}, error) {
+func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{}, nil
 }
 

@@ -27,7 +27,7 @@ func exploreNearImageArgumentFn() *graphql.ArgumentConfig {
 }
 
 func nearImageArgument(prefix, className string) *graphql.ArgumentConfig {
-	prefixName := fmt.Sprintf("Img2VecKeras%s%s", prefix, className)
+	prefixName := fmt.Sprintf("Img2VecImage%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{

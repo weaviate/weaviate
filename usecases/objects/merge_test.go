@@ -87,6 +87,28 @@ func Test_MergeObject(t *testing.T) {
 		},
 		testCase{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "without properties",
+			previous: &models.Object{
+				Class: "ZooAction",
+			},
+			updated: &models.Object{
+				Class: "ZooAction",
+			},
+			expectedErr: nil,
+			vectorizerCalledWith: &models.Object{
+				Class:      "ZooAction",
+				Properties: map[string]interface{}{},
+			},
+			expectedOutput: &MergeDocument{
+				UpdateTime:      12345,
+				Class:           "ZooAction",
+				ID:              "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:          []float32{1, 2, 3},
+				PrimitiveSchema: map[string]interface{}{},
+			},
+		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding many primitive properties of different types",
 			previous: &models.Object{
 				Class:      "ZooAction",
@@ -177,6 +199,59 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 		},
+		testCase{
+			name: "udpating the vector of a non-vectorized class",
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			previous: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "this description was set initially",
+				},
+				Vector: []float32{0.7, 0.3},
+			},
+			updated: &models.Object{
+				Class:  "NotVectorized",
+				Vector: []float32{0.66, 0.22},
+			},
+			expectedErr:          nil,
+			vectorizerCalledWith: nil,
+			expectedOutput: &MergeDocument{
+				UpdateTime:      12345,
+				Class:           "NotVectorized",
+				ID:              "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:          []float32{0.66, 0.22},
+				PrimitiveSchema: map[string]interface{}{},
+			},
+		},
+
+		testCase{
+			name: "not udpating the vector of a non-vectorized class",
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			previous: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "this description was set initially",
+				},
+				Vector: []float32{0.7, 0.3},
+			},
+			updated: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "this description was updated",
+				},
+			},
+			expectedErr:          nil,
+			vectorizerCalledWith: nil,
+			expectedOutput: &MergeDocument{
+				UpdateTime: 12345,
+				Class:      "NotVectorized",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:     []float32{0.7, 0.3},
+				PrimitiveSchema: map[string]interface{}{
+					"description": "this description was updated",
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -199,6 +274,7 @@ func Test_MergeObject(t *testing.T) {
 					Return(&search.Result{
 						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
+						Vector:    test.previous.Vector,
 					}, nil)
 			} else {
 				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
@@ -207,10 +283,13 @@ func Test_MergeObject(t *testing.T) {
 
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
+			}
+
+			if test.vectorizerCalledWith != nil {
 				vectorizer.On("UpdateObject", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
 			}
 
-			// only for validation of cross-refs. Maybe indicates that if this call
+			// only for validation of cross-refs. "Maybe" indicates that if this call
 			// doesn't happen the test won't fail
 			vectorRepo.On("Exists", mock.Anything).Maybe().Return(true, nil)
 
