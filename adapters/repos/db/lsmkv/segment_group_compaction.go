@@ -160,7 +160,7 @@ func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "strip .tmp extension of new segment")
 	}
 
-	seg, err := newSegment(newPath)
+	seg, err := newSegment(newPath, ig.logger)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}
@@ -200,11 +200,15 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 			case <-t:
 				if ig.eligbleForCompaction() {
 					if err := ig.compactOnce(); err != nil {
-						// TODO: structured logging
-						fmt.Printf("Error compact: %v\n", err)
+						ig.logger.WithField("action", "lsm_compaction").
+							WithField("path", ig.dir).
+							WithError(err).
+							Errorf("compaction failed")
 					}
 				} else {
-					fmt.Printf("no segment eligble for compaction\n")
+					ig.logger.WithField("action", "lsm_compaction").
+						WithField("path", ig.dir).
+						Trace("no segment eligble for compaction")
 				}
 			}
 		}

@@ -29,7 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,9 +57,10 @@ func TestIndex_DropIndex(t *testing.T) {
 		fmt.Println(err)
 	}()
 	testClassName := "deletetest"
+	logger, _ := test.NewNullLogger()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -85,9 +86,10 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 		fmt.Println(err)
 	}()
 	testClassName := "deletetest"
+	logger, _ := test.NewNullLogger()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
@@ -102,7 +104,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 
 	index, err = NewIndex(IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
-	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, nil)
+	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, testClassName)
@@ -122,7 +124,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
 	}()
-	logger := logrus.New()
+	logger, _ := test.NewNullLogger()
 	testClassName := "deletetest"
 	testClass := &models.Class{
 		Class: testClassName,

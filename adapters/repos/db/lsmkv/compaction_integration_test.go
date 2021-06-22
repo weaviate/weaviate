@@ -19,6 +19,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,7 +131,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -332,7 +334,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyReplace),
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyReplace),
 			WithSecondaryIndicies(1))
 		require.Nil(t, err)
 
@@ -452,7 +454,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -549,7 +551,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyReplace))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -816,7 +818,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -939,7 +941,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1289,7 +1291,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1410,7 +1412,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1510,4 +1512,9 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 
 		assert.Equal(t, expected, retrieved)
 	})
+}
+
+func nullLogger() logrus.FieldLogger {
+	log, _ := test.NewNullLogger()
+	return log
 }

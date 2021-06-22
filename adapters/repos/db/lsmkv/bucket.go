@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type Bucket struct {
@@ -27,6 +28,7 @@ type Bucket struct {
 	active   *Memtable
 	flushing *Memtable
 	disk     *SegmentGroup
+	logger   logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -39,7 +41,8 @@ type Bucket struct {
 	stopFlushCycle chan struct{}
 }
 
-func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
+func NewBucket(dir string, logger logrus.FieldLogger,
+	opts ...BucketOption) (*Bucket, error) {
 	defaultThreshold := uint64(10 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
 
@@ -47,7 +50,7 @@ func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 15*time.Second)
+	sg, err := newSegmentGroup(dir, 15*time.Second, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -58,6 +61,7 @@ func NewBucket(dir string, opts ...BucketOption) (*Bucket, error) {
 		memTableThreshold: defaultThreshold,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
+		logger:            logger,
 	}
 
 	for _, opt := range opts {
@@ -362,8 +366,10 @@ func (b *Bucket) initFlushCycle() {
 			case <-t:
 				if b.active.Size() >= b.memTableThreshold {
 					if err := b.FlushAndSwitch(); err != nil {
-						// TODO: structured logging
-						fmt.Printf("Error flush and switch: %v\n", err)
+						b.logger.WithField("action", "lsm_memtable_flush").
+							WithField("path", b.dir).
+							WithError(err).
+							Errorf("flush and switch failed")
 					}
 				}
 			}
@@ -376,10 +382,10 @@ func (b *Bucket) initFlushCycle() {
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
-	// b.flushLock.Lock()
-	// defer b.flushLock.Unlock()
 
-	fmt.Printf("start flush and switch\n")
+	b.logger.WithField("action", "lsm_memtable_flush_start").
+		WithField("path", b.dir).
+		Trace("start flush and switch")
 	if err := b.atomicallySwitchMemtable(); err != nil {
 		return errors.Wrap(err, "switch active memtable")
 	}
@@ -392,7 +398,15 @@ func (b *Bucket) FlushAndSwitch() error {
 		return errors.Wrap(err, "add segment and remove flushing")
 	}
 
-	fmt.Printf("flush and switch took %s\n", time.Since(before))
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", b.dir).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", b.dir).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
 
 	return nil
 }

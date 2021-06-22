@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type SegmentGroup struct {
@@ -28,10 +29,12 @@ type SegmentGroup struct {
 	dir             string
 
 	stopCompactionCycle chan struct{} // TODO: send on this channel on close
+
+	logger logrus.FieldLogger
 }
 
 func newSegmentGroup(dir string,
-	compactionCycle time.Duration) (*SegmentGroup, error) {
+	compactionCycle time.Duration, logger logrus.FieldLogger) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -40,6 +43,7 @@ func newSegmentGroup(dir string,
 	out := &SegmentGroup{
 		segments: make([]*segment, len(list)),
 		dir:      dir,
+		logger:   logger,
 	}
 
 	segmentIndex := 0
@@ -49,7 +53,7 @@ func newSegmentGroup(dir string,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()))
+		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
@@ -68,7 +72,7 @@ func (ig *SegmentGroup) add(path string) error {
 	ig.maintenanceLock.Lock()
 	defer ig.maintenanceLock.Unlock()
 
-	segment, err := newSegment(path)
+	segment, err := newSegment(path, ig.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
