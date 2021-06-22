@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
@@ -104,11 +105,6 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	// TODO
-	// if err := s.findDeletedDocs(); err != nil {
-	// 	return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
-	// }
-
 	return s, nil
 }
 
@@ -116,16 +112,17 @@ func (s *Shard) ID() string {
 	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
 }
 
-func (s *Shard) DBPath() string {
-	return fmt.Sprintf("%s/%s.db", s.index.Config.RootPath, s.ID())
-}
-
 func (s *Shard) DBPathLSM() string {
 	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
 }
 
 func (s *Shard) initDBFile() error {
-	store, err := lsmkv.New(s.DBPathLSM())
+	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
+		"shard": s.name,
+		"index": s.index.ID(),
+		"class": s.index.Config.ClassName,
+	})
+	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
@@ -153,18 +150,18 @@ func (s *Shard) drop() error {
 	if _, err := os.Stat(s.DBPathLSM()); err == nil {
 		err := os.RemoveAll(s.DBPathLSM())
 		if err != nil {
-			return errors.Wrapf(err, "remove bolt at %s", s.DBPath())
+			return errors.Wrapf(err, "remove lsm store at %s", s.DBPathLSM())
 		}
 	}
 	// delete indexcount
 	err := s.counter.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove indexcount at %s", s.DBPath())
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
 	// remove vector index
 	err = s.vectorIndex.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove vector index at %s", s.DBPath())
+		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())

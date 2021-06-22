@@ -13,13 +13,13 @@ package lsmkv
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/sirupsen/logrus"
 	"github.com/willf/bloom"
 )
 
@@ -43,6 +43,7 @@ type segment struct {
 	strategy              SegmentStrategy
 	index                 diskIndex
 	secondaryIndices      []diskIndex
+	logger                logrus.FieldLogger
 }
 
 type diskIndex interface {
@@ -58,7 +59,7 @@ type diskIndex interface {
 	AllKeys() ([][]byte, error)
 }
 
-func newSegment(path string) (*segment, error) {
+func newSegment(path string, logger logrus.FieldLogger) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file")
@@ -105,6 +106,7 @@ func newSegment(path string) (*segment, error) {
 		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.indexStart,
 		index:               primaryDiskIndex,
+		logger:              logger,
 	}
 
 	if ind.secondaryIndexCount > 0 {
@@ -141,9 +143,12 @@ func (ind *segment) initBloomFilter() error {
 	for _, key := range keys {
 		ind.bloomFilter.Add(key)
 	}
-	took := time.Since(before)
 
-	fmt.Printf("building bloom filter took %s\n", took)
+	took := time.Since(before)
+	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_primary").
+		WithField("path", ind.path).
+		WithField("took", took).
+		Debugf("building bloom filter took %s\n", took)
 	return nil
 }
 
@@ -160,7 +165,11 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	}
 	took := time.Since(before)
 
-	fmt.Printf("building secondary bloom filter took %s\n", took)
+	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
+		WithField("secondary_index_position", pos).
+		WithField("path", ind.path).
+		WithField("took", took).
+		Debugf("building bloom filter took %s\n", took)
 	return nil
 }
 

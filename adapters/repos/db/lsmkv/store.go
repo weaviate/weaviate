@@ -17,6 +17,7 @@ import (
 	"path"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Store groups multiple buckets together, it "owns" one folder on the file
@@ -24,12 +25,14 @@ import (
 type Store struct {
 	rootDir       string
 	bucketsByName map[string]*Bucket
+	logger        logrus.FieldLogger
 }
 
-func New(rootDir string) (*Store, error) {
+func New(rootDir string, logger logrus.FieldLogger) (*Store, error) {
 	s := &Store{
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
+		logger:        logger,
 	}
 
 	return s, s.init()
@@ -52,7 +55,7 @@ func (s *Store) bucketDir(bucketName string) string {
 }
 
 func (s *Store) CreateOrLoadBucket(bucketName string, opts ...BucketOption) error {
-	b, err := NewBucket(s.bucketDir(bucketName), opts...)
+	b, err := NewBucket(s.bucketDir(bucketName), s.logger, opts...)
 	if err != nil {
 		return err
 	}

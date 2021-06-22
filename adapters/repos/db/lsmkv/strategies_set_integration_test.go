@@ -35,7 +35,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	}()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -93,7 +93,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	})
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -155,7 +155,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial and update", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -219,7 +219,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -280,7 +280,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+			b2, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
 			orig1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")}
@@ -312,7 +312,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 	}()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -407,7 +407,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -506,7 +506,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with flushes in between and after the update", func(t *testing.T) {
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -614,7 +614,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 	t.Run("update in memtable, make orderly shutdown, then create a new bucket from disk",
 		func(t *testing.T) {
-			b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+			b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test
@@ -662,7 +662,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 			})
 
 			t.Run("init another bucket on the same files", func(t *testing.T) {
-				b2, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+				b2, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 				require.Nil(t, err)
 
 				expected1 := [][]byte{[]byte("value 1.1"), []byte("value 1.2")} // unchanged
@@ -692,7 +692,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			fmt.Println(err)
 		}()
 
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -824,7 +824,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			fmt.Println(err)
 		}()
 
-		b, err := NewBucket(dirName, WithStrategy(StrategySetCollection))
+		b, err := NewBucket(dirName, nullLogger(), WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

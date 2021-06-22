@@ -9,6 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
+// +build integrationTest
+
 package lsmkv
 
 import (
@@ -33,7 +35,7 @@ func TestStoreLifecycle(t *testing.T) {
 	}()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName)
+		store, err := New(dirName, nullLogger())
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket("bucket1", WithStrategy(StrategyReplace))
@@ -59,7 +61,7 @@ func TestStoreLifecycle(t *testing.T) {
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName)
+		store, err := New(dirName, nullLogger())
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket("bucket1", WithStrategy(StrategyReplace))

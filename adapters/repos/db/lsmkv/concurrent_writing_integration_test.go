@@ -1,3 +1,16 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+// +build integrationTest
+
 package lsmkv
 
 import (
@@ -34,7 +47,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	bucket, err := NewBucket(dirName,
+	bucket, err := NewBucket(dirName, nullLogger(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -131,7 +144,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][][]byte, amount)
 
-	bucket, err := NewBucket(dirName,
+	bucket, err := NewBucket(dirName, nullLogger(),
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -226,7 +239,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]MapPair, amount)
 
-	bucket, err := NewBucket(dirName,
+	bucket, err := NewBucket(dirName, nullLogger(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)
