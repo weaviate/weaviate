@@ -14,7 +14,7 @@
 
 ## Description
 
-Weaviate is a low-latency vector search engine with out-of-the-box support for different media types (text, images, etc.). It offers Semantic Search, Question-Answer-Extraction, Classification, and more. Built from scratch in Go, it stores both objects and vectors, allowing for combining vector search with structured filtering with the fault-tolerance of a cloud-native database, all accessible through GraphQL, REST and various language clients.
+Weaviate is a low-latency vector search engine with out-of-the-box support for different media types (text, images, etc.). It offers Semantic Search, Question-Answer-Extraction, Classification, Customizable Models (PyTorch/TensorFlow/Keras), and more. Built from scratch in Go, Weaviate stores both objects and vectors, allowing for combining vector search with structured filtering with the fault-tolerance of a cloud-native database, all accessible through GraphQL, REST, and various language clients.
 
 ## Features
 
@@ -46,7 +46,13 @@ Weaviate let’s you search through your data even if it’s currently being imp
 
 You can find detailed documentation in the [developers section of our website](https://www.semi.technology/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
 
-## Additional reading
+## Additional material
+
+### Video
+
+- [Weaviate introduction video](https://www.youtube.com/watch?v=IExopg1r4fw)
+
+### Reading
 
 - [Weaviate is an open-source search engine powered by ML, vectors, graphs, and GraphQL (ZDNet)](https://www.zdnet.com/article/weaviate-an-open-source-search-engine-powered-by-machine-learning-vectors-graphs-and-graphql/)
 - [Weaviate, an ANN Database with CRUD support (DB-Engines.com)](https://db-engines.com/en/blog_post/87)
