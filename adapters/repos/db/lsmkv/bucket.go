@@ -328,6 +328,10 @@ func (b *Bucket) setNewActiveMemtable() error {
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
+	if err := b.disk.shutdown(ctx); err != nil {
+		return err
+	}
+
 	b.stopFlushCycle <- struct{}{}
 
 	b.flushLock.Lock()

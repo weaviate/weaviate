@@ -10,6 +10,7 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
@@ -28,7 +29,7 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
-	stopCompactionCycle chan struct{} // TODO: send on this channel on close
+	stopCompactionCycle chan struct{}
 
 	logger logrus.FieldLogger
 }
@@ -41,9 +42,10 @@ func newSegmentGroup(dir string,
 	}
 
 	out := &SegmentGroup{
-		segments: make([]*segment, len(list)),
-		dir:      dir,
-		logger:   logger,
+		segments:            make([]*segment, len(list)),
+		dir:                 dir,
+		logger:              logger,
+		stopCompactionCycle: make(chan struct{}),
 	}
 
 	segmentIndex := 0
@@ -158,4 +160,18 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	}
 
 	return out, nil
+}
+
+func (ig *SegmentGroup) shutdown(ctx context.Context) error {
+	ig.stopCompactionCycle <- struct{}{}
+
+	for i, seg := range ig.segments {
+		if err := seg.close(); err != nil {
+			return err
+		}
+
+		ig.segments[i] = nil
+	}
+
+	return nil
 }
