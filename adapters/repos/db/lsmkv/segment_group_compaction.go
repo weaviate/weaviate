@@ -196,6 +196,9 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 		for {
 			select {
 			case <-ig.stopCompactionCycle:
+				ig.logger.WithField("action", "lsm_compaction_stop_cycle").
+					WithField("path", ig.dir).
+					Debug("stop compaction cycle")
 				return
 			case <-t:
 				if ig.eligbleForCompaction() {
