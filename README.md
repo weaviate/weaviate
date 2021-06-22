@@ -1,4 +1,6 @@
-<h1>Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='52' align='right' /></h1>
+<h1>Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='124' align='right' /></h1>
+
+<h4>The AI-first search engine</h4>
 
 [![Build Status](https://api.travis-ci.org/semi-technologies/weaviate.svg?branch=master)](https://travis-ci.org/semi-technologies/weaviate/branches)
 [![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
@@ -12,9 +14,7 @@
 
 ## Description
 
-Weaviate is a cloud-native, real-time vector search engine (aka _neural search engine_ or _deep search engine_). There are modules for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice, and a [console](https://console.semi.technology/) to visualize your data.
-
-_GraphQL - RESTful - vector search engine - vector database - neural search engine - semantic search - HNSW - deep search - machine learning - kNN_
+Weaviate is a low-latency vector search engine with out-of-the-box support for different media types (text, images, etc.). It offers Semantic Search, Question-Answer-Extraction, Classification, and more. Built from scratch in Go, it stores both objects and vectors, allowing for combining vector search with structured filtering with the fault-tolerance of a cloud-native database, all accessible through GraphQL, REST and various language clients.
 
 ## Features
 
