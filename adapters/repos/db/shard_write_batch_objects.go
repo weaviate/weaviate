@@ -53,6 +53,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 	b.init(objects)
 	b.storeInObjectStore(ctx)
 	b.storeAdditionalStorage(ctx)
+	b.flushWALs(ctx)
 	return b.errs
 }
 
@@ -67,30 +68,7 @@ func (b *objectsBatcher) init(objects []*storobj.Object) {
 // key/value store, this is they object-by-id store, the docID-lookup tables,
 // as well as all inverted indices.
 func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
-	// maxPerTransaction := 30
 	beforeObjectStore := time.Now()
-	// wg := &sync.WaitGroup{}
-	// for i := 0; i < len(b.objects); i += maxPerTransaction {
-	// 	end := i + maxPerTransaction
-	// 	if end > len(b.objects) {
-	// 		end = len(b.objects)
-	// 	}
-
-	// 	batch := b.objects[i:end]
-	// 	wg.Add(1)
-	// 	go func(i int, batch []*storobj.Object) {
-	// 		defer wg.Done()
-	// 		var affectedIndices []int
-	// 		if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
-	// 			var err error
-	// 			affectedIndices, err = b.storeSingleBatchInTx(ctx, tx, i, batch)
-	// 			return err
-	// 		}); err != nil {
-	// 			b.setErrorsForIndices(err, affectedIndices)
-	// 		}
-	// 	}(i, batch)
-	// }
-	// wg.Wait()
 
 	errs := b.storeSingleBatchInLSM(ctx, b.objects)
 	for i, err := range errs {
@@ -114,10 +92,6 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		}
 		return errs
 	}
-
-	// invertedMerger := inverted.NewDeltaMerger()
-	// cache schema for the duration of the transaction
-	// classSchema := b.shard.index.getSchema.GetSchemaSkipAuth()
 
 	wg := &sync.WaitGroup{}
 	for j, object := range batch {
@@ -272,6 +246,14 @@ func (s *objectsBatcher) checkContext(ctx context.Context) bool {
 	}
 
 	return true
+}
+
+func (b *objectsBatcher) flushWALs(ctx context.Context) {
+	if err := b.shard.store.WriteWALs(); err != nil {
+		for i := range b.objects {
+			b.setErrorAtIndex(err, i)
+		}
+	}
 }
 
 // returns the originalIndexIDs to be ignored

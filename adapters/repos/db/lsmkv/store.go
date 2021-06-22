@@ -77,3 +77,13 @@ func (s *Store) Shutdown(ctx context.Context) error {
 
 	return nil
 }
+
+func (s *Store) WriteWALs() error {
+	for name, bucket := range s.bucketsByName {
+		if err := bucket.WriteWAL(); err != nil {
+			return errors.Wrapf(err, "bucket %q", name)
+		}
+	}
+
+	return nil
+}
