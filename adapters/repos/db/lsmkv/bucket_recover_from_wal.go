@@ -36,9 +36,17 @@ func (b *Bucket) recoverFromCommitLogs() error {
 
 	// recover from each log
 	for _, fname := range walFileNames {
+		b.logger.WithField("action", "lsm_recover_from_active_wal").
+			WithField("path", filepath.Join(b.dir, fname)).
+			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
+
 		if err := b.parseWALIntoMemtable(filepath.Join(b.dir, fname)); err != nil {
 			return errors.Wrapf(err, "ingest wal %q", fname)
 		}
+
+		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
+			WithField("path", filepath.Join(b.dir, fname)).
+			Info("successfully recovered from write-ahead-log")
 	}
 
 	if b.active.size > 0 {
