@@ -114,26 +114,35 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	return nil
 }
 
+func HasFrequency(dt schema.DataType) bool {
+	if dt == schema.DataTypeText || dt == schema.DataTypeString {
+		return true
+	}
+
+	return false
+}
+
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
-	switch schema.DataType(prop.DataType[0]) {
+	dt := schema.DataType(prop.DataType[0])
+	switch dt {
 	case schema.DataTypeText:
-		hasFrequency = true
+		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(asString)
 	case schema.DataTypeString:
-		hasFrequency = true
+		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.String(asString)
 	case schema.DataTypeInt:
-		hasFrequency = false
+		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number
 			// is a float64
@@ -151,7 +160,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
 	case schema.DataTypeNumber:
-		hasFrequency = false
+		hasFrequency = HasFrequency(dt)
 		asFloat, ok := value.(float64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
@@ -163,7 +172,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
 	case schema.DataTypeBoolean:
-		hasFrequency = false
+		hasFrequency = HasFrequency(dt)
 		asBool, ok := value.(bool)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
@@ -175,7 +184,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
 	case schema.DataTypeDate:
-		hasFrequency = false
+		hasFrequency = HasFrequency(dt)
 		asTime, ok := value.(time.Time)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)

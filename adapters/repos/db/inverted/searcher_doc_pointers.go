@@ -18,12 +18,13 @@ import (
 	"hash/crc64"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	bolt "go.etcd.io/bbolt"
 )
 
-func (fs *Searcher) docPointers(prop []byte,
-	b *bolt.Bucket, limit int, pv *propValuePair) (docPointers, error) {
+func (fs *Searcher) docPointers(prop string,
+	b *lsmkv.Bucket, limit int, pv *propValuePair) (docPointers, error) {
 	if pv.operator == filters.OperatorWithinGeoRange {
 		// geo props cannot be served by the inverted index and they require an
 		// external index. So, instead of trying to serve this chunk of the filter
@@ -36,23 +37,90 @@ func (fs *Searcher) docPointers(prop []byte,
 	}
 }
 
-func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
+func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
+	pv *propValuePair) (docPointers, error) {
+	if pv.hasFrequency {
+		return fs.docPointersInvertedFrequency(prop, b, limit, pv)
+	}
+
+	return fs.docPointersInvertedNoFrequency(prop, b, limit, pv)
+}
+
+func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair) (docPointers, error) {
 	rr := NewRowReader(b, pv.value, pv.operator)
 
 	var pointers docPointers
 	var hashes [][]byte
 
-	if err := rr.Read(context.TODO(), func(k, v []byte) (bool, error) {
-		curr, err := fs.parseInvertedIndexRow(rowID(prop, k), v, limit, pv.hasFrequency)
-		if err != nil {
-			return false, errors.Wrap(err, "parse inverted index row")
+	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
+		currentDocIDs := make([]docPointer, len(ids))
+		for i, asBytes := range ids {
+			currentDocIDs[i].id = binary.LittleEndian.Uint64(asBytes)
 		}
 
-		pointers.count += curr.count
-		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+		pointers.count += uint64(len(ids))
+		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
 
-		hashes = append(hashes, curr.checksum)
+		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
+		if hashBucket == nil {
+			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
+		}
+
+		currHash, err := hashBucket.Get(pv.value)
+		if err != nil {
+			return false, errors.Wrap(err, "get hash")
+		}
+
+		hashes = append(hashes, currHash)
+		if limit > 0 && pointers.count >= uint64(limit) {
+			return false, nil
+		}
+
+		return true, nil
+	}); err != nil {
+		return pointers, errors.Wrap(err, "read row")
+	}
+
+	newChecksum, err := combineChecksums(hashes)
+	if err != nil {
+		return pointers, errors.Wrap(err, "calculate new checksum")
+	}
+
+	pointers.checksum = newChecksum
+	return pointers, nil
+}
+
+func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
+	pv *propValuePair) (docPointers, error) {
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator)
+
+	var pointers docPointers
+	var hashes [][]byte
+
+	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
+		currentDocIDs := make([]docPointer, len(pairs))
+		for i, pair := range pairs {
+			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
+
+			r := bytes.NewReader(pair.Value)
+			binary.Read(r, binary.LittleEndian, &currentDocIDs[i].frequency)
+		}
+
+		pointers.count += uint64(len(pairs))
+		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+
+		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
+		if b == nil {
+			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
+		}
+
+		currHash, err := hashBucket.Get(pv.value)
+		if err != nil {
+			return false, errors.Wrap(err, "get hash")
+		}
+
+		hashes = append(hashes, currHash)
 		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
@@ -104,10 +172,6 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 	out.checksum = chksum
 
 	return out, nil
-}
-
-func rowID(prop, value []byte) []byte {
-	return append(prop, value...)
 }
 
 // why is there a need to combine checksums prior to merging?

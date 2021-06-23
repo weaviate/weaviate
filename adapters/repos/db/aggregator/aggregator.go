@@ -17,15 +17,15 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Aggregator struct {
-	db               *bolt.DB
+	store            *lsmkv.Store
 	params           traverser.AggregateParams
 	getSchema        schemaUC.SchemaGetter
 	invertedRowCache *inverted.RowCacher
@@ -33,12 +33,12 @@ type Aggregator struct {
 	deletedDocIDs    inverted.DeletedDocIDChecker
 }
 
-func New(db *bolt.DB, params traverser.AggregateParams,
+func New(store *lsmkv.Store, params traverser.AggregateParams,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker) *Aggregator {
 	return &Aggregator{
-		db:               db,
+		store:            store,
 		params:           params,
 		getSchema:        getSchema,
 		invertedRowCache: cache,

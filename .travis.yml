@@ -29,7 +29,7 @@ before_install:
   - chmod a+x ~/.docker/cli-plugins/docker-buildx
 dist: bionic
 go: 
-  - "1.15.2"
+  - "1.16.5"
 env:
   matrix:
   # Force using modules.

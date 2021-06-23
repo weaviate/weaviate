@@ -14,12 +14,14 @@ package helpers
 import "fmt"
 
 const (
-	PropertyNameID = "id"
+	PropertyNameID = "_id"
 )
 
 var (
-	ObjectsBucket []byte = []byte("objects")
-	DocIDBucket   []byte = []byte("doc_ids")
+	ObjectsBucket    []byte = []byte("objects")
+	ObjectsBucketLSM        = "objects"
+	DocIDBucket      []byte = []byte("doc_ids")
+	DocIDBucketLSM          = "doc_ids"
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name
@@ -33,4 +35,16 @@ func BucketFromPropName(propName string) []byte {
 // indexing, such as the count of arrays.
 func MetaCountProp(propName string) string {
 	return fmt.Sprintf("%s__meta_count", propName)
+}
+
+// BucketFromPropName creates the byte-representation used as the bucket name
+// for a partiular prop in the inverted index
+func BucketFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property_%s", propName)
+}
+
+// HashBucketFromPropName creates the byte-representation used as the bucket name
+// for the status information of a partiular prop in the inverted index
+func HashBucketFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("hash_property_%s", propName)
 }

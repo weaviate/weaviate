@@ -18,7 +18,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	bolt "go.etcd.io/bbolt"
 )
 
 type propValuePair struct {
@@ -37,15 +36,24 @@ type propValuePair struct {
 	children      []*propValuePair
 }
 
-func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-		id := helpers.BucketFromPropName(pv.prop)
-		b := tx.Bucket(id)
-		if b == nil {
-			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+		id := helpers.BucketFromPropNameLSM(pv.prop)
+		if pv.prop == "id" {
+			// the user-specified ID prop has a special internal name
+			id = helpers.BucketFromPropNameLSM(helpers.PropertyNameID)
+			pv.prop = helpers.PropertyNameID
+			pv.hasFrequency = false
+		}
+		b := s.store.Bucket(id)
+		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
+			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
+			// served by the inverted index, but propagated to a secondary index in
+			// .docPointers()
+			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		pointers, err := searcher.docPointers(id, b, limit, pv)
+		pointers, err := s.docPointers(id, b, limit, pv)
 		if err != nil {
 			return err
 		}
@@ -57,7 +65,7 @@ func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int)
 			// otherwise we run into situations where each subfilter on their own
 			// runs into the limit, possibly yielding in "less than limit" results
 			// after merging.
-			err := child.fetchDocIDs(tx, searcher, 0)
+			err := child.fetchDocIDs(s, 0)
 			if err != nil {
 				return errors.Wrapf(err, "nested child %d", i)
 			}
