@@ -23,24 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-func (s *Shard) initPerPropertyIndices() error {
-	s.propertyIndices = propertyspecific.Indices{}
-	sch := s.index.getSchema.GetSchemaSkipAuth()
-	c := sch.FindClassByName(s.index.Config.ClassName)
-	if c == nil {
-		return nil
-	}
-
-	for _, prop := range c.Properties {
-		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-			if err := s.initGeoProp(prop); err != nil {
-				return errors.Wrapf(err, "init property %s", prop.Name)
-			}
-		}
-	}
-	return nil
-}
-
 func (s *Shard) initGeoProp(prop *models.Property) error {
 	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(s.ID(), prop.Name),

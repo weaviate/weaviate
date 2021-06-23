@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -30,7 +30,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
-	bolt "go.etcd.io/bbolt"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
@@ -39,7 +38,7 @@ import (
 type Shard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	name             string
-	db               *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	store            *lsmkv.Store
 	counter          *indexcounter.Counter
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
@@ -102,15 +101,9 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 
 	s.counter = counter
 
-	if err := s.initPerPropertyIndices(); err != nil {
+	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
-
-	if err := s.findDeletedDocs(); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
-	}
-
-	s.startPeriodicCleanup()
 
 	return s, nil
 }
@@ -119,159 +112,127 @@ func (s *Shard) ID() string {
 	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
 }
 
-func (s *Shard) DBPath() string {
-	return fmt.Sprintf("%s/%s.db", s.index.Config.RootPath, s.ID())
+func (s *Shard) DBPathLSM() string {
+	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
 }
 
 func (s *Shard) initDBFile() error {
-	boltdb, err := bolt.Open(s.DBPath(), 0o600, nil)
-	if err != nil {
-		return errors.Wrapf(err, "open bolt at %s", s.DBPath())
-	}
-
-	err = boltdb.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(helpers.ObjectsBucket); err != nil {
-			return errors.Wrapf(err, "create objects bucket '%s'", string(helpers.ObjectsBucket))
-		}
-
-		if _, err := tx.CreateBucketIfNotExists(helpers.DocIDBucket); err != nil {
-			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.DocIDBucket))
-		}
-
-		return nil
+	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
+		"shard": s.name,
+		"index": s.index.ID(),
+		"class": s.index.Config.ClassName,
 	})
+	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger)
 	if err != nil {
-		return errors.Wrapf(err, "create bolt buckets")
+		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
 
-	s.db = boltdb
+	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+		lsmkv.WithSecondaryIndicies(1))
+	if err != nil {
+		return errors.Wrap(err, "create objects bucket")
+	}
+
+	s.store = store
+
 	return nil
 }
 
 func (s *Shard) drop() error {
-	// delete bolt if exists
-	s.db.Close()
-	if _, err := os.Stat(s.DBPath()); err == nil {
-		err := os.Remove(s.DBPath())
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+
+	if err := s.store.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "stop lsmkv store")
+	}
+
+	if _, err := os.Stat(s.DBPathLSM()); err == nil {
+		err := os.RemoveAll(s.DBPathLSM())
 		if err != nil {
-			return errors.Wrapf(err, "remove bolt at %s", s.DBPath())
+			return errors.Wrapf(err, "remove lsm store at %s", s.DBPathLSM())
 		}
 	}
 	// delete indexcount
 	err := s.counter.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove indexcount at %s", s.DBPath())
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
 	// remove vector index
 	err = s.vectorIndex.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove vector index at %s", s.DBPath())
+		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
-	// clean up deleted doc ids map because there's all of the documents have been deleted
+	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
-	s.cleanupCancel <- struct{}{}
 
 	return nil
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.PropertyNameID))
-		if err != nil {
-			return err
-		}
+	err := s.store.CreateOrLoadBucket(
+		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
 
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt update tx")
+	err = s.store.CreateOrLoadBucket(
+		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
-	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
+	if schema.IsRefDataType(prop.DataType) {
+		err := s.store.CreateOrLoadBucket(
+			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
+			lsmkv.WithStrategy(lsmkv.StrategySetCollection)) // ref props do not have frequencies -> Set
 		if err != nil {
 			return err
 		}
 
-		if schema.IsRefDataType(prop.DataType) {
-			_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.MetaCountProp(prop.Name)))
-			if err != nil {
-				return err
-			}
-		}
-
-		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
-			if err := s.initGeoProp(prop); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt update tx")
-	}
-
-	return nil
-}
-
-func (s *Shard) findDeletedDocs() error {
-	err := s.db.View(func(tx *bolt.Tx) error {
-		docIDs := tx.Bucket(helpers.DocIDBucket)
-		if docIDs == nil {
-			return nil
-		}
-
-		err := docIDs.ForEach(func(documentID, v []byte) error {
-			lookup, err := docid.LookupFromBinary(v)
-			if err != nil {
-				return errors.Wrap(err, "lookup from binary")
-			}
-			if lookup.Deleted {
-				// TODO: gh-1282
-				s.deletedDocIDs.Add(binary.LittleEndian.Uint64(documentID))
-			}
-			return nil
-		})
+		err = s.store.CreateOrLoadBucket(
+			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
+			lsmkv.WithStrategy(lsmkv.StrategyReplace))
 		if err != nil {
-			return errors.Wrap(err, "search for deleted documents")
+			return err
 		}
+	}
 
-		return nil
-	})
+	if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+		return s.initGeoProp(prop)
+	}
+
+	strategy := lsmkv.StrategySetCollection
+	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
+		strategy = lsmkv.StrategyMapCollection
+	}
+
+	err := s.store.CreateOrLoadBucket(helpers.BucketFromPropNameLSM(prop.Name),
+		lsmkv.WithStrategy(strategy))
 	if err != nil {
-		return errors.Wrap(err, "find deleted ids")
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(helpers.HashBucketFromPropNameLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
 	}
 
 	return nil
-}
-
-func (s *Shard) startPeriodicCleanup() {
-	t := time.Tick(s.cleanupInterval)
-	batchCleanupInterval := 5 * time.Second
-	batchSize := 1000
-	go func(batchSize int, batchCleanupInterval time.Duration,
-		ticker <-chan time.Time, cancel <-chan struct{}) {
-		for {
-			select {
-			case <-cancel:
-				return
-			case <-ticker:
-				err := s.periodicCleanup(batchSize, batchCleanupInterval)
-				if err != nil {
-					s.index.logger.WithFields(logrus.Fields{
-						"action": "shard_doc_id_periodic_cleanup",
-						"class":  s.index.Config.ClassName,
-					}).WithError(err).Error("periodic cleanup error")
-				}
-			}
-		}
-	}(batchSize, batchCleanupInterval, t, s.cleanupCancel)
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
 	return s.vectorIndex.UpdateUserConfig(updated)
+}
+
+func (s *Shard) shutdown(ctx context.Context) error {
+	return s.store.Shutdown(ctx)
 }

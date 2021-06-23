@@ -12,15 +12,16 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -31,16 +32,9 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	var status objectInsertStatus
 
-	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		s, err := s.putObjectInTx(tx, object, idBytes, false)
-		if err != nil {
-			return err
-		}
-
-		status = s
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	status, err = s.putObjectLSM(object, idBytes, false)
+	if err != nil {
+		return errors.Wrap(err, "store object in LSM store")
 	}
 
 	if err := s.updateVectorIndex(object.Vector, status); err != nil {
@@ -49,6 +43,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	if err := s.updatePropertySpecificIndices(object, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
+	}
+
+	if err := s.store.WriteWALs(); err != nil {
+		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
 	return nil
@@ -69,13 +67,16 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
+func (s *Shard) putObjectLSM(object *storobj.Object,
 	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
-	bucket := tx.Bucket(helpers.ObjectsBucket)
-	previous := bucket.Get([]byte(idBytes))
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	previous, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return objectInsertStatus{}, err
+	}
 
 	status, err := s.determineInsertStatus(previous, object)
 	if err != nil {
@@ -89,20 +90,14 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	}
 
 	before = time.Now()
-	if err := s.upsertObjectData(bucket, idBytes, data); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, data, status.docID); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
 	s.metrics.PutObjectUpsertObject(before)
 
-	before = time.Now()
-	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-		return status, errors.Wrap(err, "add/update docID->UUID index")
-	}
-	s.metrics.PutObjectUpdateDocID(before)
-
 	if !skipInverted {
 		before = time.Now()
-		if err := s.updateInvertedIndex(tx, object, status.docID); err != nil {
+		if err := s.updateInvertedIndexLSM(object, status, previous); err != nil {
 			return status, errors.Wrap(err, "update inverted indices")
 		}
 		s.metrics.PutObjectUpdateInverted(before)
@@ -180,25 +175,29 @@ func (s Shard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) error {
-	return bucket.Put(id, data)
+func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
+	docID uint64) error {
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	docIDBytes := keyBuf.Bytes()
+
+	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
 }
 
-// updateInvertedIndex is write-only for performance reasons. This means new
-// doc IDs can be appended to existing rows. If an old doc ID is no longer
-// valid it is not immediately cleaned up. Instead it is in the responsibility
-// of the caller to make sure that doc IDs are treated as immutable and any
-// outdated doc IDs have been marked as deleted, so they can be cleaned up in
-// async batches
-func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
-	docID uint64) error {
+func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
+	status objectInsertStatus, previous []byte) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// TODO: metrics
+	if err := s.updateInvertedIndexCleanupOldLSM(status, previous); err != nil {
+		return errors.Wrap(err, "analyze and cleanup previous")
+	}
+
 	before := time.Now()
-	err = s.extendInvertedIndices(tx, props, docID)
+	err = s.extendInvertedIndicesLSM(props, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
@@ -207,25 +206,33 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	return nil
 }
 
-func (s *Shard) updateDocIDLookup(tx *bolt.Tx, newID []byte,
-	status objectInsertStatus) error {
-	if status.docIDChanged {
-		// clean up old docId first
-
-		// in-mem
-		s.deletedDocIDs.Add(status.oldDocID)
-
-		// on-disk
-		if err := docid.MarkDeletedInTx(tx, status.oldDocID); err != nil {
-			return errors.Wrap(err, "remove docID->UUID index")
-		}
+func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
+	previous []byte) error {
+	if !status.docIDChanged {
+		// nothing to do
+		return nil
 	}
 
-	if err := docid.AddLookupInTx(tx, docid.Lookup{
-		PointsTo: newID,
-		DocID:    status.docID,
-	}); err != nil {
-		return errors.Wrap(err, "add docID->UUID index")
+	// The doc id changed, so we need to analyze the previous and delete all
+	// entries (immediately - since the async part is now handled inside the
+	// LSMKV store, as part of merging/compaction)
+	//
+	// NOTE: Since Doc IDs are immutable, there is no need to use a
+	// DeltaAnalyzer. docIDChanged==true, therefore the old docID is
+	// "worthless" and can be cleaned up in the inverted index fully.
+	previousObject, err := storobj.FromBinary(previous)
+	if err != nil {
+		return errors.Wrap(err, "unmarshal previous object")
+	}
+
+	previousInvertProps, err := s.analyzeObject(previousObject)
+	if err != nil {
+		return errors.Wrap(err, "analyze previous object")
+	}
+
+	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
+	if err != nil {
+		return errors.Wrap(err, "put inverted indices props")
 	}
 
 	return nil

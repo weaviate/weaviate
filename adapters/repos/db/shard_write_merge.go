@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
@@ -29,33 +28,29 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	var status objectInsertStatus
-	var next *storobj.Object
-
-	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		n, s, err := s.mergeObjectInTx(tx, merge, idBytes)
-		if err != nil {
-			return err
-		}
-
-		status = s
-		next = n
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	next, status, err := s.mergeObjectInStorage(merge, idBytes)
+	if err != nil {
+		return err
 	}
 
 	if err := s.updateVectorIndex(next.Vector, status); err != nil {
 		return errors.Wrap(err, "update vector index")
 	}
 
+	if err := s.store.WriteWALs(); err != nil {
+		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
 	return nil
 }
 
-func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
+func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 	idBytes []byte) (*storobj.Object, objectInsertStatus, error) {
-	bucket := tx.Bucket(helpers.ObjectsBucket)
-	previous := bucket.Get([]byte(idBytes))
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	previous, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return nil, objectInsertStatus{}, errors.Wrap(err, "get bucket")
+	}
 
 	nextObj, _, err := s.mergeObjectData(previous, merge)
 	if err != nil {
@@ -73,22 +68,18 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
-	if err := s.upsertObjectData(bucket, idBytes, nextBytes); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return nil, status, errors.Wrap(err, "upsert object data")
 	}
 
-	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-		return nil, status, errors.Wrap(err, "add docID->UUID index")
-	}
-
-	if err := s.updateInvertedIndex(tx, nextObj, status.docID); err != nil {
+	if err := s.updateInvertedIndexLSM(nextObj, status, previous); err != nil {
 		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
 	return nextObj, status, nil
 }
 
-// mutableMergeObjectInTx is a special version of mergeObjectInTx where no doc
+// mutableMergeObjectLSM is a special version of mergeObjectInTx where no doc
 // id increases will be made, but instead the old doc ID will be re-used. This
 // is only possible if the following two conditions are met:
 //
@@ -107,12 +98,15 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 // The above makes this a perfect candidate for a batch reference update as
 // this alters neither the vector position, nor does it remove anything from
 // the inverted index
-func (s *Shard) mutableMergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
+func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	idBytes []byte) (mutableMergeResult, error) {
-	bucket := tx.Bucket(helpers.ObjectsBucket)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
 
-	previous := bucket.Get([]byte(idBytes))
+	previous, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return out, err
+	}
 
 	nextObj, previousObj, err := s.mergeObjectData(previous, merge)
 	if err != nil {
@@ -134,12 +128,8 @@ func (s *Shard) mutableMergeObjectInTx(tx *bolt.Tx, merge objects.MergeDocument,
 		return out, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
-	if err := s.upsertObjectData(bucket, idBytes, nextBytes); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
-	}
-
-	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-		return out, errors.Wrap(err, "add docID->UUID index")
 	}
 
 	// do not updated inverted index, since this requires delta analysis, which

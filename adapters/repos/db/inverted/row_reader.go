@@ -17,21 +17,21 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	bolt "go.etcd.io/bbolt"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
 	// prop         []byte
 	value    []byte
-	bucket   *bolt.Bucket
+	bucket   *lsmkv.Bucket
 	operator filters.Operator
 	// hasFrequency bool
 }
 
-func NewRowReader(bucket *bolt.Bucket, value []byte,
+func NewRowReader(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator) *RowReader {
 	return &RowReader{
 		bucket:   bucket,
@@ -54,7 +54,11 @@ func NewRowReader(bucket *bolt.Bucket, value []byte,
 // The boolean return argument is a way to stop iteration (e.g. when a limit is
 // reached) without producing an error. In normal operation always return true,
 // if false is returned once, the loop is broken.
-type ReadFn func(k, v []byte) (bool, error)
+type ReadFn func(k []byte, values [][]byte) (bool, error)
+
+// // ReadFnWithFrequency is the same as ReadFn, except that each id is also
+// // associated with an additional frequency
+// type ReadFnWithFrequency func(k []byte, values []lsmkv.MapPair) (bool, error)
 
 func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 	switch rr.operator {
@@ -85,8 +89,12 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	v := rr.bucket.Get(rr.value)
-	_, err := readFn(rr.value, v)
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return err
+	}
+
+	_, err = readFn(rr.value, v)
 	return err
 }
 
@@ -94,7 +102,8 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool) error {
-	c := rr.bucket.Cursor()
+	c := rr.bucket.SetCursor()
+	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
@@ -123,7 +132,8 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 // prior to that.
 func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool) error {
-	c := rr.bucket.Cursor()
+	c := rr.bucket.SetCursor()
+	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
@@ -150,7 +160,9 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.bucket.Cursor()
+	c := rr.bucket.SetCursor()
+	defer c.Close()
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -179,10 +191,12 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 		return errors.Wrapf(err, "parse like value")
 	}
 
-	c := rr.bucket.Cursor()
+	c := rr.bucket.SetCursor()
+	defer c.Close()
+
 	var (
 		initialK []byte
-		initialV []byte
+		initialV [][]byte
 	)
 
 	if like.optimizable {

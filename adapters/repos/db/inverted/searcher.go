@@ -16,22 +16,20 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 type Searcher struct {
-	db            *bolt.DB
+	store         *lsmkv.Store
 	schema        schema.Schema
 	rowCache      *RowCacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
@@ -43,11 +41,11 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(db *bolt.DB, schema schema.Schema,
+func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache *RowCacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
 	return &Searcher{
-		db:            db,
+		store:         store,
 		schema:        schema,
 		rowCache:      rowCache,
 		propIndices:   propIndices,
@@ -66,33 +64,62 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	var out []*storobj.Object
-	if err := f.db.View(func(tx *bolt.Tx) error {
-		if err := pv.fetchDocIDs(tx, f, limit); err != nil {
-			return errors.Wrap(err, "fetch doc ids for prop/value pair")
-		}
-
-		pointers, err := pv.mergeDocIDs()
-		if err != nil {
-			return errors.Wrap(err, "merge doc ids by operator")
-		}
-
-		// cutoff if required, e.g. after merging unlimted filters
-		if len(pointers.docIDs) > limit {
-			pointers.docIDs = pointers.docIDs[:limit]
-		}
-
-		res, err := docid.ObjectsInTx(tx, pointers.IDs())
-		if err != nil {
-			return errors.Wrap(err, "resolve doc ids to objects")
-		}
-
-		out = res
-		return nil
-	}); err != nil {
-		return nil, errors.Wrap(err, "object filter search bolt view tx")
+	if err := pv.fetchDocIDs(f, limit); err != nil {
+		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
+	pointers, err := pv.mergeDocIDs()
+	if err != nil {
+		return nil, errors.Wrap(err, "merge doc ids by operator")
+	}
+
+	// cutoff if required, e.g. after merging unlimted filters
+	if len(pointers.docIDs) > limit {
+		pointers.docIDs = pointers.docIDs[:limit]
+	}
+
+	res, err := f.objectsByDocID(pointers.IDs())
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve doc ids to objects")
+	}
+
+	out = res
 	return out, nil
+}
+
+func (f *Searcher) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, len(ids))
+
+	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, errors.Errorf("objects bucket not found")
+	}
+
+	i := 0
+
+	for _, id := range ids {
+		keyBuf := bytes.NewBuffer(nil)
+		binary.Write(keyBuf, binary.LittleEndian, &id)
+		docIDBytes := keyBuf.Bytes()
+		res, err := bucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if res == nil {
+			continue
+		}
+
+		unmarshalled, err := storobj.FromBinary(res)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+		i++
+	}
+
+	return out[:i], nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
@@ -112,14 +139,8 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := f.db.View(func(tx *bolt.Tx) error {
-		if err := pv.fetchDocIDs(tx, f, -1); err != nil {
-			return errors.Wrap(err, "fetch doc ids for prop/value pair")
-		}
-
-		return nil
-	}); err != nil {
-		return nil, errors.Wrap(err, "doc id filter search bolt view tx")
+	if err := pv.fetchDocIDs(f, -1); err != nil {
+		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
 	pointers, err := pv.mergeDocIDs()
@@ -130,80 +151,6 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
-	}
-
-	return out, nil
-}
-
-func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
-	hasFrequency bool) (docPointers, error) {
-	out := docPointers{
-		checksum: make([]byte, 8),
-	}
-
-	// 0 is a non-existing row, 8 is one that only contains a checksum, but no content
-	if len(in) == 0 || len(in) == 8 {
-		return out, nil
-	}
-
-	r := bytes.NewReader(in)
-	if _, err := r.Read(out.checksum); err != nil {
-		return out, errors.Wrap(err, "read checksum")
-	}
-
-	// only use cache on unlimited searches, e.g. when building allow lists
-	if limit < 0 {
-		cached, ok := fs.rowCache.Load(id, out.checksum)
-		if ok {
-			return *cached, nil
-		}
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.count); err != nil {
-		return out, errors.Wrap(err, "read doc count")
-	}
-
-	read := 0
-	for {
-		// limit >0 allows us to specify -1 to mean unlimited
-		if limit > 0 && read >= limit {
-			// we are done because the user specified limit is reached
-			break
-		}
-
-		var docID uint64
-		if err := binary.Read(r, binary.LittleEndian, &docID); err != nil {
-			if err == io.EOF {
-				// we are done, because all entries are read
-				break
-			}
-
-			return out, errors.Wrap(err, "read doc id")
-		}
-
-		var frequency float64
-
-		if hasFrequency {
-			if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
-				// EOF would be unexpected here, so any error including EOF is an error
-				return out, errors.Wrap(err, "read doc frequency")
-			}
-		}
-
-		if fs.deletedDocIDs.Contains(docID) {
-			// make sure a deleted docID does not count into the limit, otherwise we
-			// will return 0 results with a limit of n if the first n doc ids are
-			// marked as deleted (gh-1308)
-			continue
-		}
-
-		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: &frequency})
-		read++
-	}
-
-	// only write into cache on unlimited requests of a certain length
-	if limit < 0 && read > 500 { // TODO: what's a realistic cutoff?
-		fs.rowCache.Store(id, &out)
 	}
 
 	return out, nil

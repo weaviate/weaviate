@@ -425,7 +425,13 @@ func (l *hnswCommitLogger) maintenance() error {
 	}
 
 	if i.Size() > l.maxSize {
-		l.logFile.Close()
+		// if err := l.logFile.Flush(); err != nil {
+		// 	return err
+		// }
+
+		if err := l.logFile.Close(); err != nil {
+			return err
+		}
 
 		// this is a new commit log, initialize with the current time stamp
 		fileName := fmt.Sprintf("%d", time.Now().Unix())

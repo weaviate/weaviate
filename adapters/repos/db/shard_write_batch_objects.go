@@ -19,11 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	bolt "go.etcd.io/bbolt"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -57,6 +53,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 	b.init(objects)
 	b.storeInObjectStore(ctx)
 	b.storeAdditionalStorage(ctx)
+	b.flushWALs(ctx)
 	return b.errs
 }
 
@@ -71,119 +68,52 @@ func (b *objectsBatcher) init(objects []*storobj.Object) {
 // key/value store, this is they object-by-id store, the docID-lookup tables,
 // as well as all inverted indices.
 func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
-	maxPerTransaction := 30
 	beforeObjectStore := time.Now()
-	wg := &sync.WaitGroup{}
-	for i := 0; i < len(b.objects); i += maxPerTransaction {
-		end := i + maxPerTransaction
-		if end > len(b.objects) {
-			end = len(b.objects)
-		}
 
-		batch := b.objects[i:end]
-		wg.Add(1)
-		go func(i int, batch []*storobj.Object) {
-			defer wg.Done()
-			var affectedIndices []int
-			if err := b.shard.db.Batch(func(tx *bolt.Tx) error {
-				var err error
-				affectedIndices, err = b.storeSingleBatchInTx(ctx, tx, i, batch)
-				return err
-			}); err != nil {
-				b.setErrorsForIndices(err, affectedIndices)
-			}
-		}(i, batch)
+	errs := b.storeSingleBatchInLSM(ctx, b.objects)
+	for i, err := range errs {
+		if err != nil {
+			b.setErrorAtIndex(err, i)
+		}
 	}
-	wg.Wait()
+
 	b.shard.metrics.ObjectStore(beforeObjectStore)
 }
 
-func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
-	batchId int, batch []*storobj.Object) ([]int, error) {
-	var affectedIndices []int
+func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
+	batch []*storobj.Object) []error {
+	errs := make([]error, len(batch))
+	errLock := &sync.Mutex{}
 
-	for j := range batch {
-		// so we can reference potential errors
-		affectedIndices = append(affectedIndices, batchId+j)
-	}
-
-	// only check context after assigning affected indices, otherwise a context
-	// error can never be assigned to the correct items, see
-	// https://github.com/semi-technologies/weaviate/issues/1363
+	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
-		return affectedIndices, errors.Wrapf(err, "begin transaction %d of batch",
-			batchId)
+		for i := range errs {
+			errs[i] = errors.Wrap(err, "begin batch")
+		}
+		return errs
 	}
 
-	invertedMerger := inverted.NewDeltaMerger()
-	// cache schema for the duration of the transaction
-	classSchema := b.shard.index.getSchema.GetSchemaSkipAuth()
-
+	wg := &sync.WaitGroup{}
 	for j, object := range batch {
-		if err := b.storeObjectOfBatchInTx(ctx, tx, batchId, j, object); err != nil {
-			return affectedIndices, errors.Wrapf(err, "store object %d", j)
-		}
+		wg.Add(1)
+		go func(index int, object *storobj.Object) {
+			defer wg.Done()
 
-		if err := b.analyzeObjectForInvertedIndex(invertedMerger, classSchema,
-			object); err != nil {
-			return affectedIndices, errors.Wrapf(err, "analyze object %d", j)
-		}
-	}
-
-	before := time.Now()
-	if err := b.writeInvertedAdditions(tx,
-		invertedMerger.Merge().Additions); err != nil {
-		return affectedIndices, errors.Wrap(err, "updated inverted index")
-	}
-	b.shard.metrics.PutObjectUpdateInverted(before)
-
-	return affectedIndices, nil
-}
-
-func (b *objectsBatcher) analyzeObjectForInvertedIndex(merger *inverted.DeltaMerger,
-	classSchema schema.Schema, obj *storobj.Object) error {
-	propValues, ok := obj.Properties().(map[string]interface{})
-	if !ok || propValues == nil {
-		return nil
-	}
-
-	schemaClass := classSchema.FindClassByName(obj.Class())
-	if schemaClass == nil {
-		return errors.Errorf("class %q not present in schema", obj.Class())
-	}
-
-	analyzed, err := inverted.NewAnalyzer().Object(propValues, schemaClass.Properties,
-		obj.ID())
-	if err != nil {
-		return err
-	}
-
-	merger.AddAdditions(analyzed, obj.DocID())
-	return nil
-}
-
-func (b *objectsBatcher) writeInvertedAdditions(tx *bolt.Tx,
-	in []inverted.MergeProperty) error {
-	for _, prop := range in {
-		bucket := tx.Bucket(helpers.BucketFromPropName(prop.Name))
-		if bucket == nil {
-			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
-		for _, item := range prop.MergeItems {
-			err := b.shard.batchExtendInvertedIndexItems(bucket, item, prop.HasFrequency)
-			if err != nil {
-				return err
+			if err := b.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+				errLock.Lock()
+				errs[index] = err
+				errLock.Unlock()
 			}
-		}
+		}(j, object)
 	}
+	wg.Wait()
 
-	return nil
+	return errs
 }
 
-func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx,
-	batchId int, objectIndex int, object *storobj.Object) error {
-	if _, ok := b.duplicates[batchId+objectIndex]; ok {
+func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
+	objectIndex int, object *storobj.Object) error {
+	if _, ok := b.duplicates[objectIndex]; ok {
 		return nil
 	}
 	uuidParsed, err := uuid.Parse(object.ID().String())
@@ -196,7 +126,7 @@ func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx
 		return err
 	}
 
-	status, err := b.shard.putObjectInTx(tx, object, idBytes, true)
+	status, err := b.shard.putObjectLSM(object, idBytes, false)
 	if err != nil {
 		return err
 	}
@@ -204,7 +134,7 @@ func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx
 	b.setStatusForID(status, object.ID())
 
 	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "end transaction %d of batch", batchId)
+		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
 	}
 	return nil
 }
@@ -297,18 +227,6 @@ func (b *objectsBatcher) setErrorAtIndex(err error, index int) {
 	b.errs[index] = err
 }
 
-// setErrorsForIndices is thread-safe as it uses the underlying mutex to lock
-// writing into the errs map
-func (b *objectsBatcher) setErrorsForIndices(err error, affectedIndices []int) {
-	b.Lock()
-	defer b.Unlock()
-
-	err = errors.Wrap(err, "bolt batch tx")
-	for _, affected := range affectedIndices {
-		b.errs[affected] = err
-	}
-}
-
 // checkContext does nothing if the context is still active. But if the context
 // has error'd, it marks all objects which have not previously error'd yet with
 // the ctx error
@@ -328,6 +246,14 @@ func (s *objectsBatcher) checkContext(ctx context.Context) bool {
 	}
 
 	return true
+}
+
+func (b *objectsBatcher) flushWALs(ctx context.Context) {
+	if err := b.shard.store.WriteWALs(); err != nil {
+		for i := range b.objects {
+			b.setErrorAtIndex(err, i)
+		}
+	}
 }
 
 // returns the originalIndexIDs to be ignored

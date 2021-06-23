@@ -13,10 +13,13 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	_ "net/http/pprof"
 
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -44,7 +47,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
-	// _ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -63,6 +65,7 @@ type vectorRepo interface {
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(time.Duration) error
+	Shutdown(ctx context.Context) error
 }
 
 type explorer interface {
@@ -71,6 +74,9 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+	go func() {
+		fmt.Println(http.ListenAndServe(":6060", nil))
+	}()
 	ctx := context.Background()
 	// abort startup if it does not complete within 120s
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
@@ -184,7 +190,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 
-	api.ServerShutdown = func() {}
+	api.ServerShutdown = func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		if err := repo.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+	}
 	configureServer = makeConfigureServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)

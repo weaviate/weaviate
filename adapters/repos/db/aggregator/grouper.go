@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -56,10 +57,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
-	err := g.db.View(func(tx *bolt.Tx) error {
-		return ScanAll(tx, func(obj *storobj.Object) (bool, error) {
-			return true, g.addElement(obj)
-		})
+	err := ScanAllLSM(g.store, func(obj *storobj.Object) (bool, error) {
+		return true, g.addElement(obj)
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
@@ -70,7 +69,7 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil,
+	ids, err := inverted.NewSearcher(g.store, s, g.invertedRowCache, nil,
 		g.classSearcher, g.deletedDocIDs).
 		DocIDs(ctx, g.params.Filters, traverser.AdditionalProperties{},
 			g.params.ClassName)
@@ -78,13 +77,11 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
 	}
 
-	if err := g.db.View(func(tx *bolt.Tx) error {
-		return docid.ScanObjectsInTx(tx, flattenAllowList(ids),
-			func(obj *storobj.Object) (bool, error) {
-				return true, g.addElement(obj)
-			})
-	}); err != nil {
-		return nil, errors.Wrap(err, "properties view tx")
+	if err := docid.ScanObjectsLSM(g.store, flattenAllowList(ids),
+		func(obj *storobj.Object) (bool, error) {
+			return true, g.addElement(obj)
+		}); err != nil {
+		return nil, err
 	}
 
 	return g.aggregateAndSelect()
@@ -175,6 +172,32 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 		_, err = scan(elem)
 		return err
 	})
+
+	return nil
+}
+
+// ScanAllLSM iterates over every row in the object buckets
+func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
+	b := store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return fmt.Errorf("objects bucket not found")
+	}
+
+	c := b.Cursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		elem, err := storobj.FromBinary(v)
+		if err != nil {
+			return errors.Wrapf(err, "unmarshal data object")
+		}
+
+		// scanAll has no abort, so we can ignore the first arg
+		_, err = scan(elem)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

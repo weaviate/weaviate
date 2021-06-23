@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	bolt "go.etcd.io/bbolt"
 )
 
 type filteredAggregator struct {
@@ -40,7 +39,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups = make([]aggregation.Group, 1)
 
 	s := fa.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache, nil,
+	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
 		fa.Aggregator.classSearcher, fa.deletedDocIDs).
 		DocIDs(ctx, fa.params.Filters, traverser.AdditionalProperties{},
 			fa.params.ClassName)
@@ -77,9 +76,8 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return true, nil
 	}
 
-	if err := fa.db.View(func(tx *bolt.Tx) error {
-		return docid.ScanObjectsInTx(tx, ids, scan)
-	}); err != nil {
+	err = docid.ScanObjectsLSM(fa.store, ids, scan)
+	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
 
