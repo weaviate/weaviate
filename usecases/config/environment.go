@@ -97,6 +97,23 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
+	config.AutoSchema.Enabled = true
+	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
+		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
+	}
+	config.AutoSchema.DefaultString = "text"
+	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
+		config.AutoSchema.DefaultString = v
+	}
+	config.AutoSchema.DefaultNumber = "number"
+	if v := os.Getenv("AUTOSCHEMA_DEFAULT_NUMBER"); v != "" {
+		config.AutoSchema.DefaultNumber = v
+	}
+	config.AutoSchema.DefaultDate = "date"
+	if v := os.Getenv("AUTOSCHEMA_DEFAULT_DATE"); v != "" {
+		config.AutoSchema.DefaultDate = v
+	}
+
 	return nil
 }
 
@@ -111,7 +128,7 @@ func enabled(value string) bool {
 	}
 
 	if value == "on" ||
-		value == "enabeld" ||
+		value == "enabled" ||
 		value == "1" ||
 		value == "true" {
 		return true

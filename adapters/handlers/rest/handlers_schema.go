@@ -25,9 +25,9 @@ type schemaHandlers struct {
 	manager *schemaUC.Manager
 }
 
-func (s *schemaHandlers) addObject(params schema.SchemaObjectsCreateParams,
+func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	err := s.manager.AddObject(params.HTTPRequest.Context(), principal, params.ObjectClass)
+	err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -42,7 +42,7 @@ func (s *schemaHandlers) addObject(params schema.SchemaObjectsCreateParams,
 	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
 }
 
-func (s *schemaHandlers) updateObject(params schema.SchemaObjectsUpdateParams,
+func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.UpdateClass(params.HTTPRequest.Context(), principal, params.ClassName,
 		params.ObjectClass)
@@ -64,7 +64,7 @@ func (s *schemaHandlers) updateObject(params schema.SchemaObjectsUpdateParams,
 	return schema.NewSchemaObjectsUpdateOK().WithPayload(params.ObjectClass)
 }
 
-func (s *schemaHandlers) getObject(params schema.SchemaObjectsGetParams,
+func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
 	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
@@ -85,8 +85,8 @@ func (s *schemaHandlers) getObject(params schema.SchemaObjectsGetParams,
 	return schema.NewSchemaObjectsGetOK().WithPayload(class)
 }
 
-func (s *schemaHandlers) deleteObject(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ClassName)
+func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteClass(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -100,9 +100,9 @@ func (s *schemaHandlers) deleteObject(params schema.SchemaObjectsDeleteParams, p
 	return schema.NewSchemaObjectsDeleteOK()
 }
 
-func (s *schemaHandlers) addObjectProperty(params schema.SchemaObjectsPropertiesAddParams,
+func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal) middleware.Responder {
-	err := s.manager.AddObjectProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -138,17 +138,17 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 	h := &schemaHandlers{manager}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.
-		SchemaObjectsCreateHandlerFunc(h.addObject)
+		SchemaObjectsCreateHandlerFunc(h.addClass)
 	api.SchemaSchemaObjectsDeleteHandler = schema.
-		SchemaObjectsDeleteHandlerFunc(h.deleteObject)
+		SchemaObjectsDeleteHandlerFunc(h.deleteClass)
 	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
-		SchemaObjectsPropertiesAddHandlerFunc(h.addObjectProperty)
+		SchemaObjectsPropertiesAddHandlerFunc(h.addClassProperty)
 
 	api.SchemaSchemaObjectsUpdateHandler = schema.
-		SchemaObjectsUpdateHandlerFunc(h.updateObject)
+		SchemaObjectsUpdateHandlerFunc(h.updateClass)
 
 	api.SchemaSchemaObjectsGetHandler = schema.
-		SchemaObjectsGetHandlerFunc(h.getObject)
+		SchemaObjectsGetHandlerFunc(h.getClass)
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
 }

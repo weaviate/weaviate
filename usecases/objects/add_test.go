@@ -51,19 +51,30 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		},
 	}
 
-	reset := func() {
+	resetAutoSchema := func(autoSchemaEnabled bool) {
 		vectorRepo = &fakeVectorRepo{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		cfg := &config.WeaviateConfig{}
+		cfg := &config.WeaviateConfig{
+			Config: config.Config{
+				AutoSchema: config.AutoSchema{
+					Enabled:       autoSchemaEnabled,
+					DefaultString: "string",
+				},
+			},
+		}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+	}
+
+	reset := func() {
+		resetAutoSchema(false)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -88,14 +99,37 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 
 		ctx := context.Background()
 		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-		class := &models.Object{
+		object := &models.Object{
 			Vector: []float32{0.1, 0.2, 0.3},
 			ID:     id,
 			Class:  "Foo",
 		}
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
-		res, err := manager.AddObject(ctx, nil, class)
+		res, err := manager.AddObject(ctx, nil, object)
+		require.Nil(t, err)
+		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
+
+		assert.Equal(t, id, uuidDuringCreation, "check that a uuid is the user specified one")
+		assert.Equal(t, res.ID, uuidDuringCreation, "check that connector add ID and user response match")
+	})
+
+	t.Run("with an explicit (correct) ID set and a property that doesn't exist", func(t *testing.T) {
+		resetAutoSchema(true)
+
+		ctx := context.Background()
+		id := strfmt.UUID("5aaad361-1e0d-42ae-bb52-ee09cb5f31cc")
+		object := &models.Object{
+			Vector: []float32{0.1, 0.2, 0.3},
+			ID:     id,
+			Class:  "Foo",
+			Properties: map[string]interface{}{
+				"newProperty": "string value",
+			},
+		}
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
+
+		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
@@ -202,11 +236,11 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		reset()
 
 		ctx := context.Background()
-		class := &models.Object{
+		object := &models.Object{
 			Class: "Foo",
 		}
 
-		res, err := manager.AddObject(ctx, nil, class)
+		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
 
 		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Object).ID
@@ -220,13 +254,13 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 		ctx := context.Background()
 		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-		class := &models.Object{
+		object := &models.Object{
 			ID:    id,
 			Class: "Foo",
 		}
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
-		res, err := manager.AddObject(ctx, nil, class)
+		res, err := manager.AddObject(ctx, nil, object)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
 		assert.Nil(t, err)
@@ -239,14 +273,14 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 		ctx := context.Background()
 		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-		class := &models.Object{
+		object := &models.Object{
 			ID:    id,
 			Class: "Foo",
 		}
 
 		vectorRepo.On("Exists", id).Return(true, nil).Once()
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
 	})
 
@@ -255,14 +289,14 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 		ctx := context.Background()
 		id := strfmt.UUID("5a1cd361-1e0d-4FOOOOOOO2ae-bd52-ee09cb5f31cc")
-		class := &models.Object{
+		object := &models.Object{
 			ID:    id,
 			Class: "Foo",
 		}
 
 		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
 	})
 }

@@ -18,8 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// DeleteObject Class to the schema
-func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, class string) error {
+// DeleteClass from the schema
+func (m *Manager) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
 	err := m.authorizer.Authorize(principal, "delete", "schema/objects")
 	if err != nil {
 		return err

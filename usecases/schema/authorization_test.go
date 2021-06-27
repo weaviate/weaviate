@@ -49,15 +49,9 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		testCase{
-			methodName:       "AddObject",
+			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
-			expectedResource: "schema/objects",
-		},
-		testCase{
-			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
 		testCase{
@@ -67,19 +61,25 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "DeleteObject",
+			methodName:       "UpdateObject",
+			additionalArgs:   []interface{}{"somename", &models.Class{}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
+		},
+		testCase{
+			methodName:       "DeleteClass",
 			additionalArgs:   []interface{}{"somename"},
 			expectedVerb:     "delete",
 			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "AddObjectProperty",
+			methodName:       "AddClassProperty",
 			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "UpdateObjectProperty",
+			methodName:       "UpdateClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
@@ -91,7 +91,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "DeleteObjectProperty",
+			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",

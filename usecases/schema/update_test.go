@@ -185,7 +185,7 @@ func TestClassUpdates(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				sm := newSchemaManager()
-				assert.Nil(t, sm.AddObject(context.Background(), nil, test.initial))
+				assert.Nil(t, sm.AddClass(context.Background(), nil, test.initial))
 				err := sm.UpdateClass(context.Background(), nil, test.initial.Class, test.update)
 				if test.expectedError == nil {
 					assert.Nil(t, err)
@@ -206,7 +206,7 @@ func TestClassUpdates(t *testing.T) {
 			sm.migrator = migrator
 
 			t.Run("create an initial class", func(t *testing.T) {
-				err := sm.AddObject(context.Background(), nil, &models.Class{
+				err := sm.AddClass(context.Background(), nil, &models.Class{
 					Class: "ClassWithVectorIndexConfig",
 					VectorIndexConfig: map[string]interface{}{
 						"setting-1": "value-1",
@@ -245,7 +245,7 @@ func TestClassUpdates(t *testing.T) {
 			sm.migrator = migrator
 
 			t.Run("create an initial class", func(t *testing.T) {
-				err := sm.AddObject(context.Background(), nil, &models.Class{
+				err := sm.AddClass(context.Background(), nil, &models.Class{
 					Class: "ClassWithVectorIndexConfig",
 					VectorIndexConfig: map[string]interface{}{
 						"setting-1": "value-1",

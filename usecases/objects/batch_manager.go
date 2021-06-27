@@ -28,6 +28,7 @@ type BatchManager struct {
 	authorizer         authorizer
 	vectorRepo         BatchVectorRepo
 	vectorizerProvider VectorizerProvider
+	autoSchemaManager  *autoSchemaManager
 }
 
 type BatchVectorRepo interface {
@@ -52,5 +53,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 		vectorRepo:         vectorRepo,
 		vectorizerProvider: vectorizer,
 		authorizer:         authorizer,
+		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config),
 	}
 }
