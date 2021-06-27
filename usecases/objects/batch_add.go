@@ -29,7 +29,7 @@ import (
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string) (BatchObjects, error) {
+	objects []*models.Object, fields []*string) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
-	return b.addObjects(ctx, principal, classes, fields)
+	return b.addObjects(ctx, principal, objects, fields)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
@@ -81,7 +81,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	// Generate a goroutine for each separate request
 	for i, object := range classes {
 		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
+		b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
 	}
 
 	wg.Wait()
@@ -96,6 +96,10 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	var id strfmt.UUID
 
 	ec := &errorCompounder{}
+
+	// Auto Schema
+	err := b.autoSchemaManager.autoSchema(ctx, principal, concept)
+	ec.add(err)
 
 	if concept.ID == "" {
 		// Generate UUID for the new object

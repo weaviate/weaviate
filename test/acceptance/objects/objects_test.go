@@ -24,7 +24,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
@@ -189,34 +188,36 @@ func creatingObjects(t *testing.T) {
 				assert.Equal(t, "invalid object: the given class is empty", err.Error[0].Message)
 			},
 		},
-		{
-			mistake: "non existing class",
-			object: func() *models.Object {
-				return &models.Object{
-					Class: "NonExistingClass",
-					Properties: map[string]interface{}{
-						"testString": "test",
-					},
-				}
-			},
-			errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-				assert.Equal(t, fmt.Sprintf("invalid object: class '%s' not present in schema", "NonExistingClass"), err.Error[0].Message)
-			},
-		},
-		{
-			mistake: "non existing property",
-			object: func() *models.Object {
-				return &models.Object{
-					Class: "TestObject",
-					Properties: map[string]interface{}{
-						"nonExistingProperty": "test",
-					},
-				}
-			},
-			errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-				assert.Equal(t, fmt.Sprintf("invalid object: "+schema.ErrorNoSuchProperty, "nonExistingProperty", "TestObject"), err.Error[0].Message)
-			},
-		},
+		// AUTO_SCHEMA creates classes automatically
+		// {
+		// 	mistake: "non existing class",
+		// 	object: func() *models.Object {
+		// 		return &models.Object{
+		// 			Class: "NonExistingClass",
+		// 			Properties: map[string]interface{}{
+		// 				"testString": "test",
+		// 			},
+		// 		}
+		// 	},
+		// 	errorCheck: func(t *testing.T, err *models.ErrorResponse) {
+		// 		assert.Equal(t, fmt.Sprintf("invalid object: class '%s' not present in schema", "NonExistingClass"), err.Error[0].Message)
+		// 	},
+		// },
+		// AUTO_SCHEMA creates missing properties automatically
+		// {
+		// 	mistake: "non existing property",
+		// 	object: func() *models.Object {
+		// 		return &models.Object{
+		// 			Class: "TestObject",
+		// 			Properties: map[string]interface{}{
+		// 				"nonExistingProperty": "test",
+		// 			},
+		// 		}
+		// 	},
+		// 	errorCheck: func(t *testing.T, err *models.ErrorResponse) {
+		// 		assert.Equal(t, fmt.Sprintf("invalid object: "+schema.ErrorNoSuchProperty, "nonExistingProperty", "TestObject"), err.Error[0].Message)
+		// 	},
+		// },
 		{
 			/* TODO gh-616: don't count nr of elements in validation. Just validate keys, and _also_ generate an error on superfluous keys.
 			   E.g.

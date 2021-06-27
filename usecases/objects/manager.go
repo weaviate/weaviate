@@ -42,6 +42,7 @@ type Manager struct {
 	vectorRepo         VectorRepo
 	timeSource         timeSource
 	modulesProvider    ModulesProvider
+	autoSchemaManager  *autoSchemaManager
 }
 
 type timeSource interface {
@@ -103,6 +104,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:         vectorRepo,
 		timeSource:         defaultTimeSource{},
 		modulesProvider:    modulesProvider,
+		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config),
 	}
 }
 

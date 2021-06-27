@@ -58,6 +58,38 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, nil
 }
 
+func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
+	class *models.Class) error {
+	if f.GetSchemaResponse.Objects == nil {
+		f.GetSchemaResponse.Objects = schema.Empty().Objects
+	}
+	classes := f.GetSchemaResponse.Objects.Classes
+	if classes != nil {
+		classes = append(classes, class)
+	} else {
+		classes = []*models.Class{class}
+	}
+	f.GetSchemaResponse.Objects.Classes = classes
+	return nil
+}
+
+func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
+	class string, property *models.Property) error {
+	classes := f.GetSchemaResponse.Objects.Classes
+	for _, c := range classes {
+		if c.Class == class {
+			props := c.Properties
+			if props != nil {
+				props = append(props, property)
+			} else {
+				props = []*models.Property{property}
+			}
+			c.Properties = props
+		}
+	}
+	return nil
+}
+
 type fakeLocks struct{}
 
 func (f *fakeLocks) LockConnector() (func() error, error) {
