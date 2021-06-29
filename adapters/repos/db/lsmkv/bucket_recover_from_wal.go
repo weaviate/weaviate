@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -19,7 +20,17 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (b *Bucket) recoverFromCommitLogs() error {
+func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
+	// the context is only ever checked once at the beginning, as there is no
+	// point in aborting an ongoing recovery. It makes more sense to let it
+	// complete and have the next recovery (this is called once per bucket) run
+	// into this error. This way in a crashloop we'd eventually recover each
+	// bucket until there is nothing left to recover and startup could complete
+	// in time
+	if err := ctx.Err(); err != nil {
+		return errors.Wrap(err, "recover commit log")
+	}
+
 	list, err := ioutil.ReadDir(b.dir)
 	if err != nil {
 		return err
@@ -61,7 +72,9 @@ func (b *Bucket) recoverFromCommitLogs() error {
 	}
 
 	if b.active.size > 0 {
-		return b.FlushAndSwitch()
+		if err := b.FlushAndSwitch(); err != nil {
+			return errors.Wrap(err, "flush memtable after WAL recovery")
+		}
 	}
 
 	// delete the commit logs as we can now be sure that they are part of a disk

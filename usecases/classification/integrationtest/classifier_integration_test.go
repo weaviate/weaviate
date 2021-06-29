@@ -52,7 +52,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 	vrepo := db.New(logger, db.Config{RootPath: dirName})
 	vrepo.SetSchemaGetter(sg)
-	err := vrepo.WaitForStartup(30 * time.Second)
+	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
 	migrator := db.NewMigrator(vrepo, logger)
 

@@ -64,7 +64,7 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
-	WaitForStartup(time.Duration) error
+	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
 
@@ -78,8 +78,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		fmt.Println(http.ListenAndServe(":6060", nil))
 	}()
 	ctx := context.Background()
-	// abort startup if it does not complete within 120s
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	appState := startupRoutine(ctx)
@@ -158,7 +157,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorRepo.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	err = vectorRepo.WaitForStartup(2 * time.Minute)
+	err = vectorRepo.WaitForStartup(ctx)
 	if err != nil {
 		appState.Logger.
 			WithError(err).
@@ -202,7 +201,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	err = initModules(ctx, appState)
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	err = initModules(moduleCtx, appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
