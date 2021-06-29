@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"os"
 
 	"github.com/pkg/errors"
@@ -23,7 +24,7 @@ import (
 // On init we get the current schema and create one index object per class.
 // They will in turn create shards which will either read an existing db file
 // from disk or create a new one if none exists
-func (d *DB) init() error {
+func (d *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(d.config.RootPath, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
@@ -44,7 +45,7 @@ func (d *DB) init() error {
 				}
 			}
 
-			idx, err := NewIndex(IndexConfig{
+			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
 			}, invertedConfig, class.VectorIndexConfig.(schema.VectorIndexConfig),

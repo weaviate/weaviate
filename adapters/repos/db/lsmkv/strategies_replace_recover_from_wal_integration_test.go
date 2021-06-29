@@ -40,7 +40,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 	}()
 
 	t.Run("without previous state", func(t *testing.T) {
-		b, err := NewBucket(dirNameOriginal, nullLogger(), WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -112,7 +112,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(dirNameRecovered, nullLogger(), WithStrategy(StrategyReplace))
+			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(), WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
 			// so big it effectively never triggers as part of this test
@@ -154,7 +154,7 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 	}()
 
 	t.Run("without prior state", func(t *testing.T) {
-		b, err := NewBucket(dirNameOriginal, nullLogger(),
+		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(),
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -253,7 +253,7 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(dirNameRecovered, nullLogger(),
+			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(),
 				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 

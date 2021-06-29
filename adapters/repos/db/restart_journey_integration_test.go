@@ -55,7 +55,7 @@ func TestRestartJourney(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(30 * time.Second)
+	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
@@ -168,7 +168,7 @@ func TestRestartJourney(t *testing.T) {
 
 		newRepo = New(logger, Config{RootPath: dirName})
 		newRepo.SetSchemaGetter(schemaGetter)
-		err := newRepo.WaitForStartup(30 * time.Second)
+		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)
 	})
 

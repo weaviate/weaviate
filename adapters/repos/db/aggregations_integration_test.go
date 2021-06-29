@@ -33,6 +33,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testCtx() context.Context {
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	return ctx
+}
+
 func Test_Aggregations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
@@ -46,7 +51,7 @@ func Test_Aggregations(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(30 * time.Second)
+	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 

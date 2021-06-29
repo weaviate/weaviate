@@ -47,7 +47,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	bucket, err := NewBucket(dirName, nullLogger(),
+	bucket, err := NewBucket(testCtx(), dirName, nullLogger(),
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -144,7 +144,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][][]byte, amount)
 
-	bucket, err := NewBucket(dirName, nullLogger(),
+	bucket, err := NewBucket(testCtx(), dirName, nullLogger(),
 		WithStrategy(StrategySetCollection),
 		WithMemtableThreshold(10000))
 	require.Nil(t, err)
@@ -239,7 +239,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]MapPair, amount)
 
-	bucket, err := NewBucket(dirName, nullLogger(),
+	bucket, err := NewBucket(testCtx(), dirName, nullLogger(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(t, err)

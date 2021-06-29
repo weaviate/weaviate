@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -32,8 +31,8 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	d.schemaGetter = sg
 }
 
-func (d *DB) WaitForStartup(time.Duration) error {
-	return d.init()
+func (d *DB) WaitForStartup(ctx context.Context) error {
+	return d.init(ctx)
 }
 
 func New(logger logrus.FieldLogger, config Config) *DB {

@@ -58,7 +58,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(30 * time.Second)
+	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
