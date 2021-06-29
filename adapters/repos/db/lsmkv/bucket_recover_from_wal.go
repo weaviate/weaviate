@@ -61,7 +61,9 @@ func (b *Bucket) recoverFromCommitLogs() error {
 	}
 
 	if b.active.size > 0 {
-		return b.FlushAndSwitch()
+		if err := b.FlushAndSwitch(); err != nil {
+			return errors.Wrap(err, "flush memtable after WAL recovery")
+		}
 	}
 
 	// delete the commit logs as we can now be sure that they are part of a disk
