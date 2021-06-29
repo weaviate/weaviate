@@ -54,12 +54,13 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.rootDir, bucketName)
 }
 
-func (s *Store) CreateOrLoadBucket(bucketName string, opts ...BucketOption) error {
+func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
+	opts ...BucketOption) error {
 	if _, ok := s.bucketsByName[bucketName]; ok {
 		return nil
 	}
 
-	b, err := NewBucket(s.bucketDir(bucketName), s.logger, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, opts...)
 	if err != nil {
 		return err
 	}

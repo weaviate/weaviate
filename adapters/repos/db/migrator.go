@@ -27,7 +27,7 @@ type Migrator struct {
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
-	idx, err := NewIndex(
+	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName: schema.ClassName(class.Class),
 			RootPath:  m.db.config.RootPath,

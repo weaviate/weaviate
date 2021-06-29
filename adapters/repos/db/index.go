@@ -49,7 +49,8 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig, invertedIndexConfig *models.InvertedIndexConfig,
+func NewIndex(ctx context.Context, config IndexConfig,
+	invertedIndexConfig *models.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{
@@ -64,7 +65,7 @@ func NewIndex(config IndexConfig, invertedIndexConfig *models.InvertedIndexConfi
 
 	// use explicit shard name "single" to indicate it's currently the only
 	// supported config
-	singleShard, err := NewShard("single", index)
+	singleShard, err := NewShard(ctx, "single", index)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init index %s", index.ID())
 	}
