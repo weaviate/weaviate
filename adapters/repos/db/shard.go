@@ -49,7 +49,7 @@ type Shard struct {
 	cleanupCancel    chan struct{}
 }
 
-func NewShard(shardName string, index *Index) (*Shard, error) {
+func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -89,7 +89,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		defer vi.PostStartup()
 	}
 
-	err := s.initDBFile()
+	err := s.initDBFile(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -116,7 +116,7 @@ func (s *Shard) DBPathLSM() string {
 	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
 }
 
-func (s *Shard) initDBFile() error {
+func (s *Shard) initDBFile(ctx context.Context) error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -127,7 +127,7 @@ func (s *Shard) initDBFile() error {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
 
-	err = store.CreateOrLoadBucket(helpers.ObjectsBucketLSM,
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndicies(1))
 	if err != nil {
@@ -170,14 +170,14 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	err := s.store.CreateOrLoadBucket(
+	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 
-	err = s.store.CreateOrLoadBucket(
+	err = s.store.CreateOrLoadBucket(ctx,
 		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
@@ -189,14 +189,14 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
-		err := s.store.CreateOrLoadBucket(
+		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategySetCollection)) // ref props do not have frequencies -> Set
 		if err != nil {
 			return err
 		}
 
-		err = s.store.CreateOrLoadBucket(
+		err = s.store.CreateOrLoadBucket(ctx,
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace))
 		if err != nil {
@@ -213,13 +213,13 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		strategy = lsmkv.StrategyMapCollection
 	}
 
-	err := s.store.CreateOrLoadBucket(helpers.BucketFromPropNameLSM(prop.Name),
+	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
 		lsmkv.WithStrategy(strategy))
 	if err != nil {
 		return err
 	}
 
-	err = s.store.CreateOrLoadBucket(helpers.HashBucketFromPropNameLSM(prop.Name),
+	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err

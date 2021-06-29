@@ -41,7 +41,7 @@ type Bucket struct {
 	stopFlushCycle chan struct{}
 }
 
-func NewBucket(dir string, logger logrus.FieldLogger,
+func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	opts ...BucketOption) (*Bucket, error) {
 	defaultThreshold := uint64(10 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
@@ -74,7 +74,7 @@ func NewBucket(dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	if err := b.recoverFromCommitLogs(); err != nil {
+	if err := b.recoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
 

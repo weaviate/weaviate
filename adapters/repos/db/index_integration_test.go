@@ -58,7 +58,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	logger, _ := test.NewNullLogger()
-	index, err := NewIndex(IndexConfig{
+	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
@@ -87,7 +87,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	logger, _ := test.NewNullLogger()
-	index, err := NewIndex(IndexConfig{
+	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
@@ -102,7 +102,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, testClassName)
 	require.Nil(t, err)
 
-	index, err = NewIndex(IndexConfig{
+	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath: dirName, ClassName: schema.ClassName(testClassName),
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{}, nil, logger)
 	require.Nil(t, err)
@@ -143,7 +143,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		},
 	}
 	// create index with data
-	index, err := NewIndex(IndexConfig{
+	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
@@ -194,7 +194,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	// recreate the index
-	index, err = NewIndex(IndexConfig{
+	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(testClassName),
 	}, invertedConfig(), hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{schema: fakeSchema}, nil, logger)

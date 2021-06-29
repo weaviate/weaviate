@@ -38,7 +38,7 @@ func TestStoreLifecycle(t *testing.T) {
 		store, err := New(dirName, nullLogger())
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket("bucket1", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b1 := store.Bucket("bucket1")
@@ -47,7 +47,7 @@ func TestStoreLifecycle(t *testing.T) {
 		err = b1.Put([]byte("name"), []byte("Jane Doe"))
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket("bucket2", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket2", WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b2 := store.Bucket("bucket2")
@@ -64,13 +64,13 @@ func TestStoreLifecycle(t *testing.T) {
 		store, err := New(dirName, nullLogger())
 		require.Nil(t, err)
 
-		err = store.CreateOrLoadBucket("bucket1", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b1 := store.Bucket("bucket1")
 		require.NotNil(t, b1)
 
-		err = store.CreateOrLoadBucket("bucket2", WithStrategy(StrategyReplace))
+		err = store.CreateOrLoadBucket(testCtx(), "bucket2", WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b2 := store.Bucket("bucket2")
