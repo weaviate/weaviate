@@ -48,6 +48,24 @@ func InitState(id string, config Config) (*State, error) {
 	return out, nil
 }
 
+func (s *State) Physical(in []byte) string {
+	if len(s.physical) == 0 {
+		panic("no physical shards present")
+	}
+
+	if len(s.virtual) == 0 {
+		panic("no virtual shards present")
+	}
+
+	h := murmur3.New64()
+	h.Write(in)
+	token := h.Sum64()
+
+	virtual := s.virtualByToken(token)
+
+	return virtual.AssignedToPhysical
+}
+
 func (s *State) initPhysical() error {
 	s.physical = map[string]Physical{}
 
@@ -130,6 +148,18 @@ func (s *State) virtualByName(name string) *Virtual {
 	}
 
 	return nil
+}
+
+func (s *State) virtualByToken(token uint64) *Virtual {
+	for i := range s.virtual {
+		if token > s.virtual[i].Upper {
+			continue
+		}
+
+		return &s.virtual[i]
+	}
+
+	return &s.virtual[0]
 }
 
 const shardNameChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
