@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 // AddObject Class to the schema
@@ -42,6 +43,11 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, principal, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
 		return err
 	}
@@ -149,6 +155,18 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	}
 
 	class.VectorIndexConfig = parsed
+
+	return nil
+}
+
+func (m *Manager) parseShardingConfig(ctx context.Context,
+	class *models.Class) error {
+	parsed, err := sharding.ParseConfig(class.ShardingConfig)
+	if err != nil {
+		return errors.Wrap(err, "parse vector index config")
+	}
+
+	class.ShardingConfig = parsed
 
 	return nil
 }

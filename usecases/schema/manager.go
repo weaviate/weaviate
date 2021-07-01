@@ -145,7 +145,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		schema = newSchema()
 	}
 
-	if err := m.parseVectorIndexConfigs(ctx, schema); err != nil {
+	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
 
@@ -168,10 +168,14 @@ func newSchema() *State {
 	}
 }
 
-func (m *Manager) parseVectorIndexConfigs(ctx context.Context, schema *State) error {
+func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
 		if err := m.parseVectorIndexConfig(ctx, class); err != nil {
-			return errors.Wrapf(err, "class %s", class.Class)
+			return errors.Wrapf(err, "class %s: vector index config", class.Class)
+		}
+
+		if err := m.parseShardingConfig(ctx, class); err != nil {
+			return errors.Wrapf(err, "class %s: sharding config", class.Class)
 		}
 	}
 
