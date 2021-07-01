@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
@@ -28,7 +29,6 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	initial := m.getClassByName(className)
-
 	if initial == nil {
 		return ErrNotFound
 	}
@@ -54,6 +54,15 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
+	}
+
+	if err := m.parseShardingConfig(ctx, updated); err != nil {
+		return err
+	}
+
+	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
+		updated.ShardingConfig.(sharding.Config)); err != nil {
+		return errors.Wrap(err, "sharding config")
 	}
 
 	*initial = *updated

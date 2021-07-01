@@ -45,6 +45,16 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"maxConnections":         float64(64),
 					"vectorCacheMaxObjects":  float64(2e6),
 				},
+				"shardingConfig": map[string]interface{}{
+					"actualCount":         float64(0),
+					"actualVirtualCount":  float64(0),
+					"desiredCount":        float64(1),
+					"desiredVirtualCount": float64(128),
+					"function":            "murmur3",
+					"strategy":            "hash",
+					"key":                 "_id",
+					"virtualPerPhysical":  float64(128),
+				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
 					"cleanupIntervalSeconds": float64(60),

@@ -500,6 +500,10 @@
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
         },
+        "shardingConfig": {
+          "description": "Manage how the index should be sharded and distributed in the cluster",
+          "type": "object"
+        },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },

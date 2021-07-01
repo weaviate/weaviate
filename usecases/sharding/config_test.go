@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package sharding
 
 import (
@@ -27,7 +38,7 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: DefaultVirtualPerPhysical * DefaultDesiredCount,
 				Key:                 DefaultKey,
 				Strategy:            DefaultStrategy,
-				ShardFunction:       DefaultFunction,
+				Function:            DefaultFunction,
 			},
 		},
 
@@ -47,7 +58,7 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				Key:                 "_id",
 				Strategy:            "hash",
-				ShardFunction:       "murmur3",
+				Function:            "murmur3",
 			},
 		},
 
@@ -67,7 +78,7 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				Key:                 "_id",
 				Strategy:            "hash",
-				ShardFunction:       "murmur3",
+				Function:            "murmur3",
 			},
 		},
 

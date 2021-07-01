@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package sharding
 
 import (
@@ -16,21 +27,21 @@ const (
 )
 
 type Config struct {
-	VirtualPerPhysical  int
-	DesiredCount        int
-	ActualCount         int
-	DesiredVirtualCount int
-	ActualVirtualCount  int
-	Key                 string
-	Strategy            string
-	ShardFunction       string
+	VirtualPerPhysical  int    `json:"virtualPerPhysical"`
+	DesiredCount        int    `json:"desiredCount"`
+	ActualCount         int    `json:"actualCount"`
+	DesiredVirtualCount int    `json:"desiredVirtualCount"`
+	ActualVirtualCount  int    `json:"actualVirtualCount"`
+	Key                 string `json:"key"`
+	Strategy            string `json:"strategy"`
+	Function            string `json:"function"`
 }
 
 func (c *Config) setDefaults() {
 	c.VirtualPerPhysical = DefaultVirtualPerPhysical
 	c.DesiredCount = DefaultDesiredCount
 	c.DesiredVirtualCount = c.DesiredCount * c.VirtualPerPhysical
-	c.ShardFunction = DefaultFunction
+	c.Function = DefaultFunction
 	c.Key = DefaultKey
 	c.Strategy = DefaultStrategy
 }
@@ -46,9 +57,9 @@ func (c *Config) validate() error {
 			"got: %s", c.Strategy)
 	}
 
-	if c.ShardFunction != "murmur3" {
+	if c.Function != "murmur3" {
 		return errors.Errorf("sharding only supported with function 'murmur3' for now, "+
-			"got: %s", c.ShardFunction)
+			"got: %s", c.Function)
 	}
 
 	return nil
@@ -100,7 +111,7 @@ func ParseConfig(input interface{}) (Config, error) {
 	}
 
 	if err := optionalStringFromMap(asMap, "function", func(v string) {
-		out.ShardFunction = v
+		out.Function = v
 	}); err != nil {
 		return out, err
 	}
