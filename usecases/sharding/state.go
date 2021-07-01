@@ -11,27 +11,27 @@ import (
 const shardNameLength = 12
 
 type State struct {
-	indexID  string // for monitoring, reporting purposes. Does not influence the shard-calculations
-	config   Config
-	physical map[string]Physical
-	virtual  []Virtual
+	IndexID  string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
+	Config   Config              `json:"config"`
+	Physical map[string]Physical `json:"physical"`
+	Virtual  []Virtual           `json:"virtual"`
 }
 
 type Virtual struct {
-	Name               string
-	Upper              uint64
-	OwnsPercentage     float64
-	AssignedToPhysical string
+	Name               string  `json:"name"`
+	Upper              uint64  `json:"upper"`
+	OwnsPercentage     float64 `json:"ownsPercentage"`
+	AssignedToPhysical string  `json:"assignedToPhysical"`
 }
 
 type Physical struct {
-	Name           string
-	OwnsVirtual    []string
-	OwnsPercentage float64
+	Name           string   `json:"name"`
+	OwnsVirtual    []string `json:"ownsVirtual"`
+	OwnsPercentage float64  `json:"ownsPercentage"`
 }
 
 func InitState(id string, config Config) (*State, error) {
-	out := &State{config: config, indexID: id}
+	out := &State{Config: config, IndexID: id}
 
 	if err := out.initPhysical(); err != nil {
 		return nil, err
@@ -48,12 +48,12 @@ func InitState(id string, config Config) (*State, error) {
 	return out, nil
 }
 
-func (s *State) Physical(in []byte) string {
-	if len(s.physical) == 0 {
+func (s *State) PhysicalShard(in []byte) string {
+	if len(s.Physical) == 0 {
 		panic("no physical shards present")
 	}
 
-	if len(s.virtual) == 0 {
+	if len(s.Virtual) == 0 {
 		panic("no virtual shards present")
 	}
 
@@ -67,39 +67,39 @@ func (s *State) Physical(in []byte) string {
 }
 
 func (s *State) initPhysical() error {
-	s.physical = map[string]Physical{}
+	s.Physical = map[string]Physical{}
 
-	for i := 0; i < s.config.DesiredCount; i++ {
+	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
-		s.physical[name] = Physical{Name: name}
+		s.Physical[name] = Physical{Name: name}
 	}
 
 	return nil
 }
 
 func (s *State) initVirtual() error {
-	count := s.config.DesiredVirtualCount
-	s.virtual = make([]Virtual, count)
+	count := s.Config.DesiredVirtualCount
+	s.Virtual = make([]Virtual, count)
 
-	for i := range s.virtual {
+	for i := range s.Virtual {
 		name := generateShardName()
 		h := murmur3.New64()
 		h.Write([]byte(name))
-		s.virtual[i] = Virtual{Name: name, Upper: h.Sum64()}
+		s.Virtual[i] = Virtual{Name: name, Upper: h.Sum64()}
 	}
 
-	sort.Slice(s.virtual, func(a, b int) bool {
-		return s.virtual[a].Upper < s.virtual[b].Upper
+	sort.Slice(s.Virtual, func(a, b int) bool {
+		return s.Virtual[a].Upper < s.Virtual[b].Upper
 	})
 
-	for i := range s.virtual {
+	for i := range s.Virtual {
 		var tokenCount uint64
 		if i == 0 {
-			tokenCount = s.virtual[0].Upper + (math.MaxUint64 - s.virtual[len(s.virtual)-1].Upper)
+			tokenCount = s.Virtual[0].Upper + (math.MaxUint64 - s.Virtual[len(s.Virtual)-1].Upper)
 		} else {
-			tokenCount = s.virtual[i].Upper - s.virtual[i-1].Upper
+			tokenCount = s.Virtual[i].Upper - s.Virtual[i-1].Upper
 		}
-		s.virtual[i].OwnsPercentage = float64(tokenCount) / float64(math.MaxUint64)
+		s.Virtual[i].OwnsPercentage = float64(tokenCount) / float64(math.MaxUint64)
 
 	}
 
@@ -110,17 +110,17 @@ func (s *State) initVirtual() error {
 // want to support dynamic sharding, we need to come up with something better
 // than this
 func (s *State) distributeVirtualAmongPhysical() error {
-	ids := make([]string, len(s.virtual))
-	for i, v := range s.virtual {
+	ids := make([]string, len(s.Virtual))
+	for i, v := range s.Virtual {
 		ids[i] = v.Name
 	}
 
-	rand.Shuffle(len(s.virtual), func(a, b int) {
+	rand.Shuffle(len(s.Virtual), func(a, b int) {
 		ids[a], ids[b] = ids[b], ids[a]
 	})
 
-	physicalIDs := make([]string, 0, len(s.physical))
-	for name := range s.physical {
+	physicalIDs := make([]string, 0, len(s.Physical))
+	for name := range s.Physical {
 		physicalIDs = append(physicalIDs, name)
 	}
 
@@ -129,10 +129,10 @@ func (s *State) distributeVirtualAmongPhysical() error {
 
 		virtual := s.virtualByName(vid)
 		virtual.AssignedToPhysical = pickedPhysical
-		physical := s.physical[pickedPhysical]
+		physical := s.Physical[pickedPhysical]
 		physical.OwnsVirtual = append(physical.OwnsVirtual, vid)
 		physical.OwnsPercentage += virtual.OwnsPercentage
-		s.physical[pickedPhysical] = physical
+		s.Physical[pickedPhysical] = physical
 	}
 
 	return nil
@@ -141,9 +141,9 @@ func (s *State) distributeVirtualAmongPhysical() error {
 // uses linear search, but should only be used during shard init and udpate
 // operations, not in regular
 func (s *State) virtualByName(name string) *Virtual {
-	for i := range s.virtual {
-		if s.virtual[i].Name == name {
-			return &s.virtual[i]
+	for i := range s.Virtual {
+		if s.Virtual[i].Name == name {
+			return &s.Virtual[i]
 		}
 	}
 
@@ -151,15 +151,15 @@ func (s *State) virtualByName(name string) *Virtual {
 }
 
 func (s *State) virtualByToken(token uint64) *Virtual {
-	for i := range s.virtual {
-		if token > s.virtual[i].Upper {
+	for i := range s.Virtual {
+		if token > s.Virtual[i].Upper {
 			continue
 		}
 
-		return &s.virtual[i]
+		return &s.Virtual[i]
 	}
 
-	return &s.virtual[0]
+	return &s.Virtual[0]
 }
 
 const shardNameChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
