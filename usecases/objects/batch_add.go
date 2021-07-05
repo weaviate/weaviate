@@ -81,7 +81,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	// Generate a goroutine for each separate request
 	for i, object := range classes {
 		wg.Add(1)
-		b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
+		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
 	}
 
 	wg.Wait()
