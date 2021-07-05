@@ -233,12 +233,15 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
 	assert.Equal(t, 3, len((schemaAfter.Objects.Classes)[0].Properties))
-	assert.Equal(t, "name", (schemaAfter.Objects.Classes)[0].Properties[0].Name)
-	assert.Equal(t, "string", (schemaAfter.Objects.Classes)[0].Properties[0].DataType[0])
-	assert.Equal(t, "age", (schemaAfter.Objects.Classes)[0].Properties[1].Name)
-	assert.Equal(t, "number", (schemaAfter.Objects.Classes)[0].Properties[1].DataType[0])
-	assert.Equal(t, "publicationDate", (schemaAfter.Objects.Classes)[0].Properties[2].Name)
-	assert.Equal(t, "date", (schemaAfter.Objects.Classes)[0].Properties[2].DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
+	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
+	assert.Equal(t, "string", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
+	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
+	assert.Equal(t, "number", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
+	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
+	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
@@ -299,10 +302,22 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
 	assert.Equal(t, 3, len((schemaAfter.Objects.Classes)[0].Properties))
-	assert.Equal(t, "age", (schemaAfter.Objects.Classes)[0].Properties[0].Name)
-	assert.Equal(t, "int", (schemaAfter.Objects.Classes)[0].Properties[0].DataType[0])
-	assert.Equal(t, "name", (schemaAfter.Objects.Classes)[0].Properties[1].Name)
-	assert.Equal(t, "string", (schemaAfter.Objects.Classes)[0].Properties[1].DataType[0])
-	assert.Equal(t, "publicationDate", (schemaAfter.Objects.Classes)[0].Properties[2].Name)
-	assert.Equal(t, "date", (schemaAfter.Objects.Classes)[0].Properties[2].DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
+	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
+	assert.Equal(t, "int", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
+	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
+	assert.Equal(t, "string", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
+	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
+	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
+}
+
+func getProperty(properties []*models.Property, name string) *models.Property {
+	for _, prop := range properties {
+		if prop.Name == name {
+			return prop
+		}
+	}
+	return nil
 }
