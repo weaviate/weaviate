@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 type autoSchemaManager struct {
@@ -31,14 +32,16 @@ type autoSchemaManager struct {
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
+	logger        logrus.FieldLogger
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig) *autoSchemaManager {
+	config *config.WeaviateConfig, logger logrus.FieldLogger) *autoSchemaManager {
 	return &autoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
+		logger:        logger,
 	}
 }
 
@@ -77,6 +80,9 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 		Properties:  properties,
 		Description: "Auto generated class",
 	}
+	m.logger.
+		WithField("auto_schema", "createClass").
+		Debugf("create class %s", className)
 	return m.schemaManager.AddClass(ctx, principal, class)
 }
 
@@ -98,6 +104,9 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 		}
 	}
 	for _, newProp := range propertiesToAdd {
+		m.logger.
+			WithField("auto_schema", "updateClass").
+			Debugf("update class %s add property %s", className, newProp.Name)
 		err := m.schemaManager.AddClassProperty(ctx, principal, className, newProp)
 		if err != nil {
 			return err

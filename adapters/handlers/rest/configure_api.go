@@ -247,6 +247,11 @@ func startupRoutine(ctx context.Context) *state.State {
 		"schema classes without an explicit vectorizer setting, will use this "+
 		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
 
+	logger.WithFields(logrus.Fields{
+		"action":              "startup",
+		"auto_schema_enabled": serverConfig.Config.AutoSchema.Enabled,
+	}).Infof("auto schema enabled setting is set to \"%v\"", serverConfig.Config.AutoSchema.Enabled)
+
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")
 
