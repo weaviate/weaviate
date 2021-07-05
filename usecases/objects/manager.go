@@ -104,7 +104,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:         vectorRepo,
 		timeSource:         defaultTimeSource{},
 		modulesProvider:    modulesProvider,
-		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config),
+		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
 	}
 }
 

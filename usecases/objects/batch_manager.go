@@ -53,6 +53,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 		vectorRepo:         vectorRepo,
 		vectorizerProvider: vectorizer,
 		authorizer:         authorizer,
-		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config),
+		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
 	}
 }
