@@ -59,16 +59,27 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 		// stop performing auto schema
 		return fmt.Errorf(validation.ErrorMissingClass)
 	}
-	s, err := m.schemaManager.GetSchema(principal)
+	schemaClass, err := m.getClass(principal, object)
 	if err != nil {
 		return err
 	}
-	schemaClass := s.GetClass(schema.ClassName(object.Class))
 	properties := m.getProperties(object)
 	if schemaClass == nil {
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
 	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
+}
+
+func (m *autoSchemaManager) getClass(principal *models.Principal,
+	object *models.Object) (*models.Class, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	s, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return nil, err
+	}
+	schemaClass := s.GetClass(schema.ClassName(object.Class))
+	return schemaClass, nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,

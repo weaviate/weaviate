@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &autoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
@@ -212,6 +214,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -249,6 +252,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	vectorRepo := &fakeVectorRepo{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
+	logger, _ := test.NewNullLogger()
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema.Schema{
 			Objects: &models.Schema{
@@ -275,6 +279,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			DefaultNumber: "int",
 			DefaultDate:   "date",
 		},
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
