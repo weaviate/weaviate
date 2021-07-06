@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	initialSize             = 10000
-	defaultIndexGrowthDelta = 10000
+	initialSize             = 25000
+	defaultIndexGrowthDelta = 25000
 )
 
 // growIndexToAccomodateNode is a wrapper around the growIndexToAccomodateNode
