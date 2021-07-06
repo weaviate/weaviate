@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -89,5 +90,20 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 }
 
 func (b *Bucket) parseWALIntoMemtable(fname string) error {
-	return newCommitLoggerParser(fname, b.active).Do()
+	err := newCommitLoggerParser(fname, b.active).Do()
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// we need to check for both EOF or UnexpectedEOF, as we don't know where
+		// the commit log got corrupted, a field ending that weset a longer
+		// encoding for would return EOF, whereas a field read with binary.Read
+		// with a fixed size would return UnexpectedEOF. From our perspective both
+		// are unexpected.
+
+		b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
+			WithField("path", filepath.Join(b.dir, fname)).
+			Error("write-ahead-log ended abruptly, some elements may not have been recovered")
+
+		return nil
+	}
+
+	return err
 }
