@@ -48,6 +48,7 @@ type Config struct {
 	DefaultVectorizerModule string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	EnableModules           string         `json:"enable_modules" yaml:"enable_modules"`
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
+	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 }
 
 type moduleProvider interface {
@@ -70,6 +71,27 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	}
 
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
+}
+
+type AutoSchema struct {
+	Enabled       bool   `json:"enabled" yaml:"enabled"`
+	DefaultString string `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
+}
+
+func (a AutoSchema) Validate() error {
+	if a.DefaultNumber != "int" && a.DefaultNumber != "number" {
+		return fmt.Errorf("autoSchema.defaultNumber must be either 'int' or 'number")
+	}
+	if a.DefaultString != "string" && a.DefaultString != "text" {
+		return fmt.Errorf("autoSchema.defaultString must be either 'string' or 'text")
+	}
+	if a.DefaultDate != "date" && a.DefaultDate != "string" && a.DefaultDate != "text" {
+		return fmt.Errorf("autoSchema.defaultDate must be either 'date' or 'string' or 'text")
+	}
+
+	return nil
 }
 
 // QueryDefaults for optional parameters
@@ -155,6 +177,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.Persistence.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
+
+	if err := f.Config.AutoSchema.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
 	}
 

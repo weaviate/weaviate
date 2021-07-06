@@ -108,7 +108,7 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
 			DataType: []string{"string"},
@@ -138,7 +138,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {
 	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Vectorizer:      config.VectorizerModuleText2VecContextionary,
 		VectorIndexType: "hnsw",
 		Class:           "Car",
@@ -166,7 +166,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, lsm *Manager) {
 	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
 			DataType: []string{"string"},
@@ -191,7 +191,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, lsm *Manager) {
 	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Vectorizer: "vectorizer-5000000",
 		Properties: []*models.Property{{
@@ -211,7 +211,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 	objectClassesNames := testGetClassNames(lsm)
 	assert.NotContains(t, objectClassesNames, "Car")
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:           "Car",
 		VectorIndexType: "vector-index-2-million",
 		Properties: []*models.Property{{
@@ -228,7 +228,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, lsm *Manager) {
 func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
@@ -244,7 +244,7 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 	assert.Contains(t, objectClasses, "Car")
 
 	// Now delete the class
-	err = lsm.DeleteObject(context.Background(), nil, "Car")
+	err = lsm.DeleteClass(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 
 	objectClasses = testGetClassNames(lsm)
@@ -254,7 +254,7 @@ func testRemoveObjectClass(t *testing.T, lsm *Manager) {
 func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
@@ -267,7 +267,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add it again
-	err = lsm.AddObject(context.Background(), nil, &models.Class{
+	err = lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
@@ -283,7 +283,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
@@ -296,7 +296,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
-	err = lsm.AddObject(context.Background(), nil, &models.Class{
+	err = lsm.AddClass(context.Background(), nil, &models.Class{
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -349,7 +349,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -378,7 +378,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -392,7 +392,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Ma
 		{Name: "color", DataType: []string{""}},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -411,7 +411,7 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -422,7 +422,7 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 	assert.Len(t, objectClasses[0].Properties, 1)
 
 	// Now drop the property
-	lsm.DeleteObjectProperty(context.Background(), nil, "Car", "color")
+	lsm.DeleteClassProperty(context.Background(), nil, "Car", "color")
 
 	objectClasses = testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
@@ -437,7 +437,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -465,7 +465,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddObject(context.Background(), nil, &models.Class{
+	err := lsm.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})

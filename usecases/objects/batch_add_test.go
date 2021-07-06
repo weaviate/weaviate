@@ -52,9 +52,15 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		},
 	}
 
-	reset := func() {
+	resetAutoSchema := func(autoSchema bool) {
 		vectorRepo = &fakeVectorRepo{}
-		config := &config.WeaviateConfig{}
+		config := &config.WeaviateConfig{
+			Config: config.Config{
+				AutoSchema: config.AutoSchema{
+					Enabled: autoSchema,
+				},
+			},
+		}
 		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -67,6 +73,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			schemaManager, config, logger, authorizer)
 	}
 
+	reset := func() {
+		resetAutoSchema(false)
+	}
 	ctx := context.Background()
 
 	t.Run("without any objects", func(t *testing.T) {
@@ -89,6 +98,37 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			},
 			{
 				Class:  "Foo",
+				Vector: []float32{0.2, 0.2, 0.2222},
+			},
+		}
+
+		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
+		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+
+		assert.Nil(t, err)
+		require.Len(t, repoCalledWithObjects, 2)
+		assert.Len(t, repoCalledWithObjects[0].UUID, 36,
+			"a uuid was set for the first object")
+		assert.Len(t, repoCalledWithObjects[1].UUID, 36,
+			"a uuid was set for the second object")
+		assert.Nil(t, repoCalledWithObjects[0].Err)
+		assert.Nil(t, repoCalledWithObjects[1].Err)
+		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Vector,
+			"the correct vector was used")
+		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Vector,
+			"the correct vector was used")
+	})
+
+	t.Run("with objects without IDs and nonexistent class and auto schema enabled", func(t *testing.T) {
+		resetAutoSchema(true)
+		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objects := []*models.Object{
+			{
+				Class:  "NonExistentFoo",
+				Vector: []float32{0.1, 0.1, 0.1111},
+			},
+			{
+				Class:  "NonExistentFoo",
 				Vector: []float32{0.2, 0.2, 0.2222},
 			},
 		}
