@@ -21,8 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
-// AddObject Class to the schema
-func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
+// AddClass to the schema
+func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class) error {
 	err := m.authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {

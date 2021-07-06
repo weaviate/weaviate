@@ -18,8 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-// UpdateObjectProperty of an existing Object Property
-func (m *Manager) UpdateObjectProperty(ctx context.Context, principal *models.Principal,
+// UpdateClassProperty of an existing Object Property
+func (m *Manager) UpdateClassProperty(ctx context.Context, principal *models.Principal,
 	class string, name string, property *models.Property) error {
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {

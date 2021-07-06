@@ -18,8 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// DeleteObjectProperty to an existing Object
-func (m *Manager) DeleteObjectProperty(ctx context.Context, principal *models.Principal,
+// DeleteClassProperty from existing Schema
+func (m *Manager) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string) error {
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {

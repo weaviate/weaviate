@@ -60,7 +60,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -84,7 +84,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -111,7 +111,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now try to update
@@ -146,7 +146,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now update
@@ -217,7 +217,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -246,7 +246,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -279,7 +279,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					property := &models.Property{
@@ -289,7 +289,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 							"text2vec-contextionary": map[string]interface{}{},
 						},
 					}
-					err = m.AddObjectProperty(context.Background(), nil, "ValidName", property)
+					err = m.AddClassProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -318,7 +318,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -353,14 +353,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					updatedProperty := &models.Property{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
-					err = m.UpdateObjectProperty(context.Background(), nil, "ValidName", originalName, updatedProperty)
+					err = m.UpdateClassProperty(context.Background(), nil, "ValidName", originalName, updatedProperty)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -389,7 +389,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddObject(context.Background(), nil, class)
+					err := m.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
