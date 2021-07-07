@@ -77,6 +77,19 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
+func (s *State) AllPhysicalShards() []string {
+	var names []string
+	for _, physical := range s.Physical {
+		names = append(names, physical.Name)
+	}
+
+	sort.Slice(names, func(a, b int) bool {
+		return names[a] < names[b]
+	})
+
+	return names
+}
+
 func (s *State) initPhysical() error {
 	s.Physical = map[string]Physical{}
 

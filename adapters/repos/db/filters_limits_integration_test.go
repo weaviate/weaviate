@@ -63,9 +63,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, singleShardState()))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, singleShardState()))
 
 		schemaGetter.schema = schema
 	})
@@ -159,9 +159,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, singleShardState()))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, singleShardState()))
 
 		schemaGetter.schema = schema
 	})
@@ -285,9 +285,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, singleShardState()))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, singleShardState()))
 
 		schemaGetter.schema = schema
 	})

@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,8 @@ import (
 // Refactor!
 type NilMigrator struct{}
 
-func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class) error {
+func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,
+	shardingState *sharding.State) error {
 	return nil
 }
 

@@ -106,7 +106,7 @@ func Test_MergingObjects(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, singleShardState())
 				require.Nil(t, err)
 			})
 		}

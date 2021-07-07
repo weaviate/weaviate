@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,6 +46,7 @@ type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
+	ShardingState(class string) *sharding.State
 }
 
 type VectorizerValidator interface {
@@ -98,7 +100,8 @@ type authorizer interface {
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {
-	ObjectSchema *models.Schema `json:"object"`
+	ObjectSchema  *models.Schema `json:"object"`
+	ShardingState map[string]*sharding.State
 }
 
 // SchemaFor a specific kind
@@ -165,6 +168,7 @@ func newSchema() *State {
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{},
 		},
+		ShardingState: map[string]*sharding.State{},
 	}
 }
 

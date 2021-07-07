@@ -91,7 +91,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), carClass))
+				migrator.AddClass(context.Background(), carClass, singleShardState()))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
@@ -635,7 +635,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), class)
+		migrator.AddClass(context.Background(), class, singleShardState())
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
@@ -796,7 +796,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
+			migrator.AddClass(context.Background(), class, singleShardState()))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,

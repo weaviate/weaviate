@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -37,6 +38,10 @@ type fakeSchemaGetter struct {
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+	panic("not implemented")
 }
 
 type fakeClassificationRepo struct {

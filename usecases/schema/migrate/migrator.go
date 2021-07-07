@@ -19,11 +19,12 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 // Migrator represents both the input and output interface of the Composer
 type Migrator interface {
-	AddClass(ctx context.Context, class *models.Class) error
+	AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 	DropClass(ctx context.Context, className string) error
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error

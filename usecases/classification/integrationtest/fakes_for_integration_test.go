@@ -25,14 +25,34 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type fakeSchemaGetter struct {
-	schema schema.Schema
+	schema     schema.Schema
+	shardState *sharding.State
 }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+	return f.shardState
+}
+
+func singleShardState() *sharding.State {
+	config, err := sharding.ParseConfig(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	s, err := sharding.InitState("test-index", config)
+	if err != nil {
+		panic(err)
+	}
+
+	return s
 }
 
 type fakeClassificationRepo struct {

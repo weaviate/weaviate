@@ -89,12 +89,12 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
+			migrator.AddClass(context.Background(), thingclass, singleShardState()))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), actionclass))
+			migrator.AddClass(context.Background(), actionclass, singleShardState()))
 	})
 
 	// update schema getter so it's in sync with class

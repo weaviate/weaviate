@@ -80,7 +80,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
+			migrator.AddClass(context.Background(), class, singleShardState()))
 
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
