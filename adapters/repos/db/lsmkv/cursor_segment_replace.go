@@ -16,13 +16,15 @@ import (
 )
 
 type segmentCursorReplace struct {
-	segment    *segment
-	nextOffset uint64
+	segment      *segment
+	nextOffset   uint64
+	reusableNode *segmentReplaceNode
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
-		segment: s,
+		segment:      s,
+		reusableNode: &segmentReplaceNode{},
 	}
 }
 
@@ -46,15 +48,15 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	parsed, err := s.segment.replaceStratParseDataWithKey(
-		s.segment.contents[node.Start:node.End])
+	err = s.segment.replaceStratParseDataWithKeyInto(
+		s.segment.contents[node.Start:node.End], s.reusableNode)
 	if err != nil {
-		return parsed.primaryKey, nil, err
+		return s.reusableNode.primaryKey, nil, err
 	}
 
 	s.nextOffset = node.End
 
-	return parsed.primaryKey, parsed.value, nil
+	return s.reusableNode.primaryKey, s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
@@ -62,31 +64,31 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, NotFound
 	}
 
-	parsed, err := s.segment.replaceStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+	err := s.segment.replaceStratParseDataWithKeyInto(
+		s.segment.contents[s.nextOffset:], s.reusableNode)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.offset)
+	s.nextOffset = s.nextOffset + uint64(s.reusableNode.offset)
 	if err != nil {
-		return parsed.primaryKey, nil, err
+		return s.reusableNode.primaryKey, nil, err
 	}
 
-	return parsed.primaryKey, parsed.value, nil
+	return s.reusableNode.primaryKey, s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
-	parsed, err := s.segment.replaceStratParseDataWithKey(
-		s.segment.contents[s.nextOffset:])
+	err := s.segment.replaceStratParseDataWithKeyInto(
+		s.segment.contents[s.nextOffset:], s.reusableNode)
 	if err != nil {
-		return parsed.primaryKey, nil, err
+		return s.reusableNode.primaryKey, nil, err
 	}
 
-	s.nextOffset = s.nextOffset + uint64(parsed.offset)
+	s.nextOffset = s.nextOffset + uint64(s.reusableNode.offset)
 
-	return parsed.primaryKey, parsed.value, nil
+	return s.reusableNode.primaryKey, s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
