@@ -21,6 +21,7 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -56,6 +57,41 @@ func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, princ
 
 func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schema, error) {
 	return f.GetSchemaResponse, nil
+}
+
+func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
+	class *models.Class) error {
+	if f.GetSchemaResponse.Objects == nil {
+		f.GetSchemaResponse.Objects = schema.Empty().Objects
+	}
+	class.VectorIndexConfig = hnsw.UserConfig{}
+	class.VectorIndexType = "hnsw"
+	class.Vectorizer = "none"
+	classes := f.GetSchemaResponse.Objects.Classes
+	if classes != nil {
+		classes = append(classes, class)
+	} else {
+		classes = []*models.Class{class}
+	}
+	f.GetSchemaResponse.Objects.Classes = classes
+	return nil
+}
+
+func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
+	class string, property *models.Property) error {
+	classes := f.GetSchemaResponse.Objects.Classes
+	for _, c := range classes {
+		if c.Class == class {
+			props := c.Properties
+			if props != nil {
+				props = append(props, property)
+			} else {
+				props = []*models.Property{property}
+			}
+			c.Properties = props
+		}
+	}
+	return nil
 }
 
 type fakeLocks struct{}
