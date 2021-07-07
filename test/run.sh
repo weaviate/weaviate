@@ -86,4 +86,4 @@ function echo_red() {
   echo -e "${green}${*}${nc}"
 }
 
-main "${@}"
+main "$@"

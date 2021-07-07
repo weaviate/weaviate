@@ -75,9 +75,11 @@ func Test_Objects(t *testing.T) {
 	t.Run("creating objects", creatingObjects)
 
 	t.Run("custom vector journey", customVectors)
+	t.Run("auto schema", autoSchemaObjects)
 	// tear down
 	deleteObjectClass(t, "TestObject")
 	deleteObjectClass(t, "TestObjectCustomVector")
+	deleteObjectClass(t, "NonExistingClass")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {

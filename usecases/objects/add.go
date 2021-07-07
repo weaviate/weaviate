@@ -22,15 +22,20 @@ import (
 )
 
 type schemaManager interface {
-	UpdatePropertyAddDataType(context.Context, *models.Principal, string, string, string) error
+	UpdatePropertyAddDataType(context.Context, *models.Principal,
+		string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
+	AddClass(ctx context.Context, principal *models.Principal,
+		class *models.Class) error
+	AddClassProperty(ctx context.Context, principal *models.Principal,
+		class string, property *models.Property) error
 }
 
 // AddObject Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
-	class *models.Object) (*models.Object, error) {
+	object *models.Object) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
 		return nil, err
@@ -42,7 +47,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, class)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object)
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context,
@@ -65,39 +70,44 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context,
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	class *models.Object) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, class.ID)
+	object *models.Object) (*models.Object, error) {
+	id, err := m.checkIDOrAssignNew(ctx, object.ID)
 	if err != nil {
 		return nil, err
 	}
-	class.ID = id
+	object.ID = id
 
-	err = m.validateObject(ctx, principal, class)
+	err = m.autoSchemaManager.autoSchema(ctx, principal, object)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+	}
+
+	err = m.validateObject(ctx, principal, object)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	now := m.timeSource.Now()
-	class.CreationTimeUnix = now
-	class.LastUpdateTimeUnix = now
+	object.CreationTimeUnix = now
+	object.LastUpdateTimeUnix = now
 
-	err = m.vectorizeAndPutObject(ctx, class, principal)
+	err = m.vectorizeAndPutObject(ctx, object, principal)
 	if err != nil {
 		return nil, err
 	}
 
-	return class, nil
+	return object, nil
 }
 
-func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Object,
+func (m *Manager) vectorizeAndPutObject(ctx context.Context, object *models.Object,
 	principal *models.Principal) error {
 	err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
-		m.logger).Do(ctx, class, principal)
+		m.logger).Do(ctx, object, principal)
 	if err != nil {
 		return err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, class, class.Vector)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector)
 	if err != nil {
 		return NewErrInternal("store: %v", err)
 	}
@@ -105,9 +115,9 @@ func (m *Manager) vectorizeAndPutObject(ctx context.Context, class *models.Objec
 	return nil
 }
 
-func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, class *models.Object) error {
+func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, object *models.Object) error {
 	// Validate schema given in body with the weaviate schema
-	if _, err := uuid.Parse(class.ID.String()); err != nil {
+	if _, err := uuid.Parse(object.ID.String()); err != nil {
 		return err
 	}
 
@@ -116,7 +126,7 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	return validation.New(s, m.exists, m.config).Object(ctx, class)
+	return validation.New(s, m.exists, m.config).Object(ctx, object)
 }
 
 func (m *Manager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
