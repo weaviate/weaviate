@@ -107,3 +107,23 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 
 	return out, nil
 }
+
+func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
+	node *segmentReplaceNode) error {
+	if len(in) == 0 {
+		return NotFound
+	}
+
+	r := bytes.NewReader(in)
+
+	err := ParseReplaceNodeInto(r, i.secondaryIndexCount, node)
+	if err != nil {
+		return err
+	}
+
+	if node.tombstone {
+		return Deleted
+	}
+
+	return nil
+}
