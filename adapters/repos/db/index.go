@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -50,7 +51,7 @@ func (i Index) ID() string {
 
 // NewIndex - for now - always creates a single-shard index
 func NewIndex(ctx context.Context, config IndexConfig,
-	invertedIndexConfig *models.InvertedIndexConfig,
+	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{
@@ -61,6 +62,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+	}
+
+	for _, shardName := range shardState.AllPhysicalShards() {
+		shard, err := NewShard(ctx, shardName, index)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
+		}
+
+		index.Shards[shardName] = shard
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
@@ -261,6 +271,16 @@ func (i *Index) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "delete shard %s", shard.ID())
 	}
+
+	for _, name := range i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards() {
+		shard := i.Shards[name]
+		err := shard.drop()
+		if err != nil {
+			return errors.Wrapf(err, "delete shard %s", shard.ID())
+		}
+	}
+
 	return nil
 }
 

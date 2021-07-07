@@ -71,7 +71,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
+			migrator.AddClass(context.Background(), thingclass, singleShardState()))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{

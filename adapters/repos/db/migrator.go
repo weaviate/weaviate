@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,12 +27,14 @@ type Migrator struct {
 	logger logrus.FieldLogger
 }
 
-func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
+	shardState *sharding.State) error {
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName: schema.ClassName(class.Class),
 			RootPath:  m.db.config.RootPath,
 		},
+		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		class.InvertedIndexConfig,

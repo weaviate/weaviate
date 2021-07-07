@@ -59,12 +59,19 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
+
+	shardState, err := sharding.InitState(class.Class, class.ShardingConfig.(sharding.Config))
+	if err != nil {
+		return errors.Wrap(err, "init sharding state")
+	}
+
+	m.state.ShardingState[class.Class] = shardState
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	return m.migrator.AddClass(ctx, class)
+	return m.migrator.AddClass(ctx, class, shardState)
 	// TODO gh-846: Rollback state upate if migration fails
 }
 

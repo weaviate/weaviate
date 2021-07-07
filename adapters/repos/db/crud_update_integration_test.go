@@ -63,7 +63,7 @@ func TestUpdateJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), updateTestClass())
+		err := migrator.AddClass(context.Background(), updateTestClass(), singleShardState())
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema

@@ -82,9 +82,9 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), productClass))
+				migrator.AddClass(context.Background(), productClass, singleShardState()))
 			require.Nil(t,
-				migrator.AddClass(context.Background(), companyClass))
+				migrator.AddClass(context.Background(), companyClass, singleShardState()))
 		})
 
 		schemaGetter.schema = schema

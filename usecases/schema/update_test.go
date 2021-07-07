@@ -303,7 +303,7 @@ func TestClassUpdates(t *testing.T) {
 			sm.migrator = migrator
 
 			t.Run("create an initial class", func(t *testing.T) {
-				err := sm.AddObject(context.Background(), nil, &models.Class{
+				err := sm.AddClass(context.Background(), nil, &models.Class{
 					Class: "ClassWithShardingConfig",
 				})
 

@@ -52,7 +52,7 @@ func TestClassifications(t *testing.T) {
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
-			err := migrator.AddClass(context.Background(), class)
+			err := migrator.AddClass(context.Background(), class, singleShardState())
 			require.Nil(t, err)
 		}
 	})

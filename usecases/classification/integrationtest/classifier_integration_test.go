@@ -48,7 +48,8 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
 
-	sg := &fakeSchemaGetter{}
+	shardState := singleShardState()
+	sg := &fakeSchemaGetter{shardState: shardState}
 
 	vrepo := db.New(logger, db.Config{RootPath: dirName})
 	vrepo.SetSchemaGetter(sg)
@@ -64,7 +65,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
 			for _, c := range testSchema().Objects.Classes {
 				require.Nil(t,
-					migrator.AddClass(context.Background(), c))
+					migrator.AddClass(context.Background(), c, shardState))
 			}
 
 			sg.schema = testSchema()
