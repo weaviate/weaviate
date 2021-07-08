@@ -3,6 +3,7 @@ module github.com/semi-technologies/weaviate
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/bmatcuk/doublestar v1.1.3
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1

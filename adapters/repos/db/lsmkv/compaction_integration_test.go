@@ -186,9 +186,11 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			keyCopy := copyByteSlice(k)
+			valueCopy := copyByteSlice(v)
 			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
+				key:   keyCopy,
+				value: valueCopy,
 			})
 		}
 
@@ -212,9 +214,11 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			keyCopy := copyByteSlice(k)
+			valueCopy := copyByteSlice(v)
 			retrieved = append(retrieved, kv{
-				key:   k,
-				value: v,
+				key:   keyCopy,
+				value: valueCopy,
 			})
 		}
 
@@ -1522,4 +1526,10 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 func nullLogger() logrus.FieldLogger {
 	log, _ := test.NewNullLogger()
 	return log
+}
+
+func copyByteSlice(src []byte) []byte {
+	dst := make([]byte, len(src))
+	copy(dst, src)
+	return dst
 }

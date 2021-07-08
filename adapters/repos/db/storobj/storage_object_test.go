@@ -68,6 +68,13 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, uint64(7), id)
 	})
+
+	t.Run("extract single text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+		require.Nil(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "MyName", prop)
+	})
 }
 
 func TestNewStorageObject(t *testing.T) {
