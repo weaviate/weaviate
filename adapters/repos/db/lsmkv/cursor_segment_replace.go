@@ -28,14 +28,15 @@ func (s *segment) newCursor() *segmentCursorReplace {
 	}
 }
 
-func (s *SegmentGroup) newCursors() []innerCursorReplace {
+func (s *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 	out := make([]innerCursorReplace, len(s.segments))
 
+	s.maintenanceLock.RLock()
 	for i, segment := range s.segments {
 		out[i] = segment.newCursor()
 	}
 
-	return out
+	return out, s.maintenanceLock.RUnlock
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
