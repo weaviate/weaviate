@@ -44,7 +44,7 @@ func (b *Bucket) SetCursor() *CursorSet {
 		panic("SetCursor() called on strategy other than 'set'")
 	}
 
-	innerCursors := b.disk.newCollectionCursors()
+	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -56,7 +56,10 @@ func (b *Bucket) SetCursor() *CursorSet {
 	innerCursors = append(innerCursors, b.active.newCollectionCursor())
 
 	return &CursorSet{
-		unlock: b.flushLock.RUnlock,
+		unlock: func() {
+			unlockSegmentGroup()
+			b.flushLock.RUnlock()
+		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,

@@ -45,7 +45,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 		panic("Cursor() called on strategy other than 'replace'")
 	}
 
-	innerCursors := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -60,7 +60,10 @@ func (b *Bucket) Cursor() *CursorReplace {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
-		unlock:       b.flushLock.RUnlock,
+		unlock: func() {
+			unlockSegmentGroup()
+			b.flushLock.RUnlock()
+		},
 	}
 }
 
