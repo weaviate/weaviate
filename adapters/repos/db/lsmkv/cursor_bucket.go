@@ -21,6 +21,7 @@ type CursorReplace struct {
 	innerCursors []innerCursorReplace
 	state        []cursorStateReplace
 	unlock       func()
+	serveCache   cursorStateReplace
 }
 
 type innerCursorReplace interface {
@@ -44,7 +45,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 		panic("Cursor() called on strategy other than 'replace'")
 	}
 
-	innerCursors := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup := b.disk.newCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -59,7 +60,10 @@ func (b *Bucket) Cursor() *CursorReplace {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
-		unlock:       b.flushLock.RUnlock,
+		unlock: func() {
+			unlockSegmentGroup()
+			b.flushLock.RUnlock()
+		},
 	}
 }
 
@@ -134,7 +138,7 @@ func (c *CursorReplace) haveDuplicatesInState(idWithLowestKey int) ([]int, bool)
 // if there are no duplicates present it will still work as returning the
 // latest result is the same as returning the only result
 func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []byte) {
-	res := c.state[ids[len(ids)-1]]
+	c.copyStateIntoServeCache(ids[len(ids)-1])
 
 	// with a replace strategy only the highest will be returned, but still all
 	// need to be advanced - or we would just encounter them again in the next
@@ -143,12 +147,31 @@ func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]by
 		c.advanceInner(id)
 	}
 
-	if res.err == Deleted {
+	if c.serveCache.err == Deleted {
 		// element was deleted, proceed with next round
 		return c.Next()
 	}
 
-	return res.key, res.value
+	return c.serveCache.key, c.serveCache.value
+}
+
+func (c *CursorReplace) copyStateIntoServeCache(pos int) {
+	resMut := c.state[pos]
+	if len(resMut.key) > cap(c.serveCache.key) {
+		c.serveCache.key = make([]byte, len(resMut.key))
+	} else {
+		c.serveCache.key = c.serveCache.key[:len(resMut.key)]
+	}
+
+	if len(resMut.value) > cap(c.serveCache.value) {
+		c.serveCache.value = make([]byte, len(resMut.value))
+	} else {
+		c.serveCache.value = c.serveCache.value[:len(resMut.value)]
+	}
+
+	copy(c.serveCache.key, resMut.key)
+	copy(c.serveCache.value, resMut.value)
+	c.serveCache.err = resMut.err
 }
 
 func (c *CursorReplace) Seek(key []byte) ([]byte, []byte) {

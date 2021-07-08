@@ -386,6 +386,71 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
+func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+	out.offset = 0
+
+	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
+		return errors.Wrap(err, "read tombstone")
+	}
+	out.offset += 1
+
+	var valueLength uint64
+	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
+		return errors.Wrap(err, "read value length encoding")
+	}
+	out.offset += 8
+
+	if int(valueLength) > cap(out.value) {
+		out.value = make([]byte, valueLength)
+	} else {
+		out.value = out.value[:valueLength]
+	}
+
+	if n, err := r.Read(out.value); err != nil {
+		return errors.Wrap(err, "read value")
+	} else {
+		out.offset += n
+	}
+
+	var keyLength uint32
+	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+		return errors.Wrap(err, "read key length encoding")
+	}
+	out.offset += 4
+
+	out.primaryKey = make([]byte, keyLength)
+	if n, err := r.Read(out.primaryKey); err != nil {
+		return errors.Wrap(err, "read key")
+	} else {
+		out.offset += n
+	}
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		var secKeyLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+			return errors.Wrap(err, "read secondary key length encoding")
+		}
+		out.offset += 4
+
+		if secKeyLen == 0 {
+			continue
+		}
+
+		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+			return errors.Wrap(err, "read secondary key")
+		} else {
+			out.offset += n
+		}
+	}
+
+	return nil
+}
+
 // collection strategy does not support secondary keys at this time
 type segmentCollectionNode struct {
 	values     []value
