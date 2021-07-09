@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -23,8 +24,9 @@ import (
 )
 
 type MemoryCondensor struct {
-	newLog *os.File
-	logger logrus.FieldLogger
+	newLogFile *os.File
+	newLog     *bufio.Writer
+	logger     logrus.FieldLogger
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
@@ -38,13 +40,14 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
 
-	newLog, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
+	newLogFile, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}
 
-	c.newLog = newLog
+	c.newLogFile = newLogFile
+	c.newLog = bufio.NewWriterSize(c.newLogFile, 1*1024*1024)
 
 	for _, node := range res.Nodes {
 		if node == nil {
@@ -78,7 +81,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	if err := c.newLog.Close(); err != nil {
+	if err := c.newLog.Flush(); err != nil {
+		return errors.Wrap(err, "close new commit log")
+	}
+
+	if err := c.newLogFile.Close(); err != nil {
 		return errors.Wrap(err, "close new commit log")
 	}
 
