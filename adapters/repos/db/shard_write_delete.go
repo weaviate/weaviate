@@ -63,6 +63,10 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
+	if err := s.vectorIndex.Flush(); err != nil {
+		return errors.Wrap(err, "flush all vector index buffered WALs")
+	}
+
 	return nil
 }
 

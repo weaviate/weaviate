@@ -58,6 +58,8 @@ func TestHnswPersistence(t *testing.T) {
 		require.Nil(t, err)
 	}
 
+	require.Nil(t, index.Flush())
+
 	// see index_test.go for more context
 	expectedResults := []uint64{
 		3, 5, 4, // cluster 2
@@ -143,6 +145,8 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		2, 1, 0, // cluster 1
 	}
 
+	require.Nil(t, index.Flush())
+
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
 		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -208,7 +212,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		err := index.Add(uint64(i), vec)
 		require.Nil(t, err)
 	}
-	// dumpIndex(index, "with cleanup after import")
+	dumpIndex(index, "with cleanup after import")
+	require.Nil(t, index.Flush())
 
 	t.Run("delete some elements and permanently delete tombstoned elements",
 		func(t *testing.T) {
@@ -221,7 +226,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			require.Nil(t, err)
 		})
 
-	// dumpIndex(index, "with cleanup after delete")
+	dumpIndex(index, "with cleanup after delete")
+
+	require.Nil(t, index.Flush())
 
 	// see index_test.go for more context
 	expectedResults := []uint64{
@@ -252,7 +259,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		EFConstruction: 60,
 	})
 	require.Nil(t, err)
-	// dumpIndex(secondIndex, "with cleanup second index")
+	dumpIndex(secondIndex, "with cleanup second index")
 
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
@@ -277,7 +284,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	// dumpIndex(secondIndex)
+	require.Nil(t, secondIndex.Flush())
+
+	dumpIndex(secondIndex)
 
 	secondIndex = nil
 	// build a new index from the (uncondensed) commit log
@@ -293,7 +302,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	// dumpIndex(thirdIndex)
+	dumpIndex(thirdIndex)
 
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
@@ -314,6 +323,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		err = thirdIndex.CleanUpTombstonedNodes()
 		require.Nil(t, err)
 	})
+
+	require.Nil(t, thirdIndex.Flush())
 
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log

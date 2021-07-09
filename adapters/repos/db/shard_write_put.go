@@ -49,6 +49,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
+	if err := s.vectorIndex.Flush(); err != nil {
+		return errors.Wrap(err, "flush all vector index buffered WALs")
+	}
+
 	return nil
 }
 
