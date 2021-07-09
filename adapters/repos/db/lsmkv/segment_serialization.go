@@ -137,7 +137,7 @@ type segmentIndices struct {
 	secondaryIndexCount uint16
 }
 
-func (s *segmentIndices) WriteTo(w io.Writer) (int64, error) {
+func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
 	currentOffset := uint64(s.keys[len(s.keys)-1].valueEnd)
 	var written int64
 	indexBytes, err := s.buildAndMarshalPrimary(s.keys)
@@ -458,7 +458,7 @@ type segmentCollectionNode struct {
 	offset     int
 }
 
-func (s *segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
+func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	out := keyIndex{}
 	written := 0
 	valueLen := uint64(len(s.values))
