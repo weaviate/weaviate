@@ -31,17 +31,21 @@ type compactorSet struct {
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
+
+	scratchSpacePath string
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16) *compactorSet {
+	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
+	scratchSpacePath string) *compactorSet {
 	return &compactorSet{
 		c1:                  c1,
 		c2:                  c2,
 		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 1e6),
+		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
+		scratchSpacePath:    scratchSpacePath,
 	}
 }
 
@@ -157,6 +161,7 @@ func (c *compactorSet) writeIndices(keys []keyIndex) error {
 	indices := &segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: c.secondaryIndexCount,
+		scratchSpacePath:    c.scratchSpacePath,
 	}
 
 	_, err := indices.WriteTo(c.bufw)
