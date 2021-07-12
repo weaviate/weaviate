@@ -80,8 +80,3 @@ func TestPriorityQueueMax(t *testing.T) {
 
 	assert.Equal(t, expectedResults, results)
 }
-
-func BenchPriorityQueueMin(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-	}
-}

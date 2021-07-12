@@ -30,19 +30,22 @@ type compactorReplace struct {
 
 	secondaryIndexCount uint16
 
-	w    io.WriteSeeker
-	bufw *bufio.Writer
+	w                io.WriteSeeker
+	bufw             *bufio.Writer
+	scratchSpacePath string
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16) *compactorReplace {
+	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
+	scratchSpacePath string) *compactorReplace {
 	return &compactorReplace{
 		c1:                  c1,
 		c2:                  c2,
 		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 1e6),
+		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
+		scratchSpacePath:    scratchSpacePath,
 	}
 }
 
@@ -162,6 +165,7 @@ func (c *compactorReplace) writeIndices(keys []keyIndex) error {
 	indices := &segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: c.secondaryIndexCount,
+		scratchSpacePath:    c.scratchSpacePath,
 	}
 
 	_, err := indices.WriteTo(c.bufw)
