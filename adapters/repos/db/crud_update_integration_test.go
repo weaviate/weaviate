@@ -49,7 +49,7 @@ func TestUpdateJourney(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -63,7 +63,7 @@ func TestUpdateJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), updateTestClass(), singleShardState())
+		err := migrator.AddClass(context.Background(), updateTestClass(), schemaGetter.shardState)
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema

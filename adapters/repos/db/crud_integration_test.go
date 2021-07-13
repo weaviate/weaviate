@@ -80,7 +80,7 @@ func TestCRUD(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -89,12 +89,12 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass, singleShardState()))
+			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), actionclass, singleShardState()))
+			migrator.AddClass(context.Background(), actionclass, schemaGetter.shardState))
 	})
 
 	// update schema getter so it's in sync with class

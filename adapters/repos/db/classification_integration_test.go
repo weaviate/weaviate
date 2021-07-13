@@ -43,7 +43,7 @@ func TestClassifications(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -52,7 +52,7 @@ func TestClassifications(t *testing.T) {
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
-			err := migrator.AddClass(context.Background(), class, singleShardState())
+			err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 			require.Nil(t, err)
 		}
 	})

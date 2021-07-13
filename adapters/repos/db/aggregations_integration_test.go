@@ -47,8 +47,9 @@ func Test_Aggregations(t *testing.T) {
 		fmt.Println(err)
 	}()
 
+	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -82,9 +83,9 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), productClass, singleShardState()))
+				migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 			require.Nil(t,
-				migrator.AddClass(context.Background(), companyClass, singleShardState()))
+				migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 		})
 
 		schemaGetter.schema = schema
