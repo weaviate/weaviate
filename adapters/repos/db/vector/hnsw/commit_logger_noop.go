@@ -19,6 +19,10 @@ func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) Flush() error {
+	return nil
+}
+
 func (n *NoopCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	return nil
 }

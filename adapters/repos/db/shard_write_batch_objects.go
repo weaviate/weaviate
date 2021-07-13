@@ -254,6 +254,12 @@ func (b *objectsBatcher) flushWALs(ctx context.Context) {
 			b.setErrorAtIndex(err, i)
 		}
 	}
+
+	if err := b.shard.vectorIndex.Flush(); err != nil {
+		for i := range b.objects {
+			b.setErrorAtIndex(err, i)
+		}
+	}
 }
 
 // returns the originalIndexIDs to be ignored

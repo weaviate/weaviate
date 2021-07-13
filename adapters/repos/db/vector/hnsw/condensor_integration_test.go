@@ -84,7 +84,7 @@ func TestCondensor(t *testing.T) {
 		uncondensed.SetEntryPointWithMaxLayer(3, 3)
 		uncondensed.AddTombstone(2)
 
-		time.Sleep(100 * time.Millisecond) // make sure evertyhing is flushed
+		require.Nil(t, uncondensed.Flush())
 	})
 
 	t.Run("create a hypothetical perfect log", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestCondensor(t *testing.T) {
 		perfect.SetEntryPointWithMaxLayer(3, 3)
 		perfect.AddTombstone(2)
 
-		time.Sleep(100 * time.Millisecond) // make sure evertyhing is flushed
+		require.Nil(t, perfect.Flush())
 	})
 
 	t.Run("condense the original and verify against the perfect one", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
 		uncondensed.AddNode(&vertex{id: 0, level: 3})
 
-		time.Sleep(100 * time.Millisecond) // make sure evertyhing is flushed
+		require.Nil(t, uncondensed.Flush())
 	})
 
 	t.Run("condense the original and verify it doesn't overwrite the EP", func(t *testing.T) {

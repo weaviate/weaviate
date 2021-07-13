@@ -61,6 +61,7 @@ func (l *Memtable) flush() error {
 	indices := &segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: l.secondaryIndices,
+		scratchSpacePath:    l.path + ".scratch.d",
 	}
 
 	if _, err := indices.WriteTo(w); err != nil {

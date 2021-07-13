@@ -24,4 +24,5 @@ type VectorIndex interface {
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, error)
 	UpdateUserConfig(updated schema.VectorIndexConfig) error
 	Drop() error
+	Flush() error
 }
