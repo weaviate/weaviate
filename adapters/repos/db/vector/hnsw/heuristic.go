@@ -18,8 +18,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		closestFirst.Insert(elem.ID, elem.Dist)
 	}
 
-	returnList := make([]*priorityqueue.Item, 0, max)
-	secondList := make([]uint64, 0, max)
+	returnList := h.pools.pqItemSlice.Get().([]priorityqueue.Item)
 
 	for closestFirst.Len() > 0 && len(returnList) < max {
 		curr := closestFirst.Pop()
@@ -47,16 +46,18 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		}
 
 		if good {
-			returnList = append(returnList, &curr)
+			returnList = append(returnList, curr)
 		}
 
 	}
 
-	_ = secondList
-
 	for _, retElem := range returnList {
 		input.Insert(retElem.ID, retElem.Dist)
 	}
+
+	// rewind and return to pool
+	returnList = returnList[:0]
+	h.pools.pqItemSlice.Put(returnList)
 
 	return nil
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/sirupsen/logrus"
 )
 
@@ -96,7 +95,7 @@ type hnsw struct {
 
 	cleanupInterval time.Duration
 
-	visitedListPool *visited.Pool
+	pools *pools
 }
 
 type CommitLogger interface {
@@ -171,7 +170,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstoneLock:     &sync.RWMutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
-		visitedListPool:   visited.NewPool(1, initialSize+500),
 	}
 
 	if err := index.init(cfg); err != nil {

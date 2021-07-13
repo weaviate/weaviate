@@ -66,7 +66,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
 	h.Lock()
-	visited := h.visitedListPool.Borrow()
+	visited := h.pools.visitedLists.Borrow()
 	h.Unlock()
 
 	candidates := priorityqueue.NewMin(ef)
@@ -159,7 +159,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	}
 
 	h.Lock()
-	h.visitedListPool.Return(visited)
+	h.pools.visitedLists.Return(visited)
 	h.Unlock()
 
 	return results, nil

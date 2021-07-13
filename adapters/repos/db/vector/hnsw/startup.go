@@ -21,6 +21,8 @@ import (
 )
 
 func (h *hnsw) init(cfg Config) error {
+	h.pools = newPools(h.maximumConnectionsLayerZero)
+
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
@@ -77,9 +79,9 @@ func (h *hnsw) restoreFromDisk() error {
 	h.cache.grow(uint64(len(h.nodes)))
 
 	// make sure the visited list pool fits the current size
-	h.visitedListPool.Destroy()
-	h.visitedListPool = nil
-	h.visitedListPool = visited.NewPool(1, len(h.nodes)+500)
+	h.pools.visitedLists.Destroy()
+	h.pools.visitedLists = nil
+	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+500)
 
 	return nil
 }
