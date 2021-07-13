@@ -359,6 +359,14 @@ func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
 	v.connections[level] = connections
 }
 
+func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
+	v.connections[level] = append(v.connections[level], connection)
+}
+
+func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
+	v.connections[level] = v.connections[level][:0]
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
