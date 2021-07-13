@@ -13,10 +13,10 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -125,18 +125,31 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
+func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
+	uuid, err := uuid.Parse(in.String())
+	if err != nil {
+		return "", errors.Wrap(err, "parse id as uuid")
+	}
+
+	uuidBytes, _ := uuid.MarshalBinary() // cannot error
+
+	return i.getSchema.ShardingState(i.Config.ClassName.String()).
+		PhysicalShard(uuidBytes), nil
+}
+
 func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	if i.Config.ClassName != object.Class() {
-		return fmt.Errorf("cannot import object of class %s into index of class %s",
+		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
 
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	shardName, err := i.shardFromUUID(object.ID())
+	if err != nil {
+		return err
+	}
 
-	// TODO: pick the right shard instead of using the first shard
-	shard := i.Shards[shardNames[0]]
-	err := shard.putObject(ctx, object)
+	shard := i.Shards[shardName]
+	err = shard.putObject(ctx, object)
 	if err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -168,13 +181,12 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*storobj.Object, error) {
-	// TODO: don't ignore meta
+	shardName, err := i.shardFromUUID(id)
+	if err != nil {
+		return nil, err
+	}
 
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
-
-	shard := i.Shards[shardNames[0]]
+	shard := i.Shards[shardName]
 	obj, err := shard.objectByID(ctx, id, props, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -199,11 +211,12 @@ func (i *Index) multiObjectByID(ctx context.Context,
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
-	// TODO: use correct shard, rather than hard-coded first shard
+	shardName, err := i.shardFromUUID(id)
+	if err != nil {
+		return false, err
+	}
 
-	shard := i.Shards[shardNames[0]]
+	shard := i.Shards[shardName]
 	ok, err := shard.exists(ctx, id)
 	if err != nil {
 		return false, errors.Wrapf(err, "shard %s", shard.ID())
@@ -244,11 +257,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
+	shardName, err := i.shardFromUUID(id)
+	if err != nil {
+		return err
+	}
 
-	shard := i.Shards[shardNames[0]]
+	shard := i.Shards[shardName]
 	if err := shard.deleteObject(ctx, id); err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -257,11 +271,12 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
+	shardName, err := i.shardFromUUID(merge.ID)
+	if err != nil {
+		return err
+	}
 
-	shard := i.Shards[shardNames[0]]
+	shard := i.Shards[shardName]
 	if err := shard.mergeObject(ctx, merge); err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
