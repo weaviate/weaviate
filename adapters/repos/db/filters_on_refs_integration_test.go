@@ -43,7 +43,7 @@ func TestRefFilters(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -54,7 +54,7 @@ func TestRefFilters(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class, singleShardState())
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
@@ -463,7 +463,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -474,7 +474,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range cityCountryAirportSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class, singleShardState())
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})

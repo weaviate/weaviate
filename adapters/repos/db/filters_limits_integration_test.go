@@ -45,7 +45,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -63,9 +63,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass, singleShardState()))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass, singleShardState()))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -141,7 +141,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -159,9 +159,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass, singleShardState()))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass, singleShardState()))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -267,7 +267,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -285,9 +285,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass, singleShardState()))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass, singleShardState()))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})

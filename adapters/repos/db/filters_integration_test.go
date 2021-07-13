@@ -43,7 +43,7 @@ func TestFilters(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -91,7 +91,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), carClass, singleShardState()))
+				migrator.AddClass(context.Background(), carClass, schemaGetter.shardState))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
@@ -614,7 +614,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -635,7 +635,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), class, singleShardState())
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
@@ -723,7 +723,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -796,7 +796,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class, singleShardState()))
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,

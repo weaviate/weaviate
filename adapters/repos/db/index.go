@@ -64,6 +64,10 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 	}
 
+	if len(shardState.AllPhysicalShards()) > 1 {
+		return nil, errors.Errorf("multi-shard indices not supported yet")
+	}
+
 	for _, shardName := range shardState.AllPhysicalShards() {
 		shard, err := NewShard(ctx, shardName, index)
 		if err != nil {
@@ -73,29 +77,27 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		index.Shards[shardName] = shard
 	}
 
-	// use explicit shard name "single" to indicate it's currently the only
-	// supported config
-	singleShard, err := NewShard(ctx, "single", index)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init index %s", index.ID())
-	}
-
-	index.Shards["single"] = singleShard
 	return index, nil
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	// TODO: pick the right shard instead of using the "single" shard
-	shard := i.Shards["single"]
+	for name, shard := range i.Shards {
+		if err := shard.addProperty(ctx, prop); err != nil {
+			return errors.Wrapf(err, "add property to shard %q", name)
+		}
+	}
 
-	return shard.addProperty(ctx, prop)
+	return nil
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
-	// TODO: pick the right shard instead of using the "single" shard
-	shard := i.Shards["single"]
+	for name, shard := range i.Shards {
+		if err := shard.addIDProperty(ctx); err != nil {
+			return errors.Wrapf(err, "add id property to shard %q", name)
+		}
+	}
 
-	return shard.addIDProperty(ctx)
+	return nil
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
@@ -129,8 +131,11 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 			object.Class(), i.Config.ClassName)
 	}
 
-	// TODO: pick the right shard instead of using the "single" shard
-	shard := i.Shards["single"]
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+
+	// TODO: pick the right shard instead of using the first shard
+	shard := i.Shards[shardNames[0]]
 	err := shard.putObject(ctx, object)
 	if err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
@@ -142,16 +147,22 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) putObjectBatch(ctx context.Context,
 	objects []*storobj.Object) map[int]error {
-	// TODO: pick the right shard(s) instead of using the "single" shard
-	shard := i.Shards["single"]
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+
+	// TODO: pick the right shard(s) instead of using the first shard
+	shard := i.Shards[shardNames[0]]
 	return shard.putObjectBatch(ctx, objects)
 }
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context,
 	refs objects.BatchReferences) map[int]error {
-	// TODO: pick the right shard(s) instead of using the "single" shard
-	shard := i.Shards["single"]
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+
+	// TODO: pick the right shard(s) instead of using the first shard
+	shard := i.Shards[shardNames[0]]
 	return shard.addReferencesBatch(ctx, refs)
 }
 
@@ -159,10 +170,11 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*storobj.Object, error) {
 	// TODO: don't ignore meta
 
-	// TODO: search across all shards, rather than hard-coded "single" shard
-	// TODO: can we improve this by hashing so we know the target shard?
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	obj, err := shard.objectByID(ctx, id, props, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -173,10 +185,11 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 func (i *Index) multiObjectByID(ctx context.Context,
 	query []multi.Identifier) ([]*storobj.Object, error) {
-	// TODO: search across all shards, rather than hard-coded "single" shard
-	// TODO: can we improve this by hashing so we know the target shard?
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	objects, err := shard.multiObjectByID(ctx, query)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -186,10 +199,11 @@ func (i *Index) multiObjectByID(ctx context.Context,
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	// TODO: search across all shards, rather than hard-coded "single" shard
-	// TODO: can we improve this by hashing so we know the target shard?
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: use correct shard, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	ok, err := shard.exists(ctx, id)
 	if err != nil {
 		return false, errors.Wrapf(err, "shard %s", shard.ID())
@@ -201,10 +215,11 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 func (i *Index) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
 	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
-	// TODO: don't ignore meta
-	// TODO: search across all shards, rather than hard-coded "single" shard
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	res, err := shard.objectSearch(ctx, limit, filters, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -215,10 +230,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
-	// TODO: don't ignore meta
-	// TODO: search across all shards, rather than hard-coded "single" shard
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	res, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -228,9 +244,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
-	// TODO: search across all shards, rather than hard-coded "single" shard
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	if err := shard.deleteObject(ctx, id); err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -239,9 +257,11 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
-	// TODO: search across all shards, rather than hard-coded "single" shard
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	if err := shard.mergeObject(ctx, merge); err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -251,12 +271,11 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 
 func (i *Index) aggregate(ctx context.Context,
 	params traverser.AggregateParams) (*aggregation.Result, error) {
-	// TODO: don't ignore meta
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+	// TODO: search across all shards, rather than hard-coded first shard
 
-	// TODO: search across all shards, rather than hard-coded "single" shard
-	// TODO: can we improve this by hashing so we know the target shard?
-
-	shard := i.Shards["single"]
+	shard := i.Shards[shardNames[0]]
 	obj, err := shard.aggregate(ctx, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())
@@ -266,12 +285,6 @@ func (i *Index) aggregate(ctx context.Context,
 }
 
 func (i *Index) drop() error {
-	shard := i.Shards["single"]
-	err := shard.drop()
-	if err != nil {
-		return errors.Wrapf(err, "delete shard %s", shard.ID())
-	}
-
 	for _, name := range i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards() {
 		shard := i.Shards[name]
