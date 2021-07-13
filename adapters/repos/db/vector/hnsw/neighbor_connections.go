@@ -170,10 +170,10 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
 	maximumConnections := n.maximumConnections(level)
-	updatedConnections := make([]uint64, 0, maximumConnections)
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
-		updatedConnections = append(currentConnections, n.node.id)
+		// updatedConnections = append(currentConnections, n.node.id)
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id)
 	} else {
 		// we need to run the heurisitc
 
@@ -210,17 +210,20 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return errors.Wrap(err, "connect neighbors")
 		}
 
+		neighbor.resetConnectionsAtLevelNoLock(level)
+
 		for candidates.Len() > 0 {
-			updatedConnections = append(updatedConnections, candidates.Pop().ID)
+			neighbor.appendConnectionAtLevelNoLock(level, candidates.Pop().ID)
 		}
 	}
 
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
-		updatedConnections); err != nil {
-		return err
-	}
+	// TODO
+	// if err := n.graph.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
+	// 	updatedConnections); err != nil {
+	// 	return err
+	// }
 
-	neighbor.setConnectionsAtLevelNoLock(level, updatedConnections)
+	// neighbor.setConnectionsAtLevelNoLock(level, updatedConnections)
 	return nil
 }
 

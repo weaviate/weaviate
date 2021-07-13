@@ -17,9 +17,7 @@ import (
 	"math/rand"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
@@ -50,7 +48,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = map[int][]uint64{}
+	node.connections = map[int][]uint64{
+		0: make([]uint64, 0, h.maximumConnections),
+	}
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
@@ -91,6 +91,15 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
 	node.connections = map[int][]uint64{}
+
+	for i := targetLevel; i >= 0; i-- {
+		capacity := h.maximumConnections
+		if i == 0 {
+			capacity = h.maximumConnectionsLayerZero
+		}
+
+		node.connections[i] = make([]uint64, 0, capacity)
+	}
 
 	if err := h.commitLog.AddNode(node); err != nil {
 		h.Unlock()
@@ -140,58 +149,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
-	}
-
-	return nil
-}
-
-func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
-	max int, denyList helpers.AllowList) error {
-	if input.Len() < max {
-		return nil
-	}
-
-	closestFirst := priorityqueue.NewMin(input.Len())
-	for input.Len() > 0 {
-		elem := input.Pop()
-		closestFirst.Insert(elem.ID, elem.Dist)
-	}
-
-	returnList := make([]*priorityqueue.Item, 0, max)
-
-	for closestFirst.Len() > 0 && len(returnList) < max {
-		curr := closestFirst.Pop()
-		if denyList != nil && denyList.Contains(curr.ID) {
-			continue
-		}
-		distToQuery := curr.Dist
-
-		good := true
-		for _, item := range returnList {
-
-			peerDist, ok, err := h.distBetweenNodes(curr.ID, item.ID)
-			if err != nil {
-				return errors.Wrapf(err, "distance between %d and %d", curr.ID, item.ID)
-			}
-
-			if !ok {
-				continue
-			}
-
-			if peerDist < distToQuery {
-				good = false
-				break
-			}
-		}
-
-		if good {
-			returnList = append(returnList, &curr)
-		}
-
-	}
-
-	for _, retElem := range returnList {
-		input.Insert(retElem.ID, retElem.Dist)
 	}
 
 	return nil
