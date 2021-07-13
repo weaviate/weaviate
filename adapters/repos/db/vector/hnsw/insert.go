@@ -157,7 +157,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		closestFirst.Insert(elem.ID, elem.Dist)
 	}
 
-	returnList := []priorityqueue.Item{}
+	returnList := make([]*priorityqueue.Item, 0, max)
 
 	for closestFirst.Len() > 0 && len(returnList) < max {
 		curr := closestFirst.Pop()
@@ -185,7 +185,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		}
 
 		if good {
-			returnList = append(returnList, curr)
+			returnList = append(returnList, &curr)
 		}
 
 	}

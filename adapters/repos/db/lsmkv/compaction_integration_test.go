@@ -31,7 +31,7 @@ func testCtx() context.Context {
 }
 
 func Test_CompactionReplaceStrategy(t *testing.T) {
-	size := 20
+	size := 200
 
 	type kv struct {
 		key    []byte
@@ -59,8 +59,8 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		// 3.) created in the first segment, deleted in the second
 		// 4.) not present in the first segment, created in the second
 		for i := 0; i < size; i++ {
-			key := []byte(fmt.Sprintf("key-%2d", i))
-			originalValue := []byte(fmt.Sprintf("value-%2d-original", i))
+			key := []byte(fmt.Sprintf("key-%3d", i))
+			originalValue := []byte(fmt.Sprintf("value-%3d-original", i))
 
 			switch i % 4 {
 			case 0:
@@ -83,7 +83,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 				})
 
 				// update in the second segment
-				updatedValue := []byte(fmt.Sprintf("value-%2d-updated", i))
+				updatedValue := []byte(fmt.Sprintf("value-%3d-updated", i))
 				segment2 = append(segment2, kv{
 					key:   key,
 					value: updatedValue,
@@ -1032,7 +1032,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 }
 
 func Test_CompactionMapStrategy(t *testing.T) {
-	size := 9
+	size := 999
 
 	type kv struct {
 		key    []byte
@@ -1073,15 +1073,15 @@ func Test_CompactionMapStrategy(t *testing.T) {
 		// 8.) present in an unrelated previous segment, deleted in the first
 		// 9.) present in an unrelated previous segment, deleted in the second
 		for i := 0; i < size; i++ {
-			rowKey := []byte(fmt.Sprintf("row-%2d", i))
+			rowKey := []byte(fmt.Sprintf("row-%3d", i))
 
 			pair1 := MapPair{
-				Key:   []byte(fmt.Sprintf("value-%2d-01", i)),
-				Value: []byte(fmt.Sprintf("value-%2d-01-original", i)),
+				Key:   []byte(fmt.Sprintf("value-%3d-01", i)),
+				Value: []byte(fmt.Sprintf("value-%3d-01-original", i)),
 			}
 			pair2 := MapPair{
-				Key:   []byte(fmt.Sprintf("value-%2d-02", i)),
-				Value: []byte(fmt.Sprintf("value-%2d-02-original", i)),
+				Key:   []byte(fmt.Sprintf("value-%3d-02", i)),
+				Value: []byte(fmt.Sprintf("value-%3d-02-original", i)),
 			}
 			pairs := []MapPair{pair1, pair2}
 
