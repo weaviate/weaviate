@@ -64,10 +64,6 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 	}
 
-	if len(shardState.AllPhysicalShards()) > 1 {
-		return nil, errors.Errorf("multi-shard indices not supported yet")
-	}
-
 	for _, shardName := range shardState.AllPhysicalShards() {
 		shard, err := NewShard(ctx, shardName, index)
 		if err != nil {
@@ -230,15 +226,24 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards[shardNames[0]]
-	res, err := shard.objectSearch(ctx, limit, filters, additional)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	out := make([]*storobj.Object, 0, len(shardNames)*limit)
+
+	for _, shardName := range shardNames {
+		shard := i.Shards[shardName]
+		res, err := shard.objectSearch(ctx, limit, filters, additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		}
+
+		out = append(out, res...)
 	}
 
-	return res, nil
+	if len(out) > limit {
+		out = out[:limit]
+	}
+
+	return out, nil
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,

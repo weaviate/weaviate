@@ -14,6 +14,8 @@
 package db
 
 import (
+	"encoding/json"
+
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -38,6 +40,22 @@ func singleShardState() *sharding.State {
 	}
 
 	s, err := sharding.InitState("test-index", config)
+	if err != nil {
+		panic(err)
+	}
+
+	return s
+}
+
+func multiShardState() *sharding.State {
+	config, err := sharding.ParseConfig(map[string]interface{}{
+		"desiredCount": json.Number("3"),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	s, err := sharding.InitState("multi-shard-test-index", config)
 	if err != nil {
 		panic(err)
 	}
