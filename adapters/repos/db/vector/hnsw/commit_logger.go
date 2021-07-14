@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -62,13 +61,6 @@ func NewCommitLogger(rootPath, name string,
 
 	l.StartLogging()
 	return l, nil
-}
-
-func (l *hnswCommitLogger) NewBufferedLinksLogger() BufferedLinksLogger {
-	return &bufferedLinksLogger{
-		base: l,
-		buf:  bytes.NewBuffer(nil),
-	}
 }
 
 func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
@@ -269,6 +261,24 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	return nil
 }
 
+func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
+	target uint64) error {
+	l.Lock()
+	defer l.Unlock()
+	ec := &errorCompounder{}
+	ec.add(l.writeCommitType(l.logWriter, AddLinkAtLevel))
+	ec.add(l.writeUint64(l.logWriter, nodeid))
+	ec.add(l.writeUint16(l.logWriter, uint16(level)))
+	ec.add(l.writeUint64(l.logWriter, target))
+
+	if err := ec.toError(); err != nil {
+		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
+			nodeid, target, level)
+	}
+
+	return nil
+}
+
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
@@ -278,8 +288,8 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	ec.add(l.writeUint64(l.logWriter, nodeid))
 
 	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err,
-			"write tombstone %d to commit log", nodeid)
+		return errors.Wrap(err,
+			"write tombstone to commit log")
 	}
 
 	return nil
@@ -295,7 +305,7 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
-			"write deletion of tombstone %d to commit log", nodeid)
+			"write deletion of tombstone to commit log")
 	}
 
 	return nil
@@ -305,14 +315,12 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	fmt.Printf("received clear links for %d\n", nodeid)
-
 	ec := &errorCompounder{}
 	ec.add(l.writeCommitType(l.logWriter, ClearLinks))
 	ec.add(l.writeUint64(l.logWriter, nodeid))
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
-			"write clear links of node %d to commit log", nodeid)
+			"write clear links of node to commit log")
 	}
 
 	return nil
@@ -327,7 +335,7 @@ func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	ec.add(l.writeUint64(l.logWriter, nodeid))
 	if err := ec.toError(); err != nil {
 		return errors.Wrapf(err,
-			"write delete node %d to commit log", nodeid)
+			"write delete node to commit log")
 	}
 
 	return nil
@@ -507,8 +515,8 @@ func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
 	return nil
 }
 
-func (l *hnswCommitLogger) writeUint16(w io.Writer, in uint16) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (l *hnswCommitLogger) writeUint16(w *bufio.Writer, in uint16) error {
+	err := binary.Write(w, binary.LittleEndian, in)
 	if err != nil {
 		return errors.Wrap(err, "writing uint16")
 	}
@@ -516,8 +524,8 @@ func (l *hnswCommitLogger) writeUint16(w io.Writer, in uint16) error {
 	return nil
 }
 
-func (l *hnswCommitLogger) writeCommitType(w io.Writer, in HnswCommitType) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (l *hnswCommitLogger) writeCommitType(w *bufio.Writer, in HnswCommitType) error {
+	err := binary.Write(w, binary.LittleEndian, in)
 	if err != nil {
 		return errors.Wrap(err, "writing commit type")
 	}
@@ -525,8 +533,8 @@ func (l *hnswCommitLogger) writeCommitType(w io.Writer, in HnswCommitType) error
 	return nil
 }
 
-func (l *hnswCommitLogger) writeUint64Slice(w io.Writer, in []uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (l *hnswCommitLogger) writeUint64Slice(w *bufio.Writer, in []uint64) error {
+	err := binary.Write(w, binary.LittleEndian, in)
 	if err != nil {
 		return errors.Wrap(err, "writing []uint64")
 	}
