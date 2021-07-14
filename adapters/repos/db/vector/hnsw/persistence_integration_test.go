@@ -67,7 +67,7 @@ func TestHnswPersistence(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -91,7 +91,7 @@ func TestHnswPersistence(t *testing.T) {
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -145,7 +145,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -172,7 +172,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -232,7 +232,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -257,7 +257,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
@@ -298,7 +298,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			res, _, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, []uint64{3}, res)
 		})
@@ -343,7 +343,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}
 		position := 3
-		res, err := fourthIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := fourthIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})

@@ -178,7 +178,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -186,21 +186,26 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 			s.deletedDocIDs).
 			DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 		if err != nil {
-			return nil, errors.Wrap(err, "build inverted filter allow list")
+			return nil, nil, errors.Wrap(err, "build inverted filter allow list")
 		}
 
 		allowList = list
 	}
-	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+	ids, dists, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
-		return nil, errors.Wrap(err, "vector search")
+		return nil, nil, errors.Wrap(err, "vector search")
 	}
 
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return s.objectsByDocID(ids)
+	objs, err := s.objectsByDocID(ids)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return objs, dists, nil
 }
 
 func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {

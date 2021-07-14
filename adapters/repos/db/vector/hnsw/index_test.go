@@ -44,28 +44,28 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{6, 7, 8}, res)
 	})
 
 	t.Run("searching within cluster 2 with a scope larger than the cluster", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{
 			3, 5, 4, // cluster 2

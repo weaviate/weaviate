@@ -16,14 +16,17 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -76,6 +79,8 @@ func Test_MultiShardJourneys(t *testing.T) {
 	}
 
 	data := multiShardTestData()
+	queryVec := exampleQueryVec()
+	groundTruth := bruteForceObjectsByQuery(data, queryVec)
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
@@ -165,6 +170,59 @@ func Test_MultiShardJourneys(t *testing.T) {
 			do(3, 3)
 		})
 	})
+
+	t.Run("retrieve through class-level vector search", func(t *testing.T) {
+		do := func(t *testing.T, limit, expected int) {
+			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+				SearchVector: queryVec,
+				Pagination: &filters.Pagination{
+					Limit: limit,
+				},
+				ClassName: "TestClass",
+			})
+			assert.Nil(t, err)
+			assert.Len(t, res, expected)
+			for i, obj := range res {
+				assert.Equal(t, groundTruth[i].ID, obj.ID)
+			}
+		}
+
+		t.Run("with high limit", func(t *testing.T) {
+			do(t, 100, 20)
+		})
+
+		t.Run("with low limit", func(t *testing.T) {
+			do(t, 3, 3)
+		})
+	})
+
+	t.Run("retrieve through inter-class vector search", func(t *testing.T) {
+		do := func(t *testing.T, limit, expected int) {
+			res, err := repo.VectorSearch(context.Background(), queryVec, limit, nil)
+			assert.Nil(t, err)
+			assert.Len(t, res, expected)
+			for i, obj := range res {
+				assert.Equal(t, groundTruth[i].ID, obj.ID)
+			}
+		}
+
+		t.Run("with high limit", func(t *testing.T) {
+			do(t, 100, 20)
+		})
+
+		t.Run("with low limit", func(t *testing.T) {
+			do(t, 3, 3)
+		})
+	})
+}
+
+func exampleQueryVec() []float32 {
+	dim := 10
+	vec := make([]float32, dim)
+	for j := range vec {
+		vec[j] = rand.Float32()
+	}
+	return vec
 }
 
 func multiShardTestData() []*models.Object {
@@ -188,4 +246,47 @@ func multiShardTestData() []*models.Object {
 	}
 
 	return out
+}
+
+func bruteForceObjectsByQuery(objs []*models.Object,
+	query []float32) []*models.Object {
+	type distanceAndObj struct {
+		distance float32
+		obj      *models.Object
+	}
+
+	distances := make([]distanceAndObj, len(objs))
+
+	for i := range objs {
+		dist := 1 - asm.Dot(normalize(query), normalize(objs[i].Vector))
+		distances[i] = distanceAndObj{
+			distance: dist,
+			obj:      objs[i],
+		}
+	}
+
+	sort.Slice(distances, func(a, b int) bool {
+		return distances[a].distance < distances[b].distance
+	})
+
+	out := make([]*models.Object, len(objs))
+	for i := range out {
+		out[i] = distances[i].obj
+	}
+
+	return out
+}
+
+func normalize(v []float32) []float32 {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+
+	return v
 }
