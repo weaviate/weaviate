@@ -53,7 +53,7 @@ func autoEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
@@ -253,19 +253,19 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList helpers.AllowList) ([]uint64, error) {
+	ef int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	if h.isEmpty() {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
-		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+		return nil, nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
 	}
 
 	if !ok {
-		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
@@ -275,7 +275,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		eps.Insert(entryPointID, entryPointDistance)
 		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
 		if err != nil {
-			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
 
 		// There might be situations where we did not find a better entrypoint at
@@ -300,22 +300,25 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	eps.Insert(entryPointID, entryPointDistance)
 	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
-		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
 	for res.Len() > k {
 		res.Pop()
 	}
 
-	out := make([]uint64, res.Len())
+	ids := make([]uint64, res.Len())
+	dists := make([]float32, res.Len())
 
 	// results is ordered in reverse, we need to flip the order before presenting
 	// to the user!
-	i := len(out) - 1
+	i := len(ids) - 1
 	for res.Len() > 0 {
-		out[i] = res.Pop().ID
+		res := res.Pop()
+		ids[i] = res.ID
+		dists[i] = res.Dist
 		i--
 	}
 
-	return out, nil
+	return ids, dists, nil
 }

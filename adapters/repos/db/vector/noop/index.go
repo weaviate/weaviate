@@ -33,8 +33,8 @@ func (i *Index) Delete(id uint64) error {
 	return nil
 }
 
-func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, error) {
-	return nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {

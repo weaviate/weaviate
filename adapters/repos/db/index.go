@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -228,7 +229,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 		AllPhysicalShards()
 
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
-
 	for _, shardName := range shardNames {
 		shard := i.Shards[shardName]
 		res, err := shard.objectSearch(ctx, limit, filters, additional)
@@ -250,15 +250,31 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards[shardNames[0]]
-	res, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	out := make([]*storobj.Object, 0, len(shardNames)*limit)
+	dists := make([]float32, 0, len(shardNames)*limit)
+	for _, shardName := range shardNames {
+		shard := i.Shards[shardName]
+		res, resDists, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		}
+
+		out = append(out, res...)
+		dists = append(dists, resDists...)
 	}
 
-	return res, nil
+	if len(shardNames) == 1 {
+		return out, nil
+	}
+
+	sbd := sortObjsByDist{out, dists}
+	sort.Sort(sbd)
+	if len(sbd.objects) > limit {
+		sbd.objects = sbd.objects[:limit]
+	}
+
+	return sbd.objects, nil
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
