@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"time"
@@ -64,7 +65,9 @@ func (h *hnsw) restoreFromDisk() error {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
-		state, err = NewDeserializer(h.logger).Do(fd, state)
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		state, err = NewDeserializer(h.logger).Do(fdBuf, state)
 		if err != nil {
 			return errors.Wrapf(err, "deserialize commit log %q", fileName)
 		}

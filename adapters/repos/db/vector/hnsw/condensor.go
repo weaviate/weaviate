@@ -35,7 +35,9 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
 
-	res, err := NewDeserializer(c.logger).Do(fd, nil)
+	fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+	res, err := NewDeserializer(c.logger).Do(fdBuf, nil)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}

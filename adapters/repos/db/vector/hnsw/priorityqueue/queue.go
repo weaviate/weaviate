@@ -97,3 +97,7 @@ func (l *Queue) Top() Item {
 func (l *Queue) Len() int {
 	return len(l.items)
 }
+
+func (l *Queue) Reset() {
+	l.items = l.items[:0]
+}
