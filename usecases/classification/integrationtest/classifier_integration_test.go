@@ -176,6 +176,123 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	})
 }
 
+func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	var id strfmt.UUID
+
+	sg := &fakeSchemaGetter{}
+
+	vrepo := db.New(logger, db.Config{RootPath: dirName})
+	vrepo.SetSchemaGetter(sg)
+	err := vrepo.WaitForStartup(context.Background())
+	require.Nil(t, err)
+	migrator := db.NewMigrator(vrepo, logger)
+
+	t.Run("preparations", func(t *testing.T) {
+		t.Run("creating the classes", func(t *testing.T) {
+			for _, c := range testSchemaForZeroShot().Objects.Classes {
+				require.Nil(t,
+					migrator.AddClass(context.Background(), c))
+			}
+
+			sg.schema = testSchemaForZeroShot()
+		})
+
+		t.Run("importing the training data", func(t *testing.T) {
+			classified := testDataZeroShotUnclassified()
+			bt := make(objects.BatchObjects, len(classified))
+			for i, elem := range classified {
+				bt[i] = objects.BatchObject{
+					OriginalIndex: i,
+					UUID:          elem.ID,
+					Vector:        elem.Vector,
+					Object:        elem.Object(),
+				}
+			}
+
+			res, err := vrepo.BatchPutObjects(context.Background(), bt)
+			require.Nil(t, err)
+			for _, elem := range res {
+				require.Nil(t, elem.Err)
+			}
+		})
+	})
+
+	t.Run("classification journey", func(t *testing.T) {
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
+
+		params := models.Classification{
+			Class:              "Recipes",
+			BasedOnProperties:  []string{"text"},
+			ClassifyProperties: []string{"ofFoodType"},
+			Type:               "zeroshot",
+		}
+
+		t.Run("scheduling a classification", func(t *testing.T) {
+			class, err := classifier.Schedule(context.Background(), nil, params)
+			require.Nil(t, err, "should not error")
+			require.NotNil(t, class)
+
+			assert.Len(t, class.ID, 36, "an id was assigned")
+			id = class.ID
+		})
+
+		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, id, class.ID)
+			assert.Equal(t, models.ClassificationStatusRunning, class.Status)
+		})
+
+		waitForStatusToNoLongerBeRunning(t, classifier, id)
+
+		t.Run("status is now completed", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
+			assert.Equal(t, int64(2), class.Meta.CountSucceeded)
+		})
+
+		t.Run("verify everything is classified", func(t *testing.T) {
+			filter := filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    "Recipes",
+						Property: "ofFoodType",
+					},
+					Value: &filters.Value{
+						Value: 0,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			}
+			res, err := vrepo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName: "Recipes",
+				Filters:   &filter,
+				Pagination: &filters.Pagination{
+					Limit: 100000,
+				},
+			})
+
+			require.Nil(t, err)
+			assert.Equal(t, 0, len(res))
+		})
+	})
+}
+
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *classification.Classifier, id strfmt.UUID) {
 	testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, func() interface{} {
 		class, err := classifier.Get(context.Background(), nil, id)
