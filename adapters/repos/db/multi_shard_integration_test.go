@@ -116,11 +116,38 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
 		groundTruth))
 
-	t.Run("import refs individually", func(t *testing.T) {
-		// t.Fail() // TODO: convert to batch
+	t.Run("import refs in large batch", func(t *testing.T) {
+		// first strip the refs from the objects, so we can import them in a second
+		// step as batch ref
+
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
+			withoutRef := &models.Object{
+				ID:         obj.ID,
+				Class:      obj.Class,
+				Vector:     obj.Vector,
+				Properties: map[string]interface{}{}, // empty so we remove the ref
+			}
+
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef,
+				withoutRef.Vector))
 		}
+
+		index := 0
+		refBatch := make(objects.BatchReferences, len(refData)*len(data))
+		for _, obj := range refData {
+			for _, ref := range obj.Properties.(map[string]interface{})["toOther"].(models.MultipleRef) {
+				to, _ := crossref.ParseSingleRef(ref)
+				refBatch[index] = objects.BatchReference{
+					OriginalIndex: index,
+					To:            to,
+					From:          crossref.NewSource(schema.ClassName(obj.Class), "toOther", obj.ID),
+				}
+				index++
+			}
+		}
+
+		_, err := repo.AddBatchReferences(context.Background(), refBatch)
+		require.Nil(t, err)
 	})
 
 	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
