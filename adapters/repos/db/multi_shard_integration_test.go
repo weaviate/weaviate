@@ -32,13 +32,15 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_MultiShardJourneys(t *testing.T) {
+func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
@@ -50,56 +52,8 @@ func Test_MultiShardJourneys(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	class := &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Class:               "TestClass",
-		Properties: []*models.Property{
-			{
-				Name:     "boolProp",
-				DataType: []string{string(schema.DataTypeBoolean)},
-			},
-			{
-				Name:     "index",
-				DataType: []string{string(schema.DataTypeInt)},
-			},
-		},
-	}
-	refClass := &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Class:               "TestRefClass",
-		Properties: []*models.Property{
-			{
-				Name:     "boolProp",
-				DataType: []string{string(schema.DataTypeBoolean)},
-			},
-			{
-				Name:     "toOther",
-				DataType: []string{"TestClass"},
-			},
-		},
-	}
-	schemaGetter := &fakeSchemaGetter{shardState: multiShardState()}
 	repo := New(logger, Config{RootPath: dirName})
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
-	require.Nil(t, err)
-	migrator := NewMigrator(repo, logger)
-
-	t.Run("creating the class", func(t *testing.T) {
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-		require.Nil(t,
-			migrator.AddClass(context.Background(), refClass, schemaGetter.shardState))
-	})
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class, refClass},
-		},
-	}
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
 
 	data := multiShardTestData()
 	queryVec := exampleQueryVec()
@@ -112,132 +66,8 @@ func Test_MultiShardJourneys(t *testing.T) {
 		}
 	})
 
-	t.Run("retrieve all individually", func(t *testing.T) {
-		for _, desired := range data {
-			res, err := repo.ObjectByID(context.Background(), desired.ID,
-				traverser.SelectProperties{}, traverser.AdditionalProperties{})
-			assert.Nil(t, err)
-
-			assert.Equal(t, desired.Properties.(map[string]interface{})["boolProp"].(bool),
-				res.Object().Properties.(map[string]interface{})["boolProp"].(bool))
-			assert.Equal(t, desired.ID, res.Object().ID)
-		}
-	})
-
-	t.Run("retrieve through filter (object search)", func(t *testing.T) {
-		do := func(limit, expected int) {
-			filters := &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
-					Value: &filters.Value{
-						Value: true,
-						Type:  schema.DataTypeBoolean,
-					},
-					On: &filters.Path{
-						Property: "boolProp",
-					},
-				},
-			}
-			res, err := repo.ObjectSearch(context.Background(), limit, filters,
-				traverser.AdditionalProperties{})
-			assert.Nil(t, err)
-
-			assert.Len(t, res, expected)
-			for _, obj := range res {
-				assert.Equal(t, true, obj.Schema.(map[string]interface{})["boolProp"].(bool))
-			}
-		}
-
-		t.Run("with high limit", func(t *testing.T) {
-			do(100, 10)
-		})
-
-		t.Run("with low limit", func(t *testing.T) {
-			do(3, 3)
-		})
-	})
-
-	t.Run("retrieve through filter (class search)", func(t *testing.T) {
-		do := func(limit, expected int) {
-			filter := &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
-					Value: &filters.Value{
-						Value: true,
-						Type:  schema.DataTypeBoolean,
-					},
-					On: &filters.Path{
-						Property: "boolProp",
-					},
-				},
-			}
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Filters: filter,
-				Pagination: &filters.Pagination{
-					Limit: limit,
-				},
-				ClassName: "TestClass",
-			})
-			assert.Nil(t, err)
-
-			assert.Len(t, res, expected)
-			for _, obj := range res {
-				assert.Equal(t, true, obj.Schema.(map[string]interface{})["boolProp"].(bool))
-			}
-		}
-
-		t.Run("with high limit", func(t *testing.T) {
-			do(100, 10)
-		})
-
-		t.Run("with low limit", func(t *testing.T) {
-			do(3, 3)
-		})
-	})
-
-	t.Run("retrieve through class-level vector search", func(t *testing.T) {
-		do := func(t *testing.T, limit, expected int) {
-			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
-				SearchVector: queryVec,
-				Pagination: &filters.Pagination{
-					Limit: limit,
-				},
-				ClassName: "TestClass",
-			})
-			assert.Nil(t, err)
-			assert.Len(t, res, expected)
-			for i, obj := range res {
-				assert.Equal(t, groundTruth[i].ID, obj.ID)
-			}
-		}
-
-		t.Run("with high limit", func(t *testing.T) {
-			do(t, 100, 20)
-		})
-
-		t.Run("with low limit", func(t *testing.T) {
-			do(t, 3, 3)
-		})
-	})
-
-	t.Run("retrieve through inter-class vector search", func(t *testing.T) {
-		do := func(t *testing.T, limit, expected int) {
-			res, err := repo.VectorSearch(context.Background(), queryVec, limit, nil)
-			assert.Nil(t, err)
-			assert.Len(t, res, expected)
-			for i, obj := range res {
-				assert.Equal(t, groundTruth[i].ID, obj.ID)
-			}
-		}
-
-		t.Run("with high limit", func(t *testing.T) {
-			do(t, 100, 20)
-		})
-
-		t.Run("with low limit", func(t *testing.T) {
-			do(t, 3, 3)
-		})
-	})
+	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
+		groundTruth))
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
@@ -245,31 +75,272 @@ func Test_MultiShardJourneys(t *testing.T) {
 		}
 	})
 
-	t.Run("retrieve ref data individually with select props", func(t *testing.T) {
-		for _, desired := range refData {
-			res, err := repo.ObjectByID(context.Background(), desired.ID,
-				traverser.SelectProperties{
-					traverser.SelectProperty{
-						IsPrimitive: false,
-						Name:        "toOther",
-						Refs: []traverser.SelectClass{{
-							ClassName: "TestClass",
-							RefProperties: traverser.SelectProperties{{
-								Name:        "index",
-								IsPrimitive: true,
-							}},
-						}},
-					},
-				}, traverser.AdditionalProperties{})
-			assert.Nil(t, err)
-			refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
-			assert.Len(t, refs, len(data))
-			for i, ref := range refs {
-				indexField := ref.(search.LocalRef).Fields["index"].(float64)
-				assert.Equal(t, i, int(indexField))
+	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
+}
+
+func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	logger, _ := test.NewNullLogger()
+	repo := New(logger, Config{RootPath: dirName})
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
+
+	data := multiShardTestData()
+	queryVec := exampleQueryVec()
+	groundTruth := bruteForceObjectsByQuery(data, queryVec)
+	refData := multiShardRefClassData(data)
+
+	t.Run("import in a batch", func(t *testing.T) {
+		batch := make(objects.BatchObjects, len(data))
+		for i, obj := range data {
+			batch[i] = objects.BatchObject{
+				OriginalIndex: i,
+				Object:        obj,
+				Vector:        obj.Vector,
+				UUID:          obj.ID,
 			}
 		}
+
+		_, err := repo.BatchPutObjects(context.Background(), batch)
+		require.Nil(t, err)
 	})
+
+	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
+		groundTruth))
+
+	t.Run("import refs individually", func(t *testing.T) {
+		// t.Fail() // TODO: convert to batch
+		for _, obj := range refData {
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
+		}
+	})
+
+	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
+}
+
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger) func(t *testing.T) {
+	return func(t *testing.T) {
+		class := &models.Class{
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Class:               "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "boolProp",
+					DataType: []string{string(schema.DataTypeBoolean)},
+				},
+				{
+					Name:     "index",
+					DataType: []string{string(schema.DataTypeInt)},
+				},
+			},
+		}
+		refClass := &models.Class{
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Class:               "TestRefClass",
+			Properties: []*models.Property{
+				{
+					Name:     "boolProp",
+					DataType: []string{string(schema.DataTypeBoolean)},
+				},
+				{
+					Name:     "toOther",
+					DataType: []string{"TestClass"},
+				},
+			},
+		}
+		schemaGetter := &fakeSchemaGetter{shardState: multiShardState()}
+		repo.SetSchemaGetter(schemaGetter)
+		err := repo.WaitForStartup(testCtx())
+		require.Nil(t, err)
+		migrator := NewMigrator(repo, logger)
+
+		t.Run("creating the class", func(t *testing.T) {
+			require.Nil(t,
+				migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			require.Nil(t,
+				migrator.AddClass(context.Background(), refClass, schemaGetter.shardState))
+		})
+
+		// update schema getter so it's in sync with class
+		schemaGetter.schema = schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class, refClass},
+			},
+		}
+	}
+}
+
+func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
+	queryVec []float32, groundTruth []*models.Object) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("retrieve all individually", func(t *testing.T) {
+			for _, desired := range data {
+				res, err := repo.ObjectByID(context.Background(), desired.ID,
+					traverser.SelectProperties{}, traverser.AdditionalProperties{})
+				assert.Nil(t, err)
+
+				require.NotNil(t, res)
+				assert.Equal(t, desired.Properties.(map[string]interface{})["boolProp"].(bool),
+					res.Object().Properties.(map[string]interface{})["boolProp"].(bool))
+				assert.Equal(t, desired.ID, res.Object().ID)
+			}
+		})
+
+		t.Run("retrieve through filter (object search)", func(t *testing.T) {
+			do := func(limit, expected int) {
+				filters := &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						Value: &filters.Value{
+							Value: true,
+							Type:  schema.DataTypeBoolean,
+						},
+						On: &filters.Path{
+							Property: "boolProp",
+						},
+					},
+				}
+				res, err := repo.ObjectSearch(context.Background(), limit, filters,
+					traverser.AdditionalProperties{})
+				assert.Nil(t, err)
+
+				assert.Len(t, res, expected)
+				for _, obj := range res {
+					assert.Equal(t, true, obj.Schema.(map[string]interface{})["boolProp"].(bool))
+				}
+			}
+
+			t.Run("with high limit", func(t *testing.T) {
+				do(100, 10)
+			})
+
+			t.Run("with low limit", func(t *testing.T) {
+				do(3, 3)
+			})
+		})
+
+		t.Run("retrieve through filter (class search)", func(t *testing.T) {
+			do := func(limit, expected int) {
+				filter := &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						Value: &filters.Value{
+							Value: true,
+							Type:  schema.DataTypeBoolean,
+						},
+						On: &filters.Path{
+							Property: "boolProp",
+						},
+					},
+				}
+				res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+					Filters: filter,
+					Pagination: &filters.Pagination{
+						Limit: limit,
+					},
+					ClassName: "TestClass",
+				})
+				assert.Nil(t, err)
+
+				assert.Len(t, res, expected)
+				for _, obj := range res {
+					assert.Equal(t, true, obj.Schema.(map[string]interface{})["boolProp"].(bool))
+				}
+			}
+
+			t.Run("with high limit", func(t *testing.T) {
+				do(100, 10)
+			})
+
+			t.Run("with low limit", func(t *testing.T) {
+				do(3, 3)
+			})
+		})
+
+		t.Run("retrieve through class-level vector search", func(t *testing.T) {
+			do := func(t *testing.T, limit, expected int) {
+				res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+					SearchVector: queryVec,
+					Pagination: &filters.Pagination{
+						Limit: limit,
+					},
+					ClassName: "TestClass",
+				})
+				assert.Nil(t, err)
+				assert.Len(t, res, expected)
+				for i, obj := range res {
+					assert.Equal(t, groundTruth[i].ID, obj.ID)
+				}
+			}
+
+			t.Run("with high limit", func(t *testing.T) {
+				do(t, 100, 20)
+			})
+
+			t.Run("with low limit", func(t *testing.T) {
+				do(t, 3, 3)
+			})
+		})
+
+		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
+			do := func(t *testing.T, limit, expected int) {
+				res, err := repo.VectorSearch(context.Background(), queryVec, limit, nil)
+				assert.Nil(t, err)
+				assert.Len(t, res, expected)
+				for i, obj := range res {
+					assert.Equal(t, groundTruth[i].ID, obj.ID)
+				}
+			}
+
+			t.Run("with high limit", func(t *testing.T) {
+				do(t, 100, 20)
+			})
+
+			t.Run("with low limit", func(t *testing.T) {
+				do(t, 3, 3)
+			})
+		})
+	}
+}
+
+func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("retrieve ref data individually with select props", func(t *testing.T) {
+			for _, desired := range refData {
+				res, err := repo.ObjectByID(context.Background(), desired.ID,
+					traverser.SelectProperties{
+						traverser.SelectProperty{
+							IsPrimitive: false,
+							Name:        "toOther",
+							Refs: []traverser.SelectClass{{
+								ClassName: "TestClass",
+								RefProperties: traverser.SelectProperties{{
+									Name:        "index",
+									IsPrimitive: true,
+								}},
+							}},
+						},
+					}, traverser.AdditionalProperties{})
+				assert.Nil(t, err)
+				refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
+				assert.Len(t, refs, len(data))
+				for i, ref := range refs {
+					indexField := ref.(search.LocalRef).Fields["index"].(float64)
+					assert.Equal(t, i, int(indexField))
+				}
+			}
+		})
+	}
 }
 
 func exampleQueryVec() []float32 {

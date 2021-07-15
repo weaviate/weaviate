@@ -156,13 +156,38 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object) map[int]error {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	objects []*storobj.Object) []error {
+	type objsAndPos struct {
+		objects []*storobj.Object
+		pos     []int
+	}
 
-	// TODO: pick the right shard(s) instead of using the first shard
-	shard := i.Shards[shardNames[0]]
-	return shard.putObjectBatch(ctx, objects)
+	byShard := map[string]objsAndPos{}
+	out := make([]error, len(objects))
+
+	for pos, obj := range objects {
+		shardName, err := i.shardFromUUID(obj.ID())
+		if err != nil {
+			out[pos] = err
+			continue
+		}
+
+		group := byShard[shardName]
+		group.objects = append(group.objects, obj)
+		group.pos = append(group.pos, pos)
+		byShard[shardName] = group
+	}
+
+	for shardName, group := range byShard {
+		shard := i.Shards[shardName]
+		errs := shard.putObjectBatch(ctx, group.objects)
+		for i, err := range errs {
+			desiredPos := group.pos[i]
+			out[desiredPos] = err
+		}
+	}
+
+	return out
 }
 
 // return value map[int]error gives the error for the index as it received it
