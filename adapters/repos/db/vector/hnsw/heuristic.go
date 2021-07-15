@@ -12,7 +12,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		return nil
 	}
 
-	closestFirst := priorityqueue.NewMin(input.Len())
+	closestFirst := h.pools.pqHeuristic.GetMin(input.Len())
 	for input.Len() > 0 {
 		elem := input.Pop()
 		closestFirst.Insert(elem.ID, elem.Dist)
@@ -50,6 +50,8 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		}
 
 	}
+
+	h.pools.pqHeuristic.Put(closestFirst)
 
 	for _, retElem := range returnList {
 		input.Insert(retElem.ID, retElem.Dist)

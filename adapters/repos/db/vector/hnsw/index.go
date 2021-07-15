@@ -308,6 +308,8 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 				entryPointID = elem.ID
 			}
 		}
+
+		h.pools.pqResults.Put(res)
 	}
 
 	return entryPointID, nil

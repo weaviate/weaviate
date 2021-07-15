@@ -98,6 +98,14 @@ func (l *Queue) Len() int {
 	return len(l.items)
 }
 
+func (l *Queue) Cap() int {
+	return cap(l.items)
+}
+
 func (l *Queue) Reset() {
 	l.items = l.items[:0]
+}
+
+func (l *Queue) ResetCap(capacity int) {
+	l.items = make([]Item, 0, capacity)
 }
