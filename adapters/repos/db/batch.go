@@ -47,7 +47,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 	for indexID, queue := range byIndex {
 		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
 		for index, err := range errs {
-			objects[queue.originalIndex[index]].Err = err
+			if err != nil {
+				objects[queue.originalIndex[index]].Err = err
+			}
 		}
 	}
 
