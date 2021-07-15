@@ -69,8 +69,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	visited := h.pools.visitedLists.Borrow()
 	h.Unlock()
 
-	candidates := priorityqueue.NewMin(ef)
-	results := priorityqueue.NewMax(ef)
+	candidates := h.pools.pqCandidates.GetMin(ef)
+	results := h.pools.pqResults.GetMax(ef)
 	distancer := h.distancerProvider.New(queryVector)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
@@ -158,10 +158,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 	}
 
+	h.pools.pqCandidates.Put(candidates)
+
 	h.Lock()
 	h.pools.visitedLists.Return(visited)
 	h.Unlock()
 
+	// results are passed on, so it's in the callers responsibility to return the
+	// list to the pool after using it
 	return results, nil
 }
 
@@ -294,6 +298,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			// suitable node, we simply stick with the original, i.e. the global
 			// entrypoint
 		}
+
+		h.pools.pqResults.pool.Put(res)
 	}
 
 	eps := priorityqueue.NewMin(10)
@@ -316,6 +322,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		out[i] = res.Pop().ID
 		i--
 	}
+
+	h.pools.pqResults.Put(res)
 
 	return out, nil
 }

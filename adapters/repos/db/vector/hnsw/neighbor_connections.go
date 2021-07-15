@@ -102,6 +102,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		neighbors = append(neighbors, id)
 	}
 
+	n.graph.pools.pqResults.Put(results)
+
 	// set all outoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
