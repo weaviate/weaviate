@@ -30,6 +30,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -57,6 +59,25 @@ func Test_MultiShardJourneys(t *testing.T) {
 				Name:     "boolProp",
 				DataType: []string{string(schema.DataTypeBoolean)},
 			},
+			{
+				Name:     "index",
+				DataType: []string{string(schema.DataTypeInt)},
+			},
+		},
+	}
+	refClass := &models.Class{
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "TestRefClass",
+		Properties: []*models.Property{
+			{
+				Name:     "boolProp",
+				DataType: []string{string(schema.DataTypeBoolean)},
+			},
+			{
+				Name:     "toOther",
+				DataType: []string{"TestClass"},
+			},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: multiShardState()}
@@ -69,18 +90,21 @@ func Test_MultiShardJourneys(t *testing.T) {
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t,
+			migrator.AddClass(context.Background(), refClass, schemaGetter.shardState))
 	})
 
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{class},
+			Classes: []*models.Class{class, refClass},
 		},
 	}
 
 	data := multiShardTestData()
 	queryVec := exampleQueryVec()
 	groundTruth := bruteForceObjectsByQuery(data, queryVec)
+	refData := multiShardRefClassData(data)
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
@@ -214,6 +238,38 @@ func Test_MultiShardJourneys(t *testing.T) {
 			do(t, 3, 3)
 		})
 	})
+
+	t.Run("import refs individually", func(t *testing.T) {
+		for _, obj := range refData {
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
+		}
+	})
+
+	t.Run("retrieve ref data individually with select props", func(t *testing.T) {
+		for _, desired := range refData {
+			res, err := repo.ObjectByID(context.Background(), desired.ID,
+				traverser.SelectProperties{
+					traverser.SelectProperty{
+						IsPrimitive: false,
+						Name:        "toOther",
+						Refs: []traverser.SelectClass{{
+							ClassName: "TestClass",
+							RefProperties: traverser.SelectProperties{{
+								Name:        "index",
+								IsPrimitive: true,
+							}},
+						}},
+					},
+				}, traverser.AdditionalProperties{})
+			assert.Nil(t, err)
+			refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
+			assert.Len(t, refs, len(data))
+			for i, ref := range refs {
+				indexField := ref.(search.LocalRef).Fields["index"].(float64)
+				assert.Equal(t, i, int(indexField))
+			}
+		}
+	})
 }
 
 func exampleQueryVec() []float32 {
@@ -241,6 +297,39 @@ func multiShardTestData() []*models.Object {
 			Vector: vec,
 			Properties: map[string]interface{}{
 				"boolProp": i%2 == 0,
+				"index":    i,
+			},
+		}
+	}
+
+	return out
+}
+
+func multiShardRefClassData(targets []*models.Object) []*models.Object {
+	// each class will link to all possible targets, so that we can be sure that
+	// we hit cross-shard links
+	targetLinks := make(models.MultipleRef, len(targets))
+	for i, obj := range targets {
+		targetLinks[i] = &models.SingleRef{
+			Beacon: strfmt.URI(crossref.New("localhost", obj.ID).String()),
+		}
+	}
+
+	size := 20
+	dim := 10
+	out := make([]*models.Object, size)
+	for i := range out {
+		vec := make([]float32, dim)
+		for j := range vec {
+			vec[j] = rand.Float32()
+		}
+
+		out[i] = &models.Object{
+			ID:     strfmt.UUID(uuid.New().String()),
+			Class:  "TestRefClass",
+			Vector: vec,
+			Properties: map[string]interface{}{
+				"toOther": targetLinks,
 			},
 		}
 	}
