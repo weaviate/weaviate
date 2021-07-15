@@ -78,7 +78,9 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	for indexID, queue := range byIndex {
 		errs := db.indices[indexID].addReferencesBatch(ctx, queue)
 		for index, err := range errs {
-			references[queue[index].OriginalIndex].Err = err
+			if err != nil {
+				references[queue[index].OriginalIndex].Err = err
+			}
 		}
 	}
 

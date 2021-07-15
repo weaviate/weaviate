@@ -192,13 +192,38 @@ func (i *Index) putObjectBatch(ctx context.Context,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences) map[int]error {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	refs objects.BatchReferences) []error {
+	type refsAndPos struct {
+		refs objects.BatchReferences
+		pos  []int
+	}
 
-	// TODO: pick the right shard(s) instead of using the first shard
-	shard := i.Shards[shardNames[0]]
-	return shard.addReferencesBatch(ctx, refs)
+	byShard := map[string]refsAndPos{}
+	out := make([]error, len(refs))
+
+	for pos, ref := range refs {
+		shardName, err := i.shardFromUUID(ref.From.TargetID)
+		if err != nil {
+			out[pos] = err
+			continue
+		}
+
+		group := byShard[shardName]
+		group.refs = append(group.refs, ref)
+		group.pos = append(group.pos, pos)
+		byShard[shardName] = group
+	}
+
+	for shardName, group := range byShard {
+		shard := i.Shards[shardName]
+		errs := shard.addReferencesBatch(ctx, group.refs)
+		for i, err := range errs {
+			desiredPos := group.pos[i]
+			out[desiredPos] = err
+		}
+	}
+
+	return out
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
