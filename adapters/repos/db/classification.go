@@ -53,6 +53,23 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
+func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
+	class string, properties []string,
+	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
+		ClassName:    class,
+		SearchVector: vector,
+		Pagination: &filters.Pagination{
+			Limit: 1,
+		},
+		Filters: filter,
+	})
+
+	return res, err
+}
+
+// TODO: why is this logic in the persistence package? This is business-logic,
+// move out of here!
 func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]classification.NeighborRef, error) {
