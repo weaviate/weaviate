@@ -194,17 +194,41 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 func (i *Index) multiObjectByID(ctx context.Context,
 	query []multi.Identifier) ([]*storobj.Object, error) {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
-	// TODO: search across all shards, rather than hard-coded first shard
-
-	shard := i.Shards[shardNames[0]]
-	objects, err := shard.multiObjectByID(ctx, query)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	type idsAndPos struct {
+		ids []multi.Identifier
+		pos []int
 	}
 
-	return objects, nil
+	byShard := map[string]idsAndPos{}
+
+	for pos, id := range query {
+		shardName, err := i.shardFromUUID(strfmt.UUID(id.ID))
+		if err != nil {
+			return nil, err
+		}
+
+		group := byShard[shardName]
+		group.ids = append(group.ids, id)
+		group.pos = append(group.pos, pos)
+		byShard[shardName] = group
+	}
+
+	out := make([]*storobj.Object, len(query))
+
+	for shardName, group := range byShard {
+		shard := i.Shards[shardName]
+		objects, err := shard.multiObjectByID(ctx, group.ids)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		}
+
+		for i, obj := range objects {
+			desiredPos := group.pos[i]
+			out[desiredPos] = obj
+		}
+	}
+
+	return out, nil
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
