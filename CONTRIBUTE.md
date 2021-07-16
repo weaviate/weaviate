@@ -17,7 +17,7 @@ How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows
 
 ### Tagging your commit
 
-Always add a refference to your issue to your git commit.
+Always add a reference to your issue to your git commit.
 
 For example: `gh-100: This is the commit message`
 
