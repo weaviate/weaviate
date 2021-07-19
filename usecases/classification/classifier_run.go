@@ -95,6 +95,10 @@ func (c *Classifier) prepareRun(params models.Classification, filters Filters,
 		return c.classifyItemUsingKNN, nil
 	}
 
+	if params.Type == "zeroshot" {
+		return c.classifyItemUsingZeroShot, nil
+	}
+
 	if c.modulesProvider != nil {
 		classifyItemFn, err := c.modulesProvider.GetClassificationFn(params.Type,
 			c.getClassifyParams(params, filters, unclassifiedItems))
