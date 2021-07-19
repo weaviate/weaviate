@@ -59,8 +59,8 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
 
-	// t.Run("numerical aggregations with grouping",
-	// 	testNumericalAggregationsWithGrouping(repo))
+	t.Run("numerical aggregations with grouping",
+		testNumericalAggregationsWithGrouping(repo, true))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, true))
@@ -162,7 +162,7 @@ func cleanupCompanyTestSchemaAndData(repo *DB,
 	}
 }
 
-func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
+func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("single field, single aggregator", func(t *testing.T) {
 			params := traverser.AggregateParams{
@@ -186,7 +186,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6,
+						Count: 60,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -195,13 +195,13 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
-									"mean": 2.066666666666667,
+									"mean": 2.066666666666666,
 								},
 							},
 						},
 					},
 					aggregation.Group{
-						Count: 3,
+						Count: 30,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -210,7 +210,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
-									"mean": 2.1999999999999997,
+									"mean": 2.1999999999999999,
 								},
 							},
 						},
@@ -218,7 +218,18 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+			require.Equal(t, len(expectedResult.Groups), len(res.Groups))
+
+			for i := 0; i <= 1; i++ {
+				assert.Equal(t, expectedResult.Groups[i].Count,
+					res.Groups[i].Count)
+
+				expectedDivYield := expectedResult.Groups[i].Properties["dividendYield"]
+				actualDivYield := res.Groups[i].Properties["dividendYield"]
+
+				assert.InEpsilon(t, expectedDivYield.NumericalAggregations["mean"],
+					actualDivYield.NumericalAggregations["mean"], 0.1)
+			}
 		})
 
 		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
@@ -242,7 +253,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 8,
+						Count: 80,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"listedInIndex"},
 							Value: true,
@@ -257,7 +268,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"listedInIndex"},
 							Value: false,
@@ -352,7 +363,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6,
+						Count: 60,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -364,10 +375,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.06667,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     12.4,
+									"sum":     124,
 									"mode":    0,
 									"median":  1.1,
-									"count":   6,
+									"count":   60,
 								},
 							},
 							"price": aggregation.Property{
@@ -376,46 +387,46 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    218.33333,
 									"maximum": 800,
 									"minimum": 10,
-									"sum":     1310,
+									"sum":     13100,
 									// "mode":    70,
 									"median": 70,
-									"count":  6,
+									"count":  60,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
-									TotalFalse:      1,
+									TotalTrue:       50,
+									TotalFalse:      10,
 									PercentageTrue:  0.8333333333333334,
 									PercentageFalse: 0.16666666666666666,
-									Count:           6,
+									Count:           60,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -423,7 +434,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 3,
+						Count: 30,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -435,10 +446,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.2,
 									"maximum": 4.0,
 									"minimum": 1.3,
-									"sum":     6.6,
+									"sum":     66,
 									"mode":    1.3,
 									"median":  1.3,
-									"count":   3,
+									"count":   30,
 								},
 							},
 							"price": aggregation.Property{
@@ -447,34 +458,34 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    265.66667,
 									"maximum": 600,
 									"minimum": 47,
-									"sum":     797,
+									"sum":     7970,
 									// "mode":    47,
 									"median": 150,
-									"count":  3,
+									"count":  30,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       3,
+									TotalTrue:       30,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           3,
+									Count:           30,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 3,
+									Count: 30,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -583,7 +594,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 5,
+						Count: 50,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -595,9 +606,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.48,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     12.4,
+									"sum":     124,
 									"median":  1.3,
-									"count":   5,
+									"count":   50,
 								},
 							},
 							"price": aggregation.Property{
@@ -606,41 +617,41 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    102,
 									"maximum": 200,
 									"minimum": 10,
-									"sum":     510,
+									"sum":     5100,
 									"median":  70,
-									"count":   5,
+									"count":   50,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
+									TotalTrue:       50,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           5,
+									Count:           50,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 5,
+									Count: 50,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -648,7 +659,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 2,
+						Count: 20,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -660,9 +671,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    1.3,
 									"maximum": 1.3,
 									"minimum": 1.3,
-									"sum":     2.6,
+									"sum":     26,
 									"median":  1.3,
-									"count":   2,
+									"count":   20,
 								},
 							},
 							"price": aggregation.Property{
@@ -671,33 +682,33 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    98.5,
 									"maximum": 150,
 									"minimum": 47,
-									"sum":     197,
+									"sum":     1970,
 									"median":  47,
-									"count":   2,
+									"count":   20,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       2,
+									TotalTrue:       20,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           2,
+									Count:           20,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 2,
+									Count: 20,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -810,7 +821,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -822,9 +833,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     8.0,
+									"sum":     80,
 									"median":  8.0,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"price": aggregation.Property{
@@ -833,29 +844,29 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    10,
 									"maximum": 10,
 									"minimum": 10,
-									"sum":     10,
+									"sum":     100,
 									"median":  10,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       1,
+									TotalTrue:       10,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           1,
+									Count:           10,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
