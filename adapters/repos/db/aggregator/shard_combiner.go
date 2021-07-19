@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -21,7 +22,7 @@ func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
 		return sc.combineUngrouped(results)
 	}
 
-	panic("grouped not supported yet")
+	return sc.combineGrouped(results)
 }
 
 func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggregation.Result {
@@ -30,39 +31,76 @@ func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggreg
 	}
 
 	for _, shard := range results {
-		combined.Groups[0].Count += shard.Groups[0].Count
-
-		for propName, prop := range shard.Groups[0].Properties {
-			if combined.Groups[0].Properties == nil {
-				combined.Groups[0].Properties = map[string]aggregation.Property{}
-			}
-
-			combinedProp := combined.Groups[0].Properties[propName]
-
-			if combinedProp.NumericalAggregations == nil {
-				combinedProp.NumericalAggregations = map[string]float64{}
-			}
-
-			combinedProp.Type = prop.Type
-
-			switch prop.Type {
-			case aggregation.PropertyTypeNumerical:
-				combinedProp.NumericalAggregations = sc.mergeNumericalProp(
-					combinedProp.NumericalAggregations, prop.NumericalAggregations)
-			case aggregation.PropertyTypeBoolean:
-				combinedProp.BooleanAggregation = sc.mergeBooleanProp(
-					combinedProp.BooleanAggregation, prop.BooleanAggregation)
-			case aggregation.PropertyTypeText:
-				combinedProp.TextAggregation = sc.mergeTextProp(
-					combinedProp.TextAggregation, prop.TextAggregation)
-			}
-			combined.Groups[0].Properties[propName] = combinedProp
-
-		}
+		sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0])
 	}
 
 	sc.finalizeGroup(&combined.Groups[0])
 	return &combined
+}
+
+func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregation.Result {
+	combined := aggregation.Result{}
+
+	for _, shard := range results {
+		for _, shardGroup := range shard.Groups {
+			m := shardGroup.Properties["dividendYield"].NumericalAggregations["mean"]
+			fmt.Printf("local value is %f\n", m)
+			pos := getPosOfGroup(combined.Groups, shardGroup.GroupedBy.Value)
+			if pos < 0 {
+				for propName := range shardGroup.Properties {
+					// set the dummy rounds prop which is used as a counter for means,
+					// etc.
+					shardGroup.Properties[propName].NumericalAggregations["_rounds"] = 1
+				}
+				combined.Groups = append(combined.Groups, shardGroup)
+			} else {
+				sc.mergeIntoCombinedGroupAtPos(combined.Groups, pos, shardGroup)
+			}
+		}
+	}
+
+	for i := range combined.Groups {
+		sc.finalizeGroup(&combined.Groups[i])
+	}
+
+	sort.Slice(combined.Groups, func(a, b int) bool {
+		return combined.Groups[a].Count > combined.Groups[b].Count
+	})
+	return &combined
+}
+
+func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
+	pos int, shardGroup aggregation.Group) {
+	fmt.Printf("adding %d count to %d\n", shardGroup.Count, combinedGroups[pos].Count)
+	combinedGroups[pos].Count += shardGroup.Count
+
+	for propName, prop := range shardGroup.Properties {
+		if combinedGroups[pos].Properties == nil {
+			combinedGroups[pos].Properties = map[string]aggregation.Property{}
+		}
+
+		combinedProp := combinedGroups[pos].Properties[propName]
+
+		if combinedProp.NumericalAggregations == nil {
+			combinedProp.NumericalAggregations = map[string]float64{}
+		}
+
+		combinedProp.Type = prop.Type
+
+		switch prop.Type {
+		case aggregation.PropertyTypeNumerical:
+			combinedProp.NumericalAggregations = sc.mergeNumericalProp(
+				combinedProp.NumericalAggregations, prop.NumericalAggregations)
+		case aggregation.PropertyTypeBoolean:
+			combinedProp.BooleanAggregation = sc.mergeBooleanProp(
+				combinedProp.BooleanAggregation, prop.BooleanAggregation)
+		case aggregation.PropertyTypeText:
+			combinedProp.TextAggregation = sc.mergeTextProp(
+				combinedProp.TextAggregation, prop.TextAggregation)
+		}
+		combinedGroups[pos].Properties[propName] = combinedProp
+
+	}
 }
 
 func (sc ShardCombiner) mergeNumericalProp(combined, source map[string]float64) map[string]float64 {
@@ -168,4 +206,14 @@ func (sc ShardCombiner) finalizeGroup(group *aggregation.Group) {
 		}
 		group.Properties[propName] = prop
 	}
+}
+
+func getPosOfGroup(haystack []aggregation.Group, needle interface{}) int {
+	for i, elem := range haystack {
+		if elem.GroupedBy.Value == needle {
+			return i
+		}
+	}
+
+	return -1
 }
