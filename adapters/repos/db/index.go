@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -381,17 +382,28 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 
 func (i *Index) aggregate(ctx context.Context,
 	params traverser.AggregateParams) (*aggregation.Result, error) {
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	// TODO: search across all shards, rather than hard-coded first shard
 
-	shard := i.Shards[shardNames[0]]
-	obj, err := shard.aggregate(ctx, params)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
+		AllPhysicalShards()
+
+	results := make([]*aggregation.Result, len(shardNames))
+	for j, shardName := range shardNames {
+		shard := i.Shards[shardName]
+		res, err := shard.aggregate(ctx, params)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		}
+
+		results[j] = res
 	}
 
-	return obj, nil
+	if len(shardState.AllPhysicalShards()) > 1 {
+		return aggregator.NewShardCombiner().Do(results), nil
+	}
+
+	return results[0], nil
 }
 
 func (i *Index) drop() error {
