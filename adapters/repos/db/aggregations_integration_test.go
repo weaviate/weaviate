@@ -59,11 +59,42 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
 
-	t.Run("numerical aggregations with grouping",
-		testNumericalAggregationsWithGrouping(repo))
+	// t.Run("numerical aggregations with grouping",
+	// 	testNumericalAggregationsWithGrouping(repo))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo))
+		testNumericalAggregationsWithoutGrouping(repo, true))
+
+	// t.Run("clean up",
+	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
+}
+
+func Test_Aggregations_MultiShard(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	shardState := multiShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("prepare test schema and data ",
+		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
+
+	// t.Run("numerical aggregations with grouping",
+	// 	testNumericalAggregationsWithGrouping(repo))
+
+	t.Run("numerical aggregations without grouping (formerly Meta)",
+		testNumericalAggregationsWithoutGrouping(repo, false))
 
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -105,16 +136,20 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 		})
 
 		t.Run("import companies", func(t *testing.T) {
-			for i, schema := range companies {
-				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
-					fixture := models.Object{
-						Class:      companyClass.Class,
-						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
-						Properties: schema,
-					}
-					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
-				})
+			// import everything 10 times to even out the multi-shard errors a bit
+			// more
+			for j := 0; j < 10; j++ {
+				for i, schema := range companies {
+					t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
+						fixture := models.Object{
+							Class:      companyClass.Class,
+							ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+							Properties: schema,
+						}
+						require.Nil(t,
+							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
+					})
+				}
 			}
 		})
 	}
@@ -847,7 +882,8 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 	}
 }
 
-func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
+func testNumericalAggregationsWithoutGrouping(repo *DB,
+	exact bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
 			params := traverser.AggregateParams{
@@ -863,7 +899,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 				Groups: []aggregation.Group{
 					aggregation.Group{
 						GroupedBy: nil,
-						Count:     9,
+						Count:     90,
 					},
 				},
 			}
@@ -887,23 +923,30 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			res, err := repo.Aggregate(context.Background(), params)
 			require.Nil(t, err)
 
-			expectedResult := &aggregation.Result{
-				Groups: []aggregation.Group{
-					aggregation.Group{
-						GroupedBy: nil,
-						Properties: map[string]aggregation.Property{
-							"dividendYield": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean": 2.111111111111111,
+			if exact {
+				expectedResult := &aggregation.Result{
+					Groups: []aggregation.Group{
+						aggregation.Group{
+							GroupedBy: nil,
+							Properties: map[string]aggregation.Property{
+								"dividendYield": aggregation.Property{
+									Type: aggregation.PropertyTypeNumerical,
+									NumericalAggregations: map[string]float64{
+										"mean": 2.111111111111111,
+									},
 								},
 							},
 						},
 					},
-				},
-			}
+				}
 
-			assert.Equal(t, expectedResult.Groups, res.Groups)
+				assert.Equal(t, expectedResult.Groups, res.Groups)
+			} else {
+				require.Len(t, res.Groups, 1)
+				divYield := res.Groups[0].Properties["dividendYield"]
+				assert.Equal(t, aggregation.PropertyTypeNumerical, divYield.Type)
+				assert.InDelta(t, 2.1111, divYield.NumericalAggregations["mean"], 2)
+			}
 		})
 
 		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
@@ -983,7 +1026,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 9, // because includeMetaCount was set
+						Count: 90, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
@@ -991,10 +1034,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.111111111111111,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     19,
+									"sum":     190,
 									"mode":    1.3,
 									"median":  1.3,
-									"count":   9,
+									"count":   90,
 								},
 							},
 							"price": aggregation.Property{
@@ -1003,46 +1046,46 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    234.11111111111111,
 									"maximum": 800,
 									"minimum": 10,
-									"sum":     2107,
+									"sum":     21070,
 									"mode":    70,
 									"median":  150,
-									"count":   9,
+									"count":   90,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       8,
-									TotalFalse:      1,
+									TotalTrue:       80,
+									TotalFalse:      10,
 									PercentageTrue:  0.8888888888888888,
 									PercentageFalse: 0.1111111111111111,
-									Count:           9,
+									Count:           90,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 9,
+									Count: 90,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 3,
+											Occurs: 30,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1050,11 +1093,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 9,
+									Count: 90,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 6,
+											Occurs: 60,
 										},
 									},
 								},
@@ -1064,10 +1107,79 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, expectedResult.Groups, res.Groups)
+			if exact {
+				assert.Equal(t, expectedResult.Groups, res.Groups)
+			} else {
+				t.Run("numerical fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["dividendYield"].NumericalAggregations
+					expextedAggs := expectedResult.Groups[0].Properties["dividendYield"].NumericalAggregations
+
+					// max, min, count, sum are always exact matches, but we need an
+					// epsiolon check because of floating point arithmetics
+					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
+					assert.Equal(t, expextedAggs["minimum"], aggs["minimum"]) // equal because the result == 0
+					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
+					assert.InEpsilon(t, expextedAggs["sum"], aggs["sum"], 0.1)
+
+					// mean, mode, median are always fuzzy
+					assert.InDelta(t, expextedAggs["mean"], aggs["mean"], 2)
+					assert.InDelta(t, expextedAggs["mode"], aggs["mode"], 2)
+					assert.InDelta(t, expextedAggs["median"], aggs["median"], 2)
+				})
+
+				t.Run("int fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["price"].NumericalAggregations
+					expextedAggs := expectedResult.Groups[0].Properties["price"].NumericalAggregations
+
+					// max, min, count, sum are always exact matches, but we need an
+					// epsiolon check because of floating point arithmetics
+					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
+					assert.InEpsilon(t, expextedAggs["minimum"], aggs["minimum"], 0.1)
+					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
+					assert.InEpsilon(t, expextedAggs["sum"], aggs["sum"], 0.1)
+
+					// mean, mode, median are always fuzzy
+					assert.InEpsilon(t, expextedAggs["mean"], aggs["mean"], 0.5, "mean")
+					assert.InEpsilon(t, expextedAggs["mode"], aggs["mode"], 10, "mode")
+					assert.InEpsilon(t, expextedAggs["median"], aggs["median"], 0.5, "median")
+				})
+
+				t.Run("boolean fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["listedInIndex"].BooleanAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["listedInIndex"].BooleanAggregation
+
+					assert.InEpsilon(t, expectedAggs.TotalTrue, aggs.TotalTrue, 0.1)
+					assert.InEpsilon(t, expectedAggs.TotalFalse, aggs.TotalFalse, 0.1)
+					assert.InEpsilon(t, expectedAggs.PercentageTrue, aggs.PercentageTrue, 0.1)
+					assert.InEpsilon(t, expectedAggs.PercentageFalse, aggs.PercentageFalse, 0.1)
+					assert.InEpsilon(t, expectedAggs.Count, aggs.Count, 0.1)
+				})
+
+				t.Run("text fields (location)", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["location"].TextAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["location"].TextAggregation
+
+					assert.Equal(t, expectedAggs.Count, aggs.Count)
+					assert.ElementsMatch(t, expectedAggs.Items, aggs.Items)
+				})
+				t.Run("text fields (sector)", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["sector"].TextAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["sector"].TextAggregation
+
+					assert.Equal(t, expectedAggs.Count, aggs.Count)
+					assert.ElementsMatch(t, expectedAggs.Items, aggs.Items)
+				})
+			}
 		})
 
 		t.Run("multiple fields, multiple aggregators, single-level filter", func(t *testing.T) {
+			if !exact {
+				// filtering is happening inside a shard, so there is no need to test
+				// this again for multi-sharding. This saves us from adapting all the
+				// assertions to work with fuzzy values
+				t.Skip()
+			}
+
 			params := traverser.AggregateParams{
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
@@ -1142,69 +1254,76 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			res, err := repo.Aggregate(context.Background(), params)
 			require.Nil(t, err)
 
+			actualDivYield := res.Groups[0].Properties["dividendYield"]
+			delete(res.Groups[0].Properties, "dividendYield")
+			actualPrice := res.Groups[0].Properties["price"]
+			delete(res.Groups[0].Properties, "price")
+
+			expectedDivYield := aggregation.Property{
+				Type: aggregation.PropertyTypeNumerical,
+				NumericalAggregations: map[string]float64{
+					"mean":    2.066666666666666,
+					"maximum": 8.0,
+					"minimum": 0.0,
+					"sum":     124,
+					"mode":    0.0,
+					"median":  1.1,
+					"count":   60,
+				},
+			}
+
+			expectedPrice := aggregation.Property{
+				Type: aggregation.PropertyTypeNumerical,
+				NumericalAggregations: map[string]float64{
+					"mean":    218.33333333333334,
+					"maximum": 800,
+					"minimum": 10,
+					"sum":     13100,
+					"mode":    70,
+					"median":  70,
+					"count":   60,
+				},
+			}
+
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6, // because includeMetaCount was set
+						Count: 60, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
-							"dividendYield": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    2.066666666666667,
-									"maximum": 8.0,
-									"minimum": 0.0,
-									"sum":     12.4,
-									"mode":    0.0,
-									"median":  1.1,
-									"count":   6,
-								},
-							},
-							"price": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    218.33333333333334,
-									"maximum": 800,
-									"minimum": 10,
-									"sum":     1310,
-									"mode":    70,
-									"median":  70,
-									"count":   6,
-								},
-							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
-									TotalFalse:      1,
+									TotalTrue:       50,
+									TotalFalse:      10,
 									PercentageTrue:  0.8333333333333334,
 									PercentageFalse: 0.16666666666666666,
-									Count:           6,
+									Count:           60,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1212,11 +1331,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 6,
+											Occurs: 60,
 										},
 									},
 								},
@@ -1227,9 +1346,48 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedResult.Groups, res.Groups)
+
+			// floating point arithmetic for numerical fields
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["mean"],
+				actualDivYield.NumericalAggregations["mean"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["mean"],
+				actualPrice.NumericalAggregations["mean"], 0.1)
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["maximum"],
+				actualDivYield.NumericalAggregations["maximum"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["maximum"],
+				actualPrice.NumericalAggregations["maximum"], 0.1)
+
+			assert.Equal(t, expectedDivYield.NumericalAggregations["minimum"],
+				actualDivYield.NumericalAggregations["minimum"])
+			assert.Equal(t, expectedPrice.NumericalAggregations["minimum"],
+				actualPrice.NumericalAggregations["minimum"])
+
+			assert.Equal(t, expectedDivYield.NumericalAggregations["mode"],
+				actualDivYield.NumericalAggregations["mode"])
+			assert.Equal(t, expectedPrice.NumericalAggregations["mode"],
+				actualPrice.NumericalAggregations["mode"])
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["median"],
+				actualDivYield.NumericalAggregations["median"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["median"],
+				actualPrice.NumericalAggregations["median"], 0.1)
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["count"],
+				actualDivYield.NumericalAggregations["count"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["count"],
+				actualPrice.NumericalAggregations["count"], 0.1)
 		})
 
 		t.Run("multiple fields, multiple aggregators, ref filter", func(t *testing.T) {
+			if !exact {
+				// filtering is happening inside a shard, so there is no need to test
+				// this again for multi-sharding. This saves us from adapting all the
+				// assertions to work with fuzzy values
+				t.Skip()
+			}
+
 			params := traverser.AggregateParams{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil,
@@ -1322,7 +1480,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
@@ -1330,10 +1488,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     8.0,
+									"sum":     80,
 									"mode":    8.0,
 									"median":  8.0,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"price": aggregation.Property{
@@ -1342,30 +1500,30 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    10,
 									"maximum": 10,
 									"minimum": 10,
-									"sum":     10,
+									"sum":     100,
 									"mode":    10,
 									"median":  10,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       1,
+									TotalTrue:       10,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           1,
+									Count:           10,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1373,11 +1531,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
