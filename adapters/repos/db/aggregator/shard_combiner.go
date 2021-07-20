@@ -1,7 +1,6 @@
 package aggregator
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -43,14 +42,14 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 
 	for _, shard := range results {
 		for _, shardGroup := range shard.Groups {
-			m := shardGroup.Properties["dividendYield"].NumericalAggregations["mean"]
-			fmt.Printf("local value is %f\n", m)
 			pos := getPosOfGroup(combined.Groups, shardGroup.GroupedBy.Value)
 			if pos < 0 {
 				for propName := range shardGroup.Properties {
 					// set the dummy rounds prop which is used as a counter for means,
 					// etc.
-					shardGroup.Properties[propName].NumericalAggregations["_rounds"] = 1
+					if shardGroup.Properties[propName].NumericalAggregations != nil {
+						shardGroup.Properties[propName].NumericalAggregations["_rounds"] = 1
+					}
 				}
 				combined.Groups = append(combined.Groups, shardGroup)
 			} else {
@@ -71,7 +70,6 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
 	pos int, shardGroup aggregation.Group) {
-	fmt.Printf("adding %d count to %d\n", shardGroup.Count, combinedGroups[pos].Count)
 	combinedGroups[pos].Count += shardGroup.Count
 
 	for propName, prop := range shardGroup.Properties {
@@ -81,14 +79,13 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 
 		combinedProp := combinedGroups[pos].Properties[propName]
 
-		if combinedProp.NumericalAggregations == nil {
-			combinedProp.NumericalAggregations = map[string]float64{}
-		}
-
 		combinedProp.Type = prop.Type
 
 		switch prop.Type {
 		case aggregation.PropertyTypeNumerical:
+			if combinedProp.NumericalAggregations == nil {
+				combinedProp.NumericalAggregations = map[string]float64{}
+			}
 			combinedProp.NumericalAggregations = sc.mergeNumericalProp(
 				combinedProp.NumericalAggregations, prop.NumericalAggregations)
 		case aggregation.PropertyTypeBoolean:
@@ -140,9 +137,15 @@ func (sc ShardCombiner) mergeNumericalProp(combined, source map[string]float64) 
 }
 
 func (sc ShardCombiner) finalizeNumerical(combined map[string]float64) map[string]float64 {
-	combined["mean"] = combined["mean"] / combined["_rounds"]
-	combined["mode"] = combined["mode"] / combined["_rounds"]
-	combined["median"] = combined["median"] / combined["_rounds"]
+	if _, ok := combined["mean"]; ok {
+		combined["mean"] = combined["mean"] / combined["_rounds"]
+	}
+	if _, ok := combined["mode"]; ok {
+		combined["mode"] = combined["mode"] / combined["_rounds"]
+	}
+	if _, ok := combined["median"]; ok {
+		combined["median"] = combined["median"] / combined["_rounds"]
+	}
 	delete(combined, "_rounds")
 	return combined
 }
