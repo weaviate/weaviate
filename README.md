@@ -10,24 +10,26 @@
 
 Weaviate is a vector search engine and vector database. Weaviate uses machine learning to vectorize and store data, and to find answers to natural language queries. With Weaviate you can also bring your custom ML models to production scale. Weaviate helps in various domains: 
 
-1. **Weaviate for Software Engineers**: Use Weaviate to enrich your data with out-of-the-box machine learning models and focus on scalability.
+1. Weaviate for **Software Engineers**: Use Weaviate to enrich your data with out-of-the-box machine learning models and focus on scalability.
     * Natural language search
     * Automatic data classification
     * Easy to integrate in your current data ecosystem, with the ease of use like other OSS databases
     * Designed to bring data projects to scale
+    * [Check out the documentation for more details](https://www.semi.technology/developers/weaviate/current/)
 
-2. **Weaviate for Data Engineers**: Weaviate is a vector database to bring your machine learning projects to scale, in addition to features you know and love from Lucene-based search engines.
+2. Weaviate for **Data Engineers**: Weaviate is a vector database to bring your machine learning projects to scale, in addition to features you know and love from Lucene-based search engines.
     * Weaviate has a modular setup that allows to use your own ML models inside Weaviate
     * Weaviate offers out-of-the-box ML models besides custom ML models
     * Weaviate takes care of the scalability
     * Deploy and maintain ML models in production reliably and efficiently. 
+    * [Check out the documentation for more details](https://www.semi.technology/developers/weaviate/current/)
 
-3. **Weaviate for Data Scientists**: Use Weaviate for a seamless handover of your Machine Learning models to production. 
+3. Weaviate for **Data Scientists**: Use Weaviate for a seamless handover of your Machine Learning models to production. 
     * Deploy and maintain your ML models in production reliably and efficiently
     * Your machine learning models can be packaged inside Weaviate
     * Weaviate takes care of the scalability
     * Smooth and accelerated handover of your Machine Learning models to engineers
-
+    * [Check out the documentation for more details](https://www.semi.technology/developers/weaviate/current/)
 
 <a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
 
@@ -39,14 +41,14 @@ Weaviate is a low-latency vector search engine with out-of-the-box support for d
 
 ## Features
 
-Weaviate makes it easy to use state-of-the-art AI models while giving you the scalability, ease of use, safety and cost-effectiveness of a purpose-built vector database. Most notably:
+Weaviate makes it easy to use state-of-the-art ML models while giving you the scalability, ease of use, safety and cost-effectiveness of a purpose-built vector database. Most notably:
 
 * **Fast queries**<br>
    Weaviate typically performs a 10-NN neighbor search out of millions of objects in considerably less than 100ms.
    <br><sub></sub>
 
 * **Any media type with Weaviate Modules**<br>
-  Use State-of-the-Art AI model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
+  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
 
 * **Combine vector and scalar search**<br>
   Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for a third party object storage. 
