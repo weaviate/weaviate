@@ -1,12 +1,33 @@
 <h1>Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='124' align='right' /></h1>
 
-<h4>The AI-first search engine</h4>
+<h4>The ML-driven search engine</h4>
 
 [![Build Status](https://api.travis-ci.org/semi-technologies/weaviate.svg?branch=master)](https://travis-ci.org/semi-technologies/weaviate/branches)
 [![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
 [![Coverage Status](https://codecov.io/gh/semi-technologies/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/semi-technologies/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
 [![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
+
+Weaviate is a vector search engine and vector database. Weaviate uses machine learning to vectorize and store data, and to find answers to natural language queries. With Weaviate you can also bring your custom ML models to production scale. Weaviate helps in various domains: 
+
+1. **Weaviate for Software Engineers**: Use Weaviate to enrich your data with out-of-the-box machine learning models and focus on scalability.
+    * Natural language search
+    * Automatic data classification
+    * Easy to integrate in your current data ecosystem, with the ease of use like other OSS databases
+    * Designed to bring data projects to scale
+
+2. **Weaviate for Data Engineers**: Weaviate is a vector database to bring your machine learning projects to scale, in addition to features you know and love from Lucene-based search engines.
+    * Weaviate has a modular setup that allows to use your own ML models inside Weaviate
+    * Weaviate offers out-of-the-box ML models besides custom ML models
+    * Weaviate takes care of the scalability
+    * Deploy and maintain ML models in production reliably and efficiently. 
+
+3. **Weaviate for Data Scientists**: Use Weaviate for a seamless handover of your Machine Learning models to production. 
+    * Deploy and maintain your ML models in production reliably and efficiently
+    * Your machine learning models can be packaged inside Weaviate
+    * Weaviate takes care of the scalability
+    * Smooth and accelerated handover of your Machine Learning models to engineers
+
 
 <a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
 
