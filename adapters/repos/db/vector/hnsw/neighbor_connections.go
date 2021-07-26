@@ -88,7 +88,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	max := n.maximumConnections(level)
+	// max := n.maximumConnections(level)
+	max := n.graph.maximumConnections
 	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
 		return err
 	}
