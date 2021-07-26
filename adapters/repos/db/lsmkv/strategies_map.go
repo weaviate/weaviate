@@ -179,6 +179,43 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	return nil
 }
 
+func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
+	var read uint16
+
+	keyLen := binary.LittleEndian.Uint16(in[:2])
+	read += 2 // uint16 -> 2 bytes
+
+	if int(keyLen) > cap(kv.Key) {
+		kv.Key = make([]byte, keyLen)
+	} else {
+		kv.Key = kv.Key[:keyLen]
+	}
+	copy(kv.Key, in[read:read+keyLen])
+	read += keyLen
+
+	if keyOnly {
+		return nil
+	}
+
+	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	read += 2
+
+	if int(valueLen) > cap(kv.Value) {
+		kv.Value = make([]byte, valueLen)
+	} else {
+		kv.Value = kv.Value[:valueLen]
+	}
+	copy(kv.Value, in[read:read+valueLen])
+	read += valueLen
+
+	if read != uint16(len(in)) {
+		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+			read, len(in))
+	}
+
+	return nil
+}
+
 type mapEncoder struct{}
 
 func newMapEncoder() *mapEncoder {
