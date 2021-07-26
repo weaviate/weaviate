@@ -59,6 +59,8 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 
 	// rewind and return to pool
 	returnList = returnList[:0]
+
+	// nolint:staticcheck
 	h.pools.pqItemSlice.Put(returnList)
 
 	return nil

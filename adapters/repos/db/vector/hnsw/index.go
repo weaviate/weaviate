@@ -355,9 +355,9 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.connections[level] = connections
 }
 
-func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
-	v.connections[level] = connections
-}
+// func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
+// 	v.connections[level] = connections
+// }
 
 func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
 	v.connections[level] = append(v.connections[level], connection)
