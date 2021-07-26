@@ -102,7 +102,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	}
 
 	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
 		return err
 	}
 

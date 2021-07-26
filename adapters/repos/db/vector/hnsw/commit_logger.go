@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/sirupsen/logrus"
 )
 
@@ -56,9 +56,8 @@ func NewCommitLogger(rootPath, name string,
 	if err != nil {
 		return nil, err
 	}
-	l.logFile = fd
-	l.logWriter = bufio.NewWriterSize(fd, 1024*1024)
 
+	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.StartLogging()
 	return l, nil
 }
@@ -174,14 +173,13 @@ type condensor interface {
 type hnswCommitLogger struct {
 	sync.Mutex
 	cancel               chan struct{}
-	logFile              *os.File
-	logWriter            *bufio.Writer
 	rootPath             string
 	id                   string
 	condensor            condensor
 	maintainenceInterval time.Duration
 	logger               logrus.FieldLogger
 	maxSize              int64
+	commitLogger         *commitlog.Logger
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -203,154 +201,64 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, AddNode))
-	ec.add(l.writeUint64(l.logWriter, node.id))
-	ec.add(l.writeUint16(l.logWriter, uint16(node.level)))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err, "write node %d to commit log", node.id)
-	}
-
-	return nil
+	return l.commitLogger.AddNode(node.id, node.level)
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, SetEntryPointMaxLevel))
-	ec.add(l.writeUint64(l.logWriter, id))
-	ec.add(l.writeUint16(l.logWriter, uint16(level)))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err, "write entrypoint %d (%d) to commit log", id, level)
-	}
-
-	return nil
+	return l.commitLogger.SetEntryPointWithMaxLayer(id, level)
 }
 
 func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, ReplaceLinksAtLevel))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-	ec.add(l.writeUint16(l.logWriter, uint16(level)))
-	targetLength := len(targets)
-	if targetLength > math.MaxUint16 {
-		// TODO: investigate why we get such massive connections
-		targetLength = math.MaxUint16
-		l.logger.WithField("action", "hnsw_current_commit_log").
-			WithField("id", l.id).
-			WithField("original_length", len(targets)).
-			WithField("maximum_length", targetLength).
-			Warning("condensor length of connections would overflow uint16, cutting off")
-	}
-	ec.add(l.writeUint16(l.logWriter, uint16(targetLength)))
-	ec.add(l.writeUint64Slice(l.logWriter, targets[:targetLength]))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err,
-			"write (replacement) links at level %d->%v (%d) to commit log", nodeid,
-			targets, level)
-	}
-
-	return nil
+	return l.commitLogger.ReplaceLinksAtLevel(nodeid, level, targets)
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
 	target uint64) error {
 	l.Lock()
 	defer l.Unlock()
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, AddLinkAtLevel))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-	ec.add(l.writeUint16(l.logWriter, uint16(level)))
-	ec.add(l.writeUint64(l.logWriter, target))
 
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
-			nodeid, target, level)
-	}
-
-	return nil
+	return l.commitLogger.AddLinkAtLevel(nodeid, level, target)
 }
 
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, AddTombstone))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrap(err,
-			"write tombstone to commit log")
-	}
-
-	return nil
+	return l.commitLogger.AddTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, RemoveTombstone))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err,
-			"write deletion of tombstone to commit log")
-	}
-
-	return nil
+	return l.commitLogger.RemoveTombstone(nodeid)
 }
 
 func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, ClearLinks))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err,
-			"write clear links of node to commit log")
-	}
-
-	return nil
+	return l.commitLogger.ClearLinks(nodeid)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	ec := &errorCompounder{}
-	ec.add(l.writeCommitType(l.logWriter, DeleteNode))
-	ec.add(l.writeUint64(l.logWriter, nodeid))
-	if err := ec.toError(); err != nil {
-		return errors.Wrapf(err,
-			"write delete node to commit log")
-	}
-
-	return nil
+	return l.commitLogger.DeleteNode(nodeid)
 }
 
 func (l *hnswCommitLogger) Reset() error {
 	l.Lock()
 	defer l.Unlock()
 
-	err := l.writeCommitType(l.logWriter, ResetIndex)
-	if err != nil {
-		return errors.Wrap(err, "reset to commit log")
-	}
-
-	return nil
+	return l.commitLogger.Reset()
 }
 
 func (l *hnswCommitLogger) StartLogging() {
@@ -432,39 +340,41 @@ func (l *hnswCommitLogger) maintenance() error {
 	l.Lock()
 	defer l.Unlock()
 
-	i, err := l.logFile.Stat()
+	size, err := l.commitLogger.FileSize()
 	if err != nil {
 		return err
 	}
 
-	if i.Size() > l.maxSize {
-		if err := l.logWriter.Flush(); err != nil {
-			return err
-		}
-
-		if err := l.logFile.Close(); err != nil {
-			return err
-		}
-
-		// this is a new commit log, initialize with the current time stamp
-		fileName := fmt.Sprintf("%d", time.Now().Unix())
-
-		l.logger.WithField("action", "commit_log_file_switched").
-			WithField("id", l.id).
-			WithField("old_file_name", i.Name()).
-			WithField("old_file_size", i.Size()).
-			WithField("new_file_name", fileName).
-			Info("commit log size crossed threshold, switching to new file")
-
-		fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
-			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-		if err != nil {
-			return errors.Wrap(err, "create commit log file")
-		}
-
-		l.logFile = fd
-		l.logWriter = bufio.NewWriterSize(fd, 1024*1024)
+	if size <= l.maxSize {
+		return nil
 	}
+
+	oldFileName, err := l.commitLogger.FileName()
+	if err != nil {
+		return err
+	}
+
+	if err := l.commitLogger.Close(); err != nil {
+		return err
+	}
+
+	// this is a new commit log, initialize with the current time stamp
+	fileName := fmt.Sprintf("%d", time.Now().Unix())
+
+	l.logger.WithField("action", "commit_log_file_switched").
+		WithField("id", l.id).
+		WithField("old_file_name", oldFileName).
+		WithField("old_file_size", size).
+		WithField("new_file_name", fileName).
+		Info("commit log size crossed threshold, switching to new file")
+
+	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return errors.Wrap(err, "create commit log file")
+	}
+
+	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
 	return nil
 }
@@ -557,5 +467,5 @@ func (l *hnswCommitLogger) Drop() error {
 }
 
 func (l *hnswCommitLogger) Flush() error {
-	return l.logWriter.Flush()
+	return l.commitLogger.Flush()
 }

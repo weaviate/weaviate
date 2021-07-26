@@ -177,6 +177,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
 		neighbor.appendConnectionAtLevelNoLock(level, n.node.id)
+		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
+			return err
+		}
 	} else {
 		// we need to run the heurisitc
 
