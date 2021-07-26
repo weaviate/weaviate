@@ -84,7 +84,7 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			out.Level = 0
 			out.Nodes = make([]*vertex, initialSize)
 		default:
-			err = fmt.Errorf("unrecognized commit type %d", ct)
+			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
 		if err != nil {
 			return nil, err

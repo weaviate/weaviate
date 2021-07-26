@@ -14,6 +14,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"fmt"
 	"math/rand"
 	"os"
@@ -184,7 +185,9 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		}
 		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
 		require.Nil(t, err)
-		res, err := NewDeserializer(logger).Do(fd, &initialState)
+
+		bufr := bufio.NewReader(fd)
+		res, err := NewDeserializer(logger).Do(bufr, &initialState)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
@@ -196,8 +199,10 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	fd, err := os.Open(fileName)
 	require.Nil(t, err)
+
+	bufr := bufio.NewReader(fd)
 	logger, _ := test.NewNullLogger()
-	res, err := NewDeserializer(logger).Do(fd, nil)
+	res, err := NewDeserializer(logger).Do(bufr, nil)
 	require.Nil(t, err)
 
 	index := &hnsw{
