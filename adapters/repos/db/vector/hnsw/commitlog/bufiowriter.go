@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	defaultBufSize           = 4096
-	maxConsecutiveEmptyReads = 100
+	defaultBufSize = 4096
 )
 
 // bufWriter implements buffering for an *os.File object.

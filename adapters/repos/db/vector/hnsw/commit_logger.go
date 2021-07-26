@@ -12,10 +12,7 @@
 package hnsw
 
 import (
-	"bufio"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"sort"
@@ -414,42 +411,6 @@ func (l *hnswCommitLogger) combineLogs() error {
 	// sum of both input files
 	threshold := int64(float64(l.maxSize) * 1.75)
 	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
-}
-
-func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
-	if err != nil {
-		return errors.Wrap(err, "writing uint64")
-	}
-
-	return nil
-}
-
-func (l *hnswCommitLogger) writeUint16(w *bufio.Writer, in uint16) error {
-	err := binary.Write(w, binary.LittleEndian, in)
-	if err != nil {
-		return errors.Wrap(err, "writing uint16")
-	}
-
-	return nil
-}
-
-func (l *hnswCommitLogger) writeCommitType(w *bufio.Writer, in HnswCommitType) error {
-	err := binary.Write(w, binary.LittleEndian, in)
-	if err != nil {
-		return errors.Wrap(err, "writing commit type")
-	}
-
-	return nil
-}
-
-func (l *hnswCommitLogger) writeUint64Slice(w *bufio.Writer, in []uint64) error {
-	err := binary.Write(w, binary.LittleEndian, in)
-	if err != nil {
-		return errors.Wrap(err, "writing []uint64")
-	}
-
-	return nil
 }
 
 func (l *hnswCommitLogger) Drop() error {
