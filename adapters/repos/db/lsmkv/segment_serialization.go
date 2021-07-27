@@ -309,6 +309,8 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	buf := make([]byte, 9)
 	if s.tombstone {
 		buf[0] = 1
+	} else {
+		buf[0] = 0
 	}
 
 	valueLength := uint64(len(s.value))
@@ -518,6 +520,8 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	for i, value := range s.values {
 		if value.tombstone {
 			buf[0] = 0x01
+		} else {
+			buf[0] = 0x00
 		}
 
 		valueLen := uint64(len(value.value))
