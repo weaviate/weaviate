@@ -304,18 +304,20 @@ type segmentReplaceNode struct {
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	out := keyIndex{}
-
 	written := 0
-	if err := binary.Write(w, binary.LittleEndian, s.tombstone); err != nil {
-		return out, errors.Wrapf(err, "write tombstone")
+
+	buf := make([]byte, 9)
+	if s.tombstone {
+		buf[0] = 1
 	}
-	written += 1
 
 	valueLength := uint64(len(s.value))
-	if err := binary.Write(w, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrapf(err, "write value length encoding")
+	binary.LittleEndian.PutUint64(buf[1:9], valueLength)
+	if _, err := w.Write(buf); err != nil {
+		return out, err
 	}
-	written += 8
+
+	written += 9
 
 	n, err := w.Write(s.value)
 	if err != nil {
@@ -324,8 +326,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	written += n
 
 	keyLength := uint32(len(s.primaryKey))
-	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
-		return out, errors.Wrapf(err, "write key length encoding")
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return out, err
 	}
 	written += 4
 
@@ -342,8 +345,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 		}
 
 		// write the key length in any case
-		if err := binary.Write(w, binary.LittleEndian, &secondaryKeyLength); err != nil {
-			return out, errors.Wrapf(err, "write secondary key length encoding")
+		binary.LittleEndian.PutUint32(buf[0:4], secondaryKeyLength)
+		if _, err := w.Write(buf[0:4]); err != nil {
+			return out, err
 		}
 		written += 4
 
@@ -504,22 +508,24 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	out := keyIndex{}
 	written := 0
 	valueLen := uint64(len(s.values))
-	if err := binary.Write(w, binary.LittleEndian, &valueLen); err != nil {
+	buf := make([]byte, 9)
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
 		return out, errors.Wrapf(err, "write values len for node")
 	}
 	written += 8
 
 	for i, value := range s.values {
-		if err := binary.Write(w, binary.LittleEndian, value.tombstone); err != nil {
-			return out, errors.Wrapf(err, "write tombstone for value %d", i)
+		if value.tombstone {
+			buf[0] = 0x01
 		}
-		written += 1
 
 		valueLen := uint64(len(value.value))
-		if err := binary.Write(w, binary.LittleEndian, valueLen); err != nil {
+		binary.LittleEndian.PutUint64(buf[1:9], valueLen)
+		if _, err := w.Write(buf[0:9]); err != nil {
 			return out, errors.Wrapf(err, "write len of value %d", i)
 		}
-		written += 8
+		written += 9
 
 		n, err := w.Write(value.value)
 		if err != nil {
@@ -529,7 +535,8 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	}
 
 	keyLength := uint32(len(s.primaryKey))
-	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
 		return out, errors.Wrapf(err, "write key length encoding for node")
 	}
 	written += 4
