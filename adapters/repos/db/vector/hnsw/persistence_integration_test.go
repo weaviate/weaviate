@@ -15,8 +15,10 @@ package hnsw
 
 import (
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -90,6 +92,116 @@ func TestHnswPersistence(t *testing.T) {
 	})
 	require.Nil(t, err)
 
+	t.Run("verify that the results match after rebuiling from disk",
+		func(t *testing.T) {
+			position := 3
+			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			require.Nil(t, err)
+			assert.Equal(t, expectedResults, res)
+		})
+}
+
+func TestHnswPersistence_CorruptWAL(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	indexID := "integrationtest_corrupt"
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
+	}
+	index, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+	})
+	require.Nil(t, err)
+
+	for i, vec := range testVectors {
+		err := index.Add(uint64(i), vec)
+		require.Nil(t, err)
+	}
+
+	require.Nil(t, index.Flush())
+
+	// see index_test.go for more context
+	expectedResults := []uint64{
+		3, 5, 4, // cluster 2
+		7, 8, 6, // cluster 3
+		2, 1, 0, // cluster 1
+	}
+
+	t.Run("verify that the results match originally", func(t *testing.T) {
+		position := 3
+		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+	})
+
+	// destroy the index
+	index = nil
+	indexDir := filepath.Join(dirName, "integrationtest_corrupt.hnsw.commitlog.d")
+
+	t.Run("corrupt the commit log on purpose", func(t *testing.T) {
+		res, err := os.ReadDir(indexDir)
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		fName := filepath.Join(indexDir, res[0].Name())
+		newFName := filepath.Join(indexDir, fmt.Sprintf("%d", time.Now().Unix()))
+
+		orig, err := os.Open(fName)
+		require.Nil(t, err)
+
+		correctLog, err := io.ReadAll(orig)
+		require.Nil(t, err)
+		err = orig.Close()
+		require.Nil(t, err)
+
+		os.Remove(fName)
+
+		corruptLog := correctLog[:len(correctLog)-6]
+		corrupt, err := os.Create(newFName)
+		require.Nil(t, err)
+
+		_, err = corrupt.Write(corruptLog)
+		require.Nil(t, err)
+
+		err = corrupt.Close()
+		require.Nil(t, err)
+
+		// double check that we only have one file left (the corrupted one)
+		res, err = os.ReadDir(indexDir)
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+	})
+
+	// build a new index from the (uncondensed, corrupted) commit log
+	secondIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+	})
+	require.Nil(t, err)
+
+	// the minor corruption (just one missing link) will most likely not render
+	// the index unusable, so we should still expect to retrieve results as
+	// normal
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
