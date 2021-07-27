@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 
@@ -64,7 +65,21 @@ func (h *hnsw) restoreFromDisk() error {
 
 		state, err = NewDeserializer(h.logger).Do(fd, state)
 		if err != nil {
-			return errors.Wrapf(err, "deserialize commit log %q", fileName)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				// we need to check for both EOF or UnexpectedEOF, as we don't know where
+				// the commit log got corrupted, a field ending that weset a longer
+				// encoding for would return EOF, whereas a field read with binary.Read
+				// with a fixed size would return UnexpectedEOF. From our perspective both
+				// are unexpected.
+
+				h.logger.WithField("action", "hnsw_load_commit_log_corruption").
+					WithField("path", fileName).
+					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
+			} else {
+				// only return an actual error on non-EOF errors, otherwise we'll end
+				// up in a startup crashloop
+				return errors.Wrapf(err, "deserialize commit log %q", fileName)
+			}
 		}
 	}
 
