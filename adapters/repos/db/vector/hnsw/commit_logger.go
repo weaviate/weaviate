@@ -44,7 +44,7 @@ func NewCommitLogger(rootPath, name string,
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor(logger),
+		condensor:            NewMemoryCondensor2(logger),
 		logger:               logger,
 		maxSize:              maxUncondensedCommitLogSize, // TODO: make configurable
 	}
