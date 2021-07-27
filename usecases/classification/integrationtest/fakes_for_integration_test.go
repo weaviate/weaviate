@@ -152,6 +152,44 @@ func testDataAlreadyClassified() search.Results {
 	}
 }
 
+// only used for zeroshot-type
+func testDataZeroShotUnclassified() search.Results {
+	return search.Results{
+		search.Result{
+			ID:        "8aeecd06-55a0-462c-9853-81b31a284d80",
+			ClassName: "FoodType",
+			Vector:    []float32{1, 0, 0},
+			Schema: map[string]interface{}{
+				"text": "Ice cream",
+			},
+		},
+		search.Result{
+			ID:        "9f4c1847-2567-4de7-8861-34cf47a071ae",
+			ClassName: "FoodType",
+			Vector:    []float32{0, 1, 0},
+			Schema: map[string]interface{}{
+				"text": "Meat",
+			},
+		},
+		search.Result{
+			ID:        "926416ec-8fb1-4e40-ab8c-37b226b3d68e",
+			ClassName: "Recipes",
+			Vector:    []float32{0, 0, 1},
+			Schema: map[string]interface{}{
+				"text": "Cut the steak in half and put it into pan",
+			},
+		},
+		search.Result{
+			ID:        "926416ec-8fb1-4e40-ab8c-37b226b3d688",
+			ClassName: "Recipes",
+			Vector:    []float32{0, 1, 1},
+			Schema: map[string]interface{}{
+				"description": "There are flavors of vanilla, chocolate and strawberry",
+			},
+		},
+	}
+}
+
 func mustUUID() strfmt.UUID {
 	id, err := uuid.NewRandom()
 	if err != nil {
@@ -199,5 +237,40 @@ const (
 func invertedConfig() *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,
+	}
+}
+
+func testSchemaForZeroShot() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:               "FoodType",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: []string{string(schema.DataTypeText)},
+						},
+					},
+				},
+				{
+					Class:               "Recipes",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					Properties: []*models.Property{
+						{
+							Name:     "text",
+							DataType: []string{string(schema.DataTypeText)},
+						},
+						{
+							Name:     "ofFoodType",
+							DataType: []string{"FoodType"},
+						},
+					},
+				},
+			},
+		},
 	}
 }

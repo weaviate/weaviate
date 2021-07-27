@@ -14,7 +14,6 @@ package hnsw
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -87,7 +86,8 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
 		if err != nil {
-			return nil, err
+			// do not return nil, err, because the err could be a recovarble one
+			return out, err
 		}
 	}
 
@@ -267,7 +267,7 @@ func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
-		return 0, fmt.Errorf("reading uint64: %v", err)
+		return 0, errors.Wrap(err, "reading uint64")
 	}
 
 	return value, nil
@@ -277,7 +277,7 @@ func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
-		return 0, fmt.Errorf("reading uint16: %v", err)
+		return 0, errors.Wrap(err, "reading uint16")
 	}
 
 	return value, nil
@@ -297,7 +297,7 @@ func (c *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	value := make([]uint64, length)
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
-		return nil, fmt.Errorf("reading []uint64: %v", err)
+		return nil, errors.Wrap(err, "reading []uint64")
 	}
 
 	return value, nil

@@ -34,21 +34,31 @@ var (
 	recipeTypeSweet    strfmt.UUID = "c9dfda02-6b05-4117-9d95-a188342cca48"
 	unclassifiedSavory strfmt.UUID = "953c03f8-d61e-44c0-bbf1-2afe0dc1ce87"
 	unclassifiedSweet  strfmt.UUID = "04603002-cb66-4fce-bf6d-56bdf9b0b5d4"
+
+	// zeroshot
+	foodTypeMeat          strfmt.UUID = "998d792c-b59e-4430-80a3-cf7f320f31b0"
+	foodTypeIceCream      strfmt.UUID = "998d792c-b59e-4430-80a3-cf7f320f31b1"
+	unclassifiedSteak     strfmt.UUID = "953c03f8-d61e-44c0-bbf1-2afe0dc1ce10"
+	unclassifiedIceCreams strfmt.UUID = "953c03f8-d61e-44c0-bbf1-2afe0dc1ce11"
 )
 
 func Test_Classifications(t *testing.T) {
 	t.Run("article/category setup for contextual classification", setupArticleCategory)
 	t.Run("recipe setup for knn classification", setupRecipe)
+	t.Run("food types and recipes setup for zeroshot classification", setupFoodTypes)
 
 	// tests
 	t.Run("contextual classification", contextualClassification)
 	t.Run("knn classification", knnClassification)
+	t.Run("zeroshot classification", zeroshotClassification)
 
 	// tear down
 	deleteObjectClass(t, "Article")
 	deleteObjectClass(t, "Category")
 	deleteObjectClass(t, "Recipe")
 	deleteObjectClass(t, "RecipeType")
+	deleteObjectClass(t, "FoodType")
+	deleteObjectClass(t, "Recipes")
 }
 
 func setupArticleCategory(t *testing.T) {
@@ -280,6 +290,79 @@ func setupRecipe(t *testing.T) {
 	})
 
 	assertGetObjectEventually(t, unclassifiedSweet)
+}
+
+func setupFoodTypes(t *testing.T) {
+	t.Run("schema setup", func(t *testing.T) {
+		createObjectClass(t, &models.Class{
+			Class: "FoodType",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: []string{"string"},
+				},
+			},
+		})
+		createObjectClass(t, &models.Class{
+			Class: "Recipes",
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: []string{"text"},
+				},
+				{
+					Name:     "ofFoodType",
+					DataType: []string{"FoodType"},
+				},
+			},
+		})
+	})
+
+	t.Run("object setup - food types", func(t *testing.T) {
+		createObject(t, &models.Object{
+			Class: "FoodType",
+			ID:    foodTypeIceCream,
+			Properties: map[string]interface{}{
+				"text": "Ice cream",
+			},
+		})
+
+		createObject(t, &models.Object{
+			Class: "FoodType",
+			ID:    foodTypeMeat,
+			Properties: map[string]interface{}{
+				"text": "Meat",
+			},
+		})
+	})
+
+	t.Run("object setup - recipes", func(t *testing.T) {
+		createObject(t, &models.Object{
+			Class: "Recipes",
+			ID:    unclassifiedSteak,
+			Properties: map[string]interface{}{
+				"text": "Cut the steak in half and put it into pan",
+			},
+		})
+
+		createObject(t, &models.Object{
+			Class: "Recipes",
+			ID:    unclassifiedIceCreams,
+			Properties: map[string]interface{}{
+				"text": "There are flavors of vanilla, chocolate and strawberry",
+			},
+		})
+	})
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
