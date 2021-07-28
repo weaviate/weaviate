@@ -88,6 +88,8 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 	}
 
 	pointers.checksum = newChecksum
+	pointers.removeDuplicates()
+
 	return pointers, nil
 }
 
@@ -115,7 +117,9 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
 		}
 
-		currHash, err := hashBucket.Get(pv.value)
+		// use retrieved k instead of pv.value - they are typically the same, but
+		// not on a like operator with wildcard where we only had a partial match
+		currHash, err := hashBucket.Get(k)
 		if err != nil {
 			return false, errors.Wrap(err, "get hash")
 		}
@@ -135,6 +139,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		return pointers, errors.Wrap(err, "calculate new checksum")
 	}
 
+	pointers.removeDuplicates()
 	pointers.checksum = newChecksum
 	return pointers, nil
 }
