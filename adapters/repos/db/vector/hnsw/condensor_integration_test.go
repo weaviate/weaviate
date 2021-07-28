@@ -194,7 +194,6 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 
-		
 	})
 }
 

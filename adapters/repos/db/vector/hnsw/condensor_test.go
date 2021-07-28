@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-
 func BenchmarkCondensorUint64Write(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
@@ -70,7 +69,6 @@ func BenchmarkCondensorWriteCommitType(b *testing.B) {
 	}
 }
 
-
 func BenchmarkCondensor2WriteCommitType(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
@@ -81,7 +79,6 @@ func BenchmarkCondensor2WriteCommitType(b *testing.B) {
 		c.writeCommitType(c.newLog, HnswCommitType(1))
 	}
 }
-
 
 func BenchmarkCondensorWriteUint64Slice(b *testing.B) {
 	b.StopTimer()

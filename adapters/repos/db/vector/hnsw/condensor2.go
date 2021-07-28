@@ -133,14 +133,14 @@ func (c *MemoryCondensor2) writeCommitType(w *bufWriter, in HnswCommitType) erro
 func (c *MemoryCondensor2) writeUint64Slice(w *bufWriter, in []uint64) error {
 	buf := make([]byte, 8*len(in))
 	i := 0
-	for i < len(in){
+	for i < len(in) {
 		if i != 0 && i%8 == 0 {
 			if _, err := w.Write(buf); err != nil {
 				return err
 			}
 		}
 
-		pos := i%8
+		pos := i % 8
 		start := pos * 8
 		end := start + 8
 		binary.LittleEndian.PutUint64(buf[start:end], in[i])
