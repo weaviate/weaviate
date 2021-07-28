@@ -377,17 +377,17 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNode, error) {
 	out := segmentReplaceNode{}
 
-	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
-		return out, errors.Wrap(err, "read tombstone")
+	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
+	// read in between.
+	tmpBuf := make([]byte, 9)
+	if n, err := r.Read(tmpBuf); err != nil {
+		return out, errors.Wrap(err, "read tombstone and value length")
+	} else {
+		out.offset += n
 	}
-	out.offset += 1
 
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrap(err, "read value length encoding")
-	}
-	out.offset += 8
-
+	out.tombstone = tmpBuf[0] == 0x1
+	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.value = make([]byte, valueLength)
 	if n, err := r.Read(out.value); err != nil {
 		return out, errors.Wrap(err, "read value")
@@ -395,12 +395,13 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		out.offset += n
 	}
 
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+	if n, err := r.Read(tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key length encoding")
+	} else {
+		out.offset += n
 	}
-	out.offset += 4
 
+	keyLength := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLength)
 	if n, err := r.Read(out.primaryKey); err != nil {
 		return out, errors.Wrap(err, "read key")
@@ -413,12 +414,12 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+		if n, err := r.Read(tmpBuf[0:4]); err != nil {
 			return out, errors.Wrap(err, "read secondary key length encoding")
+		} else {
+			out.offset += n
 		}
-		out.offset += 4
-
+		secKeyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 		if secKeyLen == 0 {
 			continue
 		}
@@ -562,25 +563,26 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 
 func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
-	var valuesLen uint64
-	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
-		return out, errors.Wrap(err, "read values len")
-	}
-	out.offset += 8
+	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
+	// read in between.
+	tmpBuf := make([]byte, 9)
 
+	if n, err := r.Read(tmpBuf[0:8]); err != nil {
+		return out, errors.Wrap(err, "read values len")
+	} else {
+		out.offset += n
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
 	out.values = make([]value, valuesLen)
 	for i := range out.values {
-		if err := binary.Read(r, binary.LittleEndian, &out.values[i].tombstone); err != nil {
-			return out, errors.Wrap(err, "read value tombstone")
+		if n, err := r.Read(tmpBuf[0:9]); err != nil {
+			return out, errors.Wrap(err, "read value tombston and len")
+		} else {
+			out.offset += n
 		}
-		out.offset += 1
-
-		var valueLen uint64
-		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-			return out, errors.Wrap(err, "read value len")
-		}
-		out.offset += 8
-
+		out.values[i].tombstone = tmpBuf[0] == 0x1
+		valueLen := binary.LittleEndian.Uint64(tmpBuf[1:9])
 		out.values[i].value = make([]byte, valueLen)
 		n, err := r.Read(out.values[i].value)
 		if err != nil {
@@ -589,12 +591,12 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 		out.offset += n
 	}
 
-	var keyLen uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
+	if n, err := r.Read(tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key len")
+	} else {
+		out.offset += n
 	}
-	out.offset += 4
-
+	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLen)
 	n, err := r.Read(out.primaryKey)
 	if err != nil {

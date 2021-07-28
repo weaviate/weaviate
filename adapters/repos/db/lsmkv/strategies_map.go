@@ -141,40 +141,31 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
-	var read int
-	var keyLen uint16
-	var valueLen uint16
-	r := bytes.NewReader(in)
+	var read uint16
 
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
-		return errors.Wrap(err, "read map key length indicator")
-	}
+	keyLen := binary.LittleEndian.Uint16(in[:2])
 	read += 2 // uint16 -> 2 bytes
 
 	kv.Key = make([]byte, keyLen)
-	if n, err := r.Read(kv.Key); err != nil {
-		return errors.Wrap(err, "read map key")
-	} else {
-		read += n
-	}
+	copy(kv.Key, in[read:read+keyLen])
+	read += keyLen
 
 	if keyOnly {
 		return nil
 	}
 
-	if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-		return errors.Wrap(err, "read map value length indicator")
-	}
-	read += 2 // uint16 -> 2 bytes
+	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	read += 2
 
-	kv.Value = make([]byte, valueLen)
-	if n, err := r.Read(kv.Value); err != nil {
-		return errors.Wrap(err, "read map value")
+	if int(valueLen) > cap(kv.Value) {
+		kv.Value = make([]byte, valueLen)
 	} else {
-		read += n
+		kv.Value = kv.Value[:valueLen]
 	}
+	copy(kv.Value, in[read:read+valueLen])
+	read += valueLen
 
-	if read != len(in) {
+	if read != uint16(len(in)) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
 			read, len(in))
 	}
