@@ -114,7 +114,7 @@ func TestCondensor(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -167,7 +167,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
@@ -193,6 +193,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
+
 	})
 }
 
