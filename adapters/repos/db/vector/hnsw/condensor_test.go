@@ -21,7 +21,6 @@ func BenchmarkCondensorUint64Write(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		c.writeUint64(c.newLog, rand.Uint64())
 	}
-
 }
 
 func BenchmarkCondensor2NewUint64Write(b *testing.B) {
@@ -33,7 +32,6 @@ func BenchmarkCondensor2NewUint64Write(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		c.writeUint64(c.newLog, rand.Uint64())
 	}
-
 }
 
 func BenchmarkCondensorUint16Write(b *testing.B) {
@@ -126,5 +124,4 @@ func TestNewCondensorEqualsOld(t *testing.T) {
 	c2.writeUint64(c2.newLog, uint64(1))
 
 	assert.Equal(t, c1.newLogFile, c2.newLogFile)
-
 }
