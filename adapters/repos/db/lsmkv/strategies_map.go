@@ -118,7 +118,9 @@ func (kv MapPair) Bytes() ([]byte, error) {
 
 	out := bytes.NewBuffer(nil)
 
-	if err := binary.Write(out, binary.LittleEndian, &keyLen); err != nil {
+	lenBuf := make([]byte, 2) // can be reused for both key and value len
+	binary.LittleEndian.PutUint16(lenBuf, keyLen)
+	if _, err := out.Write(lenBuf); err != nil {
 		return nil, errors.Wrap(err, "write map key length indicator")
 	}
 
@@ -126,7 +128,8 @@ func (kv MapPair) Bytes() ([]byte, error) {
 		return nil, errors.Wrap(err, "write map key")
 	}
 
-	if err := binary.Write(out, binary.LittleEndian, &valueLen); err != nil {
+	binary.LittleEndian.PutUint16(lenBuf, valueLen)
+	if _, err := out.Write(lenBuf); err != nil {
 		return nil, errors.Wrap(err, "write map value length indicator")
 	}
 
