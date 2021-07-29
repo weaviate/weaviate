@@ -305,8 +305,6 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.Lock()
 	defer l.Unlock()
 
-	fmt.Printf("received clear links for %d\n", nodeid)
-
 	ec := &errorCompounder{}
 	ec.add(l.writeCommitType(l.logWriter, ClearLinks))
 	ec.add(l.writeUint64(l.logWriter, nodeid))
