@@ -422,3 +422,23 @@ func (d docPointers) IDs() []uint64 {
 	}
 	return out
 }
+
+func (d *docPointers) removeDuplicates() {
+	counts := map[uint64]uint16{}
+	for _, id := range d.docIDs {
+		counts[id.id]++
+	}
+
+	updated := make([]docPointer, len(d.docIDs))
+	i := 0
+	for _, id := range d.docIDs {
+		if counts[id.id] == 1 {
+			updated[i] = id
+			i++
+		}
+
+		counts[id.id]--
+	}
+
+	d.docIDs = updated[:i]
+}

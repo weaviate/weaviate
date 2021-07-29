@@ -55,6 +55,8 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	if len(object.Class) == 0 {
 		// stop performing auto schema
 		return fmt.Errorf(validation.ErrorMissingClass)
@@ -72,8 +74,6 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 
 func (m *autoSchemaManager) getClass(principal *models.Principal,
 	object *models.Object) (*models.Class, error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	s, err := m.schemaManager.GetSchema(principal)
 	if err != nil {
 		return nil, err
@@ -84,8 +84,6 @@ func (m *autoSchemaManager) getClass(principal *models.Principal,
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	class := &models.Class{
 		Class:       className,
 		Properties:  properties,
@@ -99,8 +97,6 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property, existingProperties []*models.Property) error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
 	propertiesToAdd := []*models.Property{}
 	for _, prop := range properties {
 		found := false
