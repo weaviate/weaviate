@@ -266,7 +266,7 @@ func (c *Deserializer2) ReadDeleteNode(r io.Reader, res *DeserializationResult) 
 func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	tmpBuf := make([]byte, 8)
-	if _, err := r.Read(tmpBuf[0:8]); err != nil {
+	if _, err := r.Read(tmpBuf); err != nil {
 		return value, err
 	}
 
@@ -278,7 +278,7 @@ func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	tmpBuf := make([]byte, 2)
-	if _, err := r.Read(tmpBuf[0:2]); err != nil {
+	if _, err := r.Read(tmpBuf); err != nil {
 		return value, err
 	}
 
@@ -289,7 +289,7 @@ func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 
 func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 	tmpBuf := make([]byte, 1)
-	if _, err := r.Read(tmpBuf[0:1]); err != nil {
+	if _, err := r.Read(tmpBuf); err != nil {
 		return 0, err
 	}
 
@@ -297,14 +297,14 @@ func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 }
 
 func (c *Deserializer2) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
-	buf := make([]byte, length*8)
-	if _, err := r.Read(buf); err != nil {
-		return nil, err
-	}
-
 	values := make([]uint64, length)
 	for i := 0; i < length; i++ {
-		values[i] = binary.LittleEndian.Uint64(buf[i*8 : (i+1)*8])
+		v, err := c.readUint64(r)
+		if err != nil {
+			return values, err
+		}
+		values = append(values, v)
+
 	}
 
 	return values, nil
