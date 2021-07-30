@@ -14,7 +14,6 @@ package hnsw
 import (
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/sirupsen/logrus"
 )
