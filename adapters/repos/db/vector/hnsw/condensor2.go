@@ -35,7 +35,7 @@ func (c *MemoryCondensor2) Do(fileName string) error {
 	}
 	fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-	res, err := NewDeserializer(c.logger).Do(fdBuf, nil)
+	res, err := NewDeserializer2(c.logger).Do(fdBuf, nil)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
@@ -130,16 +130,6 @@ func (c *MemoryCondensor2) writeCommitType(w *bufWriter, in HnswCommitType) erro
 	return nil
 }
 
-// func (c *MemoryCondensor2) writeUint64Slice(w io.Writer, in []uint64) error {
-// 	err := binary.Write(w, binary.LittleEndian, &in)
-// 	if err != nil {
-// 		return errors.Wrap(err, "writing []uint64")
-// 	}
-
-// 	return nil
-// }
-
-
 func (c *MemoryCondensor2) writeUint64Slice(w *bufWriter, in []uint64) error {
 	for _, v := range in {
 		err := c.writeUint64(w, v)
@@ -147,10 +137,9 @@ func (c *MemoryCondensor2) writeUint64Slice(w *bufWriter, in []uint64) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
-
 
 // AddNode adds an empty node
 func (c *MemoryCondensor2) AddNode(node *vertex) error {
@@ -161,8 +150,6 @@ func (c *MemoryCondensor2) AddNode(node *vertex) error {
 
 	return ec.toError()
 }
-
-
 
 func (c *MemoryCondensor2) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := &errorCompounder{}
