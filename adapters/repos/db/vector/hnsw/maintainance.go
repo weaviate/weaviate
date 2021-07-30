@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -32,7 +31,7 @@ const (
 func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
 	newIndex, changed, err := growIndexToAccomodateNode(h.nodes, id, logger)
 	if err != nil {
-		return errors.Errorf("could not grow index: %s", err)
+		return err
 	}
 
 	if !changed {
@@ -68,10 +67,6 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 	// typically grow the index by the delta
 	newSize := previousSize + defaultIndexGrowthDelta
 
-	fmt.Println("The new size of index is before check is ", newSize)
-
-
-
 	if uint64(newSize) < id {
 		// There are situations were docIDs are not in order. For example, if  the
 		// default size is 10k and the default delta is 10k. Imagine the user
@@ -81,9 +76,7 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		newSize = id + defaultIndexGrowthDelta
 	}
 
-	fmt.Println("The new size of index is ", newSize)
 	newIndex := make([]*vertex, newSize)
-	fmt.Println("I never reach this point")
 	copy(newIndex, index)
 
 	took := time.Since(before)
