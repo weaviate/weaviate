@@ -120,9 +120,12 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
-		if dt == schema.DataTypeNumber {
+		switch dt {
+		case schema.DataTypeNumber:
 			return ua.floatProperty(ctx, prop)
-		} else {
+		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
+			return ua.numberArrayProperty(ctx, prop)
+		default:
 			return ua.intProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeBoolean:
