@@ -32,11 +32,11 @@ func TestAnalyzeObject(t *testing.T) {
 
 		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 		props := []*models.Property{
-			&models.Property{
+			{
 				Name:     "description",
 				DataType: []string{"text"},
 			},
-			&models.Property{
+			{
 				Name:     "email",
 				DataType: []string{"string"},
 			},
@@ -45,29 +45,29 @@ func TestAnalyzeObject(t *testing.T) {
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
-			Countable{
+			{
 				Data:          []byte("i"),
 				TermFrequency: float64(1) / 3,
 			},
-			Countable{
+			{
 				Data:          []byte("am"),
 				TermFrequency: float64(1) / 3,
 			},
-			Countable{
+			{
 				Data:          []byte("great"),
 				TermFrequency: float64(1) / 3,
 			},
 		}
 
 		expectedEmail := []Countable{
-			Countable{
+			{
 				Data:          []byte("john@doe.com"),
 				TermFrequency: float64(1) / 1,
 			},
 		}
 
 		expectedUUID := []Countable{
-			Countable{
+			{
 				Data:          []byte(uuid),
 				TermFrequency: 0,
 			},
@@ -255,5 +255,154 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedRefCount, actualRefCount, res)
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
+
+		t.Run("with array properties", func(t *testing.T) {
+			schema := map[string]interface{}{
+				"descriptions": []interface{}{"I am great!", "I am also great!"},
+				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
+				"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
+				"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
+			}
+
+			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
+			props := []*models.Property{
+				{
+					Name:     "descriptions",
+					DataType: []string{"text[]"},
+				},
+				{
+					Name:     "emails",
+					DataType: []string{"string[]"},
+				},
+				{
+					Name:     "integers",
+					DataType: []string{"int[]"},
+				},
+				{
+					Name:     "numbers",
+					DataType: []string{"number[]"},
+				},
+			}
+			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			require.Nil(t, err)
+
+			expectedDescriptions := []Countable{
+				{
+					Data:          []byte("i"),
+					TermFrequency: float64(2) / 7,
+				},
+				{
+					Data:          []byte("am"),
+					TermFrequency: float64(2) / 7,
+				},
+				{
+					Data:          []byte("great"),
+					TermFrequency: float64(2) / 7,
+				},
+				{
+					Data:          []byte("also"),
+					TermFrequency: float64(1) / 7,
+				},
+			}
+
+			expectedEmails := []Countable{
+				{
+					Data:          []byte("john@doe.com"),
+					TermFrequency: float64(1) / 2,
+				},
+				{
+					Data:          []byte("john2@doe.com"),
+					TermFrequency: float64(1) / 2,
+				},
+			}
+
+			expectedIntegers := []Countable{
+				{
+					Data: mustGetByteIntNumber(1),
+				},
+				{
+					Data: mustGetByteIntNumber(2),
+				},
+				{
+					Data: mustGetByteIntNumber(3),
+				},
+				{
+					Data: mustGetByteIntNumber(4),
+				},
+			}
+
+			expectedNumbers := []Countable{
+				{
+					Data: mustGetByteFloatNumber(1.1),
+				},
+				{
+					Data: mustGetByteFloatNumber(2.2),
+				},
+				{
+					Data: mustGetByteFloatNumber(3.0),
+				},
+				{
+					Data: mustGetByteFloatNumber(4),
+				},
+			}
+
+			expectedUUID := []Countable{
+				{
+					Data:          []byte(uuid),
+					TermFrequency: 0,
+				},
+			}
+
+			require.Len(t, res, 5)
+			var actualDescriptions []Countable
+			var actualEmails []Countable
+			var actualIntegers []Countable
+			var actualNumbers []Countable
+			var actualUUID []Countable
+
+			for _, elem := range res {
+				if elem.Name == "emails" {
+					actualEmails = elem.Items
+				}
+
+				if elem.Name == "descriptions" {
+					actualDescriptions = elem.Items
+				}
+
+				if elem.Name == "integers" {
+					actualIntegers = elem.Items
+				}
+
+				if elem.Name == "numbers" {
+					actualNumbers = elem.Items
+				}
+
+				if elem.Name == "_id" {
+					actualUUID = elem.Items
+				}
+			}
+
+			assert.ElementsMatch(t, expectedEmails, actualEmails, res)
+			assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
+			assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
+			assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
+			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
+		})
 	})
+}
+
+func mustGetByteIntNumber(in int) []byte {
+	out, err := LexicographicallySortableInt64(int64(in))
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
+func mustGetByteFloatNumber(in float64) []byte {
+	out, err := LexicographicallySortableFloat64(float64(in))
+	if err != nil {
+		panic(err)
+	}
+	return out
 }

@@ -124,6 +124,14 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypePhoneNumber
 		} else if dt == string(DataTypeBlob) {
 			returnDataType = DataTypeBlob
+		} else if dt == string(DataTypeStringArray) {
+			returnDataType = DataTypeStringArray
+		} else if dt == string(DataTypeTextArray) {
+			returnDataType = DataTypeTextArray
+		} else if dt == string(DataTypeIntArray) {
+			returnDataType = DataTypeIntArray
+		} else if dt == string(DataTypeNumberArray) {
+			returnDataType = DataTypeNumberArray
 		}
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
@@ -144,7 +152,11 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeDate),
 		string(DataTypeGeoCoordinates),
 		string(DataTypePhoneNumber),
-		string(DataTypeBlob):
+		string(DataTypeBlob),
+		string(DataTypeStringArray),
+		string(DataTypeTextArray),
+		string(DataTypeIntArray),
+		string(DataTypeNumberArray):
 		return true
 	}
 	return false
@@ -158,6 +170,16 @@ func IsRefDataType(dt []string) bool {
 func IsBlobDataType(dt []string) bool {
 	for i := range dt {
 		if dt[i] == string(DataTypeBlob) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsArrayDataType(dt []string) bool {
+	for i := range dt {
+		switch DataType(dt[i]) {
+		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray:
 			return true
 		}
 	}
