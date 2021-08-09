@@ -547,5 +547,8 @@ func (l *hnswCommitLogger) Drop() error {
 }
 
 func (l *hnswCommitLogger) Flush() error {
+	l.Lock()
+	defer l.Unlock()
+
 	return l.logWriter.Flush()
 }

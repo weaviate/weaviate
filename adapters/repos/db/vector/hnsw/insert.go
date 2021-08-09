@@ -93,7 +93,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	node.connections = map[int][]uint64{}
 
 	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
 		return err
 	}
 
