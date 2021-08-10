@@ -266,7 +266,7 @@ func (c *Deserializer2) ReadDeleteNode(r io.Reader, res *DeserializationResult) 
 func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	tmpBuf := make([]byte, 8)
-	if _, err := io.ReadFull(r, tmpBuf); err != nil {
+	if _, err := r.Read(tmpBuf); err != nil {
 		return 0, err
 	}
 
@@ -278,7 +278,7 @@ func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	tmpBuf := make([]byte, 2)
-	if _, err := io.ReadFull(r, tmpBuf); err != nil {
+	if _, err := r.Read(tmpBuf); err != nil {
 		return 0, err
 	}
 	value = binary.LittleEndian.Uint16(tmpBuf)
