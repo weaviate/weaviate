@@ -18,6 +18,8 @@ import (
 type memtableCursor struct {
 	data    []*binarySearchNode
 	current int
+	lock    func()
+	unlock  func()
 }
 
 func (l *Memtable) newCursor() innerCursorReplace {
@@ -34,11 +36,16 @@ func (l *Memtable) newCursor() innerCursorReplace {
 	data := l.key.flattenInOrder()
 
 	return &memtableCursor{
-		data: data,
+		data:   data,
+		lock:   l.RLock,
+		unlock: l.RUnlock,
 	}
 }
 
 func (c *memtableCursor) first() ([]byte, []byte, error) {
+	c.lock()
+	defer c.unlock()
+
 	if len(c.data) == 0 {
 		return nil, nil, NotFound
 	}
@@ -52,6 +59,9 @@ func (c *memtableCursor) first() ([]byte, []byte, error) {
 }
 
 func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
+	c.lock()
+	defer c.unlock()
+
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
 		return nil, nil, NotFound
@@ -75,6 +85,9 @@ func (c *memtableCursor) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursor) next() ([]byte, []byte, error) {
+	c.lock()
+	defer c.unlock()
+
 	c.current++
 	if c.current >= len(c.data) {
 		return nil, nil, NotFound
