@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
+// nolint:unused // TODO
 func (c *Classifier) classifyItemUsingZeroShot(item search.Result, itemIndex int,
 	params models.Classification, filters Filters, writer Writer) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
