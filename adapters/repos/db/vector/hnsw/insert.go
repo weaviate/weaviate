@@ -77,15 +77,14 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	node.markAsMaintenance()
 
+	h.Lock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
-	h.Lock()
 	entryPointID := h.entryPointID
-	h.Unlock()
-
 	// initially use the level of the entrypoint which is the highest level of
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
+	h.Unlock()
 
 	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
 
