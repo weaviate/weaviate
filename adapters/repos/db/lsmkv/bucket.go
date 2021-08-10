@@ -368,7 +368,10 @@ func (b *Bucket) initFlushCycle() {
 			case <-b.stopFlushCycle:
 				return
 			case <-t:
-				if b.active.Size() >= b.memTableThreshold {
+				b.flushLock.Lock()
+				shouldSwitch := b.active.Size() >= b.memTableThreshold
+				b.flushLock.Unlock()
+				if shouldSwitch {
 					if err := b.FlushAndSwitch(); err != nil {
 						b.logger.WithField("action", "lsm_memtable_flush").
 							WithField("path", b.dir).

@@ -77,13 +77,14 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	node.markAsMaintenance()
 
+	h.Lock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
 	entryPointID := h.entryPointID
-
 	// initially use the level of the entrypoint which is the highest level of
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
+	h.Unlock()
 
 	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
 
@@ -136,6 +137,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()
 
+	h.Lock()
 	if targetLevel > h.currentMaximumLayer {
 		// before = time.Now()
 		// m.addBuildingLocking(before)
@@ -144,11 +146,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 			return err
 		}
 
-		h.Lock()
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
-		h.Unlock()
 	}
+	h.Unlock()
 
 	return nil
 }

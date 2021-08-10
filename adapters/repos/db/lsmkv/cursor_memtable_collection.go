@@ -9,7 +9,6 @@
 //  CONTACT: hello@semi.technology
 //
 
-//nolint // TODO
 package lsmkv
 
 import "bytes"
@@ -17,6 +16,8 @@ import "bytes"
 type memtableCursorCollection struct {
 	data    []*binarySearchNodeMulti
 	current int
+	lock    func()
+	unlock  func()
 }
 
 func (l *Memtable) newCollectionCursor() innerCursorCollection {
@@ -33,11 +34,16 @@ func (l *Memtable) newCollectionCursor() innerCursorCollection {
 	data := l.keyMulti.flattenInOrder()
 
 	return &memtableCursorCollection{
-		data: data,
+		data:   data,
+		lock:   l.RLock,
+		unlock: l.RUnlock,
 	}
 }
 
 func (c *memtableCursorCollection) first() ([]byte, []value, error) {
+	c.lock()
+	defer c.unlock()
+
 	if len(c.data) == 0 {
 		return nil, nil, NotFound
 	}
@@ -50,6 +56,9 @@ func (c *memtableCursorCollection) first() ([]byte, []value, error) {
 }
 
 func (c *memtableCursorCollection) seek(key []byte) ([]byte, []value, error) {
+	c.lock()
+	defer c.unlock()
+
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
 		return nil, nil, NotFound
@@ -72,6 +81,9 @@ func (c *memtableCursorCollection) posLargerThanEqual(key []byte) int {
 }
 
 func (c *memtableCursorCollection) next() ([]byte, []value, error) {
+	c.lock()
+	defer c.unlock()
+
 	c.current++
 	if c.current >= len(c.data) {
 		return nil, nil, NotFound

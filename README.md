@@ -19,7 +19,7 @@
 1. **Software Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
     * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
     * Easy to integrate in your current architecture, with full CRUD support like you're used to from other OSS databases.
-    * Containerized and built on top of Kubernetes for scalability.
+    * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
 2. **Data Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
     * Weaviate has a modular setup that allows to use your own ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
