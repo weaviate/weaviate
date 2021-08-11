@@ -431,6 +431,17 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
+
+			// this test prevents a regression on
+			// https://github.com/semi-technologies/weaviate/issues/1638
+			test{
+				name: "Like ca* AND Like eng*",
+				filter: filterAnd(
+					buildFilter("description", "ca*", like, dtText),
+					buildFilter("description", "eng*", like, dtText),
+				),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
 		}
 
 		for _, test := range tests {

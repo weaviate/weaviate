@@ -813,8 +813,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			c := b.Cursor()
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -840,8 +840,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -871,8 +871,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -901,8 +901,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 				retrieved := 0
 				for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
 					retrieved++
-					retrievedKeys = append(retrievedKeys, k)
-					retrievedValues = append(retrievedValues, v)
+					retrievedKeys = copyAndAppend(retrievedKeys, k)
+					retrievedValues = copyAndAppend(retrievedValues, v)
 				}
 
 				assert.Equal(t, expectedKeys, retrievedKeys)
@@ -928,8 +928,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 				retrieved := 0
 				for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 					retrieved++
-					retrievedKeys = append(retrievedKeys, k)
-					retrievedValues = append(retrievedValues, v)
+					retrievedKeys = copyAndAppend(retrievedKeys, k)
+					retrievedValues = copyAndAppend(retrievedValues, v)
 				}
 
 				assert.Equal(t, expectedKeys, retrievedKeys)
@@ -959,8 +959,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 				retrieved := 0
 				for k, v := c.Seek([]byte("key-000")); k != nil && retrieved < 2; k, v = c.Next() {
 					retrieved++
-					retrievedKeys = append(retrievedKeys, k)
-					retrievedValues = append(retrievedValues, v)
+					retrievedKeys = copyAndAppend(retrievedKeys, k)
+					retrievedValues = copyAndAppend(retrievedValues, v)
 				}
 
 				assert.Equal(t, expectedKeys, retrievedKeys)
@@ -984,8 +984,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 				retrieved := 0
 				for k, v := c.First(); k != nil && retrieved < 2; k, v = c.Next() {
 					retrieved++
-					retrievedKeys = append(retrievedKeys, k)
-					retrievedValues = append(retrievedValues, v)
+					retrievedKeys = copyAndAppend(retrievedKeys, k)
+					retrievedValues = copyAndAppend(retrievedValues, v)
 				}
 
 				assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1055,8 +1055,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			c := b.Cursor()
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1082,8 +1082,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1113,8 +1113,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 			for i := 0; i < pairs; i++ {
 				if i%3 == 0 {
-					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
-					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+					keys = copyAndAppend(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = copyAndAppend(values, []byte(fmt.Sprintf("value-%03d", i)))
 				}
 			}
 
@@ -1142,8 +1142,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 			for i := 0; i < pairs; i++ {
 				if i%3 == 1 {
-					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
-					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+					keys = copyAndAppend(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = copyAndAppend(values, []byte(fmt.Sprintf("value-%03d", i)))
 				}
 			}
 
@@ -1176,8 +1176,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 			for i := 0; i < pairs; i++ {
 				if i%3 == 2 {
-					keys = append(keys, []byte(fmt.Sprintf("key-%03d", i)))
-					values = append(values, []byte(fmt.Sprintf("value-%03d", i)))
+					keys = copyAndAppend(keys, []byte(fmt.Sprintf("key-%03d", i)))
+					values = copyAndAppend(values, []byte(fmt.Sprintf("value-%03d", i)))
 				}
 			}
 
@@ -1221,8 +1221,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			c := b.Cursor()
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1251,8 +1251,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1284,8 +1284,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			c := b.Cursor()
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1313,8 +1313,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1344,8 +1344,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			c := b.Cursor()
 			defer c.Close()
 			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1373,8 +1373,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
@@ -1441,12 +1441,18 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			retrieved := 0
 			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
 				retrieved++
-				retrievedKeys = append(retrievedKeys, k)
-				retrievedValues = append(retrievedValues, v)
+				retrievedKeys = copyAndAppend(retrievedKeys, k)
+				retrievedValues = copyAndAppend(retrievedValues, v)
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
 			assert.Equal(t, expectedValues, retrievedValues)
 		})
 	})
+}
+
+func copyAndAppend(list [][]byte, elem []byte) [][]byte {
+	elemCopy := make([]byte, len(elem))
+	copy(elemCopy, elem)
+	return append(list, elemCopy)
 }

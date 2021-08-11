@@ -49,22 +49,16 @@ type textAggregator struct {
 
 func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
 	v []byte, propName schema.PropertyName) error {
-	obj, err := storobj.FromBinary(v)
+	item, ok, err := storobj.ParseAndExtractTextProp(v, propName.String())
 	if err != nil {
-		return errors.Wrap(err, "unmarshal object")
+		return errors.Wrap(err, "parse and extract prop")
 	}
 
-	s := obj.Properties()
-	if s == nil {
-		return nil
-	}
-
-	item, ok := s.(map[string]interface{})[propName.String()]
 	if !ok {
 		return nil
 	}
 
-	return agg.AddText(item.(string))
+	return agg.AddText(item)
 }
 
 func (a *textAggregator) AddText(value string) error {

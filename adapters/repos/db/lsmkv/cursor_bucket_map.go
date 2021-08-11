@@ -26,7 +26,7 @@ type CursorMap struct {
 func (b *Bucket) MapCursor() *CursorMap {
 	b.flushLock.RLock()
 
-	innerCursors := b.disk.newCollectionCursors()
+	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -38,7 +38,10 @@ func (b *Bucket) MapCursor() *CursorMap {
 	innerCursors = append(innerCursors, b.active.newCollectionCursor())
 
 	return &CursorMap{
-		unlock: b.flushLock.RUnlock,
+		unlock: func() {
+			unlockSegmentGroup()
+			b.flushLock.RUnlock()
+		},
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,

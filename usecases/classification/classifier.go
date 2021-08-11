@@ -102,6 +102,9 @@ type VectorRepo interface {
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
 	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
+	ZeroShotSearch(ctx context.Context, vector []float32,
+		class string, properties []string,
+		filter *libfilters.LocalFilter) ([]search.Result, error)
 }
 
 type vectorRepo interface {

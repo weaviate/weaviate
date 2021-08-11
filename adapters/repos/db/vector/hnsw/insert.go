@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
@@ -24,7 +23,7 @@ import (
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	if len(vector) == 0 {
-		return fmt.Errorf("insert called with nil-vector")
+		return errors.Errorf("insert called with nil-vector")
 	}
 
 	node := &vertex{
@@ -77,13 +76,14 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	node.markAsMaintenance()
 
+	h.Lock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
 	entryPointID := h.entryPointID
-
 	// initially use the level of the entrypoint which is the highest level of
 	// the h-graph in the first iteration
 	currentMaximumLayer := h.currentMaximumLayer
+	h.Unlock()
 
 	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
 
@@ -93,7 +93,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	node.connections = map[int][]uint64{}
 
 	if err := h.commitLog.AddNode(node); err != nil {
-		h.Unlock()
 		return err
 	}
 
@@ -128,6 +127,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()
 
+	h.Lock()
 	if targetLevel > h.currentMaximumLayer {
 		// before = time.Now()
 		// m.addBuildingLocking(before)
@@ -136,11 +136,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 			return err
 		}
 
-		h.Lock()
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
-		h.Unlock()
 	}
+	h.Unlock()
 
 	return nil
 }
@@ -157,7 +156,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		closestFirst.Insert(elem.ID, elem.Dist)
 	}
 
-	returnList := []priorityqueue.Item{}
+	returnList := make([]*priorityqueue.Item, 0, max)
 
 	for closestFirst.Len() > 0 && len(returnList) < max {
 		curr := closestFirst.Pop()
@@ -185,7 +184,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		}
 
 		if good {
-			returnList = append(returnList, curr)
+			returnList = append(returnList, &curr)
 		}
 
 	}

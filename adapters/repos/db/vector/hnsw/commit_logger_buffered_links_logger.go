@@ -64,7 +64,7 @@ func (b *bufferedLinksLogger) Close() error {
 	b.base.Lock()
 	defer b.base.Unlock()
 
-	_, err := b.base.logFile.Write(b.buf.Bytes())
+	_, err := b.base.logWriter.Write(b.buf.Bytes())
 	if err != nil {
 		return errors.Wrap(err, "flush link buffer to commit logger")
 	}
