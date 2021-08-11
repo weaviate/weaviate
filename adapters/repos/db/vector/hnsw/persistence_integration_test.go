@@ -144,7 +144,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -205,7 +205,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
