@@ -86,8 +86,8 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
 		if err != nil {
-			// do not return nil, err, because the err could be a recovarble one
-			return out, errors.Errorf("failed to deserialize: %s", err)
+			// do not return nil, err, because the err could be a recoverable one
+			return out, err
 		}
 	}
 
