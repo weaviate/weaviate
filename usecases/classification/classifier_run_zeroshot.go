@@ -44,7 +44,7 @@ func (c *Classifier) classifyItemUsingZeroShot(item search.Result, itemIndex int
 	for _, className := range classifyProp {
 		for _, prop := range properties {
 			res, err := c.vectorRepo.ZeroShotSearch(ctx, item.Vector, className,
-				params.ClassifyProperties, filters.TrainingSet())
+				params.ClassifyProperties, filters.Target())
 			if err != nil {
 				return errors.Wrap(err, "zeroshot: search")
 			}

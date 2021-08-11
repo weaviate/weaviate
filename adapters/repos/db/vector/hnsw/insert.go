@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
@@ -24,7 +23,7 @@ import (
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	if len(vector) == 0 {
-		return fmt.Errorf("insert called with nil-vector")
+		return errors.Errorf("insert called with nil-vector")
 	}
 
 	node := &vertex{
