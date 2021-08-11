@@ -82,6 +82,8 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 		}
 	})
 
+	index.Flush()
+
 	t.Run("create a corrupt commit log file without deleting the original",
 		func(t *testing.T) {
 			input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath,

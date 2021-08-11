@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build integrationTestSlow
+// +build integrationTestSlow,!race
 
 package hnsw
 

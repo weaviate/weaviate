@@ -12,9 +12,12 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -135,39 +138,62 @@ func parseSegmentHeader(r io.Reader) (*segmentHeader, error) {
 type segmentIndices struct {
 	keys                []keyIndex
 	secondaryIndexCount uint16
+	scratchSpacePath    string
 }
 
-func (s *segmentIndices) WriteTo(w io.Writer) (int64, error) {
+func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
 	currentOffset := uint64(s.keys[len(s.keys)-1].valueEnd)
 	var written int64
-	indexBytes, err := s.buildAndMarshalPrimary(s.keys)
+
+	if err := os.Mkdir(s.scratchSpacePath, 0o777); err != nil {
+		return written, errors.Wrap(err, "create scratch space")
+	}
+
+	primaryFileName := filepath.Join(s.scratchSpacePath, "primary")
+	primaryFD, err := os.Create(primaryFileName)
 	if err != nil {
 		return written, err
 	}
 
+	primaryFDBuffered := bufio.NewWriter(primaryFD)
+
+	n, err := s.buildAndMarshalPrimary(primaryFDBuffered, s.keys)
+	if err != nil {
+		return written, err
+	}
+
+	if err := primaryFDBuffered.Flush(); err != nil {
+		return written, err
+	}
+
+	primaryFD.Seek(0, io.SeekStart)
+
 	// pretend that primary index was already written, then also account for the
 	// additional offset pointers (one for each secondary index)
-	currentOffset = currentOffset + uint64(len(indexBytes)) +
+	currentOffset = currentOffset + uint64(n) +
 		uint64(s.secondaryIndexCount)*8
 
-	secondaryIndicesBytes := bytes.NewBuffer(nil)
+	// secondaryIndicesBytes := bytes.NewBuffer(nil)
+	secondaryFileName := filepath.Join(s.scratchSpacePath, "secondary")
+	secondaryFD, err := os.Create(secondaryFileName)
+	if err != nil {
+		return written, err
+	}
+
+	secondaryFDBuffered := bufio.NewWriter(secondaryFD)
 
 	if s.secondaryIndexCount > 0 {
 		offsets := make([]uint64, s.secondaryIndexCount)
 		for pos := range offsets {
-			secondaryBytes, err := s.buildAndMarshalSecondary(pos, s.keys)
+			n, err := s.buildAndMarshalSecondary(secondaryFDBuffered, pos, s.keys)
 			if err != nil {
-				return written, err
-			}
-
-			if n, err := secondaryIndicesBytes.Write(secondaryBytes); err != nil {
 				return written, err
 			} else {
 				written += int64(n)
 			}
 
 			offsets[pos] = currentOffset
-			currentOffset = offsets[pos] + uint64(len(secondaryBytes))
+			currentOffset = offsets[pos] + uint64(n)
 		}
 
 		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
@@ -177,18 +203,34 @@ func (s *segmentIndices) WriteTo(w io.Writer) (int64, error) {
 		written += int64(len(offsets)) * 8
 	}
 
-	// write primary index
-	if n, err := w.Write(indexBytes); err != nil {
+	if err := secondaryFDBuffered.Flush(); err != nil {
+		return written, err
+	}
+
+	secondaryFD.Seek(0, io.SeekStart)
+
+	if n, err := io.Copy(w, primaryFD); err != nil {
 		return written, err
 	} else {
 		written += int64(n)
 	}
 
-	// write secondary indices
-	if n, err := secondaryIndicesBytes.WriteTo(w); err != nil {
+	if n, err := io.Copy(w, secondaryFD); err != nil {
 		return written, err
 	} else {
-		written += n
+		written += int64(n)
+	}
+
+	if err := primaryFD.Close(); err != nil {
+		return written, err
+	}
+
+	if err := secondaryFD.Close(); err != nil {
+		return written, err
+	}
+
+	if err := os.RemoveAll(s.scratchSpacePath); err != nil {
+		return written, err
 	}
 
 	return written, nil
@@ -196,8 +238,8 @@ func (s *segmentIndices) WriteTo(w io.Writer) (int64, error) {
 
 // pos indicates the position of a secondary index, assumes unsorted keys and
 // sorts them
-func (s *segmentIndices) buildAndMarshalSecondary(pos int,
-	keys []keyIndex) ([]byte, error) {
+func (s *segmentIndices) buildAndMarshalSecondary(w io.Writer, pos int,
+	keys []keyIndex) (int64, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	i := 0
 	for _, key := range keys {
@@ -222,16 +264,16 @@ func (s *segmentIndices) buildAndMarshalSecondary(pos int,
 	})
 
 	index := segmentindex.NewBalanced(keyNodes)
-	indexBytes, err := index.MarshalBinary()
+	n, err := index.MarshalBinaryInto(w)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return indexBytes, nil
+	return n, nil
 }
 
 // assumes sorted keys and does NOT sort them again
-func (s *segmentIndices) buildAndMarshalPrimary(keys []keyIndex) ([]byte, error) {
+func (s *segmentIndices) buildAndMarshalPrimary(w io.Writer, keys []keyIndex) (int64, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	for i, key := range keys {
 		keyNodes[i] = segmentindex.Node{
@@ -242,12 +284,12 @@ func (s *segmentIndices) buildAndMarshalPrimary(keys []keyIndex) ([]byte, error)
 	}
 	index := segmentindex.NewBalanced(keyNodes)
 
-	indexBytes, err := index.MarshalBinary()
+	n, err := index.MarshalBinaryInto(w)
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 
-	return indexBytes, nil
+	return n, nil
 }
 
 // a single node of strategy "replace"
@@ -386,6 +428,71 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
+func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+	out.offset = 0
+
+	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
+		return errors.Wrap(err, "read tombstone")
+	}
+	out.offset += 1
+
+	var valueLength uint64
+	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
+		return errors.Wrap(err, "read value length encoding")
+	}
+	out.offset += 8
+
+	if int(valueLength) > cap(out.value) {
+		out.value = make([]byte, valueLength)
+	} else {
+		out.value = out.value[:valueLength]
+	}
+
+	if n, err := r.Read(out.value); err != nil {
+		return errors.Wrap(err, "read value")
+	} else {
+		out.offset += n
+	}
+
+	var keyLength uint32
+	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+		return errors.Wrap(err, "read key length encoding")
+	}
+	out.offset += 4
+
+	out.primaryKey = make([]byte, keyLength)
+	if n, err := r.Read(out.primaryKey); err != nil {
+		return errors.Wrap(err, "read key")
+	} else {
+		out.offset += n
+	}
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		var secKeyLen uint32
+		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+			return errors.Wrap(err, "read secondary key length encoding")
+		}
+		out.offset += 4
+
+		if secKeyLen == 0 {
+			continue
+		}
+
+		out.secondaryKeys[j] = make([]byte, secKeyLen)
+		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+			return errors.Wrap(err, "read secondary key")
+		} else {
+			out.offset += n
+		}
+	}
+
+	return nil
+}
+
 // collection strategy does not support secondary keys at this time
 type segmentCollectionNode struct {
 	values     []value
@@ -393,7 +500,7 @@ type segmentCollectionNode struct {
 	offset     int
 }
 
-func (s *segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
+func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	out := keyIndex{}
 	written := 0
 	valueLen := uint64(len(s.values))

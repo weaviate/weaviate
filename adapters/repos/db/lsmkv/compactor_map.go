@@ -31,17 +31,21 @@ type compactorMap struct {
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
+
+	scratchSpacePath string
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16) *compactorMap {
+	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
+	scratchSpacePath string) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
 		c2:                  c2,
 		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 1e6),
+		bufw:                bufio.NewWriterSize(w, 256*1024),
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
+		scratchSpacePath:    scratchSpacePath,
 	}
 }
 
@@ -106,14 +110,9 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				return nil, err
 			}
 
-			var mergedEncoded []value
-			for _, merged := range valuesMerged {
-				encoded, err := newMapEncoder().Do(merged)
-				if err != nil {
-					return nil, err
-				}
-
-				mergedEncoded = append(mergedEncoded, encoded...)
+			mergedEncoded, err := newMapEncoder().DoMulti(valuesMerged)
+			if err != nil {
+				return nil, err
 			}
 
 			ki, err := c.writeIndividualNode(offset, key2, mergedEncoded)
@@ -159,17 +158,18 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 
 func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	values []value) (keyIndex, error) {
-	return (&segmentCollectionNode{
+	return segmentCollectionNode{
 		values:     values,
 		primaryKey: key,
 		offset:     offset,
-	}).KeyIndexAndWriteTo(c.bufw)
+	}.KeyIndexAndWriteTo(c.bufw)
 }
 
 func (c *compactorMap) writeIndices(keys []keyIndex) error {
-	indices := &segmentIndices{
+	indices := segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: c.secondaryIndexCount,
+		scratchSpacePath:    c.scratchSpacePath,
 	}
 
 	_, err := indices.WriteTo(c.bufw)

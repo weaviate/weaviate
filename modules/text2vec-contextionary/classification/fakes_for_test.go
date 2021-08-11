@@ -152,6 +152,12 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 	return out, f.errorOnAggregate
 }
 
+func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32,
+	class string, properties []string,
+	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	panic("not implemented")
+}
+
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
 	f.Lock()
@@ -220,6 +226,12 @@ func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
 func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]usecasesclassfication.NeighborRef, error) {
+	panic("not implemented")
+}
+
+func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []float32,
+	class string, properties []string,
+	filter *libfilters.LocalFilter) ([]search.Result, error) {
 	panic("not implemented")
 }
 

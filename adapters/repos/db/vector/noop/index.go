@@ -45,3 +45,7 @@ func (i *Index) Drop() error {
 	// silently ignore
 	return nil
 }
+
+func (i *Index) Flush() error {
+	return nil
+}

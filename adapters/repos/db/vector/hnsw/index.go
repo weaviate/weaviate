@@ -110,6 +110,7 @@ type CommitLogger interface {
 	Reset() error
 	Drop() error
 	NewBufferedLinksLogger() BufferedLinksLogger
+	Flush() error
 }
 
 type BufferedLinksLogger interface {
@@ -492,4 +493,15 @@ func (h *hnsw) Drop() error {
 	// cancel tombstone cleanup goroutine
 	h.cancel <- struct{}{}
 	return nil
+}
+
+func (h *hnsw) Flush() error {
+	return h.commitLog.Flush()
+}
+
+func (h *hnsw) Entrypoint() uint64 {
+	h.Lock()
+	defer h.Unlock()
+
+	return h.entryPointID
 }

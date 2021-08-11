@@ -307,4 +307,10 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 			b.setErrorAtIndex(err, i)
 		}
 	}
+
+	if err := b.shard.vectorIndex.Flush(); err != nil {
+		for i := range b.refs {
+			b.setErrorAtIndex(err, i)
+		}
+	}
 }

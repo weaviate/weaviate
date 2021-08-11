@@ -94,6 +94,8 @@ func (ig *SegmentGroup) compactOnce() error {
 		return err
 	}
 
+	scratchSpacePath := ig.segments[pair[1]].path + "compaction.scratch.d"
+
 	// the assumption is that both pairs are of the same level, so we can just
 	// take either value. If we want to support asymmetric compaction, then we
 	// might have to choose this value more intelligently
@@ -104,21 +106,23 @@ func (ig *SegmentGroup) compactOnce() error {
 	switch strategy {
 	case SegmentStrategyReplace:
 		c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
-			ig.segments[pair[1]].newCursor(), level, secondaryIndices)
+			ig.segments[pair[1]].newCursor(), level, secondaryIndices, scratchSpacePath)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategySetCollection:
 		c := newCompactorSetCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices)
+			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices,
+			scratchSpacePath)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategyMapCollection:
 		c := newCompactorMapCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices)
+			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices,
+			scratchSpacePath)
 
 		if err := c.do(); err != nil {
 			return err
