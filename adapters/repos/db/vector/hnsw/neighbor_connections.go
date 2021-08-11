@@ -115,7 +115,12 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if len(neighbors) > 0 {
 		// there could be no neighbors left, if all are marked deleted, in this
 		// case, don't change the entrypoint
-		n.entryPointID = neighbors[len(neighbors)-1]
+		nextEntryPointID := neighbors[len(neighbors)-1]
+		if nextEntryPointID == n.node.id {
+			return nil
+		}
+
+		n.entryPointID = nextEntryPointID
 		dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
 		if err != nil {
 			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -133,7 +138,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 	node := n.graph.nodeByID(n.entryPointID)
-	if node.isUnderMaintenance() {
+	if node == nil || node.isUnderMaintenance() {
 		alternativeEP := n.graph.entryPointID
 		if alternativeEP == n.node.id || alternativeEP == n.entryPointID {
 			tmpDenyList := n.denyList.DeepCopy()
