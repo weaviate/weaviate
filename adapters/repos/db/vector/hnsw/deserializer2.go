@@ -266,8 +266,8 @@ func (c *Deserializer2) ReadDeleteNode(r io.Reader, res *DeserializationResult) 
 func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	tmpBuf := make([]byte, 8)
-	if _, err := r.Read(tmpBuf); err != nil {
-		return 0, err
+	if _, err := r.Read(tmpBuf[0:8]); err != nil {
+		return 0, errors.Wrap(err, "failed to read uint64")
 	}
 
 	value = binary.LittleEndian.Uint64(tmpBuf)
@@ -278,9 +278,10 @@ func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	tmpBuf := make([]byte, 2)
-	if _, err := r.Read(tmpBuf); err != nil {
-		return 0, err
+	if _, err := r.Read(tmpBuf[0:2]); err != nil {
+		return 0, errors.Wrap(err, "failed to read uint16")
 	}
+
 	value = binary.LittleEndian.Uint16(tmpBuf)
 
 	return value, nil
@@ -288,8 +289,8 @@ func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 
 func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 	tmpBuf := make([]byte, 1)
-	if _, err := r.Read(tmpBuf); err != nil {
-		return 0, err
+	if _, err := r.Read(tmpBuf[0:1]); err != nil {
+		return 0, errors.Wrap(err, "failed to read commit type")
 	}
 
 	return HnswCommitType(tmpBuf[0]), nil
@@ -297,13 +298,12 @@ func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 
 func (c *Deserializer2) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
 	values := make([]uint64, length)
-	for i := 0; i < length; i++ {
-		v, err := c.readUint64(r)
+	for i := range values {
+		value, err := c.readUint64(r)
 		if err != nil {
-			return values, err
+			return nil, errors.Wrap(err, "failed to read []uint64")
 		}
-		values[i] = v
-
+		values[i] = value
 	}
 
 	return values, nil
