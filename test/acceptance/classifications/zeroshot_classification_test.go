@@ -26,10 +26,6 @@ import (
 )
 
 func zeroshotClassification(t *testing.T) {
-	// TODO REMOVE
-	// temporarily removed for 1.5.1 release
-	t.Skip()
-	// TODO
 	var id strfmt.UUID
 
 	t.Run("start the classification and wait for completion", func(t *testing.T) {
