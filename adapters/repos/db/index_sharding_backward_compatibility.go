@@ -16,18 +16,12 @@ func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {
 	}
 
 	for _, entry := range res {
-		if !entry.IsDir() {
-			// non-directories can never be shard-data
-			continue
-		}
-
 		if !strings.HasPrefix(entry.Name(), i.ID()+"_single") {
 			// either not part of this index, or not a "_single" shard
 			continue
 		}
 
 		// whatever is left now, needs to be migrated
-
 		shards := shardState.AllPhysicalShards()
 		if len(shards) != 1 {
 			return errors.Errorf("cannot migrate '_single' shard into config with %d "+
@@ -46,7 +40,8 @@ func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {
 		i.logger.WithField("action", "index_startup_migrate_shards_successful").
 			WithField("old_shard", oldPath).
 			WithField("new_shard", newPath).
-			Infof("successfully migrated shard %q (created in an earlier version) to %q", oldPath, newPath)
+			Infof("successfully migrated shard file %q (created in an earlier version) to %q",
+				oldPath, newPath)
 	}
 
 	return nil
