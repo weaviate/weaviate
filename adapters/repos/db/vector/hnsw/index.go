@@ -506,3 +506,10 @@ func (h *hnsw) Drop() error {
 func (h *hnsw) Flush() error {
 	return h.commitLog.Flush()
 }
+
+func (h *hnsw) Entrypoint() uint64 {
+	h.Lock()
+	defer h.Unlock()
+
+	return h.entryPointID
+}
