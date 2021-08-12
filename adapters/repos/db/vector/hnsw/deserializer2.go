@@ -266,7 +266,7 @@ func (c *Deserializer2) ReadDeleteNode(r io.Reader, res *DeserializationResult) 
 func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	tmpBuf := make([]byte, 8)
-	_, err := r.Read(tmpBuf[:8])
+	_, err := io.ReadFull(r, tmpBuf)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read uint64")
 	}
@@ -279,7 +279,7 @@ func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	tmpBuf := make([]byte, 2)
-	_, err := r.Read(tmpBuf[:2])
+	_, err := io.ReadFull(r, tmpBuf)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read uint16")
 	}
@@ -291,7 +291,7 @@ func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 
 func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 	tmpBuf := make([]byte, 1)
-	if _, err := r.Read(tmpBuf[0:1]); err != nil {
+	if _, err := io.ReadFull(r, tmpBuf); err != nil {
 		return 0, errors.Wrap(err, "failed to read commit type")
 	}
 
