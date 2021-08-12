@@ -155,9 +155,50 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// store in local cache
 	m.state = *schema
 
+	if err := m.checkSingleShardMigration(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version")
+	}
+
 	// store in remote repo
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
+	for _, c := range m.state.ObjectSchema.Classes {
+		if _, ok := m.state.ShardingState[c.Class]; ok {
+			// there is sharding state for this class. Nothing to do
+			continue
+		}
+
+		m.logger.WithField("className", c.Class).WithField("action", "initialize_schema").
+			Warningf("No sharding state found for class %q, initializing new state. "+
+				"This is expected behavior if the schema was created with an older Weaviate "+
+				"version, prior to supporting multi-shard indices.", c.Class)
+
+		// there is no sharding state for this class, let's create the correct
+		// config. This class must have been created prior to the sharding feature,
+		// so we now that the shardCount==1 - we do not care about any of the other
+		// parameters and simply use the defaults for those
+		c.ShardingConfig = map[string]interface{}{
+			"desiredCount": 1,
+		}
+		if err := m.parseShardingConfig(ctx, c); err != nil {
+			return err
+		}
+
+		shardState, err := sharding.InitState(c.Class, c.ShardingConfig.(sharding.Config))
+		if err != nil {
+			return errors.Wrap(err, "init sharding state")
+		}
+
+		if m.state.ShardingState == nil {
+			m.state.ShardingState = map[string]*sharding.State{}
+		}
+		m.state.ShardingState[c.Class] = shardState
 	}
 
 	return nil

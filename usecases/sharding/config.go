@@ -138,6 +138,8 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 	switch typed := value.(type) {
 	case json.Number:
 		asInt64, err = typed.Int64()
+	case int:
+		asInt64 = int64(typed)
 	case float64:
 		asInt64 = int64(typed)
 	}
