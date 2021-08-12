@@ -66,6 +66,10 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 	}
 
+	if err := index.checkSingleShardMigration(shardState); err != nil {
+		return nil, errors.Wrap(err, "migrating sharding state from previous version")
+	}
+
 	for _, shardName := range shardState.AllPhysicalShards() {
 		shard, err := NewShard(ctx, shardName, index)
 		if err != nil {
