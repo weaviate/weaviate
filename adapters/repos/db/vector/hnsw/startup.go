@@ -68,7 +68,7 @@ func (h *hnsw) restoreFromDisk() error {
 
 		fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-		state, err = NewDeserializer(h.logger).Do(fdBuf, state)
+		state, err = NewDeserializer2(h.logger).Do(fdBuf, state)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where
