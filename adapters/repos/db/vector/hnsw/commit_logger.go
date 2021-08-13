@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"sort"
@@ -139,6 +140,8 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, nil
 	}
 
+	files = removeTmpScratchFiles(files)
+
 	ec := &errorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
@@ -157,6 +160,21 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 	}
 
 	return files[0].Name(), true, nil
+}
+
+func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
+	out := make([]fs.FileInfo, len(in))
+	i := 0
+	for _, info := range in {
+		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
+			continue
+		}
+
+		out[i] = info
+		i++
+	}
+
+	return out[:i]
 }
 
 func asTimeStamp(in string) (int64, error) {
