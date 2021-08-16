@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/deprecations"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -49,6 +50,7 @@ type Config struct {
 	EnableModules           string         `json:"enable_modules" yaml:"enable_modules"`
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
 }
 
 type moduleProvider interface {

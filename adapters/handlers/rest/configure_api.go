@@ -39,6 +39,7 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -266,6 +267,13 @@ func startupRoutine(ctx context.Context) *state.State {
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
+
+	_, err = cluster.Init(serverConfig.Config.Cluster, logger)
+	if err != nil {
+		logger.WithField("action", "startup").WithError(err).
+			Error("could not init cluster state")
+		logger.Exit(1)
+	}
 
 	return appState
 }

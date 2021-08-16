@@ -18,6 +18,7 @@ require (
 	github.com/go-openapi/validate v0.19.10
 	github.com/google/uuid v1.2.0
 	github.com/graphql-go/graphql v0.7.9
+	github.com/hashicorp/memberlist v0.2.4
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
