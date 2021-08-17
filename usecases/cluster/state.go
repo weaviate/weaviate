@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hashicorp/memberlist"
@@ -8,7 +9,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type State struct{}
+type State struct {
+	list *memberlist.Memberlist
+}
 
 type Config struct {
 	Hostname string `json:"hostname" yaml:"hostname"`
@@ -46,9 +49,17 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 
 	}
 
-	// for _, member := range list.Members() {
-	// 	fmt.Printf("Member: %s %s\n", member.Name, member.Addr)
-	// }
-
 	return nil, nil
+}
+
+// Hostnames for all live members
+func (s *State) Hostnames() []string {
+	mem := s.list.Members()
+	out := make([]string, len(mem))
+
+	for i, m := range mem {
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port)
+	}
+
+	return out
 }
