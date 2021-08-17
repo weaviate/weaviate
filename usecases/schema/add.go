@@ -57,13 +57,26 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	semanticSchema := m.state.ObjectSchema
-	semanticSchema.Classes = append(semanticSchema.Classes, class)
-
 	shardState, err := sharding.InitState(class.Class, class.ShardingConfig.(sharding.Config))
 	if err != nil {
 		return errors.Wrap(err, "init sharding state")
 	}
+
+	// tx, err := m.cluster.BeginTransaction(ctx, AddClass,
+	// 	AddClassPayload{class, state})
+	// if err != nil {
+	// 	// possible causes for errors could be nodes down (we expect every node to
+	// 	// the up for a schema transaction) or concurrent transactions from other
+	// 	// nodes
+	// 	return errors.Wrap(err, "open cluster-wide transaction")
+	// }
+
+	// if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+	// 	return errors.Wrap(err, "commit cluster-wide transaction")
+	// }
+
+	semanticSchema := m.state.ObjectSchema
+	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
 	m.state.ShardingState[class.Class] = shardState
 	err = m.saveSchema(ctx)
