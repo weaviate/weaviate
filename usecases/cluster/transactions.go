@@ -1,4 +1,4 @@
-package schema
+package cluster
 
 import (
 	"context"
