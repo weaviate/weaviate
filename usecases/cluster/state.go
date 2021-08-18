@@ -50,7 +50,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 
 	}
 
-	return nil, nil
+	return &State{list: list}, nil
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
