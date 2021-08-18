@@ -31,11 +31,12 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer      textVectorizer
-	metaProvider    metaProvider
-	graphqlProvider modulecapabilities.GraphQLArguments
-	searcher        modulecapabilities.Searcher
-	logger          logrus.FieldLogger
+	vectorizer          textVectorizer
+	metaProvider        metaProvider
+	graphqlProvider     modulecapabilities.GraphQLArguments
+	searcher            modulecapabilities.Searcher
+	nearTextTransformer modulecapabilities.TextTransform
+	logger              logrus.FieldLogger
 }
 
 type textVectorizer interface {
@@ -67,10 +68,24 @@ func (m *TransformersModule) Init(ctx context.Context,
 		return errors.Wrap(err, "init vectorizer")
 	}
 
-	if err := m.initNearText(); err != nil {
-		return errors.Wrap(err, "init near text")
+	return nil
+}
+
+func (m *TransformersModule) InitDependency(modules []modulecapabilities.Module) error {
+	for _, module := range modules {
+		if module.Name() == m.Name() {
+			continue
+		}
+		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
+			if arg != nil && arg.TextTransformers() != nil {
+				m.nearTextTransformer = arg.TextTransformers()["nearText"]
+			}
+		}
 	}
 
+	if err := m.initNearText(); err != nil {
+		return errors.Wrap(err, "init graphql provider")
+	}
 	return nil
 }
 

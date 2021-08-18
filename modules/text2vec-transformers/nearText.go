@@ -18,7 +18,7 @@ import (
 
 func (m *TransformersModule) initNearText() error {
 	m.searcher = neartext.NewSearcher(m.vectorizer)
-	m.graphqlProvider = neartext.New()
+	m.graphqlProvider = neartext.New(m.nearTextTransformer)
 	return nil
 }
 
