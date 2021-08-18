@@ -512,6 +512,7 @@ func newSchemaManager() *Manager {
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, &fakeModuleConfig{}, &fakeClusterState{},
+		&fakeTxClient{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -558,6 +559,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, &fakeModuleConfig{}, &fakeClusterState{},
+		&fakeTxClient{},
 	)
 	require.Nil(t, err)
 

@@ -24,6 +24,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
@@ -145,9 +146,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	schemaTxClient := clients.NewClusterSchema(&http.Client{})
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster)
+		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster,
+		schemaTxClient)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).

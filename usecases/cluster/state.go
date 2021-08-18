@@ -54,7 +54,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
-// self
+// self, prefixes the data port.
 func (s *State) Hostnames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
@@ -64,7 +64,9 @@ func (s *State) Hostnames() []string {
 		if m.Name == s.list.LocalNode().Name {
 			continue
 		}
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port)
+		// TODO: how can we find out the actual data port as opposed to relying on
+		// the convention that it's 1 higher than the gossip port
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port+1)
 		i++
 	}
 
@@ -77,7 +79,9 @@ func (s *State) AllHostnames() []string {
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
-		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port)
+		// TODO: how can we find out the actual data port as opposed to relying on
+		// the convention that it's 1 higher than the gossip port
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port+1)
 	}
 
 	return out

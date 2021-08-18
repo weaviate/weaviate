@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 )
 
 type fakeRepo struct {
@@ -112,4 +113,18 @@ type fakeClusterState struct {
 
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
+}
+
+type fakeTxClient struct{}
+
+func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	return nil
+}
+
+func (f *fakeTxClient) AbortTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	return nil
+}
+
+func (f *fakeTxClient) CommitTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	return nil
 }

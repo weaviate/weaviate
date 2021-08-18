@@ -46,17 +46,17 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   second-node)
-      CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      PERSISTENCE_DATA_PATH="./data" \
-      ENABLE_MODULES="text2vec-contextionary" \
+      PERSISTENCE_DATA_PATH="./data-node2" \
       CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7002" \
       CLUSTER_DATA_BIND_PORT="7003" \
       CLUSTER_JOIN="localhost:7000" \
+      CONTEXTIONARY_URL=localhost:9999 \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
