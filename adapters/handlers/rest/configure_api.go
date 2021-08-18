@@ -24,6 +24,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
@@ -110,6 +111,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
+
+	go clusterapi.Serve(appState)
 
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
