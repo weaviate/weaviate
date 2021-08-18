@@ -14,9 +14,10 @@ type State struct {
 }
 
 type Config struct {
-	Hostname string `json:"hostname" yaml:"hostname"`
-	BindPort int    `json:"bindPort" yaml:"bindPort"`
-	Join     string `json:"join" yaml:"join"`
+	Hostname       string `json:"hostname" yaml:"hostname"`
+	GossipBindPort int    `json:"gossipBindPort" yaml:"gossipBindPort"`
+	DataBindPort   int    `json:"dataBindPort" yaml:"dataBindPort"`
+	Join           string `json:"join" yaml:"join"`
 }
 
 func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
@@ -27,8 +28,8 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 		cfg.Name = userConfig.Hostname
 	}
 
-	if userConfig.BindPort != 0 {
-		cfg.BindPort = userConfig.BindPort
+	if userConfig.GossipBindPort != 0 {
+		cfg.BindPort = userConfig.GossipBindPort
 	}
 
 	list, err := memberlist.Create(cfg)

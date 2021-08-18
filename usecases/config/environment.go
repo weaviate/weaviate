@@ -65,13 +65,22 @@ func FromEnv(config *Config) error {
 	config.Cluster.Hostname = os.Getenv("CLUSTER_HOSTNAME")
 	config.Cluster.Join = os.Getenv("CLUSTER_JOIN")
 
-	if v := os.Getenv("CLUSTER_BIND_PORT"); v != "" {
+	if v := os.Getenv("CLUSTER_GOSSIP_BIND_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse CLUSTER_BIND_PORT as int")
+			return errors.Wrapf(err, "parse CLUSTER_GOSSIP_BIND_PORT as int")
 		}
 
-		config.Cluster.BindPort = asInt
+		config.Cluster.GossipBindPort = asInt
+	}
+
+	if v := os.Getenv("CLUSTER_DATA_BIND_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse CLUSTER_DATA_BIND_PORT as int")
+		}
+
+		config.Cluster.DataBindPort = asInt
 	}
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
