@@ -511,7 +511,7 @@ func newSchemaManager() *Manager {
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		vectorizerValidator, &fakeModuleConfig{},
+		vectorizerValidator, &fakeModuleConfig{}, &fakeClusterState{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -557,7 +557,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		&fakeVectorizerValidator{}, &fakeModuleConfig{},
+		&fakeVectorizerValidator{}, &fakeModuleConfig{}, &fakeClusterState{},
 	)
 	require.Nil(t, err)
 

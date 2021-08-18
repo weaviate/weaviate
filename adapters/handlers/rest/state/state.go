@@ -16,6 +16,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
@@ -36,6 +37,7 @@ type State struct {
 	GraphQL         graphql.GraphQL
 	Modules         *modules.Provider
 	SchemaManager   *schema.Manager
+	Cluster         *cluster.State
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

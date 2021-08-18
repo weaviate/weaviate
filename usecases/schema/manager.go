@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -37,6 +38,7 @@ type Manager struct {
 	config              config.Config
 	vectorizerValidator VectorizerValidator
 	moduleConfig        ModuleConfig
+	cluster             *cluster.TxManager
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -68,11 +70,15 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
+type clusterState interface {
+	Hostnames() []string
+}
+
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
-	moduleConfig ModuleConfig) (*Manager, error) {
+	moduleConfig ModuleConfig, clusterState clusterState) (*Manager, error) {
 	m := &Manager{
 		config:              config,
 		migrator:            migrator,
@@ -83,7 +89,11 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		hnswConfigParser:    hnswConfigParser,
 		vectorizerValidator: vectorizerValidator,
 		moduleConfig:        moduleConfig,
+		cluster: cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState,
+			nil)), // TODO: set client
 	}
+
+	// TODO: set callback for incoming commit
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -91,6 +101,10 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	}
 
 	return m, nil
+}
+
+func (s *Manager) TxManager() *cluster.TxManager {
+	return s.cluster
 }
 
 type authorizer interface {

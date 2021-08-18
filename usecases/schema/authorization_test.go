@@ -109,7 +109,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			switch method {
 			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
-				"ShardingState":
+				"ShardingState", "TxManager":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
@@ -127,7 +127,8 @@ func Test_Schema_Authorization(t *testing.T) {
 				authorizer := &authDenier{}
 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
 					logger, authorizer, config.Config{},
-					dummyParseVectorConfig, &fakeVectorizerValidator{}, &fakeModuleConfig{})
+					dummyParseVectorConfig, &fakeVectorizerValidator{}, &fakeModuleConfig{},
+					&fakeClusterState{})
 				require.Nil(t, err)
 
 				var args []interface{}
