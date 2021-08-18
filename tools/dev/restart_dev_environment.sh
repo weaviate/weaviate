@@ -24,7 +24,7 @@ fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
-rm -rf data connector_state.json schema_state.json
+rm -rf data data-node2 connector_state.json schema_state.json
 
 docker-compose -f $DOCKER_COMPOSE_FILE up -d "${ADDITIONAL_SERVICES[@]}"
 

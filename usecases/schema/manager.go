@@ -78,7 +78,8 @@ type clusterState interface {
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
-	moduleConfig ModuleConfig, clusterState clusterState) (*Manager, error) {
+	moduleConfig ModuleConfig, clusterState clusterState,
+	txClient cluster.Client) (*Manager, error) {
 	m := &Manager{
 		config:              config,
 		migrator:            migrator,
@@ -89,8 +90,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		hnswConfigParser:    hnswConfigParser,
 		vectorizerValidator: vectorizerValidator,
 		moduleConfig:        moduleConfig,
-		cluster: cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState,
-			nil)), // TODO: set client
+		cluster:             cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)

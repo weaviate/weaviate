@@ -11,15 +11,15 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 )
 
-type ClusterScheme struct {
+type ClusterSchema struct {
 	client *http.Client
 }
 
-func NewClusterScheme(httpClient *http.Client) *ClusterScheme {
-	return &ClusterScheme{client: httpClient}
+func NewClusterSchema(httpClient *http.Client) *ClusterSchema {
+	return &ClusterSchema{client: httpClient}
 }
 
-func (c *ClusterScheme) OpenTransaction(ctx context.Context, host string,
+func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 	tx *cluster.Transaction) error {
 	path := "/schema/transactions/"
 	method := http.MethodPost
@@ -42,6 +42,8 @@ func (c *ClusterScheme) OpenTransaction(ctx context.Context, host string,
 		return errors.Wrap(err, "open http request")
 	}
 
+	req.Header.Set("content-type", "application/json")
+
 	res, err := c.client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "send http request")
@@ -49,13 +51,16 @@ func (c *ClusterScheme) OpenTransaction(ctx context.Context, host string,
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusCreated {
+		if res.StatusCode == http.StatusConflict {
+			return cluster.ErrConcurrentTransaction
+		}
 		return errors.Errorf("unexpected status code %d", res.StatusCode)
 	}
 
 	return nil
 }
 
-func (c *ClusterScheme) AbortTransaction(ctx context.Context, host string,
+func (c *ClusterSchema) AbortTransaction(ctx context.Context, host string,
 	tx *cluster.Transaction) error {
 	path := "/schema/transactions/" + tx.ID
 	method := http.MethodDelete
@@ -79,7 +84,7 @@ func (c *ClusterScheme) AbortTransaction(ctx context.Context, host string,
 	return nil
 }
 
-func (c *ClusterScheme) CommitTransaction(ctx context.Context, host string,
+func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
 	tx *cluster.Transaction) error {
 	path := "/schema/transactions/" + tx.ID + "/commit"
 	method := http.MethodPut
