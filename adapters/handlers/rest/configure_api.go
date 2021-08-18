@@ -112,8 +112,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	go clusterapi.Serve(appState)
-
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
@@ -149,7 +147,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, appState.Modules)
+		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -157,6 +155,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	appState.SchemaManager = schemaManager
+
+	go clusterapi.Serve(appState)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
@@ -271,12 +271,14 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	_, err = cluster.Init(serverConfig.Config.Cluster, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
 		logger.Exit(1)
 	}
+
+	appState.Cluster = clusterState
 
 	return appState
 }

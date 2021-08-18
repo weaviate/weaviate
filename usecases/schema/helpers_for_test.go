@@ -105,3 +105,11 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }
+
+type fakeClusterState struct {
+	hosts []string
+}
+
+func (f *fakeClusterState) Hostnames() []string {
+	return f.hosts
+}

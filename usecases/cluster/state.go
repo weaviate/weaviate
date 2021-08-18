@@ -53,8 +53,26 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 	return nil, nil
 }
 
-// Hostnames for all live members
+// Hostnames for all live members, except self. Use AllHostnames to include
+// self
 func (s *State) Hostnames() []string {
+	mem := s.list.Members()
+	out := make([]string, len(mem))
+
+	i := 0
+	for _, m := range mem {
+		if m.Name == s.list.LocalNode().Name {
+			continue
+		}
+		out[i] = fmt.Sprintf("%s:%d", m.Addr.String(), m.Port)
+		i++
+	}
+
+	return out[:i]
+}
+
+// AllHostnames for live members, including self.
+func (s *State) AllHostnames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 

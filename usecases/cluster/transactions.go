@@ -7,8 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type TransactionType string
@@ -16,10 +14,6 @@ type TransactionType string
 var (
 	ErrConcurrentTransaction = errors.New("concurrent transaction")
 	ErrInvalidTransaction    = errors.New("invalid transaction")
-)
-
-const (
-	AddClass TransactionType = "add_class"
 )
 
 type Remote interface {
@@ -153,9 +147,4 @@ type Transaction struct {
 	ID      string
 	Type    TransactionType
 	Payload interface{}
-}
-
-type AddClassPayload struct {
-	Class *models.Class
-	State *sharding.State
 }
