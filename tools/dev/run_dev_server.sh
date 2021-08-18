@@ -36,7 +36,8 @@ case $CONFIG in
       PERSISTENCE_DATA_PATH="./data" \
       ENABLE_MODULES="text2vec-contextionary" \
       CLUSTER_HOSTNAME="node1" \
-      CLUSTER_BIND_PORT="7000" \
+      CLUSTER_GOSSIP_BIND_PORT="7000" \
+      CLUSTER_DATA_BIND_PORT="7001" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -53,7 +54,8 @@ case $CONFIG in
       PERSISTENCE_DATA_PATH="./data" \
       ENABLE_MODULES="text2vec-contextionary" \
       CLUSTER_HOSTNAME="node2" \
-      CLUSTER_BIND_PORT="7001" \
+      CLUSTER_GOSSIP_BIND_PORT="7002" \
+      CLUSTER_DATA_BIND_PORT="7003" \
       CLUSTER_JOIN="localhost:7000" \
       go run ./cmd/weaviate-server \
         --scheme http \
