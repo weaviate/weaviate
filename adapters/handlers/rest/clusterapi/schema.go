@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
@@ -42,12 +43,32 @@ func (s *schema) index() http.Handler {
 
 func (s *schema) transactions() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
+		path := r.URL.Path
+		switch {
+		case path == "":
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
 			s.incomingTransaction().ServeHTTP(w, r)
 			return
+
+		case strings.HasSuffix(path, "/commit"):
+			if r.Method != http.MethodPut {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			s.incomingCommitTransaction().ServeHTTP(w, r)
+			return
 		default:
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			if r.Method != http.MethodDelete {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			s.incomingAbortTransaction().ServeHTTP(w, r)
 			return
 		}
 	})
@@ -56,13 +77,6 @@ func (s *schema) transactions() http.Handler {
 func (s *schema) incomingTransaction() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-
-		if r.URL.String() != "" {
-			// path prefix is already stripped and we do not want any sub-paths or
-			// url-level arguments present
-			http.NotFound(w, r)
-			return
-		}
 
 		if r.Header.Get("content-type") != "application/json" {
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
@@ -110,6 +124,47 @@ func (s *schema) incomingTransaction() http.Handler {
 		}
 
 		w.WriteHeader(http.StatusCreated)
+	})
+}
+
+func (s *schema) incomingAbortTransaction() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		path := r.URL.String()
+		tx := &cluster.Transaction{
+			ID: path,
+		}
+
+		s.txManager.IncomingAbortTransaction(r.Context(), tx)
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (s *schema) incomingCommitTransaction() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+
+		tx := &cluster.Transaction{
+			ID: parts[0],
+		}
+
+		if err := s.txManager.IncomingCommitTransaction(r.Context(), tx); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, cluster.ErrConcurrentTransaction) {
+				status = http.StatusConflict
+			}
+
+			http.Error(w, errors.Wrap(err, "open transaction").Error(), status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
 

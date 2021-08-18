@@ -93,7 +93,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 			nil)), // TODO: set client
 	}
 
-	// TODO: set callback for incoming commit
+	m.cluster.SetCommitFn(m.handleCommit)
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {

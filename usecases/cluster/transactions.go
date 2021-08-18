@@ -140,7 +140,19 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 		return ErrInvalidTransaction
 	}
 
-	return c.commitFn(ctx, tx)
+	// use transaction from cache, not passed in for two reason: a.) protect
+	// against the transaction being manipulated after being created, b.) allow
+	// an "empty" transaction that only contains the id for less network overhead
+	// (we don't need to pass the payload around anymore, after it's successfully
+	// opened - ever node has a copy of the payload now)
+	err := c.commitFn(ctx, c.currentTransaction)
+	if err != nil {
+		return err
+	}
+
+	// TODO: only clean up on success - does this make sense?
+	c.currentTransaction = nil
+	return nil
 }
 
 type Transaction struct {
