@@ -24,7 +24,8 @@ import (
 	spellcheckadditionalspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional/spellcheck"
 	"github.com/semi-technologies/weaviate/modules/text-spellcheck/clients"
 	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
-	"github.com/sirupsen/logrus"
+	spellchecktexttransformer "github.com/semi-technologies/weaviate/modules/text-spellcheck/transformer"
+	spellchecktexttransformerautocorrect "github.com/semi-technologies/weaviate/modules/text-spellcheck/transformer/autocorrect"
 )
 
 func New() *SpellCheckModule {
@@ -34,6 +35,7 @@ func New() *SpellCheckModule {
 type SpellCheckModule struct {
 	spellCheck                   spellCheckClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	textTransformersProvider     modulecapabilities.TextTransformers
 }
 
 type spellCheckClient interface {
@@ -47,30 +49,33 @@ func (m *SpellCheckModule) Name() string {
 
 func (m *SpellCheckModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
-	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init additional")
-	}
-	return nil
-}
-
-func (m *SpellCheckModule) initAdditional(ctx context.Context,
-	logger logrus.FieldLogger) error {
 	uri := os.Getenv("SPELLCHECK_INFERENCE_API")
 	if uri == "" {
 		return errors.Errorf("required variable SPELLCHECK_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, logger)
+	client := clients.New(uri, params.GetLogger())
+
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote spell check module")
 	}
 
 	m.spellCheck = client
 
-	spellCheckProvider := spellcheckadditionalspellcheck.New(m.spellCheck)
-	m.additionalPropertiesProvider = spellcheckadditional.New(spellCheckProvider)
+	m.initTextTransformers()
+	m.initAdditional()
 
 	return nil
+}
+
+func (m *SpellCheckModule) initTextTransformers() {
+	autocorrectProvider := spellchecktexttransformerautocorrect.New(m.spellCheck)
+	m.textTransformersProvider = spellchecktexttransformer.New(autocorrectProvider)
+}
+
+func (m *SpellCheckModule) initAdditional() {
+	spellCheckProvider := spellcheckadditionalspellcheck.New(m.spellCheck)
+	m.additionalPropertiesProvider = spellcheckadditional.New(spellCheckProvider)
 }
 
 func (m *SpellCheckModule) RootHandler() http.Handler {
@@ -86,9 +91,14 @@ func (m *SpellCheckModule) AdditionalProperties() map[string]modulecapabilities.
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *SpellCheckModule) TextTransformers() map[string]modulecapabilities.TextTransform {
+	return m.textTransformersProvider.TextTransformers()
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.TextTransformers(New())
 )

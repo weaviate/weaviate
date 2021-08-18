@@ -39,6 +39,6 @@ services:
     ports:
       - "8002:8080"
   text-spellcheck:
-    image: semitechnologies/text-spellcheck-model:latest
+    image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
       - "8003:8080"
