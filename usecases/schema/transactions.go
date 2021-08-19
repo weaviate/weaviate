@@ -12,6 +12,7 @@ import (
 const (
 	AddClass    cluster.TransactionType = "add_class"
 	AddProperty cluster.TransactionType = "add_property"
+	DeleteClass cluster.TransactionType = "delete_class"
 )
 
 type AddClassPayload struct {
@@ -24,6 +25,10 @@ type AddPropertyPayload struct {
 	Property  *models.Property `json:"property"`
 }
 
+type DeleteClassPayload struct {
+	ClassName string `json:"className"`
+}
+
 func UnmarshalTransaction(txType cluster.TransactionType,
 	payload json.RawMessage) (interface{}, error) {
 	switch txType {
@@ -32,6 +37,9 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 
 	case AddProperty:
 		return unmarshalAddProperty(payload)
+
+	case DeleteClass:
+		return unmarshalDeleteClass(payload)
 
 	default:
 		return nil, errors.Errorf("unrecognized schema transaction type %q", txType)
@@ -50,6 +58,15 @@ func unmarshalAddClass(payload json.RawMessage) (interface{}, error) {
 
 func unmarshalAddProperty(payload json.RawMessage) (interface{}, error) {
 	var pl AddPropertyPayload
+	if err := json.Unmarshal(payload, &pl); err != nil {
+		return nil, err
+	}
+
+	return pl, nil
+}
+
+func unmarshalDeleteClass(payload json.RawMessage) (interface{}, error) {
+	var pl DeleteClassPayload
 	if err := json.Unmarshal(payload, &pl); err != nil {
 		return nil, err
 	}

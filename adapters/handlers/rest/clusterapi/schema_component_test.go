@@ -57,6 +57,25 @@ func TestComponentCluster(t *testing.T) {
 
 		assert.Equal(t, localClass, remoteClass)
 	})
+
+	t.Run("delete class", func(t *testing.T) {
+		localManager, remoteManager := setupManagers(t)
+
+		ctx := context.Background()
+
+		err := localManager.AddClass(ctx, nil, testClass())
+		require.Nil(t, err)
+
+		err = localManager.DeleteClass(ctx, nil, testClass().Class)
+		require.Nil(t, err)
+
+		localSchema, err := localManager.GetSchema(nil)
+		require.Nil(t, err)
+		remoteSchema, err := remoteManager.GetSchema(nil)
+		require.Nil(t, err)
+
+		assert.Equal(t, localSchema, remoteSchema)
+	})
 }
 
 func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
