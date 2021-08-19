@@ -38,6 +38,25 @@ func TestComponentCluster(t *testing.T) {
 
 		assert.Equal(t, localClass, remoteClass)
 	})
+
+	t.Run("add class and extend property", func(t *testing.T) {
+		localManager, remoteManager := setupManagers(t)
+
+		ctx := context.Background()
+
+		err := localManager.AddClass(ctx, nil, testClass())
+		require.Nil(t, err)
+
+		err = localManager.AddClassProperty(ctx, nil, testClass().Class, testProperty())
+		require.Nil(t, err)
+
+		localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
+		require.Nil(t, err)
+		remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
+		require.Nil(t, err)
+
+		assert.Equal(t, localClass, remoteClass)
+	})
 }
 
 func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
@@ -70,6 +89,12 @@ func testClass() *models.Class {
 		VectorIndexConfig: map[string]interface{}{
 			"foo": "bar",
 		},
+	}
+}
+
+func testProperty() *models.Property {
+	return &models.Property{
+		Name: "propTwo", DataType: []string{"int"},
 	}
 }
 
