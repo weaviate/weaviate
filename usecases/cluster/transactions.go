@@ -42,6 +42,7 @@ func (c *TxManager) SetCommitFn(fn CommitFn) {
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
 	payload interface{}) (*Transaction, error) {
 	c.Lock()
+
 	if c.currentTransaction != nil {
 		c.Unlock()
 		return nil, ErrConcurrentTransaction
