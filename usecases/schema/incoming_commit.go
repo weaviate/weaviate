@@ -26,7 +26,12 @@ func (m *Manager) handleAddClassCommit(ctx context.Context, tx *cluster.Transact
 			tx.Payload)
 	}
 
-	err := m.parseVectorIndexConfig(ctx, pl.Class)
+	err := m.parseShardingConfig(ctx, pl.Class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseVectorIndexConfig(ctx, pl.Class)
 	if err != nil {
 		return err
 	}
