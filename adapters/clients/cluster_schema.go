@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -54,7 +55,10 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 		if res.StatusCode == http.StatusConflict {
 			return cluster.ErrConcurrentTransaction
 		}
-		return errors.Errorf("unexpected status code %d", res.StatusCode)
+
+		body, _ := ioutil.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
 	}
 
 	return nil
