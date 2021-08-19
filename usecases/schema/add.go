@@ -75,11 +75,16 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}
 
+	return m.addClassApplyChanges(ctx, class, shardState)
+}
+
+func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
+	shardState *sharding.State) error {
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
 	m.state.ShardingState[class.Class] = shardState
-	err = m.saveSchema(ctx)
+	err := m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
