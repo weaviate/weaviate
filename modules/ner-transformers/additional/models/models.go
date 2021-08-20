@@ -13,11 +13,11 @@ package models
 
 // Tokens used in NER module to represent
 // the found entities in a given string property value
-type Answer struct {
-	Property      *string  `json:"property,omitempty"`
-	Entity        *string  `json:"entity,omitempty"`
-	Certainty     *float64 `json:"certainty,omitempty"`
-	Word          *string  `json:"word,omitempty"`
-	StartPosition int      `json:"startPosition,omitempty"`
-	EndPosition   int      `json:"endPosition,omitempty"`
+type Token struct {
+	Property      *string   `json:"property,omitempty"`
+	Entity        *string   `json:"entity,omitempty"`
+	Certainty     *float64  `json:"certainty,omitempty"`
+	Word          *string   `json:"word,omitempty"`
+	StartPosition *int      `json:"startPosition,omitempty"`
+	EndPosition   *int      `json:"endPosition,omitempty"`
 }

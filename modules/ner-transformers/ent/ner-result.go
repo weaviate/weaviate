@@ -11,11 +11,16 @@
 
 package ent
 
-type TokensResult struct {
-	Property          string
+type TokenResult struct {
+	// Property          string
 	Word              string
-	Entity            *string
-	Certainty         *float64
-	StartPosition     *int
-	EndPosition       *int 
+	Entity            string
+	Certainty         float64
+	StartPosition     int
+	EndPosition       int 
+}
+
+type nerResult struct {
+	Text   string
+	Tokens []TokenResult
 }

@@ -20,10 +20,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	spellcheckadditional "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional"
-	spellcheckadditionalspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional/spellcheck"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/clients"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
+	neradditional "github.com/semi-technologies/weaviate/modules/ner-transformers/additional"
+	neradditionaltoken "github.com/semi-technologies/weaviate/modules/ner-transformers/additional/tokens"
+	"github.com/semi-technologies/weaviate/modules/ner-transformers/clients"
+	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,20 +32,20 @@ func New() *NERModule {
 }
 
 type NERModule struct {
-	spellCheck                   spellCheckClient
+	ner                          nerClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-type spellCheckClient interface {
-	Check(ctx context.Context, text []string) (*ent.SpellCheckResult, error)
+type nerClient interface {
+	GetTokens(ctx context.Context, text string) (*ent.TokenResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *SpellCheckModule) Name() string {
-	return "text-spellcheck"
+func (m *NERModule) Name() string {
+	return "ner-transformers"
 }
 
-func (m *SpellCheckModule) Init(ctx context.Context,
+func (m *NERModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init additional")
@@ -53,36 +53,36 @@ func (m *SpellCheckModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *SpellCheckModule) initAdditional(ctx context.Context,
+func (m *NERModule) initAdditional(ctx context.Context,
 	logger logrus.FieldLogger) error {
-	uri := os.Getenv("SPELLCHECK_INFERENCE_API")
+	uri := os.Getenv("NER_INFERENCE_API")
 	if uri == "" {
-		return errors.Errorf("required variable SPELLCHECK_INFERENCE_API is not set")
+		return errors.Errorf("required variable NER_INFERENCE_API is not set")
 	}
 
 	client := clients.New(uri, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote spell check module")
+		return errors.Wrap(err, "init remote ner module")
 	}
 
-	m.spellCheck = client
+	m.ner = client
 
-	spellCheckProvider := spellcheckadditionalspellcheck.New(m.spellCheck)
-	m.additionalPropertiesProvider = spellcheckadditional.New(spellCheckProvider)
+	tokenProvider := neradditionaltoken.New(m.ner)
+	m.additionalPropertiesProvider = neradditional.New(tokenProvider)
 
 	return nil
 }
 
-func (m *SpellCheckModule) RootHandler() http.Handler {
+func (m *NERModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *SpellCheckModule) MetaInfo() (map[string]interface{}, error) {
-	return m.spellCheck.MetaInfo()
+func (m *NERModule) MetaInfo() (map[string]interface{}, error) {
+	return m.ner.MetaInfo()
 }
 
-func (m *SpellCheckModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *NERModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 

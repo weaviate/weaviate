@@ -21,6 +21,9 @@ fi
 if [[ "$*" == *--image* ]]; then
   ADDITIONAL_SERVICES+=('i2v-neural')
 fi
+if [[ "$*" == *--ner* ]]; then
+  ADDITIONAL_SERVICES+=('ner-transformers')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
