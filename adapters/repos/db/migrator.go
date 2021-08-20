@@ -104,12 +104,6 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
-// UpdatePropertyAddDataType is ignored, API compliant change
-func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error {
-	// ignore but don't error
-	return nil
-}
-
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }
