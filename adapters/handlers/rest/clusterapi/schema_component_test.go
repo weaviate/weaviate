@@ -76,6 +76,28 @@ func TestComponentCluster(t *testing.T) {
 
 		assert.Equal(t, localSchema, remoteSchema)
 	})
+
+	t.Run("add class update config", func(t *testing.T) {
+		localManager, remoteManager := setupManagers(t)
+
+		ctx := context.Background()
+
+		err := localManager.AddClass(ctx, nil, testClass())
+		require.Nil(t, err)
+
+		updated := testClass()
+		updated.VectorIndexConfig.(map[string]interface{})["secondKey"] = "added"
+
+		err = localManager.UpdateClass(ctx, nil, testClass().Class, updated)
+		require.Nil(t, err)
+
+		localClass, err := localManager.GetClass(ctx, nil, testClass().Class)
+		require.Nil(t, err)
+		remoteClass, err := remoteManager.GetClass(ctx, nil, testClass().Class)
+		require.Nil(t, err)
+
+		assert.Equal(t, localClass, remoteClass)
+	})
 }
 
 func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
