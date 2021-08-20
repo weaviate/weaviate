@@ -17,6 +17,7 @@ import (
 	// "errors"
 	// "strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	nermodels "github.com/semi-technologies/weaviate/modules/ner-transformers/additional/models"
@@ -58,11 +59,12 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 			// }
 
 			// for i := range in {
-				certainty := *params.Certainty
+				spew.Dump(params)
+				certainty := params.Certainty
 				ap["tokens"] = &nermodels.Token{
 					// Property:       "TEXT_PROPERTY",
 					// Entity:         "TEST_ENTITY",
-					Certainty:         &certainty,
+					Certainty:         certainty,
 					// Word:           &word,
 					// StartPosition:  1,
 					// EndPosition:    2,

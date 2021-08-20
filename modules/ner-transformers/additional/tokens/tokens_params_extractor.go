@@ -12,29 +12,34 @@
 package tokens
 
 import (
-	//"strconv"
+	"strconv"
 
 	"github.com/graphql-go/graphql/language/ast"
 )
 
 func (p *TokenProvider) parseTokenArguments(args []*ast.Argument) *Params {
 	out := &Params{}
+	
+	for _, arg := range args {
+		switch arg.Name.Value {
+		case "limit":
+			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
+			out.Limit = ptInt(asInt)
+		case "certainty":
+			asFloat, _ := strconv.ParseFloat(arg.Value.GetValue().(string), 64)
+			out.Certainty = &asFloat
+		case "properties":
+			inp := arg.Value.GetValue().([]ast.Value)
+			out.Properties = make([]string, len(inp))
 
-	// for _, arg := range args {
-	// 	switch arg.Name.Value {
-	// 	case "limit":
-	// 		asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
-	// 		out.Limit = ptInt(asInt)
-	// 	case "certainty":
-	// 		asFloat, _ := strconv.ParseFloat(arg.Value.GetValue().(string), 64)
-	// 		out.Certainty = strconv.FormatFloat(asFloat)
-	// 	case "properties":
-	// 		out.Properties = arg.Value.GetValue()
+			for i, value := range inp {
+				out.Properties[i] = value.(*ast.StringValue).Value
+			}
 
-	// 	default:
-	// 		// ignore what we don't recognize
-	// 	}
-	// }
+		default:
+			// ignore what we don't recognize
+		}
+	}
 
 	return out
 }
