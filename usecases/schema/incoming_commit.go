@@ -15,6 +15,8 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 		return m.handleAddPropertyCommit(ctx, tx)
 	case DeleteClass:
 		return m.handleDeleteClassCommit(ctx, tx)
+	case UpdateClass:
+		return m.handleUpdateClassCommit(ctx, tx)
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
@@ -69,4 +71,26 @@ func (m *Manager) handleDeleteClassCommit(ctx context.Context,
 	}
 
 	return m.deleteClassApplyChanges(ctx, pl.ClassName)
+}
+
+func (m *Manager) handleUpdateClassCommit(ctx context.Context,
+	tx *cluster.Transaction) error {
+	m.Lock()
+	defer m.Unlock()
+
+	pl, ok := tx.Payload.(UpdateClassPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be UpdateClassPayload, but got %T",
+			tx.Payload)
+	}
+
+	if err := m.parseVectorIndexConfig(ctx, pl.Class); err != nil {
+		return err
+	}
+
+	if err := m.parseShardingConfig(ctx, pl.Class); err != nil {
+		return err
+	}
+
+	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class)
 }
