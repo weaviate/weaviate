@@ -83,8 +83,6 @@ var schemaTests = []struct {
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
-	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
-	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
 }
 
 func testUpdateMeta(t *testing.T, lsm *Manager) {
@@ -429,61 +427,6 @@ func testDropProperty(t *testing.T, lsm *Manager) {
 	objectClasses = testGetClasses(lsm)
 	require.Len(t, objectClasses, 1)
 	assert.Len(t, objectClasses[0].Properties, 0)
-}
-
-func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class & property
-	properties := []*models.Property{
-		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
-	}
-
-	err := lsm.AddClass(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
-
-	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, "Car", "madeBy", "RemoteInstance/Builder")
-	assert.Nil(t, err)
-
-	// Check that the name is updated
-	objectClasses := testGetClasses(lsm)
-	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 1)
-	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, objectClasses[0].Properties[0].DataType, 2)
-	assert.Equal(t, objectClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
-	assert.Equal(t, objectClasses[0].Properties[0].DataType[1], "RemoteInstance/Builder")
-}
-
-func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class & property
-	properties := []*models.Property{
-		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
-	}
-
-	err := lsm.AddClass(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
-
-	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(context.Background(), nil, "Car", "madeBy", "RemoteInstance/Manufacturer")
-	assert.Nil(t, err)
-
-	// Check that the name is updated
-	objectClasses := testGetClasses(lsm)
-	require.Len(t, objectClasses, 1)
-	require.Len(t, objectClasses[0].Properties, 1)
-	assert.Equal(t, objectClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, objectClasses[0].Properties[0].DataType, 1)
-	assert.Equal(t, objectClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
 }
 
 // This grant parent test setups up the temporary directory needed for the tests.

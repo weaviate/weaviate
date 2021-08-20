@@ -31,12 +31,8 @@ type Migrator interface {
 
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error
-	DropProperty(ctx context.Context, className string,
-		propertyName string) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
-	UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error
-
 	ValidateVectorIndexConfigUpdate(ctx context.Context,
 		old, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfig(ctx context.Context, className string,

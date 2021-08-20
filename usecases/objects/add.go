@@ -22,8 +22,6 @@ import (
 )
 
 type schemaManager interface {
-	UpdatePropertyAddDataType(context.Context, *models.Principal,
-		string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
