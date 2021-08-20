@@ -79,12 +79,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "UpdateClassProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		testCase{
 			methodName:       "UpdatePropertyAddDataType",
 			additionalArgs:   []interface{}{"somename", "someprop", "datatype"},
 			expectedVerb:     "update",
