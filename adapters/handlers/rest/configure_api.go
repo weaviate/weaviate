@@ -38,6 +38,7 @@ import (
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
@@ -329,6 +330,10 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["img2vec-neural"]; ok {
 		appState.Modules.Register(modimage.New())
+	}
+
+	if _, ok := enabledModules["ner-transformers"]; ok {
+		appState.Modules.Register(modner.New())
 	}
 
 	return nil
