@@ -42,6 +42,7 @@ func (m *Manager) handleAddClassCommit(ctx context.Context, tx *cluster.Transact
 		return err
 	}
 
+	pl.State.SetLocalName(m.clusterState.LocalName())
 	return m.addClassApplyChanges(ctx, pl.Class, pl.State)
 }
 

@@ -27,6 +27,9 @@ type State struct {
 	Config   Config              `json:"config"`
 	Physical map[string]Physical `json:"physical"`
 	Virtual  []Virtual           `json:"virtual"`
+
+	// different for each node, not to be serialized
+	localNodeName string
 }
 
 type Virtual struct {
@@ -45,10 +48,11 @@ type Physical struct {
 
 type nodes interface {
 	AllNames() []string
+	LocalName() string
 }
 
 func InitState(id string, config Config, nodes nodes) (*State, error) {
-	out := &State{Config: config, IndexID: id}
+	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
 
 	if err := out.initPhysical(nodes); err != nil {
 		return nil, err
@@ -94,6 +98,14 @@ func (s *State) AllPhysicalShards() []string {
 	})
 
 	return names
+}
+
+func (s *State) SetLocalName(name string) {
+	s.localNodeName = name
+}
+
+func (s *State) IsShardLocal(name string) bool {
+	return s.Physical[name].BelongsToNode == s.localNodeName
 }
 
 func (s *State) initPhysical(nodes nodes) error {

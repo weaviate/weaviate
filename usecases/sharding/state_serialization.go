@@ -17,12 +17,14 @@ func (s *State) JSON() ([]byte, error) {
 	return json.Marshal(s)
 }
 
-func StateFromJSON(in []byte) (*State, error) {
+func StateFromJSON(in []byte, nodes nodes) (*State, error) {
 	s := State{}
 
 	if err := json.Unmarshal(in, &s); err != nil {
 		return nil, err
 	}
+
+	s.localNodeName = nodes.LocalName()
 
 	return &s, nil
 }

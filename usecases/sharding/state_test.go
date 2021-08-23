@@ -25,7 +25,8 @@ func TestState(t *testing.T) {
 	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)})
 	require.Nil(t, err)
 
-	state, err := InitState("my-index", cfg, fakeNodes{[]string{"node1", "node2"}})
+	nodes := fakeNodes{[]string{"node1", "node2"}}
+	state, err := InitState("my-index", cfg, nodes)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -57,7 +58,7 @@ func TestState(t *testing.T) {
 	// destroy old version
 	state = nil
 
-	stateReloaded, err := StateFromJSON(bytes)
+	stateReloaded, err := StateFromJSON(bytes, nodes)
 	require.Nil(t, err)
 
 	physicalCountReloaded := map[string]int{}
@@ -77,4 +78,8 @@ type fakeNodes struct {
 
 func (f fakeNodes) AllNames() []string {
 	return f.nodes
+}
+
+func (f fakeNodes) LocalName() string {
+	return f.nodes[0]
 }

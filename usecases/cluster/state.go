@@ -98,3 +98,7 @@ func (s *State) AllNames() []string {
 
 	return out
 }
+
+func (s *State) LocalName() string {
+	return s.list.LocalNode().Name
+}

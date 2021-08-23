@@ -119,6 +119,10 @@ func (f *fakeClusterState) AllNames() []string {
 	return []string{"node1"}
 }
 
+func (f *fakeClusterState) LocalName() string {
+	return "node1"
+}
+
 type fakeTxClient struct{}
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
