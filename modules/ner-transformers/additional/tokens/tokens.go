@@ -21,24 +21,12 @@ import (
 	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 )
 
-type Params struct {
-	Limit          	 *int		 // optional parameter
-	Certainty        *float64    // optional parameter
-	Properties       []string    
-}
-
 type nerClient interface {
-	GetTokens(ctx context.Context, text string) (*ent.TokenResult, error)
-}
-
-type paramsHelper interface {
-	GetProperties(params interface{}) []string
-	GetLimit(params interface{}) int
-	GetCertainty(params interface{}) float64
+	GetTokens(ctx context.Context, property, text string) ([]ent.TokenResult, error)
 }
 
 type TokenProvider struct {
-	ner  nerClient
+	ner nerClient
 }
 
 func New(ner nerClient) *TokenProvider {

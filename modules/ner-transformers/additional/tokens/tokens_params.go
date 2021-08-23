@@ -9,17 +9,22 @@
 //  CONTACT: hello@semi.technology
 //
 
-package ent
+package tokens
 
-type TokenResult struct {
-	Property      string
-	Word          string
-	Entity        string
-	Certainty     float64
-	StartPosition int
-	EndPosition   int
+type Params struct {
+	Limit      *int     // optional parameter
+	Certainty  *float64 // optional parameter
+	Properties []string
 }
 
-type NerResult struct {
-	Tokens []TokenResult
+func (n Params) GetCertainty() float64 {
+	return *n.Certainty
+}
+
+func (n Params) GetLimit() int {
+	return *n.Limit
+}
+
+func (n Params) GetProperties() []string {
+	return n.Properties
 }

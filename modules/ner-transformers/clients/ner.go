@@ -31,23 +31,22 @@ type ner struct {
 }
 
 type nerInput struct {
-	Text     string `json:"text"`
+	Text string `json:"text"`
 }
 
 type tokenResponse struct {
-	Property      string   `json:"property"`
-	Entity        string   `json:"entity"`
-	Certainty     float64  `json:"certainty"`
-	Word          string   `json:"word"`
-	StartPosition int      `json:"startPosition"`
-	EndPosition   int      `json:"endPosition"`
+	// Property      string  `json:"property"`
+	Entity        string  `json:"entity"`
+	Certainty     float64 `json:"certainty"`
+	Word          string  `json:"word"`
+	StartPosition int     `json:"startPosition"`
+	EndPosition   int     `json:"endPosition"`
 }
 
 type nerResponse struct {
 	nerInput
 	Tokens []tokenResponse `json:tokens`
 }
-
 
 func New(origin string, logger logrus.FieldLogger) *ner {
 	return &ner{
@@ -57,10 +56,10 @@ func New(origin string, logger logrus.FieldLogger) *ner {
 	}
 }
 
-func (v *ner) GetTokens(ctx context.Context,
-	text string) (*ent.TokenResult, error) {
+func (v *ner) GetTokens(ctx context.Context, property,
+	text string) ([]ent.TokenResult, error) {
 	body, err := json.Marshal(nerInput{
-		Text:     text,
+		Text: text,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -92,9 +91,33 @@ func (v *ner) GetTokens(ctx context.Context,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
-	return &ent.TokenResult{
-		Word:      resBody.Text, // to do
-	}, nil
+	// want to return a list of tokens
+	// var out []ent.TokenResult
+
+	out := make([]ent.TokenResult, len(resBody.Tokens))
+
+	for i, elem := range resBody.Tokens {
+		out[i].Certainty = elem.Certainty
+		out[i].Entity = elem.Entity
+		out[i].Word = elem.Word
+		out[i].StartPosition = elem.StartPosition
+		out[i].EndPosition = elem.EndPosition
+	}
+
+	// format resBody to nerResult
+	return out, nil
+
+	// return &ent.TokenResult{
+	// 	Entity: resBody.Entity,
+	// 	Word:      resBody.Text,
+	// 	Certainty: resBody.Certainty,
+	// 	StartPosition: resBody.StartPosition,
+	// 	EndPosition: resBody.EndPosition,
+	// }, nil
+
+	// return &ent.nerResult{
+	// 	Text:
+	// }
 }
 
 func (v *ner) url(path string) string {
