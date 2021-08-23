@@ -39,7 +39,7 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("test-index", config)
+	s, err := sharding.InitState("test-index", config, fakeNodes{[]string{"node1"}})
 	if err != nil {
 		panic(err)
 	}
@@ -55,10 +55,19 @@ func multiShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("multi-shard-test-index", config)
+	s, err := sharding.InitState("multi-shard-test-index", config,
+		fakeNodes{[]string{"node1"}})
 	if err != nil {
 		panic(err)
 	}
 
 	return s
+}
+
+type fakeNodes struct {
+	nodes []string
+}
+
+func (f fakeNodes) AllNames() []string {
+	return f.nodes
 }

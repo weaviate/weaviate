@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/spaolacci/murmur3"
 )
 
@@ -42,10 +43,14 @@ type Physical struct {
 	BelongsToNode  string   `json:"belongsToNode"`
 }
 
-func InitState(id string, config Config) (*State, error) {
+type nodes interface {
+	AllNames() []string
+}
+
+func InitState(id string, config Config, nodes nodes) (*State, error) {
 	out := &State{Config: config, IndexID: id}
 
-	if err := out.initPhysical(); err != nil {
+	if err := out.initPhysical(nodes); err != nil {
 		return nil, err
 	}
 
@@ -91,12 +96,17 @@ func (s *State) AllPhysicalShards() []string {
 	return names
 }
 
-func (s *State) initPhysical() error {
+func (s *State) initPhysical(nodes nodes) error {
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
+	if err != nil {
+		return err
+	}
+
 	s.Physical = map[string]Physical{}
 
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
-		s.Physical[name] = Physical{Name: name}
+		s.Physical[name] = Physical{Name: name, BelongsToNode: it.Next()}
 	}
 
 	return nil

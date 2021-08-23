@@ -25,7 +25,7 @@ func TestState(t *testing.T) {
 	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)})
 	require.Nil(t, err)
 
-	state, err := InitState("my-index", cfg)
+	state, err := InitState("my-index", cfg, fakeNodes{[]string{"node1", "node2"}})
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -69,4 +69,12 @@ func TestState(t *testing.T) {
 	}
 
 	assert.Equal(t, physicalCount, physicalCountReloaded)
+}
+
+type fakeNodes struct {
+	nodes []string
+}
+
+func (f fakeNodes) AllNames() []string {
+	return f.nodes
 }

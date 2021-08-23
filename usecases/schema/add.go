@@ -57,7 +57,8 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	shardState, err := sharding.InitState(class.Class, class.ShardingConfig.(sharding.Config))
+	shardState, err := sharding.InitState(class.Class,
+		class.ShardingConfig.(sharding.Config), m.clusterState)
 	if err != nil {
 		return errors.Wrap(err, "init sharding state")
 	}

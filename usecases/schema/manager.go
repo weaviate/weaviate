@@ -39,6 +39,7 @@ type Manager struct {
 	vectorizerValidator VectorizerValidator
 	moduleConfig        ModuleConfig
 	cluster             *cluster.TxManager
+	clusterState        clusterState
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -71,7 +72,11 @@ type Repo interface {
 }
 
 type clusterState interface {
+	// Hostnames initializes a broadcast
 	Hostnames() []string
+
+	// AllNames initializes shard distribution across nodes
+	AllNames() []string
 }
 
 // NewManager creates a new manager
@@ -91,6 +96,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		vectorizerValidator: vectorizerValidator,
 		moduleConfig:        moduleConfig,
 		cluster:             cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		clusterState:        clusterState,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
@@ -204,7 +210,8 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return err
 		}
 
-		shardState, err := sharding.InitState(c.Class, c.ShardingConfig.(sharding.Config))
+		shardState, err := sharding.InitState(c.Class,
+			c.ShardingConfig.(sharding.Config), m.clusterState)
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}
