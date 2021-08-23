@@ -30,6 +30,6 @@ type fakeNodeSource struct {
 	hostnames []string
 }
 
-func (f fakeNodeSource) AllHostnames() []string {
+func (f fakeNodeSource) AllNames() []string {
 	return f.hostnames
 }

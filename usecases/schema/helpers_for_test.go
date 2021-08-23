@@ -115,6 +115,10 @@ func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
 
+func (f *fakeClusterState) AllNames() []string {
+	return []string{"node1"}
+}
+
 type fakeTxClient struct{}
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {

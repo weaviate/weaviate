@@ -103,6 +103,10 @@ func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
 
+func (f *fakeClusterState) AllNames() []string {
+	return f.hosts
+}
+
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,

@@ -17,7 +17,7 @@ type NodeIterator struct {
 }
 
 type HostnameSource interface {
-	AllHostnames() []string
+	AllNames() []string
 }
 
 func NewNodeIterator(source HostnameSource,
@@ -26,7 +26,7 @@ func NewNodeIterator(source HostnameSource,
 		return nil, errors.New("unsupported strategy")
 	}
 
-	hostnames := source.AllHostnames()
+	hostnames := source.AllNames()
 
 	return &NodeIterator{
 		hostnames: hostnames,
