@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -71,6 +72,13 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	for _, shardName := range shardState.AllPhysicalShards() {
+
+		if shardState.IsShardLocal(shardName) {
+			fmt.Printf("shard %q is local\n", shardName)
+		} else {
+			fmt.Printf("shard %q is NOT local\n", shardName)
+		}
+
 		shard, err := NewShard(ctx, shardName, index)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())

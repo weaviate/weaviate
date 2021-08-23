@@ -303,3 +303,7 @@ type fakeNodes struct {
 func (f fakeNodes) AllNames() []string {
 	return f.nodes
 }
+
+func (f fakeNodes) LocalName() string {
+	return f.nodes[0]
+}

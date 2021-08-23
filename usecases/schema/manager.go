@@ -77,6 +77,8 @@ type clusterState interface {
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
+
+	LocalName() string
 }
 
 // NewManager creates a new manager
@@ -243,6 +245,10 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 		if err := m.parseShardingConfig(ctx, class); err != nil {
 			return errors.Wrapf(err, "class %s: sharding config", class.Class)
 		}
+	}
+
+	for _, shardState := range schema.ShardingState {
+		shardState.SetLocalName(m.clusterState.LocalName())
 	}
 
 	return nil
