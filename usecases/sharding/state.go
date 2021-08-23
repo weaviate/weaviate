@@ -39,6 +39,7 @@ type Physical struct {
 	Name           string   `json:"name"`
 	OwnsVirtual    []string `json:"ownsVirtual"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
+	BelongsToNode  string   `json:"belongsToNode"`
 }
 
 func InitState(id string, config Config) (*State, error) {
