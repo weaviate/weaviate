@@ -22,22 +22,22 @@ func (p *TokenProvider) additionalTokensField(classname string) *graphql.Field {
 	return &graphql.Field{
 		Args: graphql.FieldConfigArgument{
 			"properties": &graphql.ArgumentConfig{
-				Description: "Properties which contains text",
-				Type:        graphql.NewList(graphql.String),
+				Description:  "Properties which contains text",
+				Type:         graphql.NewList(graphql.String),
 				DefaultValue: nil,
 			},
 			"certainty": &graphql.ArgumentConfig{
-				Description: descriptions.Certainty,
-				Type:        graphql.Float,
+				Description:  descriptions.Certainty,
+				Type:         graphql.Float,
 				DefaultValue: nil,
 			},
 			"limit": &graphql.ArgumentConfig{
-				Type:        graphql.Int,
-				Description: descriptions.Limit,
+				Type:         graphql.Int,
+				Description:  descriptions.Limit,
 				DefaultValue: nil,
 			},
 		},
-		Type: graphql.NewObject(graphql.ObjectConfig{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalTokens", classname),
 			Fields: graphql.Fields{
 				"property":      &graphql.Field{Type: graphql.String},
@@ -47,6 +47,6 @@ func (p *TokenProvider) additionalTokensField(classname string) *graphql.Field {
 				"startPosition": &graphql.Field{Type: graphql.Int},
 				"endPosition":   &graphql.Field{Type: graphql.Int},
 			},
-		}),
+		})),
 	}
 }

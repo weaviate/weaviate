@@ -14,37 +14,71 @@ package tokens
 import (
 	"context"
 	"fmt"
-	// "errors"
-	// "strings"
 
-	"github.com/davecgh/go-spew/spew"
+	"errors"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
-	nermodels "github.com/semi-technologies/weaviate/modules/ner-transformers/additional/models"
+	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 )
-
 
 func (p *TokenProvider) findTokens(ctx context.Context,
 	in []search.Result, params *Params) ([]search.Result, error) {
-		if len(in) > 0 {
+	if len(in) > 0 {
 
-			if len(in) == 0 {
-				return nil, nil
+		if len(in) == 0 {
+			return nil, nil
+		}
+
+		if params == nil {
+			return nil, fmt.Errorf("no params provided")
+		}
+
+		properties := params.GetProperties()
+
+		// check if user parameter values are valid
+		if len(properties) == 0 {
+			return in, errors.New("no properties provided")
+		}
+
+		for i := range in { // for each result of the general GraphQL Query
+			ap := in[i].AdditionalProperties
+			if ap == nil {
+				ap = models.AdditionalProperties{}
 			}
 
-			if params == nil {
-				return nil, fmt.Errorf("no params provided")
-			}
-
-			for i := range in { // for each result of the general GraphQL Query
-				ap := in[i].AdditionalProperties
-				if ap == nil {
-					ap = models.AdditionalProperties{}
+			// check if the schema of the GraphQL data object contains the properties and they are text or string values
+			textProperties := map[string]string{}
+			schema := in[i].Object().Properties.(map[string]interface{})
+			for property, value := range schema {
+				if p.containsProperty(property, properties) {
+					if valueString, ok := value.(string); ok && len(valueString) > 0 {
+						textProperties[property] = valueString
+					}
 				}
+			}
+
+			tokensList := []ent.TokenResult{}
+
+			// for each text property result, call the NER function and add to additional result
+			for property, value := range textProperties {
+				tokens, err := p.ner.GetTokens(ctx, property, value)
+				if err != nil {
+					return in, err
+				}
+
+				tokensList = append(tokensList, tokens...)
+
+				//spew.Dump(tokensList)
+
+				ap["tokens"] = tokens
+
+				in[i].AdditionalProperties = ap
+
+			}
 
 			// 	// check params. for each property we need to do ner
 			// 	for j, prop := range *params.properties {
-					
 
 			// 		// call ner module with that prop value as text
 			// 		ap["tokens"] = &nermodels.Token{
@@ -59,18 +93,30 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 			// }
 
 			// for i := range in {
-				spew.Dump(params)
-				certainty := params.Certainty
-				ap["tokens"] = &nermodels.Token{
-					// Property:       "TEXT_PROPERTY",
-					// Entity:         "TEST_ENTITY",
-					Certainty:         certainty,
-					// Word:           &word,
-					// StartPosition:  1,
-					// EndPosition:    2,
-				}
-				in[i].AdditionalProperties = ap
-			}
+			// spew.Dump(params)
+			// certainty := params.Certainty
+			// ap["tokens"] = &nermodels.Token{
+			// 	// Property:       "TEXT_PROPERTY",
+			// 	// Entity:         "TEST_ENTITY",
+			// 	Certainty: certainty,
+			// 	// Word:           &word,
+			// 	// StartPosition:  1,
+			// 	// EndPosition:    2,
+			// }
+			// in[i].AdditionalProperties = ap
 		}
-		return in, nil
 	}
+	return in, nil
+}
+
+func (p *TokenProvider) containsProperty(property string, properties []string) bool {
+	if len(properties) == 0 {
+		return true
+	}
+	for i := range properties {
+		if properties[i] == property {
+			return true
+		}
+	}
+	return false
+}
