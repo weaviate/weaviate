@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 	"github.com/sirupsen/logrus"
@@ -57,7 +58,7 @@ func New(origin string, logger logrus.FieldLogger) *ner {
 }
 
 func (v *ner) GetTokens(ctx context.Context, property,
-	text string) ([]ent.TokenResult, error) {
+	text string, certainty *float64) ([]ent.TokenResult, error) {
 	body, err := json.Marshal(nerInput{
 		Text: text,
 	})
@@ -91,34 +92,38 @@ func (v *ner) GetTokens(ctx context.Context, property,
 		return nil, errors.Errorf("fail with status %d", res.StatusCode)
 	}
 
-	// want to return a list of tokens
-	// var out []ent.TokenResult
+	// remove elements with too low certainty
+
+	min_certainty := 0.0
+	if certainty != nil {
+		min_certainty = *certainty
+	}
+	a := 0
+	for _, x := range resBody.Tokens {
+		if x.Certainty >= min_certainty {
+			resBody.Tokens[a] = x
+			a++
+		}
+	}
+	resBody.Tokens = resBody.Tokens[:a]
 
 	out := make([]ent.TokenResult, len(resBody.Tokens))
 
+	spew.Dump(text)
+
 	for i, elem := range resBody.Tokens {
-		out[i].Certainty = elem.Certainty
-		out[i].Entity = elem.Entity
-		out[i].Word = elem.Word
-		out[i].StartPosition = elem.StartPosition
-		out[i].EndPosition = elem.EndPosition
-		out[i].Property = property
+		if elem.Certainty >= min_certainty {
+			out[i].Certainty = elem.Certainty
+			out[i].Entity = elem.Entity
+			out[i].Word = elem.Word
+			out[i].StartPosition = elem.StartPosition
+			out[i].EndPosition = elem.EndPosition
+			out[i].Property = property
+		}
 	}
 
 	// format resBody to nerResult
 	return out, nil
-
-	// return &ent.TokenResult{
-	// 	Entity: resBody.Entity,
-	// 	Word:      resBody.Text,
-	// 	Certainty: resBody.Certainty,
-	// 	StartPosition: resBody.StartPosition,
-	// 	EndPosition: resBody.EndPosition,
-	// }, nil
-
-	// return &ent.nerResult{
-	// 	Text:
-	// }
 }
 
 func (v *ner) url(path string) string {

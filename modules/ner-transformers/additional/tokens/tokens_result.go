@@ -58,7 +58,7 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 				}
 			}
 
-			// certainty := params.GetCertainty()
+			certainty := params.GetCertainty()
 			limit := params.GetLimit()
 			tokensList := []ent.TokenResult{}
 
@@ -69,7 +69,7 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 					break
 				}
 
-				tokens, err := p.ner.GetTokens(ctx, property, value)
+				tokens, err := p.ner.GetTokens(ctx, property, value, certainty)
 				if err != nil {
 					return in, err
 				}
