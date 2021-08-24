@@ -58,52 +58,32 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 				}
 			}
 
+			// certainty := params.GetCertainty()
+			limit := params.GetLimit()
 			tokensList := []ent.TokenResult{}
 
 			// for each text property result, call the NER function and add to additional result
 			for property, value := range textProperties {
+
+				if limit != nil && len(tokensList) > *limit {
+					break
+				}
+
 				tokens, err := p.ner.GetTokens(ctx, property, value)
 				if err != nil {
 					return in, err
 				}
 
 				tokensList = append(tokensList, tokens...)
-
-				//spew.Dump(tokensList)
-
-				ap["tokens"] = tokens
-
-				in[i].AdditionalProperties = ap
-
 			}
 
-			// 	// check params. for each property we need to do ner
-			// 	for j, prop := range *params.properties {
+			if limit != nil && len(tokensList) > *limit {
+				ap["tokens"] = tokensList[:*limit]
+			} else {
+				ap["tokens"] = tokensList
+			}
 
-			// 		// call ner module with that prop value as text
-			// 		ap["tokens"] = &nermodels.Token{
-			// 			// Property:       "TEXT_PROPERTY",
-			// 			// Entity:         "TEST_ENTITY",
-			// 			// Certainty:      0.94,
-			// 			Word:           &word,
-			// 			// StartPosition:  1,
-			// 			// EndPosition:    2,
-			// 		}
-			// 	}
-			// }
-
-			// for i := range in {
-			// spew.Dump(params)
-			// certainty := params.Certainty
-			// ap["tokens"] = &nermodels.Token{
-			// 	// Property:       "TEXT_PROPERTY",
-			// 	// Entity:         "TEST_ENTITY",
-			// 	Certainty: certainty,
-			// 	// Word:           &word,
-			// 	// StartPosition:  1,
-			// 	// EndPosition:    2,
-			// }
-			// in[i].AdditionalProperties = ap
+			in[i].AdditionalProperties = ap
 		}
 	}
 	return in, nil

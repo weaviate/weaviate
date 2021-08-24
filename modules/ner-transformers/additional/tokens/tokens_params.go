@@ -17,12 +17,12 @@ type Params struct {
 	Properties []string
 }
 
-func (n Params) GetCertainty() float64 {
-	return *n.Certainty
+func (n Params) GetCertainty() *float64 {
+	return n.Certainty
 }
 
-func (n Params) GetLimit() int {
-	return *n.Limit
+func (n Params) GetLimit() *int {
+	return n.Limit
 }
 
 func (n Params) GetProperties() []string {
