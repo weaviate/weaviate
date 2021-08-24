@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 	"github.com/sirupsen/logrus"
@@ -108,8 +107,6 @@ func (v *ner) GetTokens(ctx context.Context, property,
 	resBody.Tokens = resBody.Tokens[:a]
 
 	out := make([]ent.TokenResult, len(resBody.Tokens))
-
-	spew.Dump(text)
 
 	for i, elem := range resBody.Tokens {
 		if elem.Certainty >= min_certainty {
