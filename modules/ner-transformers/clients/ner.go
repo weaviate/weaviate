@@ -102,6 +102,7 @@ func (v *ner) GetTokens(ctx context.Context, property,
 		out[i].Word = elem.Word
 		out[i].StartPosition = elem.StartPosition
 		out[i].EndPosition = elem.EndPosition
+		out[i].Property = property
 	}
 
 	// format resBody to nerResult
