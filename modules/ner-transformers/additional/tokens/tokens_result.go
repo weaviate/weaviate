@@ -55,6 +55,8 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 					if valueString, ok := value.(string); ok && len(valueString) > 0 {
 						textProperties[property] = valueString
 					}
+				} else {
+					return in, errors.New(fmt.Sprintf("one or more of the given properties %s not found in schema or not of datatype text or string", properties))
 				}
 			}
 
