@@ -20,3 +20,12 @@ type Classification struct {
 	ID               strfmt.UUID     `json:"id,omitempty"`
 	Scope            []string        `json:"scope"`
 }
+
+type Properties struct {
+	Classification bool
+	RefMeta        bool
+	Vector         bool
+	Certainty      bool
+	ID             bool
+	ModuleParams   map[string]interface{}
+}

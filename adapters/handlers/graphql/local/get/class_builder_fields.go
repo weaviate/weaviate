@@ -19,6 +19,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -412,9 +413,9 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 func extractProperties(selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) ([]traverser.SelectProperty, traverser.AdditionalProperties, error) {
+) ([]traverser.SelectProperty, additional.Properties, error) {
 	var properties []traverser.SelectProperty
-	var additionalProps traverser.AdditionalProperties
+	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
 	for _, selection := range selections.Selections {

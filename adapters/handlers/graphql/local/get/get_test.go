@@ -297,7 +297,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					Certainty: true,
 				},
 			},
@@ -319,7 +319,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { vector } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					Vector: true,
 				},
 			},
@@ -341,7 +341,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					Classification: true,
 				},
 			},
@@ -375,7 +375,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
 						"interpretation": true,
 					},
@@ -425,7 +425,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
 						"nearestNeighbors": true,
 					},
@@ -471,7 +471,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
 						"featureProjection": extractAdditionalParam("featureProjection", nil),
 					},
@@ -499,7 +499,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
 						"featureProjection": extractAdditionalParam("featureProjection",
 							[]*ast.Argument{
@@ -535,7 +535,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
-				AdditionalProperties: traverser.AdditionalProperties{
+				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
 						"semanticPath": extractAdditionalParam("semanticPath", nil),
 					},

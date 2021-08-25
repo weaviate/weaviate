@@ -16,10 +16,10 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // AddObjectReference Class Instance to the connected DB. If the class contains a network
@@ -44,7 +44,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 func (m *Manager) addObjectReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 	// get object to see if it exists
-	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.AdditionalProperties{})
+	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
 	if err != nil {
 		return err
 	}

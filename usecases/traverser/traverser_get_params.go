@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -29,7 +30,7 @@ type GetParams struct {
 	SearchVector         []float32
 	Group                *GroupParams
 	ModuleParams         map[string]interface{}
-	AdditionalProperties AdditionalProperties
+	AdditionalProperties additional.Properties
 }
 
 type SelectProperty struct {
@@ -47,7 +48,7 @@ type SelectProperty struct {
 type SelectClass struct {
 	ClassName            string
 	RefProperties        SelectProperties
-	AdditionalProperties AdditionalProperties
+	AdditionalProperties additional.Properties
 }
 
 type GroupParams struct {
@@ -135,13 +136,4 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 	}
 
 	return nil
-}
-
-type AdditionalProperties struct {
-	Classification bool
-	RefMeta        bool
-	Vector         bool
-	Certainty      bool
-	ID             bool
-	ModuleParams   map[string]interface{}
 }

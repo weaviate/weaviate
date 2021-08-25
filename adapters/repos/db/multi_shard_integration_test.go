@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -213,7 +214,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve all individually", func(t *testing.T) {
 			for _, desired := range data {
 				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					traverser.SelectProperties{}, traverser.AdditionalProperties{})
+					traverser.SelectProperties{}, additional.Properties{})
 				assert.Nil(t, err)
 
 				require.NotNil(t, res)
@@ -238,7 +239,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					},
 				}
 				res, err := repo.ObjectSearch(context.Background(), limit, filters,
-					traverser.AdditionalProperties{})
+					additional.Properties{})
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)
@@ -357,7 +358,7 @@ func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *
 								}},
 							}},
 						},
-					}, traverser.AdditionalProperties{})
+					}, additional.Properties{})
 				assert.Nil(t, err)
 				refs := res.Schema.(map[string]interface{})["toOther"].([]interface{})
 				assert.Len(t, refs, len(data))

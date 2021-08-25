@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -143,13 +144,13 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, additional traverser.AdditionalProperties) (*search.Result, error) {
+	id strfmt.UUID, props traverser.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, additional traverser.AdditionalProperties) (search.Results, error) {
+	filters *filters.LocalFilter, additional additional.Properties) (search.Results, error) {
 	args := f.Called(limit, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }

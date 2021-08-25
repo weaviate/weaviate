@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -26,7 +27,7 @@ import (
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier, additional traverser.AdditionalProperties) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error)
 }
 
 func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
@@ -49,7 +50,7 @@ type Cacher struct {
 	logger     logrus.FieldLogger
 	repo       repo
 	store      map[multi.Identifier]search.Result
-	additional traverser.AdditionalProperties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -72,7 +73,7 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, additional traverser.AdditionalProperties) error {
+	properties traverser.SelectProperties, additional additional.Properties) error {
 	c.additional = additional
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {

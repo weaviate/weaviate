@@ -18,9 +18,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -41,7 +42,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	s := fa.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
 		fa.Aggregator.classSearcher, fa.deletedDocIDs).
-		DocIDs(ctx, fa.params.Filters, traverser.AdditionalProperties{},
+		DocIDs(ctx, fa.params.Filters, additional.Properties{},
 			fa.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")

@@ -19,12 +19,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -62,7 +63,7 @@ func (d *DB) DeleteObject(ctx context.Context, className string,
 
 func (d *DB) MultiGet(ctx context.Context,
 	query []multi.Identifier,
-	additional traverser.AdditionalProperties) ([]search.Result, error) {
+	additional additional.Properties) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 
 	for i, q := range query {
@@ -102,7 +103,7 @@ func (d *DB) MultiGet(ctx context.Context,
 // ObjectByID checks every index of the particular kind for the ID
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties,
-	additional traverser.AdditionalProperties) (*search.Result, error) {
+	additional additional.Properties) (*search.Result, error) {
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
@@ -126,7 +127,7 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*search.Result, error) {
+	props traverser.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {

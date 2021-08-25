@@ -19,9 +19,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +54,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		testCase{
 			methodName:       "GetObject",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.AdditionalProperties{}},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), additional.Properties{}},
 			expectedVerb:     "get",
 			expectedResource: "objects/foo",
 		},
@@ -80,7 +80,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// list kinds
 		testCase{
 			methodName:       "GetObjects",
-			additionalArgs:   []interface{}{(*int64)(nil), traverser.AdditionalProperties{}},
+			additionalArgs:   []interface{}{(*int64)(nil), additional.Properties{}},
 			expectedVerb:     "list",
 			expectedResource: "objects",
 		},

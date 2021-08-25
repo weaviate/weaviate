@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -31,7 +32,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("with nil input", func(t *testing.T) {
 		r := NewResolver(newFakeCacher())
-		res, err := r.Do(context.Background(), nil, nil, traverser.AdditionalProperties{})
+		res, err := r.Do(context.Background(), nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Nil(t, res)
 	})
@@ -46,7 +47,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, traverser.AdditionalProperties{})
+		res, err := r.Do(context.Background(), input, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -68,7 +69,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, traverser.AdditionalProperties{})
+		res, err := r.Do(context.Background(), input, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -129,7 +130,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		res, err := r.Do(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -234,7 +235,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		res, err := r.Do(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -251,7 +252,7 @@ type fakeCacher struct {
 }
 
 func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties,
-	additional traverser.AdditionalProperties) error {
+	additional additional.Properties) error {
 	return nil
 }
 

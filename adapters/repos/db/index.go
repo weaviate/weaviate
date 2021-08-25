@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -22,12 +21,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -46,6 +46,7 @@ type Index struct {
 	invertedIndexConfig   *models.InvertedIndexConfig
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
+	remote                *sharding.RemoteIndex
 }
 
 func (i Index) ID() string {
@@ -65,6 +66,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+		remote:                sharding.NewRemoteIndex(config.ClassName.String(), sg),
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -73,10 +75,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 
 	for _, shardName := range shardState.AllPhysicalShards() {
 
-		if shardState.IsShardLocal(shardName) {
-			fmt.Printf("shard %q is local\n", shardName)
-		} else {
-			fmt.Printf("shard %q is NOT local\n", shardName)
+		if !shardState.IsShardLocal(shardName) {
+			// do not create non-local shards
+			continue
 		}
 
 		shard, err := NewShard(ctx, shardName, index)
@@ -158,10 +159,34 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	shard := i.Shards[shardName]
-	err = shard.putObject(ctx, object)
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shard.ID())
+	// TODO: decide between local and remote shard
+	localShard, ok := i.Shards[shardName]
+	if !ok {
+		// this must be a remote shard, try sending it remotely
+		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
+			return errors.Wrap(err, "send to remote shard")
+		}
+
+		return nil
+	}
+
+	if err := localShard.putObject(ctx, object); err != nil {
+		return errors.Wrapf(err, "shard %s", localShard.ID())
+	}
+
+	return nil
+}
+
+// nolint:unused
+func (i *Index) incomingRemotePutObject(ctx context.Context, shardName string,
+	object *storobj.Object) error {
+	localShard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	if err := localShard.putObject(ctx, object); err != nil {
+		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
 
 	return nil
@@ -240,7 +265,7 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties, additional traverser.AdditionalProperties) (*storobj.Object, error) {
+	props traverser.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return nil, err
@@ -311,7 +336,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
-	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -334,7 +359,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 

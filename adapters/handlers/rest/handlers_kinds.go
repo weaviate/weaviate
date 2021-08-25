@@ -20,12 +20,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	usecasesObjects "github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,8 +44,8 @@ type ModulesProvider interface {
 type kindsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
-	GetObject(context.Context, *models.Principal, strfmt.UUID, traverser.AdditionalProperties) (*models.Object, error)
-	GetObjects(context.Context, *models.Principal, *int64, traverser.AdditionalProperties) ([]*models.Object, error)
+	GetObject(context.Context, *models.Principal, strfmt.UUID, additional.Properties) (*models.Object, error)
+	GetObjects(context.Context, *models.Principal, *int64, additional.Properties) ([]*models.Object, error)
 	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
@@ -351,8 +351,8 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 	return ref
 }
 
-func parseIncludeParam(in *string, modulesProvider ModulesProvider) (traverser.AdditionalProperties, error) {
-	out := traverser.AdditionalProperties{}
+func parseIncludeParam(in *string, modulesProvider ModulesProvider) (additional.Properties, error) {
+	out := additional.Properties{}
 	if in == nil {
 		return out, nil
 	}

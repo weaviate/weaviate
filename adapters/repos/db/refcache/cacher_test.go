@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -35,7 +36,7 @@ func TestCacher(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
-		err := cr.Build(context.Background(), nil, nil, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), nil, nil, additional.Properties{})
 		assert.Nil(t, err)
 	})
 
@@ -49,7 +50,7 @@ func TestCacher(t *testing.T) {
 				ClassName: "BestClass",
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{})
 		assert.Nil(t, err)
 	})
 
@@ -67,7 +68,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{})
 		assert.Nil(t, err)
 	})
 
@@ -88,7 +89,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{})
 		require.Nil(t, err)
 		_, ok := cr.Get(multi.Identifier{ID: "123", ClassName: "SomeClass"})
 		assert.False(t, ok)
@@ -143,7 +144,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -249,7 +250,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -376,7 +377,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -572,13 +573,13 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, traverser.AdditionalProperties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
 		input2 := []search.Result{expectedInner, expectedInner2}
-		err = cr.Build(context.Background(), input2, nil, traverser.AdditionalProperties{})
+		err = cr.Build(context.Background(), input2, nil, additional.Properties{})
 		require.Nil(t, err)
 		nested1, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -614,7 +615,7 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional traverser.AdditionalProperties) ([]search.Result, error) {
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))

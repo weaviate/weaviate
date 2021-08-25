@@ -16,11 +16,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type MergeDocument struct {
@@ -84,7 +84,7 @@ func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, pr
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
 
-	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, traverser.AdditionalProperties{})
+	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
