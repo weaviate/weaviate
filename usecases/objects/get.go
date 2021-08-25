@@ -17,6 +17,7 @@ import (
 	"math"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -24,7 +25,7 @@ import (
 
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, additional traverser.AdditionalProperties) (*models.Object, error) {
+	id strfmt.UUID, additional additional.Properties) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	limit *int64, additional traverser.AdditionalProperties) ([]*models.Object, error) {
+	limit *int64, additional additional.Properties) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
-	additional traverser.AdditionalProperties) (*search.Result, error) {
+	additional additional.Properties) (*search.Result, error) {
 	res, err := m.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, additional)
 	if err != nil {
 		return nil, NewErrInternal("repo: object by id: %v", err)
@@ -83,7 +84,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
-	additional traverser.AdditionalProperties) ([]*models.Object, error) {
+	additional additional.Properties) ([]*models.Object, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartLimit, nil, additional)

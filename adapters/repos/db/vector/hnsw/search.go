@@ -19,10 +19,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (h *hnsw) searchTimeEF(k int) int {

@@ -19,11 +19,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -86,7 +87,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	mutex := &sync.Mutex{}
 	var searchErrors []error
 
-	emptyAdditional := traverser.AdditionalProperties{}
+	emptyAdditional := additional.Properties{}
 	for _, index := range db.indices {
 		wg.Add(1)
 		go func(index *Index, wg *sync.WaitGroup) {
@@ -134,13 +135,13 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 }
 
 func (d *DB) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	additional traverser.AdditionalProperties) (search.Results, error) {
+	additional additional.Properties) (search.Results, error) {
 	return d.objectSearch(ctx, limit, filters, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
-	additional traverser.AdditionalProperties) (search.Results, error) {
+	additional additional.Properties) (search.Results, error) {
 	var found search.Results
 
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -167,7 +168,7 @@ func (d *DB) objectSearch(ctx context.Context, limit int,
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
-	props traverser.SelectProperties, additional traverser.AdditionalProperties) (search.Results, error) {
+	props traverser.SelectProperties, additional additional.Properties) (search.Results, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, additional)
 	if err != nil {

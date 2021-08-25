@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -95,7 +96,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			traverser.SelectProperties{}, additional.Properties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",

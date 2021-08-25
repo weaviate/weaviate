@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -255,7 +256,7 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), traverser.AdditionalProperties{})
+			fullyNestedSelectProperties(), additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -289,14 +290,14 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), traverser.AdditionalProperties{})
+			partiallyNestedSelectProperties(), additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			traverser.SelectProperties{}, additional.Properties{})
 
 		expectedSchema := map[string]interface{}{
 			"id": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
@@ -516,7 +517,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check reference was added", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.AdditionalProperties{})
+			additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
@@ -548,7 +549,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check both references are now present", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.AdditionalProperties{})
+			additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())

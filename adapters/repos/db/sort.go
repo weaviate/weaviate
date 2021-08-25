@@ -1,6 +1,6 @@
 package db
 
-import "github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+import "github.com/semi-technologies/weaviate/entities/storobj"
 
 type sortObjsByDist struct {
 	objects   []*storobj.Object

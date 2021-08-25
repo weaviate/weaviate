@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -58,7 +59,7 @@ type vectorClassSearch interface {
 	VectorSearch(ctx context.Context, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID,
-		props SelectProperties, additional AdditionalProperties) (*search.Result, error)
+		props SelectProperties, additional additional.Properties) (*search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -488,7 +489,7 @@ func (e *Explorer) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := e.search.ObjectByID(ctx, id, SelectProperties{}, AdditionalProperties{})
+	res, err := e.search.ObjectByID(ctx, id, SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}

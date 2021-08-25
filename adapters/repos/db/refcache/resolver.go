@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -28,7 +29,7 @@ type Resolver struct {
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, additional traverser.AdditionalProperties) error
+	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, additional additional.Properties) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -37,7 +38,7 @@ func NewResolver(cacher cacher) *Resolver {
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, additional traverser.AdditionalProperties) ([]search.Result, error) {
+	properties traverser.SelectProperties, additional additional.Properties) ([]search.Result, error) {
 	if err := r.cacher.Build(ctx, objects, properties, additional); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
@@ -46,7 +47,7 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 }
 
 func (r *Resolver) parseObjects(objects []search.Result, properties traverser.SelectProperties,
-	additional traverser.AdditionalProperties) ([]search.Result, error) {
+	additional additional.Properties) ([]search.Result, error) {
 	for i, obj := range objects {
 		parsed, err := r.parseObject(obj, properties, additional)
 		if err != nil {
@@ -60,7 +61,7 @@ func (r *Resolver) parseObjects(objects []search.Result, properties traverser.Se
 }
 
 func (r *Resolver) parseObject(object search.Result, properties traverser.SelectProperties,
-	additional traverser.AdditionalProperties) (search.Result, error) {
+	additional additional.Properties) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
 	}

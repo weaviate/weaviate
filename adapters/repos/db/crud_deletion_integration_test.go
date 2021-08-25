@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
@@ -102,7 +103,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, traverser.AdditionalProperties{})
+			}, additional.Properties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}

@@ -23,5 +23,10 @@ func fixedMultiShardState() *sharding.State {
 	if err != nil {
 		panic(err)
 	}
+
+	for name, shard := range s.Physical {
+		shard.BelongsToNode = "node1"
+		s.Physical[name] = shard
+	}
 	return s
 }

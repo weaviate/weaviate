@@ -177,10 +177,10 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 // 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, testClassName)
 // 	require.Nil(t, err)
 
-// 	beforeDeleteObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
+// 	beforeDeleteObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
-// 	beforeDeleteObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
+// 	beforeDeleteObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
 // 	// drop the index
@@ -209,10 +209,10 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 // 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, testClassName)
 // 	require.Nil(t, err)
 
-// 	afterRecreateObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
+// 	afterRecreateObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
-// 	afterRecreateObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
+// 	afterRecreateObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
 // 	// insert some data in the recreated index
@@ -227,10 +227,10 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 // 		require.Nil(t, err)
 // 	}
 
-// 	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, traverser.AdditionalProperties{})
+// 	afterRecreateAndInsertObj1, err := index.objectByID(context.TODO(), productsIds[0], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
-// 	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, traverser.AdditionalProperties{})
+// 	afterRecreateAndInsertObj2, err := index.objectByID(context.TODO(), productsIds[1], nil, additional.Properties{})
 // 	require.Nil(t, err)
 
 // 	assert.Equal(t, 3, len(indexFilesBeforeDelete))

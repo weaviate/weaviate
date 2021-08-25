@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {

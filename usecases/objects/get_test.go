@@ -17,11 +17,11 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -69,7 +69,7 @@ func Test_GetAction(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, additional.Properties{})
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -91,7 +91,7 @@ func Test_GetAction(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -118,7 +118,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.AdditionalProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -136,7 +136,7 @@ func Test_GetAction(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
@@ -155,7 +155,7 @@ func Test_GetAction(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"semanticPath": getDefaultParam("semanticPath"),
 						},
@@ -209,7 +209,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
@@ -270,7 +270,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
@@ -319,7 +319,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
@@ -372,7 +372,7 @@ func Test_GetThing(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, id, additional.Properties{})
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -394,7 +394,7 @@ func Test_GetThing(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, traverser.AdditionalProperties{})
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, id, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -421,7 +421,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, traverser.AdditionalProperties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -439,7 +439,7 @@ func Test_GetThing(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				_, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
@@ -493,7 +493,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				res, err := manager.GetObject(context.Background(), &models.Principal{}, id,
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
@@ -554,7 +554,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
@@ -603,7 +603,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
-					traverser.AdditionalProperties{
+					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},

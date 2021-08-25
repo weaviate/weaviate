@@ -25,7 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Object struct {
@@ -102,7 +101,7 @@ func (ko *Object) Properties() models.PropertySchema {
 }
 
 func (ko *Object) PropertiesWithAdditional(
-	additional traverser.AdditionalProperties) models.PropertySchema {
+	additional additional.Properties) models.PropertySchema {
 	properties := ko.Properties()
 
 	if additional.RefMeta {
@@ -140,7 +139,7 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	return ko.Object.VectorWeights
 }
 
-func (ko *Object) SearchResult(additional traverser.AdditionalProperties) *search.Result {
+func (ko *Object) SearchResult(additional additional.Properties) *search.Result {
 	propertiesMap, ok := ko.PropertiesWithAdditional(additional).(map[string]interface{})
 	if !ok || propertiesMap == nil {
 		propertiesMap = map[string]interface{}{}
@@ -179,7 +178,7 @@ func (ko *Object) Valid() bool {
 		ko.Class().String() != ""
 }
 
-func SearchResults(in []*Object, additional traverser.AdditionalProperties) search.Results {
+func SearchResults(in []*Object, additional additional.Properties) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {

@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -150,7 +151,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 }
 
 func (b *BatchManager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, traverser.AdditionalProperties{})
+	res, err := b.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, additional.Properties{})
 	return res != nil, err
 }
 

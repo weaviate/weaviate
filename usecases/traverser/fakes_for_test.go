@@ -21,6 +21,7 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -107,7 +108,7 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props SelectProperties, additional AdditionalProperties) (*search.Result, error) {
+	props SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id)
 	return args.Get(0).(*search.Result), args.Error(1)
 }

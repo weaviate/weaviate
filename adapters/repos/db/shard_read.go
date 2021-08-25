@@ -21,15 +21,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/multi"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties,
-	additional traverser.AdditionalProperties) (*storobj.Object, error) {
+	additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -166,7 +167,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, error) {
 	if filters == nil {
 		return s.objectList(ctx, limit, additional)
 	}
@@ -178,7 +179,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, []float32, error) {
+	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -244,7 +245,7 @@ func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()

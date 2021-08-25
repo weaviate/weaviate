@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -98,7 +99,7 @@ func TestRestartJourney(t *testing.T) {
 	t.Run("control", func(t *testing.T) {
 		t.Run("verify object by id", func(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(),
-				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, traverser.AdditionalProperties{})
+				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{})
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -119,7 +120,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, traverser.AdditionalProperties{})
+				}, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -140,7 +141,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, traverser.AdditionalProperties{})
+				}, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -177,7 +178,7 @@ func TestRestartJourney(t *testing.T) {
 	t.Run("verify after restart", func(t *testing.T) {
 		t.Run("verify object by id", func(t *testing.T) {
 			res, err := newRepo.ObjectByID(context.Background(),
-				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, traverser.AdditionalProperties{})
+				"46ebcce8-fb77-413b-ade6-26c427af3f33", nil, additional.Properties{})
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -198,7 +199,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, traverser.AdditionalProperties{})
+				}, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -219,7 +220,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, traverser.AdditionalProperties{})
+				}, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
