@@ -53,11 +53,16 @@ func (i Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
+type nodeResolver interface {
+	NodeHostname(nodeName string) (string, bool)
+}
+
 // NewIndex - for now - always creates a single-shard index
 func NewIndex(ctx context.Context, config IndexConfig,
 	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
-	cs inverted.ClassSearcher, logger logrus.FieldLogger) (*Index, error) {
+	cs inverted.ClassSearcher, logger logrus.FieldLogger,
+	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -66,7 +71,8 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
-		remote:                sharding.NewRemoteIndex(config.ClassName.String(), sg),
+		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
+			nodeResolver, remoteClient),
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {

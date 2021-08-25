@@ -51,7 +51,8 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	shardState := singleShardState()
 	sg := &fakeSchemaGetter{shardState: shardState}
 
-	vrepo := db.New(logger, db.Config{RootPath: dirName})
+	vrepo := db.New(logger, db.Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
@@ -192,7 +193,8 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	sg := &fakeSchemaGetter{shardState: singleShardState()}
 
-	vrepo := db.New(logger, db.Config{RootPath: dirName})
+	vrepo := db.New(logger, db.Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
