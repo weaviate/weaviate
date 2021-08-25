@@ -55,7 +55,8 @@ func TestRestartJourney(t *testing.T) {
 	}
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName})
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -169,7 +170,8 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-		newRepo = New(logger, Config{RootPath: dirName})
+		newRepo = New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+			&fakeNodeResolver{})
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)

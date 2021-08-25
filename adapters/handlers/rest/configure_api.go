@@ -120,9 +120,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var schemaRepo schemaUC.Repo
 	var classifierRepo classification.Repo
 
+	// TODO: configure http transport for efficient intra-cluster comm
+	remoteIndexClient := clients.NewRemoteIndex(&http.Client{})
 	repo := db.New(appState.Logger, db.Config{
 		RootPath: appState.ServerConfig.Config.Persistence.DataPath,
-	})
+	}, remoteIndexClient, appState.Cluster) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -146,6 +148,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(&http.Client{})
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,

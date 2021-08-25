@@ -9,8 +9,10 @@ import (
 )
 
 type RemoteIndex struct {
-	class       string
-	stateGetter shardingStateGetter
+	class        string
+	stateGetter  shardingStateGetter
+	client       RemoteIndexClient
+	nodeResolver nodeResolver
 }
 
 type shardingStateGetter interface {
@@ -18,14 +20,24 @@ type shardingStateGetter interface {
 }
 
 func NewRemoteIndex(className string,
-	stateGetter shardingStateGetter) *RemoteIndex {
+	stateGetter shardingStateGetter, nodeResolver nodeResolver,
+	client RemoteIndexClient) *RemoteIndex {
 	return &RemoteIndex{
-		class:       className,
-		stateGetter: stateGetter,
+		class:        className,
+		stateGetter:  stateGetter,
+		client:       client,
+		nodeResolver: nodeResolver,
 	}
 }
 
-// TODO: a UC cannot depend on an adapter sub-package, we might need to move storobj
+type nodeResolver interface {
+	NodeHostname(nodeName string) (string, bool)
+}
+
+type RemoteIndexClient interface {
+	PutObject(ctx context.Context, hostName, shardName string,
+		obj *storobj.Object) error
+}
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 	obj *storobj.Object) error {
@@ -34,6 +46,11 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	fmt.Printf("would now contact %s/%s/%s\n", shard.BelongsToNode, ri.class, shardName)
-	return nil
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	fmt.Printf("will now contact %s: %s/%s/%s\n", shard.BelongsToNode, host, ri.class, shardName)
+	return ri.client.PutObject(ctx, host, shardName, obj)
 }

@@ -14,9 +14,11 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -74,4 +76,17 @@ func (f fakeNodes) AllNames() []string {
 
 func (f fakeNodes) LocalName() string {
 	return f.nodes[0]
+}
+
+type fakeRemoteClient struct{}
+
+func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName string,
+	shardName string, obj *storobj.Object) error {
+	return nil
+}
+
+type fakeNodeResolver struct{}
+
+func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
+	return "", false
 }

@@ -102,3 +102,15 @@ func (s *State) AllNames() []string {
 func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
+
+func (s *State) NodeHostname(nodeName string) (string, bool) {
+	for _, mem := range s.list.Members() {
+		if mem.Name == nodeName {
+			// TODO: how can we find out the actual data port as opposed to relying on
+			// the convention that it's 1 higher than the gossip port
+			return fmt.Sprintf("%s:%d", mem.Addr.String(), mem.Port+1), true
+		}
+	}
+
+	return "", false
+}
