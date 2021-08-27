@@ -45,7 +45,7 @@ type tokenResponse struct {
 
 type nerResponse struct {
 	nerInput
-	Tokens []tokenResponse `json:tokens`
+	Tokens []tokenResponse `json:"tokens"`
 }
 
 func New(origin string, logger logrus.FieldLogger) *ner {
