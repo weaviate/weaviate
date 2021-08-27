@@ -59,7 +59,7 @@ type vectorClassSearch interface {
 	VectorSearch(ctx context.Context, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID,
-		props SelectProperties, additional additional.Properties) (*search.Result, error)
+		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -198,7 +198,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	return output, nil
 }
 
-func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params SelectProperties) {
+func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params search.SelectProperties) {
 	for _, selectProp := range params {
 		for _, refClass := range selectProp.Refs {
 			propertySchemaMap, ok := propertySchema.(map[string]interface{})
@@ -229,7 +229,8 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 	}
 }
 
-func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{}, refClass SelectClass) {
+func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
+	refClass search.SelectClass) {
 	innerRefClass, ok := ref.([]interface{})
 	if ok {
 		for _, innerRefProp := range innerRefClass {
@@ -489,7 +490,7 @@ func (e *Explorer) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := e.search.ObjectByID(ctx, id, SelectProperties{}, additional.Properties{})
+	res, err := e.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}

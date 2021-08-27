@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 	resolver := newMockResolver()
 	expectedParams := traverser.GetParams{
 		ClassName:  "SomeAction",
-		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
 	resolver.On("GetClass", expectedParams).
@@ -48,7 +49,7 @@ func TestExtractIntField(t *testing.T) {
 
 	expectedParams := traverser.GetParams{
 		ClassName:  "SomeAction",
-		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
 	resolver.On("GetClass", expectedParams).
@@ -65,7 +66,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 
 	expectedParams := traverser.GetParams{
 		ClassName:  "SomeAction",
-		Properties: []traverser.SelectProperty{{Name: "location", IsPrimitive: true}},
+		Properties: []search.SelectProperty{{Name: "location", IsPrimitive: true}},
 	}
 
 	resolverReturn := []interface{}{
@@ -112,7 +113,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { input } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -130,7 +131,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { internationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -148,7 +149,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { nationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -166,7 +167,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { national } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -184,7 +185,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { valid } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -202,7 +203,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { countryCode } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -220,7 +221,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			query: "{ Get { SomeAction { phone { defaultCountry } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -239,7 +240,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				"nationalFormatted defaultCountry national countryCode valid } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName:  "SomeAction",
-				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+				Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -620,7 +621,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts": []interface{}{"c1", "c2", "c3"},
@@ -676,7 +677,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -723,7 +724,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -777,7 +778,7 @@ func TestNearVectorRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
 				Vector: []float32{0.123, 0.984},
 			},
@@ -797,7 +798,7 @@ func TestNearVectorRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
@@ -817,7 +818,7 @@ func TestExtractPagination(t *testing.T) {
 
 	expectedParams := traverser.GetParams{
 		ClassName:  "SomeAction",
-		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Pagination: &filters.Pagination{
 			Limit: 10,
 		},
@@ -837,7 +838,7 @@ func TestExtractGroupParams(t *testing.T) {
 
 	expectedParams := traverser.GetParams{
 		ClassName:  "SomeAction",
-		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Group: &traverser.GroupParams{
 			Strategy: "closest",
 			Force:    0.3,
@@ -859,14 +860,14 @@ func TestGetRelation(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName: "SomeAction",
-			Properties: []traverser.SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name:        "hasAction",
 					IsPrimitive: false,
-					Refs: []traverser.SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []traverser.SelectProperty{
+							RefProperties: []search.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -874,10 +875,10 @@ func TestGetRelation(t *testing.T) {
 								{
 									Name:        "hasAction",
 									IsPrimitive: false,
-									Refs: []traverser.SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "SomeAction",
-											RefProperties: []traverser.SelectProperty{
+											RefProperties: []search.SelectProperty{
 												{
 													Name:        "intField",
 													IsPrimitive: true,
@@ -905,14 +906,14 @@ func TestGetRelation(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName: "SomeAction",
-			Properties: []traverser.SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name:        "hasAction",
 					IsPrimitive: false,
-					Refs: []traverser.SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []traverser.SelectProperty{
+							RefProperties: []search.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -936,14 +937,14 @@ func TestGetRelation(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName: "SomeAction",
-			Properties: []traverser.SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name:        "hasAction",
 					IsPrimitive: false,
-					Refs: []traverser.SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []traverser.SelectProperty{
+							RefProperties: []search.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -951,10 +952,10 @@ func TestGetRelation(t *testing.T) {
 								{
 									Name:        "hasAction",
 									IsPrimitive: false,
-									Refs: []traverser.SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "SomeAction",
-											RefProperties: []traverser.SelectProperty{
+											RefProperties: []search.SelectProperty{
 												{
 													Name:        "intField",
 													IsPrimitive: true,
@@ -995,7 +996,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				Beacon: "weaviate://localhost/some-uuid",
 			},
@@ -1016,7 +1017,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				Beacon:    "weaviate://localhost/some-other-uuid",
 				Certainty: 0.7,
@@ -1036,7 +1037,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				ID: "some-uuid",
 			},
@@ -1057,7 +1058,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				ID:        "some-other-uuid",
 				Certainty: 0.7,
@@ -1090,7 +1091,7 @@ func TestNearTextNoNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		}
 
 		resolver.On("GetClass", expectedParams).
@@ -1113,7 +1114,7 @@ func TestNearObjectNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				Beacon: "weaviate://localhost/some-uuid",
 			},
@@ -1134,7 +1135,7 @@ func TestNearObjectNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				ID:        "some-uuid",
 				Certainty: 0.7,
@@ -1160,7 +1161,7 @@ func TestNearVectorNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
 				Vector: []float32{0.123, 0.984},
 			},
@@ -1180,7 +1181,7 @@ func TestNearVectorNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,

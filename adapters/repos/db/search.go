@@ -168,7 +168,7 @@ func (d *DB) objectSearch(ctx context.Context, limit int,
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
-	props traverser.SelectProperties, additional additional.Properties) (search.Results, error) {
+	props search.SelectProperties, additional additional.Properties) (search.Results, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, additional)
 	if err != nil {

@@ -216,7 +216,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve all individually", func(t *testing.T) {
 			for _, desired := range data {
 				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					traverser.SelectProperties{}, additional.Properties{})
+					search.SelectProperties{}, additional.Properties{})
 				assert.Nil(t, err)
 
 				require.NotNil(t, res)
@@ -348,13 +348,13 @@ func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *
 		t.Run("retrieve ref data individually with select props", func(t *testing.T) {
 			for _, desired := range refData {
 				res, err := repo.ObjectByID(context.Background(), desired.ID,
-					traverser.SelectProperties{
-						traverser.SelectProperty{
+					search.SelectProperties{
+						search.SelectProperty{
 							IsPrimitive: false,
 							Name:        "toOther",
-							Refs: []traverser.SelectClass{{
+							Refs: []search.SelectClass{{
 								ClassName: "TestClass",
-								RefProperties: traverser.SelectProperties{{
+								RefProperties: search.SelectProperties{{
 									Name:        "index",
 									IsPrimitive: true,
 								}},

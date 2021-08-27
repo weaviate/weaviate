@@ -108,7 +108,7 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props SelectProperties, additional additional.Properties) (*search.Result, error) {
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id)
 	return args.Get(0).(*search.Result), args.Error(1)
 }

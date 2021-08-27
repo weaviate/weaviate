@@ -24,12 +24,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/multi"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties,
+	props search.SelectProperties,
 	additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {

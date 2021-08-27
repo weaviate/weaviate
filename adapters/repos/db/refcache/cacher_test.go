@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,14 +118,14 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "bar",
 								IsPrimitive: true,
 							},
@@ -193,24 +192,24 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "primitive",
 								IsPrimitive: true,
 							},
-							traverser.SelectProperty{
+							search.SelectProperty{
 								Name: "nestedRef",
-								Refs: []traverser.SelectClass{
-									traverser.SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "SomeNestedClass",
-										RefProperties: []traverser.SelectProperty{
-											traverser.SelectProperty{
+										RefProperties: []search.SelectProperty{
+											search.SelectProperty{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -325,24 +324,24 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "primitive",
 								IsPrimitive: true,
 							},
-							traverser.SelectProperty{
+							search.SelectProperty{
 								Name: "nestedRef",
-								Refs: []traverser.SelectClass{
-									traverser.SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "SomeNestedClass",
-										RefProperties: []traverser.SelectProperty{
-											traverser.SelectProperty{
+										RefProperties: []search.SelectProperty{
+											search.SelectProperty{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -459,24 +458,24 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "primitive",
 								IsPrimitive: true,
 							},
-							traverser.SelectProperty{
+							search.SelectProperty{
 								Name: "nestedRef",
-								Refs: []traverser.SelectClass{
-									traverser.SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "SomeNestedClass",
-										RefProperties: []traverser.SelectProperty{
-											traverser.SelectProperty{
+										RefProperties: []search.SelectProperty{
+											search.SelectProperty{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -484,23 +483,23 @@ func TestCacher(t *testing.T) {
 									},
 								},
 							},
-							traverser.SelectProperty{
+							search.SelectProperty{
 								Name: "nestedRef2",
-								Refs: []traverser.SelectClass{
-									traverser.SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "SomeNestedClass2",
-										RefProperties: []traverser.SelectProperty{
-											traverser.SelectProperty{
+										RefProperties: []search.SelectProperty{
+											search.SelectProperty{
 												Name:        "title",
 												IsPrimitive: true,
 											},
-											traverser.SelectProperty{
+											search.SelectProperty{
 												Name: "nestedRefInNestedRef",
-												Refs: []traverser.SelectClass{
-													traverser.SelectClass{
+												Refs: []search.SelectClass{
+													search.SelectClass{
 														ClassName: "SomeNestedClassNested2",
-														RefProperties: []traverser.SelectProperty{
-															traverser.SelectProperty{
+														RefProperties: []search.SelectProperty{
+															search.SelectProperty{
 																Name:        "titleNested",
 																IsPrimitive: true,
 															},

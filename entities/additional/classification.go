@@ -22,10 +22,10 @@ type Classification struct {
 }
 
 type Properties struct {
-	Classification bool
-	RefMeta        bool
-	Vector         bool
-	Certainty      bool
-	ID             bool
-	ModuleParams   map[string]interface{}
+	Classification bool                   `json:"classification"`
+	RefMeta        bool                   `json:"refMeta"`
+	Vector         bool                   `json:"vector"`
+	Certainty      bool                   `json:"certainty"`
+	ID             bool                   `json:"id"`
+	ModuleParams   map[string]interface{} `json:"moduleParams"`
 }

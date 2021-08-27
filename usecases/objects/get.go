@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // GetObject Class from the connected DB
@@ -64,7 +63,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 	additional additional.Properties) (*search.Result, error) {
-	res, err := m.vectorRepo.ObjectByID(ctx, id, traverser.SelectProperties{}, additional)
+	res, err := m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, additional)
 	if err != nil {
 		return nil, NewErrInternal("repo: object by id: %v", err)
 	}

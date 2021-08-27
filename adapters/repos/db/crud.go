@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (d *DB) PutObject(ctx context.Context, obj *models.Object,
@@ -102,7 +101,7 @@ func (d *DB) MultiGet(ctx context.Context,
 
 // ObjectByID checks every index of the particular kind for the ID
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties,
+	props search.SelectProperties,
 	additional additional.Properties) (*search.Result, error) {
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -127,7 +126,7 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props traverser.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {

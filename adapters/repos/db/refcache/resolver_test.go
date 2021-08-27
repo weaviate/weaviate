@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,14 +96,14 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "bar",
 								IsPrimitive: true,
 							},
@@ -175,24 +174,24 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		selectProps := traverser.SelectProperties{
-			traverser.SelectProperty{
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
 				Name: "refProp",
-				Refs: []traverser.SelectClass{
-					traverser.SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "SomeClass",
-						RefProperties: traverser.SelectProperties{
-							traverser.SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "primitive",
 								IsPrimitive: true,
 							},
-							traverser.SelectProperty{
+							search.SelectProperty{
 								Name: "nestedRef",
-								Refs: []traverser.SelectClass{
-									traverser.SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "SomeNestedClass",
-										RefProperties: []traverser.SelectProperty{
-											traverser.SelectProperty{
+										RefProperties: []search.SelectProperty{
+											search.SelectProperty{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -251,7 +250,7 @@ type fakeCacher struct {
 	lookup map[multi.Identifier]search.Result
 }
 
-func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties,
+func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties search.SelectProperties,
 	additional additional.Properties) error {
 	return nil
 }

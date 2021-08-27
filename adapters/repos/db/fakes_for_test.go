@@ -17,7 +17,10 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -83,6 +86,12 @@ type fakeRemoteClient struct{}
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object) error {
 	return nil
+}
+
+func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties) (*storobj.Object, error) {
+	return nil, nil
 }
 
 type fakeNodeResolver struct{}

@@ -143,7 +143,7 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105}
 			id := updateTestData()[0].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
 				additional.Properties{})
 			require.Nil(t, err)
 
@@ -196,7 +196,7 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
 				additional.Properties{})
 			require.Nil(t, err)
 

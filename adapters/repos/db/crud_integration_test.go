@@ -598,7 +598,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID, traverser.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -637,7 +637,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, additional.Properties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -656,7 +656,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with Classification and Vector additional properties", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{},
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{},
 			additional.Properties{Classification: true, Vector: true, RefMeta: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
@@ -697,7 +697,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with only Vector additional property", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, additional.Properties{Vector: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -839,14 +839,14 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), actionID,
-			traverser.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})

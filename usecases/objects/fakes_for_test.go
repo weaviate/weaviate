@@ -29,7 +29,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -144,7 +143,7 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
