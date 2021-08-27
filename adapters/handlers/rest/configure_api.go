@@ -47,6 +47,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -161,6 +162,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	appState.SchemaManager = schemaManager
+
+	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
 
 	go clusterapi.Serve(appState)
 

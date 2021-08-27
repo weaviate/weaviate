@@ -80,7 +80,7 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName string,
+func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object) error {
 	return nil
 }

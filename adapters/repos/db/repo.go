@@ -64,6 +64,17 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// GetIndexForIncoming returns the index if it exists or nil if it doesn't
+func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	id := indexID(className)
+	index, ok := d.indices[id]
+	if !ok {
+		return nil
+	}
+
+	return index
+}
+
 // DeleteIndex deletes the index
 func (d *DB) DeleteIndex(className schema.ClassName) error {
 	id := indexID(className)

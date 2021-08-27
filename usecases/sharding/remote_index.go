@@ -35,7 +35,7 @@ type nodeResolver interface {
 }
 
 type RemoteIndexClient interface {
-	PutObject(ctx context.Context, hostName, shardName string,
+	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
 }
 
@@ -52,5 +52,5 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 	}
 
 	fmt.Printf("will now contact %s: %s/%s/%s\n", shard.BelongsToNode, host, ri.class, shardName)
-	return ri.client.PutObject(ctx, host, shardName, obj)
+	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
 }
