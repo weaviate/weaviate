@@ -100,6 +100,21 @@ func (s *State) AllPhysicalShards() []string {
 	return names
 }
 
+func (s *State) AllLocalPhysicalShards() []string {
+	var names []string
+	for _, physical := range s.Physical {
+		if s.IsShardLocal(physical.Name) {
+			names = append(names, physical.Name)
+		}
+	}
+
+	sort.Slice(names, func(a, b int) bool {
+		return names[a] < names[b]
+	})
+
+	return names
+}
+
 func (s *State) SetLocalName(name string) {
 	s.localNodeName = name
 }

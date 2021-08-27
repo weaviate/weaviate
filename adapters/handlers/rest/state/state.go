@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,6 +39,7 @@ type State struct {
 	Modules         *modules.Provider
 	SchemaManager   *schema.Manager
 	Cluster         *cluster.State
+	RemoteIncoming  *sharding.RemoteIndexIncoming
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

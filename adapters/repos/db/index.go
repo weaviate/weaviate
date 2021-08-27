@@ -165,7 +165,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	// TODO: decide between local and remote shard
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		// this must be a remote shard, try sending it remotely
@@ -183,8 +182,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	return nil
 }
 
-// nolint:unused
-func (i *Index) incomingRemotePutObject(ctx context.Context, shardName string,
+func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object) error {
 	localShard, ok := i.Shards[shardName]
 	if !ok {
@@ -344,7 +342,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+		AllLocalPhysicalShards()
 
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
