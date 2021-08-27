@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -269,13 +270,36 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return nil, err
 	}
 
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
+
+	if !local {
+		return i.remote.GetObject(ctx, shardName, id, props, additional)
+	}
+
 	shard := i.Shards[shardName]
+	obj, err := shard.objectByID(ctx, id, props, additional)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return obj, nil
+}
+
+func (i *Index) IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
 	obj, err := shard.objectByID(ctx, id, props, additional)
 	if err != nil {
 		return nil, errors.Wrapf(err, "shard %s", shard.ID())

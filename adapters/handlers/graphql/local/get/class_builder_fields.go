@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -413,15 +414,15 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 func extractProperties(selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) ([]traverser.SelectProperty, additional.Properties, error) {
-	var properties []traverser.SelectProperty
+) ([]search.SelectProperty, additional.Properties, error) {
+	var properties []search.SelectProperty
 	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
-		property := traverser.SelectProperty{Name: name}
+		property := search.SelectProperty{Name: name}
 
 		property.IsPrimitive = isPrimitive(field.SelectionSet)
 		if !property.IsPrimitive {
@@ -504,10 +505,10 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 func extractInlineFragment(fragment *ast.InlineFragment,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) (traverser.SelectClass, error) {
+) (search.SelectClass, error) {
 	var className schema.ClassName
 	var err error
-	var result traverser.SelectClass
+	var result search.SelectClass
 
 	if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
 		// is a helper type for a network ref
@@ -538,8 +539,8 @@ func extractInlineFragment(fragment *ast.InlineFragment,
 func extractFragmentSpread(spread *ast.FragmentSpread,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) (traverser.SelectClass, error) {
-	var result traverser.SelectClass
+) (search.SelectClass, error) {
+	var result search.SelectClass
 	name := spread.Name.Value
 
 	def, ok := fragments[name]

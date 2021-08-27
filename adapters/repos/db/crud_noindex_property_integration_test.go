@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -97,7 +98,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",

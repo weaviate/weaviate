@@ -37,11 +37,11 @@ func (r *vectorClassSearchRepo) VectorClassSearch(ctx context.Context,
 	})
 }
 
-func (r *vectorClassSearchRepo) getProperties(properties []string) traverser.SelectProperties {
+func (r *vectorClassSearchRepo) getProperties(properties []string) search.SelectProperties {
 	if len(properties) > 0 {
-		props := traverser.SelectProperties{}
+		props := search.SelectProperties{}
 		for i := range properties {
-			props = append(props, traverser.SelectProperty{Name: properties[i]})
+			props = append(props, search.SelectProperty{Name: properties[i]})
 		}
 		return props
 	}

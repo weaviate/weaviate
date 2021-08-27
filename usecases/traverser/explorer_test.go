@@ -805,10 +805,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
@@ -920,19 +920,19 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
 								ID: true,
 							},
-							RefProperties: SelectProperties{
-								SelectProperty{
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
 									Name: "ofBestRefInnerClass",
-									Refs: []SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "BestRefInnerClass",
 											AdditionalProperties: additional.Properties{
@@ -1086,28 +1086,28 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
 								ID: true,
 							},
-							RefProperties: SelectProperties{
-								SelectProperty{
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
 									Name: "ofBestRefInnerClass",
-									Refs: []SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "BestRefInnerClass",
 											AdditionalProperties: additional.Properties{
 												ID: true,
 											},
-											RefProperties: SelectProperties{
-												SelectProperty{
+											RefProperties: search.SelectProperties{
+												search.SelectProperty{
 													Name: "ofBestRefInnerInnerClass",
-													Refs: []SelectClass{
+													Refs: []search.SelectClass{
 														{
 															ClassName: "BestRefInnerInnerClass",
 															AdditionalProperties: additional.Properties{

@@ -324,7 +324,7 @@ func TestNearTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts": []interface{}{"c1", "c2", "c3"},
@@ -380,7 +380,7 @@ func TestNearTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -427,7 +427,7 @@ func TestNearTextRanker(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
-			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
