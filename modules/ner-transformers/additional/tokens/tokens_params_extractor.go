@@ -19,7 +19,7 @@ import (
 
 func (p *TokenProvider) parseTokenArguments(args []*ast.Argument) *Params {
 	out := &Params{}
-	
+
 	for _, arg := range args {
 		switch arg.Name.Value {
 		case "limit":
