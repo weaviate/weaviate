@@ -78,6 +78,8 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 	agg := newNumericalAggregator()
 
 	c := b.SetCursor() // flat never has a frequency, so it's always a Set
+	defer c.Close()
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ua.parseAndAddFloatRow(agg, k, v); err != nil {
 			return nil, err
