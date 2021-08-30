@@ -12,35 +12,56 @@
 package tokens
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/graphql-go/graphql"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_additionalTokensField(t *testing.T) {
-	type fields struct {
-		ner nerClient
-	}
-	type args struct {
-		classname string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *graphql.Field
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := &TokenProvider{
-				ner: tt.fields.ner,
-			}
-			if got := p.additionalTokensField(tt.args.classname); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("TokenProvider.additionalTokensField() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+	// given
+	tokenProvider := &TokenProvider{}
+	classname := "Class"
+
+	// when
+	tokens := tokenProvider.additionalTokensField(classname)
+
+	// then
+	// the built graphQL field needs to support this structure:
+	// Args: {
+	// 	    "properties": ["summary"],
+	// 	    "limit": 1,
+	//     	"certainty": 0.7
+	// }
+	// Type: {
+	//   tokens: {
+	//     "property": "summary",
+	//     "entity": "I-PER",
+	//     "certainty": 0.8,
+	//     "word": "original word",
+	//     "startPosition": 1,
+	//     "endPosition": 2,
+	//   }
+	// }
+
+	assert.NotNil(t, tokens)
+	assert.Equal(t, "ClassAdditionalTokens", tokens.Type.Name())
+	assert.NotNil(t, tokens.Type)
+	tokensObjectList, tokensObjectListOK := tokens.Type.(*graphql.List)
+	assert.True(t, tokensObjectListOK)
+	tokensObject, tokensObjectOK := tokensObjectList.OfType.(*graphql.Object)
+	assert.True(t, tokensObjectOK)
+	assert.Equal(t, 6, len(tokensObject.Fields()))
+	assert.NotNil(t, tokensObject.Fields()["property"])
+	assert.NotNil(t, tokensObject.Fields()["entity"])
+	assert.NotNil(t, tokensObject.Fields()["certainty"])
+	assert.NotNil(t, tokensObject.Fields()["word"])
+	assert.NotNil(t, tokensObject.Fields()["startPosition"])
+	assert.NotNil(t, tokensObject.Fields()["endPosition"])
+
+	assert.NotNil(t, tokens.Args)
+	assert.Equal(t, 3, len(tokens.Args))
+	assert.NotNil(t, tokens.Args["certainty"])
+	assert.NotNil(t, tokens.Args["limit"])
+	assert.NotNil(t, tokens.Args["properties"])
 }
