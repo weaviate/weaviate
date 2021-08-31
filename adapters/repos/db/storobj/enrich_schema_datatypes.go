@@ -27,12 +27,31 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 	for propName, value := range schema {
 		switch typed := value.(type) {
 		case []interface{}:
-			parsed, err := parseCrossRef(typed)
-			if err != nil {
-				return errors.Wrapf(err, "property %q of type cross-ref", propName)
-			}
+			if isArrayValue(typed) {
+				switch typed[0].(type) {
+				case float64:
+					parsed, err := parseNumberArrayValue(typed)
+					if err != nil {
+						return errors.Wrapf(err, "property %q of type string array", propName)
+					}
 
-			schema[propName] = parsed
+					schema[propName] = parsed
+				default:
+					parsed, err := parseStringArrayValue(typed)
+					if err != nil {
+						return errors.Wrapf(err, "property %q of type string array", propName)
+					}
+
+					schema[propName] = parsed
+				}
+			} else {
+				parsed, err := parseCrossRef(typed)
+				if err != nil {
+					return errors.Wrapf(err, "property %q of type cross-ref", propName)
+				}
+
+				schema[propName] = parsed
+			}
 		case map[string]interface{}:
 			parsed, err := parseMapProp(typed)
 			if err != nil {
@@ -172,6 +191,38 @@ func extractBoolFromMap(input map[string]interface{}, key string) (bool, error) 
 		return asBool, nil
 	}
 	return false, nil
+}
+
+func isArrayValue(value []interface{}) bool {
+	if len(value) > 0 {
+		_, ok := value[0].(map[string]interface{})
+		return !ok
+	}
+	return false
+}
+
+func parseStringArrayValue(value []interface{}) ([]string, error) {
+	parsed := make([]string, len(value))
+	for i := range value {
+		asString, ok := value[i].(string)
+		if !ok {
+			return nil, fmt.Errorf("string array: expected element %d to be string - got %T", i, value[i])
+		}
+		parsed[i] = asString
+	}
+	return parsed, nil
+}
+
+func parseNumberArrayValue(value []interface{}) ([]float64, error) {
+	parsed := make([]float64, len(value))
+	for i := range value {
+		asFloat, ok := value[i].(float64)
+		if !ok {
+			return nil, fmt.Errorf("number array: expected element %d to be float - got %T", i, value[i])
+		}
+		parsed[i] = asFloat
+	}
+	return parsed, nil
 }
 
 func parseCrossRef(value []interface{}) (models.MultipleRef, error) {

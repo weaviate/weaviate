@@ -143,6 +143,26 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %s", propertyName, className, err)
 		}
+	case schema.DataTypeStringArray:
+		data, err = stringArrayVal(pv, "string")
+		if err != nil {
+			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeTextArray:
+		data, err = stringArrayVal(pv, "text")
+		if err != nil {
+			return nil, fmt.Errorf("invalid text array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeIntArray:
+		data, err = intArrayVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeNumberArray:
+		data, err = numberArrayVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number property '%s' on class '%s': %s", propertyName, className, err)
+		}
 
 	default:
 		return nil, fmt.Errorf("unrecognized data type '%s'", *dataType)
@@ -426,4 +446,49 @@ func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, er
 	}
 
 	return out, nil
+}
+
+func stringArrayVal(val interface{}, typeName string) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not a %s array, but %T", typeName, val)
+	}
+
+	for i := range typed {
+		if _, err := stringVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid %s array value: %s", typeName, val)
+		}
+	}
+
+	return typed, nil
+}
+
+func intArrayVal(val interface{}) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not an integer array, but %T", val)
+	}
+
+	for i := range typed {
+		if _, err := intVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid integer array value: %s", val)
+		}
+	}
+
+	return typed, nil
+}
+
+func numberArrayVal(val interface{}) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not an integer array, but %T", val)
+	}
+
+	for i := range typed {
+		if _, err := numberVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid integer array value: %s", val)
+		}
+	}
+
+	return typed, nil
 }
