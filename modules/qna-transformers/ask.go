@@ -18,7 +18,7 @@ import (
 
 func (m *QnAModule) initAsk() error {
 	m.searcher = ask.NewSearcher(m.nearTextDependency)
-	m.graphqlProvider = ask.New()
+	m.graphqlProvider = ask.New(m.askTextTransformer)
 	return nil
 }
 
