@@ -39,6 +39,6 @@ services:
     ports:
       - "8002:8080"
   ner-transformers:
-    image: ner-transformers
+    image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
