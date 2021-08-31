@@ -129,6 +129,36 @@ func TestVectorizingObjects(t *testing.T) {
 		},
 
 		testCase{
+			name:             "with string/text arrays without propname or classname",
+			excludedProperty: "reviews",
+			excludedClass:    "Car",
+			input: &models.Object{
+				Class: "Car",
+				Properties: map[string]interface{}{
+					"reviews": []interface{}{
+						"a very great car",
+						"you should consider buying one",
+					},
+				},
+			},
+			expectedClientCall: []string{"a very great car you should consider buying one"},
+		},
+
+		testCase{
+			name: "with string/text arrays with propname and classname",
+			input: &models.Object{
+				Class: "Car",
+				Properties: map[string]interface{}{
+					"reviews": []interface{}{
+						"a very great car",
+						"you should consider buying one",
+					},
+				},
+			},
+			expectedClientCall: []string{"car reviews a very great car reviews you should consider buying one"},
+		},
+
+		testCase{
 			name: "with compound class and prop names",
 			input: &models.Object{
 				Class: "SuperCar",
