@@ -65,6 +65,20 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
+func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
+	value interface{}) {
+	valueString, ok := value.(string)
+	if ok {
+		if icheck.VectorizePropertyName(propName) {
+			// use prop and value
+			*list = append(*list, strings.ToLower(
+				fmt.Sprintf("%s %s", camelCaseToLower(propName), valueString)))
+		} else {
+			*list = append(*list, strings.ToLower(valueString))
+		}
+	}
+}
+
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, icheck ClassSettings) ([]float32, error) {
 	var corpi []string
@@ -80,15 +94,12 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 				continue
 			}
 
-			valueString, ok := schemamap[prop].(string)
-			if ok {
-				if icheck.VectorizePropertyName(prop) {
-					// use prop and value
-					corpi = append(corpi, strings.ToLower(
-						fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
-				} else {
-					corpi = append(corpi, strings.ToLower(valueString))
+			if asSlice, ok := schemamap[prop].([]interface{}); ok {
+				for _, elem := range asSlice {
+					appendPropIfText(icheck, &corpi, prop, elem)
 				}
+			} else {
+				appendPropIfText(icheck, &corpi, prop, schemamap[prop])
 			}
 		}
 	}
