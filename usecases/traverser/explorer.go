@@ -452,7 +452,7 @@ func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *
 			for p := range moduleParams {
 				params = append(params, fmt.Sprintf("'%s'", p))
 			}
-			return errors.Errorf("found more then one module param: %s which are conflicting"+
+			return errors.Errorf("found more then one module param: %s which are conflicting "+
 				"choose one instead", strings.Join(params, ", "))
 		}
 

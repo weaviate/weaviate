@@ -13,7 +13,7 @@ package neartext
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func extractNearTextFn(source map[string]interface{}) interface{} {
+func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) interface{} {
 	var args NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
@@ -21,6 +21,20 @@ func extractNearTextFn(source map[string]interface{}) interface{} {
 	args.Values = make([]string, len(keywords))
 	for i, value := range keywords {
 		args.Values[i] = value.(string)
+	}
+
+	// autocorrect is an optional arg, so it could be nil
+	autocorrect, ok := source["autocorrect"]
+	if ok {
+		args.Autocorrect = autocorrect.(bool)
+	}
+
+	// if there's text transformer present and autocorrect set to true
+	// perform text transformation operation
+	if args.Autocorrect && g.nearTextTransformer != nil {
+		if transformedValues, err := g.nearTextTransformer.Transform(args.Values); err == nil {
+			args.Values = transformedValues
+		}
 	}
 
 	// limit is an optional arg, so it could be nil
