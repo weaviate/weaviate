@@ -16,16 +16,17 @@ import (
 )
 
 type AskParams struct {
-	Question   string
-	Certainty  float64
-	Properties []string
+	Question    string
+	Certainty   float64
+	Properties  []string
+	Autocorrect bool
 }
 
 func (n AskParams) GetCertainty() float64 {
 	return n.Certainty
 }
 
-func validateAskFn(param interface{}) error {
+func (g *GraphQLArgumentsProvider) validateAskFn(param interface{}) error {
 	ask, ok := param.(*AskParams)
 	if !ok {
 		return errors.New("'ask' invalid parameter")

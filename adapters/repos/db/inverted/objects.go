@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -64,6 +65,10 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
 				return nil, err
 			}
+		} else if schema.IsArrayDataType(prop.DataType) {
+			if err := a.extendPropertiesWithArrayType(&out, prop, input, key); err != nil {
+				return nil, err
+			}
 		} else {
 			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
 				return nil, err
@@ -88,6 +93,32 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 			},
 		},
 	}, nil
+}
+
+func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
+	prop *models.Property, input map[string]interface{}, propName string) error {
+	value, ok := input[propName]
+	if !ok {
+		// skip any primitive prop that's not set
+		return nil
+	}
+
+	values, ok := value.([]interface{})
+	if !ok {
+		// skip any primitive prop that's not set
+		errors.New("analyze array prop: expected array prop")
+	}
+
+	property, err := a.analyzeArrayProp(prop, values)
+	if err != nil {
+		errors.Wrap(err, "analyze primitive prop")
+	}
+	if property == nil {
+		return nil
+	}
+
+	*properties = append(*properties, *property)
+	return nil
 }
 
 // extendPropertiesWithPrimitive mutates the passed in properties, by extending
@@ -115,11 +146,97 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 }
 
 func HasFrequency(dt schema.DataType) bool {
-	if dt == schema.DataTypeText || dt == schema.DataTypeString {
+	if dt == schema.DataTypeText || dt == schema.DataTypeString ||
+		dt == schema.DataTypeStringArray || dt == schema.DataTypeTextArray {
 		return true
 	}
 
 	return false
+}
+
+func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{}) (*Property, error) {
+	var hasFrequency bool
+	var items []Countable
+	dt := schema.DataType(prop.DataType[0])
+	switch dt {
+	case schema.DataTypeTextArray:
+		hasFrequency = HasFrequency(dt)
+		value, err := a.stringValFromArray(prop, values)
+		if err != nil {
+			return nil, err
+		}
+		items = a.Text(value)
+	case schema.DataTypeStringArray:
+		hasFrequency = HasFrequency(dt)
+		value, err := a.stringValFromArray(prop, values)
+		if err != nil {
+			return nil, err
+		}
+		items = a.String(value)
+	case schema.DataTypeIntArray:
+		hasFrequency = HasFrequency(dt)
+		in := make([]int64, len(values))
+		for i, value := range values {
+			if asFloat, ok := value.(float64); ok {
+				// unmarshaling from json into a dynamic schema will assume every number
+				// is a float64
+				value = int64(asFloat)
+			}
+
+			asInt, ok := value.(int64)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
+			}
+			in[i] = asInt
+		}
+
+		var err error
+		items, err = a.IntArray(in)
+		if err != nil {
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
+	case schema.DataTypeNumberArray:
+		hasFrequency = HasFrequency(dt)
+		in := make([]float64, len(values))
+		for i, value := range values {
+			asFloat, ok := value.(float64)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
+			}
+			in[i] = asFloat
+		}
+
+		var err error
+		items, err = a.FloatArray(in) // convert to int before analyzing
+		if err != nil {
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
+
+	default:
+		// ignore unsupported prop type
+		return nil, nil
+	}
+
+	return &Property{
+		Name:         prop.Name,
+		Items:        items,
+		HasFrequency: hasFrequency,
+	}, nil
+}
+
+func (a *Analyzer) stringValFromArray(prop *models.Property, values []interface{}) (string, error) {
+	var value strings.Builder
+	for i := range values {
+		asString, ok := values[i].(string)
+		if !ok {
+			return "", fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, values[i])
+		}
+		value.WriteString(asString)
+		if i != len(values)-1 {
+			value.WriteString(" ")
+		}
+	}
+	return value.String(), nil
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {

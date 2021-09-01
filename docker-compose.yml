@@ -42,3 +42,7 @@ services:
     image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
+  text-spellcheck:
+    image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
+    ports:
+      - "8004:8080"
