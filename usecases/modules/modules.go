@@ -181,7 +181,7 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 }
 
 func (m *Provider) isDefaultModule(module string) bool {
-	return module == "qna-transformers"
+	return module == "qna-transformers" || module == "text-spellcheck"
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string) bool {

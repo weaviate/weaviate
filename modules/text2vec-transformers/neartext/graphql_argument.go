@@ -18,29 +18,29 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
-	return nearTextArgument("GetObjects", classname)
+func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.nearTextArgument("GetObjects", classname)
 }
 
-func exploreNearTextArgumentFn() *graphql.ArgumentConfig {
-	return nearTextArgument("Explore", "")
+func (g *GraphQLArgumentsProvider) exploreNearTextArgumentFn() *graphql.ArgumentConfig {
+	return g.nearTextArgument("Explore", "")
 }
 
-func nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
+func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("Txt2VecC11y%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-				Fields:      nearTextFields(prefixName),
+				Fields:      g.nearTextFields(prefixName),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func (g *GraphQLArgumentsProvider) nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
+	nearTextFields := graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			// Description: descriptions.Concepts,
 			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
@@ -50,7 +50,7 @@ func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   fmt.Sprintf("%sMoveTo", prefix),
-					Fields: movementInp(fmt.Sprintf("%sMoveTo", prefix)),
+					Fields: g.movementInp(fmt.Sprintf("%sMoveTo", prefix)),
 				}),
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
@@ -62,13 +62,20 @@ func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   fmt.Sprintf("%sMoveAwayFrom", prefix),
-					Fields: movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
+					Fields: g.movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
 				}),
 		},
 	}
+	if g.nearTextTransformer != nil {
+		nearTextFields["autocorrect"] = &graphql.InputObjectFieldConfig{
+			Description: "Autocorrect input text values",
+			Type:        graphql.Boolean,
+		}
+	}
+	return nearTextFields
 }
 
-func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
+func (g *GraphQLArgumentsProvider) movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Keywords,
@@ -76,7 +83,7 @@ func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 		},
 		"objects": &graphql.InputObjectFieldConfig{
 			Description: "objects",
-			Type:        graphql.NewList(objectsInpObj(prefix)),
+			Type:        graphql.NewList(g.objectsInpObj(prefix)),
 		},
 		"force": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Force,
@@ -85,7 +92,7 @@ func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 	}
 }
 
-func objectsInpObj(prefix string) *graphql.InputObject {
+func (g *GraphQLArgumentsProvider) objectsInpObj(prefix string) *graphql.InputObject {
 	return graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name: fmt.Sprintf("%sMovementObjectsInpObj", prefix),

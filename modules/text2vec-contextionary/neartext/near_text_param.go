@@ -22,6 +22,7 @@ type NearTextParams struct {
 	MoveAwayFrom ExploreMove
 	Certainty    float64
 	Network      bool
+	Autocorrect  bool
 }
 
 func (n NearTextParams) GetCertainty() float64 {
@@ -40,7 +41,7 @@ type ObjectMove struct {
 	Beacon string
 }
 
-func validateNearTextFn(param interface{}) error {
+func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
 	nearText, ok := param.(*NearTextParams)
 	if !ok {
 		return errors.New("'nearText' invalid parameter")

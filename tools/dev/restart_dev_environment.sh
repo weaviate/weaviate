@@ -24,6 +24,9 @@ fi
 if [[ "$*" == *--ner* ]]; then
   ADDITIONAL_SERVICES+=('ner-transformers')
 fi
+if [[ "$*" == *--spellcheck* ]]; then
+  ADDITIONAL_SERVICES+=('text-spellcheck')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
