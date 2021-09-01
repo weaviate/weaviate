@@ -7,7 +7,6 @@ require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fatih/camelcase v1.0.0
 	github.com/go-openapi/errors v0.20.1
 	github.com/go-openapi/loads v0.19.5
@@ -17,6 +16,7 @@ require (
 	github.com/go-openapi/swag v0.19.15
 	github.com/go-openapi/validate v0.19.10
 	github.com/go-stack/stack v1.8.1 // indirect
+	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.2.0
 	github.com/graphql-go/graphql v0.7.9
 	github.com/jessevdk/go-flags v1.4.0
@@ -37,7 +37,6 @@ require (
 	go.mongodb.org/mongo-driver v1.7.1 // indirect
 	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
 	golang.org/x/sys v0.0.0-20210510120138-977fb7262007
-	golang.org/x/tools v0.1.5 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
