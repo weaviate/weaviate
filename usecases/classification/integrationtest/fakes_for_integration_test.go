@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -321,6 +322,12 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties) (*storobj.Object, error) {
 	return nil, nil
+}
+
+func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
+	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
 }
 
 type fakeNodeResolver struct{}

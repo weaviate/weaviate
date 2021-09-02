@@ -7,6 +7,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
@@ -43,6 +44,9 @@ type RemoteIndexClient interface {
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+	SearchShard(ctx context.Context, hostname, indexName, shardName string,
+		searchVector []float32, limit int, filters *filters.LocalFilter,
+		additional additional.Properties) ([]*storobj.Object, []float32, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -75,4 +79,21 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 	}
 
 	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
+}
+
+func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
+	searchVector []float32, limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return nil, nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return nil, nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
+		filters, additional)
 }

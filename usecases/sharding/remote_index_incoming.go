@@ -6,6 +6,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -20,6 +21,9 @@ type RemoteIndexIncomingRepo interface {
 		obj *storobj.Object) error
 	IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
 		selectProperties search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	IncomingSearch(ctx context.Context, shardName string,
+		vector []float32, limit int, filters *filters.LocalFilter,
+		additional additional.Properties) ([]*storobj.Object, []float32, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -51,4 +55,15 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	}
 
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+}
+
+func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
+	vector []float32, limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingSearch(ctx, shardName, vector, limit, filters, additional)
 }
