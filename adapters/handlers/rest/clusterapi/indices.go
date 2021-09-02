@@ -10,19 +10,23 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 type indices struct {
-	shards            shards
-	regexpPostObjects *regexp.Regexp
-	regexpPostObject  *regexp.Regexp
+	shards              shards
+	regexpObjects       *regexp.Regexp
+	regexpObjectsSearch *regexp.Regexp
+	regexpObject        *regexp.Regexp
 }
 
 const (
 	urlPatternObjects = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`
+	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
 	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
 )
@@ -33,13 +37,17 @@ type shards interface {
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+	Search(ctx context.Context, indexName, shardName string,
+		vector []float32, limit int, filters *filters.LocalFilter,
+		additional additional.Properties) ([]*storobj.Object, []float32, error)
 }
 
 func newIndices(shards shards) *indices {
 	return &indices{
-		regexpPostObjects: regexp.MustCompile(urlPatternObjects),
-		regexpPostObject:  regexp.MustCompile(urlPatternObject),
-		shards:            shards,
+		regexpObjects:       regexp.MustCompile(urlPatternObjects),
+		regexpObjectsSearch: regexp.MustCompile(urlPatternObjectsSearch),
+		regexpObject:        regexp.MustCompile(urlPatternObject),
+		shards:              shards,
 	}
 }
 
@@ -47,7 +55,15 @@ func (i *indices) indices() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
-		case i.regexpPostObject.MatchString(path):
+		case i.regexpObjectsSearch.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			i.postSearchObjects().ServeHTTP(w, r)
+			return
+		case i.regexpObject.MatchString(path):
 			if r.Method != http.MethodGet {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 				return
@@ -56,7 +72,7 @@ func (i *indices) indices() http.Handler {
 			i.getObject().ServeHTTP(w, r)
 			return
 
-		case i.regexpPostObjects.MatchString(path):
+		case i.regexpObjects.MatchString(path):
 			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 				return
@@ -73,7 +89,7 @@ func (i *indices) indices() http.Handler {
 
 func (i *indices) postObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpPostObjects.FindStringSubmatch(r.URL.Path)
+		args := i.regexpObjects.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -111,7 +127,7 @@ func (i *indices) postObject() http.Handler {
 
 func (i *indices) getObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpPostObject.FindStringSubmatch(r.URL.Path)
+		args := i.regexpObject.FindStringSubmatch(r.URL.Path)
 		if len(args) != 4 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -177,5 +193,62 @@ func (i *indices) getObject() http.Handler {
 
 		r.Header.Set("content-type", "application/vnd.weaviate.storobj+octet-stream")
 		w.Write(objBytes)
+	})
+}
+
+type searchParametersPayload struct {
+	SearchVector []float32             `json:"searchVector"`
+	Limit        int                   `json:"limit"`
+	Filters      *filters.LocalFilter  `json:"filters"`
+	Additional   additional.Properties `json:"additional"`
+}
+
+type searchResultsPayload struct {
+	Results   []*storobj.Object `json:"results"`
+	Distances []float32         `json:"distances"`
+}
+
+func (i *indices) postSearchObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObjectsSearch.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var params searchParametersPayload
+		if err := json.Unmarshal(reqPayload, &params); err != nil {
+			http.Error(w, "unmarshal search params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		results, dists, err := i.shards.Search(r.Context(), index, shard,
+			params.SearchVector, params.Limit, params.Filters, params.Additional)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		resPayload := searchResultsPayload{
+			Results:   results,
+			Distances: dists,
+		}
+
+		resBytes, err := json.Marshal(resPayload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		r.Header.Set("content-type", "application/vnd.weaviate.shardsearchresults+octet-stream")
+		w.Write(resBytes)
 	})
 }

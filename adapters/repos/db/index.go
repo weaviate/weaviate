@@ -394,10 +394,25 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
 	dists := make([]float32, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
-		shard := i.Shards[shardName]
-		res, resDists, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		local := i.getSchema.
+			ShardingState(i.Config.ClassName.String()).
+			IsShardLocal(shardName)
+
+		var res []*storobj.Object
+		var resDists []float32
+		var err error
+
+		if local {
+			shard := i.Shards[shardName]
+			res, resDists, err = shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+			if err != nil {
+				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+			}
+		} else {
+			res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
+			if err != nil {
+				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+			}
 		}
 
 		out = append(out, res...)
@@ -415,6 +430,26 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	}
 
 	return sbd.objects, nil
+}
+
+func (i *Index) IncomingSearch(ctx context.Context, shardName string,
+	searchVector []float32, limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	if searchVector == nil {
+		return nil, nil, errors.Errorf("non-vector search not supported yet")
+	}
+
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	res, resDists, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return res, resDists, nil
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
