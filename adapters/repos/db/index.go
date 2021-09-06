@@ -422,6 +422,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
+
 		} else {
 			res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
 			if err != nil {

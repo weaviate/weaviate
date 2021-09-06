@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"testing"
 	"time"
 
@@ -21,15 +23,20 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const vectorDims = 20
 
 // TestDistributedSetup uses as many real components and only mocks out
 // non-essential parts. Essentially we fix the shard/cluster state and schema
@@ -86,6 +93,44 @@ func TestDistributedSetup(t *testing.T) {
 	})
 
 	t.Run("query individually using random node", func(t *testing.T) {
+		for _, obj := range data {
+			node := nodes[rand.Intn(len(nodes))]
+
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
+			require.Nil(t, err)
+			assert.NotNil(t, res)
+			assert.Equal(t, obj.Properties, res.Object().Properties)
+		}
+	})
+
+	t.Run("perform vector searches", func(t *testing.T) {
+		// note this test assumes a recall of 100% which only works with HNSW on
+		// small sizes, so if we use this test suite with massive sizes, we should
+		// not expect this test to succeed 100% of times anymore.
+		runs := 10
+
+		for i := 0; i < runs; i++ {
+			query := make([]float32, vectorDims)
+			for i := range query {
+				query[i] = rand.Float32()
+			}
+
+			groundTruth := bruteForceObjectsByQuery(data, query)
+
+			node := nodes[rand.Intn(len(nodes))]
+			res, err := node.repo.VectorClassSearch(context.Background(), traverser.GetParams{
+				SearchVector: query,
+				Pagination: &filters.Pagination{
+					Limit: 25,
+				},
+				ClassName: "Distributed",
+			})
+			assert.Nil(t, err)
+			for i, obj := range res {
+				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
+			}
+		}
+
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
@@ -214,9 +259,11 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 }
 
 func class() *models.Class {
+	cfg := hnsw.NewDefaultUserConfig()
+	cfg.EF = 500
 	return &models.Class{
 		Class:               "Distributed",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   cfg,
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -237,15 +284,62 @@ func exampleData(size int) []*models.Object {
 	out := make([]*models.Object, size)
 
 	for i := range out {
+		vec := make([]float32, vectorDims)
+		for i := range vec {
+			vec[i] = rand.Float32()
+		}
 		out[i] = &models.Object{
 			Class: "Distributed",
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
 				"description": fmt.Sprintf("object-%d", i),
 			},
-			Vector: []float32{1, float32(i) / float32(1000)},
+			Vector: vec,
 		}
 	}
 
 	return out
+}
+
+func bruteForceObjectsByQuery(objs []*models.Object,
+	query []float32) []*models.Object {
+	type distanceAndObj struct {
+		distance float32
+		obj      *models.Object
+	}
+
+	distances := make([]distanceAndObj, len(objs))
+
+	for i := range objs {
+		dist := 1 - asm.Dot(normalize(query), normalize(objs[i].Vector))
+		distances[i] = distanceAndObj{
+			distance: dist,
+			obj:      objs[i],
+		}
+	}
+
+	sort.Slice(distances, func(a, b int) bool {
+		return distances[a].distance < distances[b].distance
+	})
+
+	out := make([]*models.Object, len(objs))
+	for i := range out {
+		out[i] = distances[i].obj
+	}
+
+	return out
+}
+
+func normalize(v []float32) []float32 {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+
+	return v
 }
