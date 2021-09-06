@@ -42,7 +42,7 @@ type shards interface {
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 }
 
-func newIndices(shards shards) *indices {
+func NewIndices(shards shards) *indices {
 	return &indices{
 		regexpObjects:       regexp.MustCompile(urlPatternObjects),
 		regexpObjectsSearch: regexp.MustCompile(urlPatternObjectsSearch),
@@ -51,7 +51,7 @@ func newIndices(shards shards) *indices {
 	}
 }
 
-func (i *indices) indices() http.Handler {
+func (i *indices) Indices() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {

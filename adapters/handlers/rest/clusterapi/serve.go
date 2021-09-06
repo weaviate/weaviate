@@ -18,13 +18,13 @@ func Serve(appState *state.State) {
 		Debugf("serving cluster api on port %d", port)
 
 	schema := newSchema(appState.SchemaManager.TxManager())
-	indices := newIndices(appState.RemoteIncoming)
+	indices := NewIndices(appState.RemoteIncoming)
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",
 		http.StripPrefix("/schema/transactions/", schema.transactions()))
 
-	mux.Handle("/indices/", indices.indices())
+	mux.Handle("/indices/", indices.Indices())
 	mux.Handle("/", schema.index())
 	http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
 }
