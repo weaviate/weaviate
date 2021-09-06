@@ -236,6 +236,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			params.SearchVector, params.Limit, params.Filters, params.Additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		resPayload := searchResultsPayload{
@@ -246,6 +247,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		resBytes, err := json.Marshal(resPayload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		r.Header.Set("content-type", "application/vnd.weaviate.shardsearchresults+octet-stream")
