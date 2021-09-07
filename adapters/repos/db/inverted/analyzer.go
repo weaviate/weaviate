@@ -99,10 +99,25 @@ func (a *Analyzer) Int(in int64) ([]Countable, error) {
 	}
 
 	return []Countable{
-		Countable{
+		{
 			Data: data,
 		},
 	}, nil
+}
+
+// Int array requires no analysis, so it's actually just a simple conversion to a
+// string-formatted byte slice of the int
+func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
+	out := make([]Countable, len(in))
+	for i := range in {
+		data, err := LexicographicallySortableInt64(in[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = Countable{Data: data}
+	}
+
+	return out, nil
 }
 
 // Float requires no analysis, so it's actually just a simple conversion to a
@@ -114,10 +129,25 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	}
 
 	return []Countable{
-		Countable{
+		{
 			Data: data,
 		},
 	}, nil
+}
+
+// Float array requires no analysis, so it's actually just a simple conversion to a
+// lexicographically sortable byte slice.
+func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
+	out := make([]Countable, len(in))
+	for i := range in {
+		data, err := LexicographicallySortableFloat64(in[i])
+		if err != nil {
+			return nil, err
+		}
+		out[i] = Countable{Data: data}
+	}
+
+	return out, nil
 }
 
 // Bool requires no analysis, so it's actually just a simple conversion to a
@@ -130,7 +160,7 @@ func (a *Analyzer) Bool(in bool) ([]Countable, error) {
 	}
 
 	return []Countable{
-		Countable{
+		{
 			Data: b.Bytes(),
 		},
 	}, nil
@@ -146,7 +176,7 @@ func (a *Analyzer) RefCount(in models.MultipleRef) ([]Countable, error) {
 	}
 
 	return []Countable{
-		Countable{
+		{
 			Data: data,
 		},
 	}, nil

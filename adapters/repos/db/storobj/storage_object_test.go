@@ -73,7 +73,8 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
 		require.Nil(t, err)
 		require.True(t, ok)
-		assert.Equal(t, "MyName", prop)
+		require.NotEmpty(t, prop)
+		assert.Equal(t, "MyName", prop[0])
 	})
 }
 
@@ -184,5 +185,76 @@ func TestNewStorageObject(t *testing.T) {
 
 				assert.Equal(t, so, alt)
 			})
+	})
+}
+
+func TestStorageArrayObjectMarshalling(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"stringArray": []string{"a", "b"},
+				"textArray":   []string{"c", "d"},
+				"numberArray": []float64{1.1, 2.1},
+				"foo":         float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+	)
+
+	before.SetDocID(7)
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	after, err := FromBinary(asBinary)
+	require.Nil(t, err)
+
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("extract only doc id and compare", func(t *testing.T) {
+		id, err := DocIDFromBinary(asBinary)
+		require.Nil(t, err)
+		assert.Equal(t, uint64(7), id)
+	})
+
+	t.Run("extract string array prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "stringArray")
+		require.Nil(t, err)
+		require.True(t, ok)
+		assert.Equal(t, []string{"a", "b"}, prop)
+	})
+
+	t.Run("extract text array prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "textArray")
+		require.Nil(t, err)
+		require.True(t, ok)
+		assert.Equal(t, []string{"c", "d"}, prop)
+	})
+
+	t.Run("extract number array prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractNumberArrayProp(asBinary, "numberArray")
+		require.Nil(t, err)
+		require.True(t, ok)
+		assert.Equal(t, []float64{1.1, 2.1}, prop)
 	})
 }

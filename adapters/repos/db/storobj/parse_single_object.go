@@ -13,23 +13,64 @@ package storobj
 
 import (
 	"encoding/binary"
+	"strconv"
 
 	"github.com/buger/jsonparser"
 	"github.com/pkg/errors"
 )
 
-func ParseAndExtractTextProp(data []byte, propName string) (string, bool, error) {
+func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, error) {
 	propsBytes, err := extractPropsBytes(data)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 
-	val, _, _, err := jsonparser.Get(propsBytes, propName)
+	val, t, _, err := jsonparser.Get(propsBytes, propName)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 
-	return string(val), len(val) > 0, err
+	vals := []string{}
+	if t == jsonparser.Array {
+		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+			vals = append(vals, string(value))
+		})
+	} else {
+		vals = append(vals, string(val))
+	}
+
+	return vals, true, nil
+}
+
+func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bool, error) {
+	propsBytes, err := extractPropsBytes(data)
+	if err != nil {
+		return nil, false, err
+	}
+
+	val, t, _, err := jsonparser.Get(propsBytes, propName)
+	if err != nil {
+		return nil, false, err
+	}
+
+	vals := []float64{}
+	if t == jsonparser.Array {
+		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+			vals = append(vals, mustExtractNumber(value))
+		})
+	} else {
+		vals = append(vals, mustExtractNumber(val))
+	}
+
+	return vals, true, nil
+}
+
+func mustExtractNumber(value []byte) float64 {
+	number, err := strconv.ParseFloat(string(value), 64)
+	if err != nil {
+		panic("not a float64")
+	}
+	return number
 }
 
 func extractPropsBytes(data []byte) ([]byte, error) {

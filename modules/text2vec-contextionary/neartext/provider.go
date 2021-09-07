@@ -15,10 +15,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 )
 
-type GraphQLArgumentsProvider struct{}
+type GraphQLArgumentsProvider struct {
+	nearTextTransformer modulecapabilities.TextTransform
+}
 
-func New() *GraphQLArgumentsProvider {
-	return &GraphQLArgumentsProvider{}
+func New(nearTextTransformer modulecapabilities.TextTransform) *GraphQLArgumentsProvider {
+	return &GraphQLArgumentsProvider{nearTextTransformer}
 }
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
@@ -29,9 +31,9 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getNearText() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     getNearTextArgumentFn,
-		ExploreArgumentsFunction: exploreNearTextArgumentFn,
-		ExtractFunction:          extractNearTextFn,
-		ValidateFunction:         validateNearTextFn,
+		GetArgumentsFunction:     g.getNearTextArgumentFn,
+		ExploreArgumentsFunction: g.exploreNearTextArgumentFn,
+		ExtractFunction:          g.extractNearTextFn,
+		ValidateFunction:         g.validateNearTextFn,
 	}
 }

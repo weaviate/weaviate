@@ -15,10 +15,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 )
 
-type GraphQLArgumentsProvider struct{}
+type GraphQLArgumentsProvider struct {
+	askTransformer modulecapabilities.TextTransform
+}
 
-func New() *GraphQLArgumentsProvider {
-	return &GraphQLArgumentsProvider{}
+func New(askTransformer modulecapabilities.TextTransform) *GraphQLArgumentsProvider {
+	return &GraphQLArgumentsProvider{askTransformer}
 }
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
@@ -29,9 +31,9 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getAsk() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     getAskArgumentFn,
-		ExploreArgumentsFunction: exploreAskArgumentFn,
-		ExtractFunction:          extractAskFn,
-		ValidateFunction:         validateAskFn,
+		GetArgumentsFunction:     g.getAskArgumentFn,
+		ExploreArgumentsFunction: g.exploreAskArgumentFn,
+		ExtractFunction:          g.extractAskFn,
+		ValidateFunction:         g.validateAskFn,
 	}
 }
