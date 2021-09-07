@@ -84,6 +84,11 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
+	shardName string, obj []*storobj.Object) []error {
+	return nil
+}
+
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object) error {
 	return nil

@@ -1,8 +1,10 @@
 package clusterapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -34,6 +36,8 @@ const (
 type shards interface {
 	PutObject(ctx context.Context, indexName, shardName string,
 		obj *storobj.Object) error
+	BatchPutObjects(ctx context.Context, indexName, shardName string,
+		objs []*storobj.Object) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
@@ -99,30 +103,115 @@ func (i *indices) postObject() http.Handler {
 
 		defer r.Body.Close()
 
-		if r.Header.Get("content-type") != "application/vnd.weaviate.storobj+octet-stream" {
+		ct := r.Header.Get("content-type")
+
+		switch ct {
+		case "application/vnd.weaviate.storobj.list+octet-stream":
+			i.postObjectBatch(w, r, index, shard)
+			return
+
+		case "application/vnd.weaviate.storobj+octet-stream":
+			i.postObjectSingle(w, r, index, shard)
+			return
+
+		default:
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
 			return
 		}
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		obj, err := storobj.FromBinary(bodyBytes)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
+	index, shard string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	obj, err := storobj.FromBinary(bodyBytes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func unmarshalObjsList(in []byte) ([]*storobj.Object, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency
+	var out []*storobj.Object
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		obj, err := storobj.FromBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+func marshalErrList(in []error) ([]byte, error) {
+	converted := make([]interface{}, len(in))
+	for i, err := range in {
+		if err == nil {
+			continue
+		}
+
+		converted[i] = err.Error()
+	}
+
+	return json.Marshal(converted)
+}
+
+func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
+	index, shard string) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	objs, err := unmarshalObjsList(bodyBytes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
+	errsJSON, err := marshalErrList(errs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("content-type", "application/vnd.weaviate.error.list+json")
+	w.Write(errsJSON)
 }
 
 func (i *indices) getObject() http.Handler {
@@ -191,7 +280,7 @@ func (i *indices) getObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		r.Header.Set("content-type", "application/vnd.weaviate.storobj+octet-stream")
+		w.Header().Set("content-type", "application/vnd.weaviate.storobj+octet-stream")
 		w.Write(objBytes)
 	})
 }
