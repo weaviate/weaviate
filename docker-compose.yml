@@ -38,3 +38,11 @@ services:
     image: semitechnologies/img2vec-pytorch:resnet50-07dd697
     ports:
       - "8002:8080"
+  ner-transformers:
+    image: semitechnologies/ner-transformers:latest
+    ports:
+      - "8003:8080"
+  text-spellcheck:
+    image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
+    ports:
+      - "8004:8080"

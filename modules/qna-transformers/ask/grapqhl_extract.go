@@ -11,12 +11,26 @@
 
 package ask
 
-func extractAskFn(source map[string]interface{}) interface{} {
+func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) interface{} {
 	var args AskParams
 
 	question, ok := source["question"].(string)
 	if ok {
 		args.Question = question
+	}
+
+	// autocorrect is an optional arg, so it could be nil
+	autocorrect, ok := source["autocorrect"]
+	if ok {
+		args.Autocorrect = autocorrect.(bool)
+	}
+
+	// if there's text transformer present and autocorrect set to true
+	// perform text transformation operation
+	if args.Autocorrect && g.askTransformer != nil {
+		if transformedValues, err := g.askTransformer.Transform([]string{args.Question}); err == nil && len(transformedValues) == 1 {
+			args.Question = transformedValues[0]
+		}
 	}
 
 	certainty, ok := source["certainty"]

@@ -138,7 +138,7 @@ func (m *mockText2vecContextionaryModule) RootHandler() http.Handler {
 
 // graphql arguments
 func (m *mockText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	return text2vecneartext.New().Arguments()
+	return text2vecneartext.New(nil).Arguments()
 }
 
 // additional properties
