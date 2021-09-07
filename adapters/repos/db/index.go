@@ -197,7 +197,8 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	return nil
 }
 
-// return value map[int]error gives the error for the index as it received it
+// return value []error gives the error for the index with the positions
+// matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context,
 	objects []*storobj.Object) []error {
 	type objsAndPos struct {
@@ -222,8 +223,17 @@ func (i *Index) putObjectBatch(ctx context.Context,
 	}
 
 	for shardName, group := range byShard {
-		shard := i.Shards[shardName]
-		errs := shard.putObjectBatch(ctx, group.objects)
+		local := i.getSchema.
+			ShardingState(i.Config.ClassName.String()).
+			IsShardLocal(shardName)
+
+		var errs []error
+		if !local {
+			errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
+		} else {
+			shard := i.Shards[shardName]
+			errs = shard.putObjectBatch(ctx, group.objects)
+		}
 		for i, err := range errs {
 			desiredPos := group.pos[i]
 			out[desiredPos] = err
@@ -231,6 +241,26 @@ func (i *Index) putObjectBatch(ctx context.Context,
 	}
 
 	return out
+}
+
+func duplicateErr(in error, count int) []error {
+	out := make([]error, count)
+	for i := range out {
+		out[i] = in
+	}
+
+	return out
+}
+
+func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
+	objects []*storobj.Object) []error {
+	localShard, ok := i.Shards[shardName]
+	if !ok {
+		return duplicateErr(errors.Errorf("shard %q does not exist locally",
+			shardName), len(objects))
+	}
+
+	return localShard.putObjectBatch(ctx, objects)
 }
 
 // return value map[int]error gives the error for the index as it received it

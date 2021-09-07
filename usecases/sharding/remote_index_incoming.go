@@ -19,6 +19,8 @@ type RemoteIncomingRepo interface {
 type RemoteIndexIncomingRepo interface {
 	IncomingPutObject(ctx context.Context, shardName string,
 		obj *storobj.Object) error
+	IncomingBatchPutObjects(ctx context.Context, shardName string,
+		objs []*storobj.Object) []error
 	IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
 		selectProperties search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
@@ -44,6 +46,17 @@ func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 	}
 
 	return index.IncomingPutObject(ctx, shardName, obj)
+}
+
+func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
+	shardName string, objs []*storobj.Object) []error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return duplicateErr(errors.Errorf("local index %q not found", indexName),
+			len(objs))
+	}
+
+	return index.IncomingBatchPutObjects(ctx, shardName, objs)
 }
 
 func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -58,6 +60,98 @@ func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
 	}
 
 	return nil
+}
+
+func duplicateErr(in error, count int) []error {
+	out := make([]error, count)
+	for i := range out {
+		out[i] = in
+	}
+	return out
+}
+
+func marshalObjsList(in []*storobj.Object) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		bytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(bytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, bytes...)
+	}
+
+	return out, nil
+}
+
+func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
+	shardName string, objs []*storobj.Object) []error {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	marshalled, err := marshalObjsList(objs)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "marshal payload"), len(objs))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(marshalled))
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "open http request"), len(objs))
+	}
+
+	req.Header.Set("content-type", "application/vnd.weaviate.storobj.list+octet-stream")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "send http request"), len(objs))
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
+			res.StatusCode, body), len(objs))
+	}
+
+	ct := res.Header.Get("content-type")
+	if ct != "application/vnd.weaviate.error.list+json" {
+		return duplicateErr(errors.Errorf("unexpected content type: %s",
+			ct), len(objs))
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "ready body"), len(objs))
+	}
+
+	return unmarshalErrList(resBytes)
+}
+
+func unmarshalErrList(in []byte) []error {
+	var msgs []interface{}
+	json.Unmarshal(in, &msgs)
+
+	converted := make([]error, len(msgs))
+
+	for i, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+
+		converted[i] = errors.New(msg.(string))
+	}
+
+	return converted
 }
 
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,

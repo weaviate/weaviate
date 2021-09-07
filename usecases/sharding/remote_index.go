@@ -2,7 +2,6 @@ package sharding
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -41,6 +40,8 @@ type nodeResolver interface {
 type RemoteIndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
+	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
+		objs []*storobj.Object) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
@@ -61,8 +62,34 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
 	}
 
-	fmt.Printf("will now contact %s: %s/%s/%s\n", shard.BelongsToNode, host, ri.class, shardName)
 	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
+}
+
+// helper for single errors that affect the entire batch, assign the error to
+// every single item in the batch
+func duplicateErr(in error, count int) []error {
+	out := make([]error, count)
+	for i := range out {
+		out[i] = in
+	}
+	return out
+}
+
+func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
+	objs []*storobj.Object) []error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
+			ri.class, shardName), len(objs))
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return duplicateErr(errors.Errorf("resolve node name %q to host",
+			shard.BelongsToNode), len(objs))
+	}
+
+	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,

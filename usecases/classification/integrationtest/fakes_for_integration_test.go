@@ -330,6 +330,11 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	return nil, nil, nil
 }
 
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
+	shardName string, obj []*storobj.Object) []error {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {

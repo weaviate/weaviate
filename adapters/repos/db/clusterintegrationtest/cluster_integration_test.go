@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -43,16 +44,22 @@ const vectorDims = 20
 // as they aren't critical to this test, but use real repos and real HTTP APIs
 // between the repos.
 func TestDistributedSetup(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	t.Run("individual imports", func(t *testing.T) {
+		dirName, cleanup := setupDirectory()
+		defer cleanup()
 
+		testDistributed(t, dirName, false)
+	})
+
+	t.Run("batched imports", func(t *testing.T) {
+		dirName, cleanup := setupDirectory()
+		defer cleanup()
+
+		testDistributed(t, dirName, true)
+	})
+}
+
+func testDistributed(t *testing.T, dirName string, batch bool) {
 	var nodes []*node
 	numberOfNodes := 10
 	numberOfObjects := 200
@@ -82,15 +89,26 @@ func TestDistributedSetup(t *testing.T) {
 	})
 
 	data := exampleData(numberOfObjects)
+	if batch {
+		// pick a random node, but send the entire batch to this node
+		node := nodes[rand.Intn(len(nodes))]
 
-	t.Run("import by picking a random node", func(t *testing.T) {
-		for _, obj := range data {
-			node := nodes[rand.Intn(len(nodes))]
-
-			err := node.repo.PutObject(context.Background(), obj, obj.Vector)
-			require.Nil(t, err)
+		batchObjs := dataAsBatch(data)
+		res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+		require.Nil(t, err)
+		for _, ind := range res {
+			require.Nil(t, ind.Err)
 		}
-	})
+	} else {
+		t.Run("import by picking a random node", func(t *testing.T) {
+			for _, obj := range data {
+				node := nodes[rand.Intn(len(nodes))]
+
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				require.Nil(t, err)
+			}
+		})
+	}
 
 	t.Run("query individually using random node", func(t *testing.T) {
 		for _, obj := range data {
@@ -98,7 +116,7 @@ func TestDistributedSetup(t *testing.T) {
 
 			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
 			require.Nil(t, err)
-			assert.NotNil(t, res)
+			require.NotNil(t, res)
 			assert.Equal(t, obj.Properties, res.Object().Properties)
 		}
 	})
@@ -136,10 +154,37 @@ func TestDistributedSetup(t *testing.T) {
 
 			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
 			require.Nil(t, err)
-			assert.NotNil(t, res)
+			require.NotNil(t, res)
 			assert.Equal(t, obj.Properties, res.Object().Properties)
 		}
 	})
+}
+
+func setupDirectory() (string, func()) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	return dirName, func() {
+		err := os.RemoveAll(dirName)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+}
+
+func dataAsBatch(data []*models.Object) objects.BatchObjects {
+	batchObjs := make(objects.BatchObjects, len(data))
+	for i := range data {
+		batchObjs[i] = objects.BatchObject{
+			OriginalIndex: i,
+			Err:           nil,
+			Object:        data[i],
+			UUID:          data[i].ID,
+			Vector:        data[i].Vector,
+		}
+	}
+
+	return batchObjs
 }
 
 type node struct {
@@ -201,8 +246,13 @@ func multiShardState(nodeCount int) *sharding.State {
 		panic(err)
 	}
 
+	nodeList := make([]string, nodeCount)
+	for i := range nodeList {
+		nodeList[i] = fmt.Sprintf("node-%d", i)
+	}
+
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{[]string{"node-1"}})
+		fakeNodes{nodeList})
 	if err != nil {
 		panic(err)
 	}
