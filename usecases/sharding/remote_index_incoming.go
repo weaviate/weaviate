@@ -22,7 +22,10 @@ type RemoteIndexIncomingRepo interface {
 	IncomingBatchPutObjects(ctx context.Context, shardName string,
 		objs []*storobj.Object) []error
 	IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
-		selectProperties search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+		selectProperties search.SelectProperties,
+		additional additional.Properties) (*storobj.Object, error)
+	IncomingMultiGetObjects(ctx context.Context, shardName string,
+		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
 		vector []float32, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
@@ -68,6 +71,16 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	}
 
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+}
+
+func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
+	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingMultiGetObjects(ctx, shardName, ids)
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,

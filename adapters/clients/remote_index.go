@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 
@@ -189,19 +190,86 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 	}
 
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		// this is a legitimate case - the requested ID doesn't exist, don't try
+		// to unmarshal anything
+		return nil, nil
+	}
+
 	if res.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(res.Body)
 		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)
 	}
 
-	var obj storobj.Object
-	err = json.NewDecoder(res.Body).Decode(&obj)
+	objBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "decode body")
+		return nil, errors.Wrap(err, "read body")
 	}
 
-	return &obj, nil
+	obj, err := storobj.FromBinary(objBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+
+	return obj, nil
+}
+
+func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
+	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
+	idsBytes, err := json.Marshal(ids)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal selectProps props")
+	}
+
+	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	q := url.Query()
+	q.Set("ids", idsEncoded)
+	url.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		// this is a legitimate case - the requested ID doesn't exist, don't try
+		// to unmarshal anything
+		return nil, nil
+	}
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	ct := res.Header.Get("content-type")
+	if ct != "application/vnd.weaviate.storobj.list+octet-stream" {
+		return nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read response body")
+	}
+
+	objs, err := unmarshalObjsList(bodyBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal objects")
+	}
+
+	return objs, nil
 }
 
 type searchParametersPayload struct {
@@ -209,11 +277,6 @@ type searchParametersPayload struct {
 	Limit        int                   `json:"limit"`
 	Filters      *filters.LocalFilter  `json:"filters"`
 	Additional   additional.Properties `json:"additional"`
-}
-
-type searchResultsPayload struct {
-	Results   []*storobj.Object `json:"results"`
-	Distances []float32         `json:"distances"`
 }
 
 func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
@@ -253,11 +316,76 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 			body)
 	}
 
-	var results searchResultsPayload
-	err = json.NewDecoder(res.Body).Decode(&results)
+	resBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "decode body")
+		return nil, nil, errors.Wrap(err, "read body")
 	}
 
-	return results.Results, results.Distances, nil
+	objs, dists, err := unmarshalSearchResultsPayload(resBytes)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "unmarshal body")
+	}
+	return objs, dists, nil
+}
+
+func unmarshalObjsList(in []byte) ([]*storobj.Object, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency
+	var out []*storobj.Object
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		obj, err := storobj.FromBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+func unmarshalSearchResultsPayload(in []byte) ([]*storobj.Object,
+	[]float32, error) {
+	read := uint64(0)
+
+	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	objs, err := unmarshalObjsList(in[read : read+objsLength])
+	if err != nil {
+		return nil, nil, err
+	}
+	read += objsLength
+
+	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	dists := make([]float32, distsLength)
+	for i := range dists {
+		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+		read += 4
+	}
+
+	if read != uint64(len(in)) {
+		return nil, nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
+	}
+
+	return objs, dists, nil
 }

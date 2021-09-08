@@ -335,6 +335,11 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 	return nil
 }
 
+func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
+	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {

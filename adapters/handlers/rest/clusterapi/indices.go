@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
 
@@ -41,6 +43,8 @@ type shards interface {
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+	MultiGetObjects(ctx context.Context, indexName, shardName string,
+		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
 		vector []float32, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
@@ -77,13 +81,17 @@ func (i *indices) Indices() http.Handler {
 			return
 
 		case i.regexpObjects.MatchString(path):
-			if r.Method != http.MethodPost {
-				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			if r.Method == http.MethodGet {
+				i.getObjectsMulti().ServeHTTP(w, r)
 				return
 			}
-
-			i.postObject().ServeHTTP(w, r)
+			if r.Method == http.MethodPost {
+				i.postObject().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
+
 		default:
 			http.NotFound(w, r)
 			return
@@ -275,7 +283,14 @@ func (i *indices) getObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		objBytes, err := json.Marshal(obj)
+		if obj == nil {
+			// this is a legitimate case - the requested ID doesn't exist, don't try
+			// to marshal anything
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		objBytes, err := obj.MarshalBinary()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -285,16 +300,61 @@ func (i *indices) getObject() http.Handler {
 	})
 }
 
+func (i *indices) getObjectsMulti() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, fmt.Sprintf("invalid URI: %s", r.URL.Path),
+				http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+
+		idsEncoded := r.URL.Query().Get("ids")
+		if idsEncoded == "" {
+			http.Error(w, "missing required url param 'ids'",
+				http.StatusBadRequest)
+			return
+		}
+
+		idsBytes, err := base64.StdEncoding.DecodeString(idsEncoded)
+		if err != nil {
+			http.Error(w, "base64 decode 'ids' param: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		var ids []strfmt.UUID
+		if err := json.Unmarshal(idsBytes, &ids); err != nil {
+			http.Error(w, "unmarshal 'ids' param from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		objsBytes, err := marshalObjsList(objs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		w.Header().
+			Set("content-type", "application/vnd.weaviate.storobj.list+octet-stream")
+		w.Write(objsBytes)
+	})
+}
+
 type searchParametersPayload struct {
 	SearchVector []float32             `json:"searchVector"`
 	Limit        int                   `json:"limit"`
 	Filters      *filters.LocalFilter  `json:"filters"`
 	Additional   additional.Properties `json:"additional"`
-}
-
-type searchResultsPayload struct {
-	Results   []*storobj.Object `json:"results"`
-	Distances []float32         `json:"distances"`
 }
 
 func (i *indices) postSearchObjects() http.Handler {
@@ -328,12 +388,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resPayload := searchResultsPayload{
-			Results:   results,
-			Distances: dists,
-		}
-
-		resBytes, err := json.Marshal(resPayload)
+		resBytes, err := marshalSearchResultsPayload(results, dists)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -342,4 +397,55 @@ func (i *indices) postSearchObjects() http.Handler {
 		r.Header.Set("content-type", "application/vnd.weaviate.shardsearchresults+octet-stream")
 		w.Write(resBytes)
 	})
+}
+
+func marshalSearchResultsPayload(objs []*storobj.Object,
+	dists []float32) ([]byte, error) {
+	reusableLengthBuf := make([]byte, 8)
+	var out []byte
+	objsBytes, err := marshalObjsList(objs)
+	if err != nil {
+		return nil, err
+	}
+
+	objsLength := uint64(len(objsBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+
+	out = append(out, reusableLengthBuf...)
+	out = append(out, objsBytes...)
+
+	distsLength := uint64(len(dists))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
+	out = append(out, reusableLengthBuf...)
+
+	distsBuf := make([]byte, distsLength*4)
+	for i, dist := range dists {
+		distUint32 := math.Float32bits(dist)
+		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
+	}
+	out = append(out, distsBuf...)
+
+	return out, nil
+}
+
+func marshalObjsList(in []*storobj.Object) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		bytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(bytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, bytes...)
+	}
+
+	return out, nil
 }
