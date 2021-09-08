@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -84,23 +85,31 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			err := nodes[i].migrator.AddClass(context.Background(), class(),
 				nodes[i].schemaGetter.shardState)
 			require.Nil(t, err)
-			nodes[i].schemaGetter.schema.Objects.Classes = append(nodes[i].schemaGetter.schema.Objects.Classes, class())
+			err = nodes[i].migrator.AddClass(context.Background(), secondClassWithRef(),
+				nodes[i].schemaGetter.shardState)
+			require.Nil(t, err)
+			nodes[i].schemaGetter.schema.Objects.Classes = append(nodes[i].schemaGetter.schema.Objects.Classes,
+				class(), secondClassWithRef())
 		}
 	})
 
 	data := exampleData(numberOfObjects)
-	if batch {
-		// pick a random node, but send the entire batch to this node
-		node := nodes[rand.Intn(len(nodes))]
+	refData := exampleDataWithRefs(numberOfObjects, 5, data)
 
-		batchObjs := dataAsBatch(data)
-		res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
-		require.Nil(t, err)
-		for _, ind := range res {
-			require.Nil(t, ind.Err)
-		}
+	if batch {
+		t.Run("import large batch from random node", func(t *testing.T) {
+			// pick a random node, but send the entire batch to this node
+			node := nodes[rand.Intn(len(nodes))]
+
+			batchObjs := dataAsBatch(data)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			require.Nil(t, err)
+			for _, ind := range res {
+				require.Nil(t, ind.Err)
+			}
+		})
 	} else {
-		t.Run("import by picking a random node", func(t *testing.T) {
+		t.Run("import first class by picking a random node", func(t *testing.T) {
 			for _, obj := range data {
 				node := nodes[rand.Intn(len(nodes))]
 
@@ -108,7 +117,19 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				require.Nil(t, err)
 			}
 		})
+
+		_ = refData
 	}
+
+	// TODO: split in non-batch and batch
+	t.Run("import second class with refs by picking a random node", func(t *testing.T) {
+		for _, obj := range refData {
+			node := nodes[rand.Intn(len(nodes))]
+
+			err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+			require.Nil(t, err)
+		}
+	})
 
 	t.Run("query individually using random node", func(t *testing.T) {
 		for _, obj := range data {
@@ -156,6 +177,51 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, obj.Properties, res.Object().Properties)
+		}
+	})
+
+	t.Run("query individually and resolve references", func(t *testing.T) {
+		for _, obj := range refData {
+			// if i == 5 {
+			// 	break
+			// }
+			node := nodes[rand.Intn(len(nodes))]
+
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
+				search.SelectProperties{
+					search.SelectProperty{
+						Name:        "toFirst",
+						IsPrimitive: false,
+						Refs: []search.SelectClass{
+							search.SelectClass{
+								ClassName: "Distributed",
+								RefProperties: search.SelectProperties{
+									search.SelectProperty{
+										Name:        "description",
+										IsPrimitive: true,
+									},
+								},
+							},
+						},
+					},
+				}, additional.Properties{})
+			require.Nil(t, err)
+			require.NotNil(t, res)
+			props := res.Object().Properties.(map[string]interface{})
+			refProp, ok := props["toFirst"].([]interface{})
+			require.True(t, ok)
+
+			var refPayload []map[string]interface{}
+			for _, res := range refProp {
+				parsed, ok := res.(search.LocalRef)
+				require.True(t, ok)
+				refPayload = append(refPayload, map[string]interface{}{
+					"description": parsed.Fields["description"],
+				})
+			}
+
+			actual := manuallyResolveRef(t, obj, data, "toFirst", "description")
+			assert.Equal(t, actual, refPayload)
 		}
 	})
 }
@@ -324,6 +390,26 @@ func class() *models.Class {
 	}
 }
 
+func secondClassWithRef() *models.Class {
+	cfg := hnsw.NewDefaultUserConfig()
+	cfg.EF = 500
+	return &models.Class{
+		Class:               "SecondDistributed",
+		VectorIndexConfig:   cfg,
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "description",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+			{
+				Name:     "toFirst",
+				DataType: []string{"Distributed"},
+			},
+		},
+	}
+}
+
 func invertedConfig() *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,
@@ -343,6 +429,35 @@ func exampleData(size int) []*models.Object {
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
 				"description": fmt.Sprintf("object-%d", i),
+			},
+			Vector: vec,
+		}
+	}
+
+	return out
+}
+
+func exampleDataWithRefs(size int, refCount int, targetObjs []*models.Object) []*models.Object {
+	out := make([]*models.Object, size)
+
+	for i := range out {
+		vec := make([]float32, vectorDims)
+		for i := range vec {
+			vec[i] = rand.Float32()
+		}
+
+		refs := make(models.MultipleRef, refCount)
+		for i := range refs {
+			randomTarget := targetObjs[rand.Intn(len(targetObjs))]
+			refs[i] = crossref.New("localhost", randomTarget.ID).SingleRef()
+		}
+
+		out[i] = &models.Object{
+			Class: "SecondDistributed",
+			ID:    strfmt.UUID(uuid.New().String()),
+			Properties: map[string]interface{}{
+				"description": fmt.Sprintf("second-object-%d", i),
+				"toFirst":     refs,
 			},
 			Vector: vec,
 		}
@@ -392,4 +507,33 @@ func normalize(v []float32) []float32 {
 	}
 
 	return v
+}
+
+func manuallyResolveRef(t *testing.T, obj *models.Object,
+	possibleTargets []*models.Object, localPropName,
+	referencedPropName string) []map[string]interface{} {
+	beacons := obj.Properties.(map[string]interface{})[localPropName].(models.MultipleRef)
+	out := make([]map[string]interface{}, len(beacons))
+
+	for i, ref := range beacons {
+		parsed, err := crossref.Parse(ref.Beacon.String())
+		require.Nil(t, err)
+		target := findId(possibleTargets, parsed.TargetID)
+		require.NotNil(t, target, "target not found")
+		out[i] = map[string]interface{}{
+			referencedPropName: target.Properties.(map[string]interface{})[referencedPropName],
+		}
+	}
+
+	return out
+}
+
+func findId(list []*models.Object, id strfmt.UUID) *models.Object {
+	for _, obj := range list {
+		if obj.ID == id {
+			return obj
+		}
+	}
+
+	return nil
 }

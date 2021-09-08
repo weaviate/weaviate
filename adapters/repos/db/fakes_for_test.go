@@ -100,6 +100,11 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
+func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
+	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
+	return nil, nil
+}
+
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {

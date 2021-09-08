@@ -311,7 +311,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		IsShardLocal(shardName)
 
 	if !local {
-		return i.remote.GetObject(ctx, shardName, id, props, additional)
+		remote, err := i.remote.GetObject(ctx, shardName, id, props, additional)
+		return remote, err
 	}
 
 	shard := i.Shards[shardName]
@@ -323,8 +324,9 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	return obj, nil
 }
 
-func (i *Index) IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
+	id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties) (*storobj.Object, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -336,6 +338,21 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string, id strf
 	}
 
 	return obj, nil
+}
+
+func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
+	ids []strfmt.UUID) ([]*storobj.Object, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return objs, nil
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
@@ -362,10 +379,24 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	out := make([]*storobj.Object, len(query))
 
 	for shardName, group := range byShard {
-		shard := i.Shards[shardName]
-		objects, err := shard.multiObjectByID(ctx, group.ids)
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+		local := i.getSchema.
+			ShardingState(i.Config.ClassName.String()).
+			IsShardLocal(shardName)
+
+		var objects []*storobj.Object
+		var err error
+
+		if local {
+			shard := i.Shards[shardName]
+			objects, err = shard.multiObjectByID(ctx, group.ids)
+			if err != nil {
+				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+			}
+		} else {
+			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+			if err != nil {
+				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+			}
 		}
 
 		for i, obj := range objects {
@@ -375,6 +406,26 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	}
 
 	return out, nil
+}
+
+func extractIDsFromMulti(in []multi.Identifier) []strfmt.UUID {
+	out := make([]strfmt.UUID, len(in))
+
+	for i, id := range in {
+		out[i] = strfmt.UUID(id.ID)
+	}
+
+	return out
+}
+
+func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
+	out := make([]multi.Identifier, len(in))
+
+	for i, id := range in {
+		out[i] = multi.Identifier{ID: string(id)}
+	}
+
+	return out
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
