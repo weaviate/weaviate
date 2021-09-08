@@ -108,6 +108,30 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				require.Nil(t, ind.Err)
 			}
 		})
+
+		t.Run("import second class without refs", func(t *testing.T) {
+			// pick a random node, but send the entire batch to this node
+			node := nodes[rand.Intn(len(nodes))]
+
+			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			require.Nil(t, err)
+			for _, ind := range res {
+				require.Nil(t, ind.Err)
+			}
+		})
+
+		t.Run("import refs as batch", func(t *testing.T) {
+			// pick a random node, but send the entire batch to this node
+			node := nodes[rand.Intn(len(nodes))]
+
+			batch := refsAsBatch(refData, "toFirst")
+			res, err := node.repo.AddBatchReferences(context.Background(), batch)
+			require.Nil(t, err)
+			for _, ind := range res {
+				require.Nil(t, ind.Err)
+			}
+		})
 	} else {
 		t.Run("import first class by picking a random node", func(t *testing.T) {
 			for _, obj := range data {
@@ -118,18 +142,15 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 		})
 
-		_ = refData
+		t.Run("import second class with refs by picking a random node", func(t *testing.T) {
+			for _, obj := range refData {
+				node := nodes[rand.Intn(len(nodes))]
+
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				require.Nil(t, err)
+			}
+		})
 	}
-
-	// TODO: split in non-batch and batch
-	t.Run("import second class with refs by picking a random node", func(t *testing.T) {
-		for _, obj := range refData {
-			node := nodes[rand.Intn(len(nodes))]
-
-			err := node.repo.PutObject(context.Background(), obj, obj.Vector)
-			require.Nil(t, err)
-		}
-	})
 
 	t.Run("query individually using random node", func(t *testing.T) {
 		for _, obj := range data {
@@ -251,6 +272,43 @@ func dataAsBatch(data []*models.Object) objects.BatchObjects {
 	}
 
 	return batchObjs
+}
+
+func dataAsBatchWithProps(data []*models.Object, props []string) objects.BatchObjects {
+	batchObjs := make(objects.BatchObjects, len(data))
+	for i := range data {
+		batchObjs[i] = objects.BatchObject{
+			OriginalIndex: i,
+			Err:           nil,
+			Object:        copyObjectWithProp(data[i], props),
+			UUID:          data[i].ID,
+			Vector:        data[i].Vector,
+		}
+	}
+
+	return batchObjs
+}
+
+// copyObjectWithProp is not a 100% copy. It may still contain the same
+// pointers in some properties, it does however guarantee that it does not
+// alter the existing input - this guarantee is lost, if you modify the output
+func copyObjectWithProp(in *models.Object, propsToCopy []string) *models.Object {
+	out := &models.Object{}
+
+	out.Additional = in.Additional
+	out.Class = in.Class
+	out.Vector = in.Vector
+	out.CreationTimeUnix = in.CreationTimeUnix
+	out.LastUpdateTimeUnix = in.LastUpdateTimeUnix
+	out.ID = in.ID
+	props := map[string]interface{}{}
+
+	for _, propName := range propsToCopy {
+		props[propName] = in.Properties.(map[string]interface{})[propName]
+	}
+
+	out.Properties = props
+	return out
 }
 
 type node struct {
@@ -536,4 +594,30 @@ func findId(list []*models.Object, id strfmt.UUID) *models.Object {
 	}
 
 	return nil
+}
+
+func refsAsBatch(in []*models.Object, propName string) objects.BatchReferences {
+	out := objects.BatchReferences{}
+
+	originalIndex := 0
+	for _, obj := range in {
+		beacons := obj.Properties.(map[string]interface{})[propName].(models.MultipleRef)
+		current := make(objects.BatchReferences, len(beacons))
+		for i, beacon := range beacons {
+			to, err := crossref.Parse(beacon.Beacon.String())
+			if err != nil {
+				panic(err)
+			}
+			current[i] = objects.BatchReference{
+				OriginalIndex: originalIndex,
+				To:            to,
+				From: crossref.NewSource(schema.ClassName(obj.Class),
+					schema.PropertyName(propName), obj.ID),
+			}
+			originalIndex++
+		}
+		out = append(out, current...)
+	}
+
+	return out
 }

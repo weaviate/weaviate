@@ -10,6 +10,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type RemoteIncomingRepo interface {
@@ -21,6 +22,8 @@ type RemoteIndexIncomingRepo interface {
 		obj *storobj.Object) error
 	IncomingBatchPutObjects(ctx context.Context, shardName string,
 		objs []*storobj.Object) []error
+	IncomingBatchAddReferences(ctx context.Context, shardName string,
+		refs objects.BatchReferences) []error
 	IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
 		selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
@@ -60,6 +63,17 @@ func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 	}
 
 	return index.IncomingBatchPutObjects(ctx, shardName, objs)
+}
+
+func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexName,
+	shardName string, refs objects.BatchReferences) []error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return duplicateErr(errors.Errorf("local index %q not found", indexName),
+			len(refs))
+	}
+
+	return index.IncomingBatchAddReferences(ctx, shardName, refs)
 }
 
 func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,

@@ -288,8 +288,17 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	}
 
 	for shardName, group := range byShard {
-		shard := i.Shards[shardName]
-		errs := shard.addReferencesBatch(ctx, group.refs)
+		local := i.getSchema.
+			ShardingState(i.Config.ClassName.String()).
+			IsShardLocal(shardName)
+
+		var errs []error
+		if !local {
+			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
+		} else {
+			shard := i.Shards[shardName]
+			errs = shard.addReferencesBatch(ctx, group.refs)
+		}
 		for i, err := range errs {
 			desiredPos := group.pos[i]
 			out[desiredPos] = err
@@ -297,6 +306,17 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	}
 
 	return out
+}
+
+func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
+	refs objects.BatchReferences) []error {
+	localShard, ok := i.Shards[shardName]
+	if !ok {
+		return duplicateErr(errors.Errorf("shard %q does not exist locally",
+			shardName), len(refs))
+	}
+
+	return localShard.addReferencesBatch(ctx, refs)
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,

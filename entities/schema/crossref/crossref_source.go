@@ -29,11 +29,11 @@ import (
 // not use directly, such as crossref.RefSource{}, as you won't have any
 // guarantees in this case. Always use one of the parsing options or New()
 type RefSource struct {
-	Local    bool
-	PeerName string
-	Property schema.PropertyName
-	Class    schema.ClassName
-	TargetID strfmt.UUID
+	Local    bool                `json:"local"`
+	PeerName string              `json:"peerName"`
+	Property schema.PropertyName `json:"property"`
+	Class    schema.ClassName    `json:"class"`
+	TargetID strfmt.UUID         `json:"targetID"`
 }
 
 func NewSource(className schema.ClassName,

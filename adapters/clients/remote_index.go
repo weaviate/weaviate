@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type RemoteIndex struct {
@@ -109,6 +110,51 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 	resBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return duplicateErr(errors.Wrap(err, "ready body"), len(objs))
+	}
+
+	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
+}
+
+func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexName,
+	shardName string, refs objects.BatchReferences) []error {
+	path := fmt.Sprintf("/indices/%s/shards/%s/references", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	marshalled, err := clusterapi.IndicesPayloads.ReferenceList.Marshal(refs)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "marshal payload"), len(refs))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(marshalled))
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "open http request"), len(refs))
+	}
+
+	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "send http request"), len(refs))
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
+			res.StatusCode, body), len(refs))
+	}
+
+	if ct, ok := clusterapi.IndicesPayloads.ErrorList.
+		CheckContentTypeHeader(res); !ok {
+		return duplicateErr(errors.Errorf("unexpected content type: %s",
+			ct), len(refs))
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return duplicateErr(errors.Wrap(err, "ready body"), len(refs))
 	}
 
 	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
