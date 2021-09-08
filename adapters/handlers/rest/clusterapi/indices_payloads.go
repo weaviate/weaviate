@@ -12,6 +12,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 var IndicesPayloads = indicesPayloads{}
@@ -22,6 +23,7 @@ type indicesPayloads struct {
 	ObjectList    objectListPayload
 	SearchResults searchResultsPayload
 	SearchParams  searchParamsPayload
+	ReferenceList referenceListPayload
 }
 
 type errorListPayload struct{}
@@ -280,4 +282,32 @@ func (p searchResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
 func (p searchResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
+}
+
+type referenceListPayload struct{}
+
+func (p referenceListPayload) MIME() string {
+	return "application/vnd.weaviate.references.list+json"
+}
+
+func (p referenceListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p referenceListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p referenceListPayload) Marshal(in objects.BatchReferences) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(in)
+}
+
+func (p referenceListPayload) Unmarshal(in []byte) (objects.BatchReferences, error) {
+	var out objects.BatchReferences
+	err := json.Unmarshal(in, &out)
+	return out, err
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type RemoteIndex struct {
@@ -42,6 +43,8 @@ type RemoteIndexClient interface {
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
 		objs []*storobj.Object) []error
+	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
+		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
@@ -92,6 +95,23 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 	}
 
 	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs)
+}
+
+func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
+	refs objects.BatchReferences) []error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
+			ri.class, shardName), len(refs))
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return duplicateErr(errors.Errorf("resolve node name %q to host",
+			shard.BelongsToNode), len(refs))
+	}
+
+	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,

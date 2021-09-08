@@ -15,6 +15,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type indices struct {
@@ -22,6 +23,7 @@ type indices struct {
 	regexpObjects       *regexp.Regexp
 	regexpObjectsSearch *regexp.Regexp
 	regexpObject        *regexp.Regexp
+	regexpReferences    *regexp.Regexp
 }
 
 const (
@@ -31,6 +33,8 @@ const (
 		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
 	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
+	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/references`
 )
 
 type shards interface {
@@ -38,6 +42,8 @@ type shards interface {
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, indexName, shardName string,
 		objs []*storobj.Object) []error
+	BatchAddReferences(ctx context.Context, indexName, shardName string,
+		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
@@ -53,6 +59,7 @@ func NewIndices(shards shards) *indices {
 		regexpObjects:       regexp.MustCompile(urlPatternObjects),
 		regexpObjectsSearch: regexp.MustCompile(urlPatternObjectsSearch),
 		regexpObject:        regexp.MustCompile(urlPatternObject),
+		regexpReferences:    regexp.MustCompile(urlPatternReferences),
 		shards:              shards,
 	}
 }
@@ -88,6 +95,15 @@ func (i *indices) Indices() http.Handler {
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
+		case i.regexpReferences.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			i.postReferences().ServeHTTP(w, r)
 			return
 
 		default:
@@ -348,5 +364,49 @@ func (i *indices) postSearchObjects() http.Handler {
 
 		IndicesPayloads.SearchResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
+	})
+}
+
+func (i *indices) postReferences() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpReferences.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		ct, ok := IndicesPayloads.ReferenceList.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		refs, err := IndicesPayloads.ReferenceList.Unmarshal(reqPayload)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs)
+		errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		IndicesPayloads.ErrorList.SetContentTypeHeader(w)
+		w.Write(errsJSON)
 	})
 }

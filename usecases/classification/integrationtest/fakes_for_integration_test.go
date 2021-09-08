@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -338,6 +339,11 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
 	return nil, nil
+}
+
+func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
+	indexName, shardName string, refs objects.BatchReferences) []error {
+	return nil
 }
 
 type fakeNodeResolver struct{}
