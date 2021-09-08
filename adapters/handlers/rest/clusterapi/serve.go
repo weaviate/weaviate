@@ -17,12 +17,12 @@ func Serve(appState *state.State) {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	schema := newSchema(appState.SchemaManager.TxManager())
+	schema := NewSchema(appState.SchemaManager.TxManager())
 	indices := NewIndices(appState.RemoteIncoming)
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",
-		http.StripPrefix("/schema/transactions/", schema.transactions()))
+		http.StripPrefix("/schema/transactions/", schema.Transactions()))
 
 	mux.Handle("/indices/", indices.Indices())
 	mux.Handle("/", schema.index())

@@ -1,18 +1,16 @@
 package clusterapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -118,7 +116,7 @@ func (i *indices) postObject() http.Handler {
 			i.postObjectBatch(w, r, index, shard)
 			return
 
-		case "application/vnd.weaviate.storobj+octet-stream":
+		case IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard)
 			return
 
@@ -137,7 +135,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	obj, err := storobj.FromBinary(bodyBytes)
+	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -151,52 +149,6 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func unmarshalObjsList(in []byte) ([]*storobj.Object, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency
-	var out []*storobj.Object
-
-	reusableLengthBuf := make([]byte, 8)
-	r := bytes.NewReader(in)
-
-	for {
-		_, err := r.Read(reusableLengthBuf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
-		_, err = r.Read(payloadBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		obj, err := storobj.FromBinary(payloadBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		out = append(out, obj)
-	}
-
-	return out, nil
-}
-
-func marshalErrList(in []error) ([]byte, error) {
-	converted := make([]interface{}, len(in))
-	for i, err := range in {
-		if err == nil {
-			continue
-		}
-
-		converted[i] = err.Error()
-	}
-
-	return json.Marshal(converted)
-}
-
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	index, shard string) {
 	bodyBytes, err := io.ReadAll(r.Body)
@@ -205,20 +157,20 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	objs, err := unmarshalObjsList(bodyBytes)
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
-	errsJSON, err := marshalErrList(errs)
+	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("content-type", "application/vnd.weaviate.error.list+json")
+	IndicesPayloads.ErrorList.SetContentTypeHeader(w)
 	w.Write(errsJSON)
 }
 
@@ -290,12 +242,12 @@ func (i *indices) getObject() http.Handler {
 			return
 		}
 
-		objBytes, err := obj.MarshalBinary()
+		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		w.Header().Set("content-type", "application/vnd.weaviate.storobj+octet-stream")
+		IndicesPayloads.SingleObject.SetContentTypeHeader(w)
 		w.Write(objBytes)
 	})
 }
@@ -339,22 +291,14 @@ func (i *indices) getObjectsMulti() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		objsBytes, err := marshalObjsList(objs)
+		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		w.Header().
-			Set("content-type", "application/vnd.weaviate.storobj.list+octet-stream")
+		IndicesPayloads.ObjectList.SetContentTypeHeader(w)
 		w.Write(objsBytes)
 	})
-}
-
-type searchParametersPayload struct {
-	SearchVector []float32             `json:"searchVector"`
-	Limit        int                   `json:"limit"`
-	Filters      *filters.LocalFilter  `json:"filters"`
-	Additional   additional.Properties `json:"additional"`
 }
 
 func (i *indices) postSearchObjects() http.Handler {
@@ -374,78 +318,35 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		var params searchParametersPayload
-		if err := json.Unmarshal(reqPayload, &params); err != nil {
+		ct, ok := IndicesPayloads.SearchParams.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		vector, limit, filters, additional, err := IndicesPayloads.SearchParams.
+			Unmarshal(reqPayload)
+		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			params.SearchVector, params.Limit, params.Filters, params.Additional)
+			vector, limit, filters, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := marshalSearchResultsPayload(results, dists)
+		resBytes, err := IndicesPayloads.SearchResults.Marshal(results, dists)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		r.Header.Set("content-type", "application/vnd.weaviate.shardsearchresults+octet-stream")
+		IndicesPayloads.SearchResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
-}
-
-func marshalSearchResultsPayload(objs []*storobj.Object,
-	dists []float32) ([]byte, error) {
-	reusableLengthBuf := make([]byte, 8)
-	var out []byte
-	objsBytes, err := marshalObjsList(objs)
-	if err != nil {
-		return nil, err
-	}
-
-	objsLength := uint64(len(objsBytes))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
-
-	out = append(out, reusableLengthBuf...)
-	out = append(out, objsBytes...)
-
-	distsLength := uint64(len(dists))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
-	out = append(out, reusableLengthBuf...)
-
-	distsBuf := make([]byte, distsLength*4)
-	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
-		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
-	}
-	out = append(out, distsBuf...)
-
-	return out, nil
-}
-
-func marshalObjsList(in []*storobj.Object) ([]byte, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency,
-	// reserve 1024 byte per object which is rather arbitrary
-	out := make([]byte, 0, 1024*len(in))
-
-	reusableLengthBuf := make([]byte, 8)
-	for _, ind := range in {
-		bytes, err := ind.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-
-		length := uint64(len(bytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-		out = append(out, reusableLengthBuf...)
-		out = append(out, bytes...)
-	}
-
-	return out, nil
 }

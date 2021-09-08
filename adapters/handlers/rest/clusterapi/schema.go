@@ -21,7 +21,7 @@ type schema struct {
 	txManager txManager
 }
 
-func newSchema(manager txManager) *schema {
+func NewSchema(manager txManager) *schema {
 	return &schema{txManager: manager}
 }
 
@@ -41,7 +41,7 @@ func (s *schema) index() http.Handler {
 	})
 }
 
-func (s *schema) transactions() http.Handler {
+func (s *schema) Transactions() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
