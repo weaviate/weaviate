@@ -1,4 +1,4 @@
-package clusterapi
+package clusterapi_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/clients"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -104,10 +105,10 @@ func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
 		&fakeClusterState{hosts: []string{}}, nil)
 
-	schemaHandlers := newSchema(remoteManager.TxManager())
+	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/", http.StripPrefix("/schema/transactions/",
-		schemaHandlers.transactions()))
+		schemaHandlers.Transactions()))
 	server := httptest.NewServer(mux)
 
 	client := clients.NewClusterSchema(&http.Client{})

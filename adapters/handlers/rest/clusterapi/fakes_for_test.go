@@ -1,4 +1,4 @@
-package clusterapi
+package clusterapi_test
 
 import (
 	"context"

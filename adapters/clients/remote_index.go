@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"net/http"
 	"net/url"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -35,7 +34,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	marshalled, err := obj.MarshalBinary()
+	marshalled, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
 	if err != nil {
 		return errors.Wrap(err, "marshal payload")
 	}
@@ -46,8 +45,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
 		return errors.Wrap(err, "open http request")
 	}
 
-	req.Header.Set("content-type", "application/vnd.weaviate.storobj+octet-stream")
-
+	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "send http request")
@@ -71,35 +69,13 @@ func duplicateErr(in error, count int) []error {
 	return out
 }
 
-func marshalObjsList(in []*storobj.Object) ([]byte, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency,
-	// reserve 1024 byte per object which is rather arbitrary
-	out := make([]byte, 0, 1024*len(in))
-
-	reusableLengthBuf := make([]byte, 8)
-	for _, ind := range in {
-		bytes, err := ind.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-
-		length := uint64(len(bytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-		out = append(out, reusableLengthBuf...)
-		out = append(out, bytes...)
-	}
-
-	return out, nil
-}
-
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 	shardName string, objs []*storobj.Object) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	marshalled, err := marshalObjsList(objs)
+	marshalled, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)
 	if err != nil {
 		return duplicateErr(errors.Wrap(err, "marshal payload"), len(objs))
 	}
@@ -110,7 +86,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 		return duplicateErr(errors.Wrap(err, "open http request"), len(objs))
 	}
 
-	req.Header.Set("content-type", "application/vnd.weaviate.storobj.list+octet-stream")
+	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
 
 	res, err := c.client.Do(req)
 	if err != nil {
@@ -124,8 +100,8 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 			res.StatusCode, body), len(objs))
 	}
 
-	ct := res.Header.Get("content-type")
-	if ct != "application/vnd.weaviate.error.list+json" {
+	if ct, ok := clusterapi.IndicesPayloads.ErrorList.
+		CheckContentTypeHeader(res); !ok {
 		return duplicateErr(errors.Errorf("unexpected content type: %s",
 			ct), len(objs))
 	}
@@ -135,24 +111,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 		return duplicateErr(errors.Wrap(err, "ready body"), len(objs))
 	}
 
-	return unmarshalErrList(resBytes)
-}
-
-func unmarshalErrList(in []byte) []error {
-	var msgs []interface{}
-	json.Unmarshal(in, &msgs)
-
-	converted := make([]error, len(msgs))
-
-	for i, msg := range msgs {
-		if msg == nil {
-			continue
-		}
-
-		converted[i] = errors.New(msg.(string))
-	}
-
-	return converted
+	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
 }
 
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
@@ -202,12 +161,17 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 			body)
 	}
 
+	ct, ok := clusterapi.IndicesPayloads.SingleObject.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, errors.Errorf("unknown content type %s", ct)
+	}
+
 	objBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read body")
 	}
 
-	obj, err := storobj.FromBinary(objBytes)
+	obj, err := clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
@@ -254,8 +218,8 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 			body)
 	}
 
-	ct := res.Header.Get("content-type")
-	if ct != "application/vnd.weaviate.storobj.list+octet-stream" {
+	ct, ok := clusterapi.IndicesPayloads.ObjectList.CheckContentTypeHeader(res)
+	if !ok {
 		return nil, errors.Errorf("unexpected content type: %s", ct)
 	}
 
@@ -264,7 +228,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	objs, err := unmarshalObjsList(bodyBytes)
+	objs, err := clusterapi.IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal objects")
 	}
@@ -272,24 +236,11 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	return objs, nil
 }
 
-type searchParametersPayload struct {
-	SearchVector []float32             `json:"searchVector"`
-	Limit        int                   `json:"limit"`
-	Filters      *filters.LocalFilter  `json:"filters"`
-	Additional   additional.Properties `json:"additional"`
-}
-
 func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
-	params := searchParametersPayload{
-		SearchVector: vector,
-		Limit:        limit,
-		Filters:      filters,
-		Additional:   additional,
-	}
-
-	paramsBytes, err := json.Marshal(params)
+	paramsBytes, err := clusterapi.IndicesPayloads.SearchParams.
+		Marshal(vector, limit, filters, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal request payload")
 	}
@@ -304,6 +255,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 		return nil, nil, errors.Wrap(err, "open http request")
 	}
 
+	clusterapi.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "send http request")
@@ -321,71 +273,14 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 		return nil, nil, errors.Wrap(err, "read body")
 	}
 
-	objs, dists, err := unmarshalSearchResultsPayload(resBytes)
+	ct, ok := clusterapi.IndicesPayloads.SearchResults.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	objs, dists, err := clusterapi.IndicesPayloads.SearchResults.Unmarshal(resBytes)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "unmarshal body")
 	}
-	return objs, dists, nil
-}
-
-func unmarshalObjsList(in []byte) ([]*storobj.Object, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency
-	var out []*storobj.Object
-
-	reusableLengthBuf := make([]byte, 8)
-	r := bytes.NewReader(in)
-
-	for {
-		_, err := r.Read(reusableLengthBuf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
-		_, err = r.Read(payloadBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		obj, err := storobj.FromBinary(payloadBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		out = append(out, obj)
-	}
-
-	return out, nil
-}
-
-func unmarshalSearchResultsPayload(in []byte) ([]*storobj.Object,
-	[]float32, error) {
-	read := uint64(0)
-
-	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
-	read += 8
-
-	objs, err := unmarshalObjsList(in[read : read+objsLength])
-	if err != nil {
-		return nil, nil, err
-	}
-	read += objsLength
-
-	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
-	read += 8
-
-	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
-
-	if read != uint64(len(in)) {
-		return nil, nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
-	}
-
 	return objs, dists, nil
 }
