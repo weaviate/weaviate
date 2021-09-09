@@ -101,6 +101,11 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
+func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
 	return nil, nil

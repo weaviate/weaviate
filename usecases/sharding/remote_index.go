@@ -48,6 +48,8 @@ type RemoteIndexClient interface {
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+	Exists(ctx context.Context, hostname, indexName, shardName string,
+		id strfmt.UUID) (bool, error)
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
@@ -112,6 +114,21 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 	}
 
 	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs)
+}
+
+func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
+	id strfmt.UUID) (bool, error) {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return false, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return false, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.Exists(ctx, host, ri.class, shardName, id)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,

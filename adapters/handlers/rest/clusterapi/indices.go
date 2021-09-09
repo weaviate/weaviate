@@ -47,6 +47,8 @@ type shards interface {
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+	Exists(ctx context.Context, indexName, shardName string,
+		id strfmt.UUID) (bool, error)
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
@@ -202,6 +204,11 @@ func (i *indices) getObject() http.Handler {
 
 		defer r.Body.Close()
 
+		if r.URL.Query().Get("check_exists") != "" {
+			i.checkExists(w, r, index, shard, id)
+			return
+		}
+
 		additionalEncoded := r.URL.Query().Get("additional")
 		if additionalEncoded == "" {
 			http.Error(w, "missing required url param 'additional'",
@@ -266,6 +273,20 @@ func (i *indices) getObject() http.Handler {
 		IndicesPayloads.SingleObject.SetContentTypeHeader(w)
 		w.Write(objBytes)
 	})
+}
+
+func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
+	index, shard, id string) {
+	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	if ok {
+		w.WriteHeader(http.StatusNoContent)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 func (i *indices) getObjectsMulti() http.Handler {

@@ -454,10 +454,34 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 		return false, err
 	}
 
-	shard := i.Shards[shardName]
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
+
+	var ok bool
+	if local {
+		shard := i.Shards[shardName]
+		ok, err = shard.exists(ctx, id)
+	} else {
+		ok, err = i.remote.Exists(ctx, shardName, id)
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "shard %s", shardName)
+	}
+
+	return ok, nil
+}
+
+func (i *Index) IncomingExists(ctx context.Context, shardName string,
+	id strfmt.UUID) (bool, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return false, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
 	ok, err := shard.exists(ctx, id)
 	if err != nil {
-		return false, errors.Wrapf(err, "shard %s", shard.ID())
+		return ok, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
 	return ok, nil
