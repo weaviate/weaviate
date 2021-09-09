@@ -325,6 +325,11 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
+func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {

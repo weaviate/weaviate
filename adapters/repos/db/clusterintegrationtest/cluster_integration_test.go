@@ -152,6 +152,16 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		})
 	}
 
+	t.Run("query individually to check if all exist using random nodes", func(t *testing.T) {
+		for _, obj := range data {
+			node := nodes[rand.Intn(len(nodes))]
+
+			ok, err := node.repo.Exists(context.Background(), obj.ID)
+			require.Nil(t, err)
+			assert.True(t, ok)
+		}
+	})
+
 	t.Run("query individually using random node", func(t *testing.T) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
