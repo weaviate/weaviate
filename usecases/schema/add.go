@@ -187,7 +187,8 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 
 func (m *Manager) parseShardingConfig(ctx context.Context,
 	class *models.Class) error {
-	parsed, err := sharding.ParseConfig(class.ShardingConfig)
+	parsed, err := sharding.ParseConfig(class.ShardingConfig,
+		m.clusterState.NodeCount())
 	if err != nil {
 		return errors.Wrap(err, "parse vector index config")
 	}

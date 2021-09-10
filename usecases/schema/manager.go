@@ -79,6 +79,8 @@ type clusterState interface {
 	AllNames() []string
 
 	LocalName() string
+
+	NodeCount() int
 }
 
 // NewManager creates a new manager

@@ -99,6 +99,11 @@ func (s *State) AllNames() []string {
 	return out
 }
 
+// All node names (not their hostnames!) for live members, including self.
+func (s *State) NodeCount() int {
+	return s.list.NumMembers()
+}
+
 func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }

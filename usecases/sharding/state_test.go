@@ -22,7 +22,7 @@ import (
 func TestState(t *testing.T) {
 	size := 1000
 
-	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)})
+	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}

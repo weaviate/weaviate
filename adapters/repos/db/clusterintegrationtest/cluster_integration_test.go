@@ -375,7 +375,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 func multiShardState(nodeCount int) *sharding.State {
 	config, err := sharding.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number(fmt.Sprintf("%d", nodeCount)),
-	})
+	}, 1)
 	if err != nil {
 		panic(err)
 	}

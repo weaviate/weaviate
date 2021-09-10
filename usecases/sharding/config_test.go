@@ -34,8 +34,8 @@ func Test_Config(t *testing.T) {
 			input: nil,
 			expected: Config{
 				VirtualPerPhysical:  DefaultVirtualPerPhysical,
-				DesiredCount:        DefaultDesiredCount,
-				DesiredVirtualCount: DefaultVirtualPerPhysical * DefaultDesiredCount,
+				DesiredCount:        7, // cluster size
+				DesiredVirtualCount: DefaultVirtualPerPhysical * 7,
 				Key:                 DefaultKey,
 				Strategy:            DefaultStrategy,
 				Function:            DefaultFunction,
@@ -118,7 +118,7 @@ func Test_Config(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseConfig(test.input)
+			cfg, err := ParseConfig(test.input, 7) // pretend cluster size is 7
 
 			if test.expectedErr == nil {
 				assert.Nil(t, err)

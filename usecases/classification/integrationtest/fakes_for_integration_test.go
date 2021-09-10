@@ -46,7 +46,7 @@ func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 }
 
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil)
+	config, err := sharding.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}

@@ -20,7 +20,6 @@ import (
 
 const (
 	DefaultVirtualPerPhysical = 128
-	DefaultDesiredCount       = 1
 	DefaultKey                = "_id"
 	DefaultStrategy           = "hash"
 	DefaultFunction           = "murmur3"
@@ -37,9 +36,9 @@ type Config struct {
 	Function            string `json:"function"`
 }
 
-func (c *Config) setDefaults() {
+func (c *Config) setDefaults(nodeCount int) {
 	c.VirtualPerPhysical = DefaultVirtualPerPhysical
-	c.DesiredCount = DefaultDesiredCount
+	c.DesiredCount = nodeCount
 	c.DesiredVirtualCount = c.DesiredCount * c.VirtualPerPhysical
 	c.Function = DefaultFunction
 	c.Key = DefaultKey
@@ -65,9 +64,9 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func ParseConfig(input interface{}) (Config, error) {
+func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 	out := Config{}
-	out.setDefaults()
+	out.setDefaults(nodeCount)
 
 	if input == nil {
 		return out, nil
