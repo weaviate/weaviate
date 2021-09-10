@@ -41,7 +41,7 @@ func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 }
 
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil)
+	config, err := sharding.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +57,7 @@ func singleShardState() *sharding.State {
 func multiShardState() *sharding.State {
 	config, err := sharding.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number("3"),
-	})
+	}, 1)
 	if err != nil {
 		panic(err)
 	}

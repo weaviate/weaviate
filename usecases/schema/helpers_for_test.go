@@ -123,6 +123,10 @@ func (f *fakeClusterState) LocalName() string {
 	return "node1"
 }
 
+func (f *fakeClusterState) NodeCount() int {
+	return 1
+}
+
 type fakeTxClient struct{}
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
