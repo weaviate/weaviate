@@ -12,6 +12,8 @@
 package filters
 
 import (
+	"encoding/json"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -84,6 +86,27 @@ type LocalFilter struct {
 type Value struct {
 	Value interface{}     `json:"value"`
 	Type  schema.DataType `json:"type"`
+}
+
+func (v *Value) UnmarshalJSON(data []byte) error {
+	type Alias Value
+	aux := struct {
+		*Alias
+	}{
+		Alias: (*Alias)(v),
+	}
+
+	err := json.Unmarshal(data, &aux)
+	if err != nil {
+		return err
+	}
+
+	asFloat, ok := v.Value.(float64)
+	if v.Type == schema.DataTypeInt && ok {
+		v.Value = int(asFloat)
+	}
+
+	return nil
 }
 
 type Clause struct {
