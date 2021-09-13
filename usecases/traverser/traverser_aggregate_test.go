@@ -37,24 +37,24 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorRepo, explorer, schemaGetter)
 
-		params := AggregateParams{
+		params := aggregation.Params{
 			ClassName: "MyClass",
-			Properties: []AggregateProperty{
-				AggregateProperty{
+			Properties: []aggregation.ParamProperty{
+				aggregation.ParamProperty{
 					Name:        "label",
-					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
 				},
-				AggregateProperty{
+				aggregation.ParamProperty{
 					Name:        "number",
-					Aggregators: []Aggregator{SumAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
 				},
-				AggregateProperty{
+				aggregation.ParamProperty{
 					Name:        "int",
-					Aggregators: []Aggregator{SumAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
 				},
-				AggregateProperty{
+				aggregation.ParamProperty{
 					Name:        "date",
-					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
 				},
 			},
 		}
@@ -120,28 +120,40 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorRepo, explorer, schemaGetter)
 
-		params := AggregateParams{
+		params := aggregation.Params{
 			ClassName: "MyClass",
-			Properties: []AggregateProperty{
-				AggregateProperty{
-					Name:        "label",
-					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
+			Properties: []aggregation.ParamProperty{
+				aggregation.ParamProperty{
+					Name: "label",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.NewTopOccurrencesAggregator(nil),
+					},
 				},
-				AggregateProperty{
-					Name:        "number",
-					Aggregators: []Aggregator{TypeAggregator, SumAggregator},
+				aggregation.ParamProperty{
+					Name: "number",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.SumAggregator,
+					},
 				},
-				AggregateProperty{
-					Name:        "int",
-					Aggregators: []Aggregator{TypeAggregator, SumAggregator},
+				aggregation.ParamProperty{
+					Name: "int",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.SumAggregator,
+					},
 				},
-				AggregateProperty{
-					Name:        "date",
-					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
+				aggregation.ParamProperty{
+					Name: "date",
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.NewTopOccurrencesAggregator(nil),
+					},
 				},
-				AggregateProperty{
+				aggregation.ParamProperty{
 					Name:        "a ref",
-					Aggregators: []Aggregator{TypeAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.TypeAggregator},
 				},
 			},
 		}

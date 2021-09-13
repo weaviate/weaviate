@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -311,7 +312,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
@@ -339,7 +340,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
@@ -354,7 +355,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,

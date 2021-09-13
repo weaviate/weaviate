@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -349,6 +350,11 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 	indexName, shardName string, refs objects.BatchReferences) []error {
 	return nil
+}
+
+func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
+	shardName string, params aggregation.Params) (*aggregation.Result, error) {
+	return nil, nil
 }
 
 type fakeNodeResolver struct{}

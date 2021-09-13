@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type filteredAggregator struct {
@@ -136,7 +135,7 @@ type propAgg struct {
 	name schema.PropertyName
 
 	// the user is interested in those specific aggregations
-	specifiedAggregators []traverser.Aggregator
+	specifiedAggregators []aggregation.Aggregator
 
 	// underlying data type of prop
 	dataType schema.DataType

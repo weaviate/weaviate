@@ -30,7 +30,7 @@ func newTypeInspector(schemaGetter schemaUC.SchemaGetter) *typeInspector {
 	}
 }
 
-func (i *typeInspector) WithTypes(res *aggregation.Result, params AggregateParams) (*aggregation.Result, error) {
+func (i *typeInspector) WithTypes(res *aggregation.Result, params aggregation.Params) (*aggregation.Result, error) {
 	if res == nil {
 		return nil, nil
 	}
@@ -55,9 +55,9 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params AggregateParam
 	return res, nil
 }
 
-func (i *typeInspector) hasTypeAggregator(aggs []Aggregator) bool {
+func (i *typeInspector) hasTypeAggregator(aggs []aggregation.Aggregator) bool {
 	for _, agg := range aggs {
-		if agg == TypeAggregator {
+		if agg == aggregation.TypeAggregator {
 			return true
 		}
 	}
