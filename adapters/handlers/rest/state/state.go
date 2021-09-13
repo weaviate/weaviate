@@ -13,6 +13,7 @@ package state
 
 import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
+	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
@@ -29,17 +30,18 @@ import (
 // NOTE: This is not true yet, se gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC            *oidc.Client
-	AnonymousAccess *anonymous.Client
-	Authorizer      authorization.Authorizer
-	ServerConfig    *config.WeaviateConfig
-	Locks           locks.ConnectorSchemaLock
-	Logger          *logrus.Logger
-	GraphQL         graphql.GraphQL
-	Modules         *modules.Provider
-	SchemaManager   *schema.Manager
-	Cluster         *cluster.State
-	RemoteIncoming  *sharding.RemoteIndexIncoming
+	OIDC               *oidc.Client
+	AnonymousAccess    *anonymous.Client
+	Authorizer         authorization.Authorizer
+	ServerConfig       *config.WeaviateConfig
+	Locks              locks.ConnectorSchemaLock
+	Logger             *logrus.Logger
+	GraphQL            graphql.GraphQL
+	Modules            *modules.Provider
+	SchemaManager      *schema.Manager
+	Cluster            *cluster.State
+	RemoteIncoming     *sharding.RemoteIndexIncoming
+	ClassificationRepo *classifications.DistributedRepo
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

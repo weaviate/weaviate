@@ -19,10 +19,14 @@ func Serve(appState *state.State) {
 
 	schema := NewSchema(appState.SchemaManager.TxManager())
 	indices := NewIndices(appState.RemoteIncoming)
+	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",
 		http.StripPrefix("/schema/transactions/", schema.Transactions()))
+	mux.Handle("/classifications/transactions/",
+		http.StripPrefix("/classifications/transactions/",
+			classifications.Transactions()))
 
 	mux.Handle("/indices/", indices.Indices())
 	mux.Handle("/", schema.index())

@@ -119,7 +119,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var migrator migrate.Migrator
 	var explorer explorer
 	var schemaRepo schemaUC.Repo
-	var classifierRepo classification.Repo
+	// var classifierRepo classification.Repo
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(&http.Client{})
@@ -140,7 +140,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	classifierRepo, err = classifications.NewRepo(
+	localClassifierRepo, err := classifications.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -148,6 +148,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize classifications repo")
 		os.Exit(1)
 	}
+
+	// TODO: configure http transport for efficient intra-cluster comm
+	classificationsTxClient := clients.NewClusterClassifications(&http.Client{})
+	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
+		appState.Cluster, localClassifierRepo)
+	appState.ClassificationRepo = classifierRepo
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(&http.Client{})
