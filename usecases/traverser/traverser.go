@@ -46,7 +46,7 @@ type Traverser struct {
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
 		limit int, filters *filters.LocalFilter) ([]search.Result, error)
-	Aggregate(ctx context.Context, params AggregateParams) (*aggregation.Result, error)
+	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 }
 
 type explorer interface {
@@ -74,7 +74,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 // connected database
 type TraverserRepo interface {
 	GetClass(context.Context, *GetParams) (interface{}, error)
-	Aggregate(context.Context, *AggregateParams) (interface{}, error)
+	Aggregate(context.Context, *aggregation.Params) (interface{}, error)
 }
 
 // SearchResult is a single search result. See wrapping Search Results for the Type

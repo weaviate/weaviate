@@ -32,7 +32,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -627,29 +626,49 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params traverser.AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
-	// TODO: search across all shards, rather than hard-coded first shard
-
-	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
-		AllPhysicalShards()
+	shardNames := shardState.AllPhysicalShards()
 
 	results := make([]*aggregation.Result, len(shardNames))
 	for j, shardName := range shardNames {
-		shard := i.Shards[shardName]
-		res, err := shard.aggregate(ctx, params)
+		local := shardState.IsShardLocal(shardName)
+
+		var err error
+		var res *aggregation.Result
+		if !local {
+			res, err = i.remote.Aggregate(ctx, shardName, params)
+		} else {
+			shard := i.Shards[shardName]
+			res, err = shard.aggregate(ctx, params)
+		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shard.ID())
+			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
 
 		results[j] = res
 	}
 
-	if len(shardState.AllPhysicalShards()) > 1 {
+	if len(shardNames) > 1 {
 		return aggregator.NewShardCombiner().Do(results), nil
 	}
 
 	return results[0], nil
+}
+
+func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
+	params aggregation.Params) (*aggregation.Result, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	res, err := shard.aggregate(ctx, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return res, nil
 }
 
 func (i *Index) drop() error {

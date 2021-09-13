@@ -78,24 +78,24 @@ func (o Operator) Name() string {
 }
 
 type LocalFilter struct {
-	Root *Clause
+	Root *Clause `json:"root"`
 }
 
 type Value struct {
-	Value interface{}
-	Type  schema.DataType
+	Value interface{}     `json:"value"`
+	Type  schema.DataType `json:"type"`
 }
 
 type Clause struct {
-	Operator Operator
-	On       *Path
-	Value    *Value
-	Operands []Clause
+	Operator Operator `json:"operator"`
+	On       *Path    `json:"on"`
+	Value    *Value   `json:"value"`
+	Operands []Clause `json:"operands"`
 }
 
 // GeoRange to be used with fields of type GeoCoordinates. Identifies a point
 // and a maximum distance from that point.
 type GeoRange struct {
 	*models.GeoCoordinates
-	Distance float32
+	Distance float32 `json:"distance"`
 }

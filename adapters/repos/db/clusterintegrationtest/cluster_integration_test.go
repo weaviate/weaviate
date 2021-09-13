@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -254,6 +255,27 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			actual := manuallyResolveRef(t, obj, data, "toFirst", "description")
 			assert.Equal(t, actual, refPayload)
 		}
+	})
+
+	t.Run("aggreate count", func(t *testing.T) {
+		params := aggregation.Params{
+			ClassName:        schema.ClassName("Distributed"),
+			IncludeMetaCount: true,
+		}
+
+		node := nodes[rand.Intn(len(nodes))]
+		res, err := node.repo.Aggregate(context.Background(), params)
+		require.Nil(t, err)
+
+		expectedResult := &aggregation.Result{
+			Groups: []aggregation.Group{
+				aggregation.Group{
+					Count: numberOfObjects,
+				},
+			},
+		}
+
+		assert.Equal(t, expectedResult, res)
 	})
 }
 

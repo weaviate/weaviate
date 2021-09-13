@@ -90,7 +90,7 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
-	params AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
@@ -134,7 +134,7 @@ func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }

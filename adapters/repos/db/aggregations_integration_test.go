@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,17 +171,17 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		}
 
 		t.Run("single field, single aggregator", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("sector"),
 				},
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -240,16 +239,16 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("listedInIndex"),
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -311,54 +310,54 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("sector"),
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -533,7 +532,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("with filters,  grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -551,48 +550,48 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						},
 					},
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -762,7 +761,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("with ref filter, grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -784,48 +783,48 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						},
 					},
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -914,7 +913,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 	exact bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				IncludeMetaCount: true,
 				GroupBy:          nil, // explicitly set to nil
@@ -937,13 +936,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		})
 
 		t.Run("single field, single aggregator", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -978,71 +977,71 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		})
 
 		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},
@@ -1208,72 +1207,72 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				t.Skip()
 			}
 
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				Filters:          sectorEqualsFoodFilter(),
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},
@@ -1416,7 +1415,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				t.Skip()
 			}
 
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil,
 				Filters: &filters.LocalFilter{
@@ -1436,67 +1435,67 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					},
 				},
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},

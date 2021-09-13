@@ -6,6 +6,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -34,6 +35,8 @@ type RemoteIndexIncomingRepo interface {
 	IncomingSearch(ctx context.Context, shardName string,
 		vector []float32, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
+	IncomingAggregate(ctx context.Context, shardName string,
+		params aggregation.Params) (*aggregation.Result, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -118,4 +121,14 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	}
 
 	return index.IncomingSearch(ctx, shardName, vector, limit, filters, additional)
+}
+
+func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
+	params aggregation.Params) (*aggregation.Result, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingAggregate(ctx, shardName, params)
 }

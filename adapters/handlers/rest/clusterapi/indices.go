@@ -12,6 +12,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -19,11 +20,12 @@ import (
 )
 
 type indices struct {
-	shards              shards
-	regexpObjects       *regexp.Regexp
-	regexpObjectsSearch *regexp.Regexp
-	regexpObject        *regexp.Regexp
-	regexpReferences    *regexp.Regexp
+	shards                    shards
+	regexpObjects             *regexp.Regexp
+	regexpObjectsSearch       *regexp.Regexp
+	regexpObjectsAggregations *regexp.Regexp
+	regexpObject              *regexp.Regexp
+	regexpReferences          *regexp.Regexp
 }
 
 const (
@@ -31,6 +33,8 @@ const (
 		`\/shards\/([A-Za-z0-9]+)\/objects`
 	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
+	urlPatternObjectsAggregations = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects\/_aggregations`
 	urlPatternObject = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
 	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
@@ -54,15 +58,18 @@ type shards interface {
 	Search(ctx context.Context, indexName, shardName string,
 		vector []float32, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
+	Aggregate(ctx context.Context, indexName, shardName string,
+		params aggregation.Params) (*aggregation.Result, error)
 }
 
 func NewIndices(shards shards) *indices {
 	return &indices{
-		regexpObjects:       regexp.MustCompile(urlPatternObjects),
-		regexpObjectsSearch: regexp.MustCompile(urlPatternObjectsSearch),
-		regexpObject:        regexp.MustCompile(urlPatternObject),
-		regexpReferences:    regexp.MustCompile(urlPatternReferences),
-		shards:              shards,
+		regexpObjects:             regexp.MustCompile(urlPatternObjects),
+		regexpObjectsSearch:       regexp.MustCompile(urlPatternObjectsSearch),
+		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
+		regexpObject:              regexp.MustCompile(urlPatternObject),
+		regexpReferences:          regexp.MustCompile(urlPatternReferences),
+		shards:                    shards,
 	}
 }
 
@@ -77,6 +84,14 @@ func (i *indices) Indices() http.Handler {
 			}
 
 			i.postSearchObjects().ServeHTTP(w, r)
+			return
+		case i.regexpObjectsAggregations.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			i.postAggregateObjects().ServeHTTP(w, r)
 			return
 		case i.regexpObject.MatchString(path):
 			if r.Method != http.MethodGet {
@@ -429,5 +444,54 @@ func (i *indices) postReferences() http.Handler {
 
 		IndicesPayloads.ErrorList.SetContentTypeHeader(w)
 		w.Write(errsJSON)
+	})
+}
+
+func (i *indices) postAggregateObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObjectsAggregations.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		ct, ok := IndicesPayloads.AggregationParams.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		params, err := IndicesPayloads.AggregationParams.Unmarshal(reqPayload)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		aggResBytes, err := IndicesPayloads.AggregationResult.Marshal(aggRes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		IndicesPayloads.AggregationResult.SetContentTypeHeader(w)
+		w.Write(aggResBytes)
 	})
 }

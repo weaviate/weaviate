@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -364,4 +365,53 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 		return nil, nil, errors.Wrap(err, "unmarshal body")
 	}
 	return objs, dists, nil
+}
+
+func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, indexName,
+	shardName string, params aggregation.Params) (*aggregation.Result, error) {
+	paramsBytes, err := clusterapi.IndicesPayloads.AggregationParams.
+		Marshal(params)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal request payload")
+	}
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_aggregations", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return nil, errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.AggregationParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.AggregationResult.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	aggRes, err := clusterapi.IndicesPayloads.AggregationResult.Unmarshal(resBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+
+	return aggRes, nil
 }

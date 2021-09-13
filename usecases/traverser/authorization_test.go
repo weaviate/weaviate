@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -46,7 +47,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "Aggregate",
-			additionalArgs:   []interface{}{&AggregateParams{}},
+			additionalArgs:   []interface{}{&aggregation.Params{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

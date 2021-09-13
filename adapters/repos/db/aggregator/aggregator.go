@@ -21,19 +21,18 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Aggregator struct {
 	store            *lsmkv.Store
-	params           traverser.AggregateParams
+	params           aggregation.Params
 	getSchema        schemaUC.SchemaGetter
 	invertedRowCache *inverted.RowCacher
 	classSearcher    inverted.ClassSearcher // to support ref-filters
 	deletedDocIDs    inverted.DeletedDocIDChecker
 }
 
-func New(store *lsmkv.Store, params traverser.AggregateParams,
+func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker) *Aggregator {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -18,12 +19,14 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList     errorListPayload
-	SingleObject  singleObjectPayload
-	ObjectList    objectListPayload
-	SearchResults searchResultsPayload
-	SearchParams  searchParamsPayload
-	ReferenceList referenceListPayload
+	ErrorList         errorListPayload
+	SingleObject      singleObjectPayload
+	ObjectList        objectListPayload
+	SearchResults     searchResultsPayload
+	SearchParams      searchParamsPayload
+	ReferenceList     referenceListPayload
+	AggregationParams aggregationParamsPayload
+	AggregationResult aggregationResultPayload
 }
 
 type errorListPayload struct{}
@@ -310,4 +313,60 @@ func (p referenceListPayload) Unmarshal(in []byte) (objects.BatchReferences, err
 	var out objects.BatchReferences
 	err := json.Unmarshal(in, &out)
 	return out, err
+}
+
+type aggregationParamsPayload struct{}
+
+func (p aggregationParamsPayload) Marshal(params aggregation.Params) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(params)
+}
+
+func (p aggregationParamsPayload) Unmarshal(in []byte) (aggregation.Params, error) {
+	var out aggregation.Params
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p aggregationParamsPayload) MIME() string {
+	return "application/vnd.weaviate.aggregations.params+json"
+}
+
+func (p aggregationParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p aggregationParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type aggregationResultPayload struct{}
+
+func (p aggregationResultPayload) MIME() string {
+	return "application/vnd.weaviate.aggregations.result+json"
+}
+
+func (p aggregationResultPayload) CheckContentTypeHeader(res *http.Response) (string, bool) {
+	ct := res.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p aggregationResultPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p aggregationResultPayload) Marshal(in *aggregation.Result) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(in)
+}
+
+func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, error) {
+	var out aggregation.Result
+	err := json.Unmarshal(in, &out)
+	return &out, err
 }

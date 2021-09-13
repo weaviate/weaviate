@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
@@ -49,7 +49,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 }
 
 func (m *mockResolver) Aggregate(ctx context.Context, principal *models.Principal,
-	params *traverser.AggregateParams) (interface{}, error) {
+	params *aggregation.Params) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

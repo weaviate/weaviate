@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -115,6 +116,11 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
+}
+
+func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
+	shardName string, params aggregation.Params) (*aggregation.Result, error) {
+	return nil, nil
 }
 
 func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,

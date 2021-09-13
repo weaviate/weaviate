@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/usecases/traverser"
-
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -38,7 +36,7 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
-	Aggregate(ctx context.Context, principal *models.Principal, info *traverser.AggregateParams) (interface{}, error)
+	Aggregate(ctx context.Context, principal *models.Principal, info *aggregation.Params) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -86,7 +84,7 @@ func makeResolveClass() graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := &traverser.AggregateParams{
+		params := &aggregation.Params{
 			Filters:          filters,
 			ClassName:        className,
 			Properties:       properties,
@@ -109,8 +107,8 @@ func makeResolveClass() graphql.FieldResolveFn {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, bool, error) {
-	properties := []traverser.AggregateProperty{}
+func extractProperties(selections *ast.SelectionSet) ([]aggregation.ParamProperty, bool, error) {
+	properties := []aggregation.ParamProperty{}
 	var includeMeta bool
 
 	for _, selection := range selections.Selections {
@@ -137,7 +135,7 @@ func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregatePrope
 		}
 
 		name = strings.ToLower(string(name[0:1])) + string(name[1:])
-		property := traverser.AggregateProperty{Name: schema.PropertyName(name)}
+		property := aggregation.ParamProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
 			return nil, false, err
@@ -150,23 +148,23 @@ func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregatePrope
 	return properties, includeMeta, nil
 }
 
-func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, error) {
+func extractAggregators(selections *ast.SelectionSet) ([]aggregation.Aggregator, error) {
 	if selections == nil {
 		return nil, nil
 	}
-	analyses := []traverser.Aggregator{}
+	analyses := []aggregation.Aggregator{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
 		if name == "__typename" {
 			continue
 		}
-		property, err := traverser.ParseAggregatorProp(name)
+		property, err := aggregation.ParseAggregatorProp(name)
 		if err != nil {
 			return nil, err
 		}
 
-		if property.String() == traverser.NewTopOccurrencesAggregator(nil).String() {
+		if property.String() == aggregation.NewTopOccurrencesAggregator(nil).String() {
 			// a top occurrence, so we need to check if we have a limit argument
 			if overwrite := extractLimitFromArgs(field.Arguments); overwrite != nil {
 				property.Limit = overwrite
