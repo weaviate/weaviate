@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/hashicorp/memberlist"
@@ -43,11 +44,20 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 	}
 
 	if len(joinAddr) > 0 {
-		_, err := list.Join(joinAddr)
-		if err != nil {
-			return nil, errors.Wrap(err, "join cluster")
-		}
 
+		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
+		if err != nil {
+			logger.WithField("action", "cluster_attempt_join").
+				WithField("remote_hostname", joinAddr[0]).
+				WithError(err).
+				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
+					"if this is the first node of a new cluster, but problematic otherwise.")
+		} else {
+			_, err := list.Join(joinAddr)
+			if err != nil {
+				return nil, errors.Wrap(err, "join cluster")
+			}
+		}
 	}
 
 	return &State{list: list}, nil
