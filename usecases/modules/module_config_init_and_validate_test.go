@@ -212,7 +212,7 @@ func TestValidateClass(t *testing.T) {
 
 		err := p.ValidateClass(ctx, class)
 		require.NotNil(t, err)
-		assert.Equal(t, "no can do!", err.Error())
+		assert.Equal(t, "module 'my-module': no can do!", err.Error())
 	})
 }
 

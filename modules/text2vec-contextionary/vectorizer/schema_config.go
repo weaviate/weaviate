@@ -60,12 +60,12 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 		err = cv.validatePropertyName(ctx, prop.Name,
 			icheck.VectorizePropertyName(prop.Name))
 		if err != nil {
-			return errors.Errorf("class %q: invalid property name", class.Class)
+			return errors.Wrapf(err, "class %q: invalid property name", class.Class)
 		}
 	}
 
 	if err := cv.validateIndexState(ctx, class, icheck); err != nil {
-		return errors.Errorf("invalid combination of properties")
+		return errors.Wrap(err, "invalid combination of properties")
 	}
 
 	cv.checkForPossibilityOfDuplicateVectors(ctx, class, icheck)
@@ -167,7 +167,8 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 		return nil
 	}
 
-	// search if there is at least one indexed, string/text prop. If found pass validation
+	// search if there is at least one indexed, string/text or string/text[]
+	// prop. If found pass validation
 	for _, prop := range class.Properties {
 		if len(prop.DataType) < 1 {
 			return errors.Errorf("property %s must have at least one datatype: "+
@@ -175,7 +176,9 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 		}
 
 		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
+			prop.DataType[0] != string(schema.DataTypeText) &&
+			prop.DataType[0] != string(schema.DataTypeStringArray) &&
+			prop.DataType[0] != string(schema.DataTypeTextArray) {
 			// we can only vectorize text-like props
 			continue
 		}
