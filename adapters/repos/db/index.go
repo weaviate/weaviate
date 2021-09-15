@@ -674,7 +674,12 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 func (i *Index) drop() error {
 	for _, name := range i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards() {
-		shard := i.Shards[name]
+		shard, ok := i.Shards[name]
+		if !ok {
+			// skip non-local, but do delete evertying that exists - even if it
+			// shouldn't
+			continue
+		}
 		err := shard.drop()
 		if err != nil {
 			return errors.Wrapf(err, "delete shard %s", shard.ID())
