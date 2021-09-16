@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -114,6 +115,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
+	clusterHttpClient := reasonableHttpClient()
+
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
@@ -122,7 +125,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// var classifierRepo classification.Repo
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	remoteIndexClient := clients.NewRemoteIndex(&http.Client{})
+	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
 		RootPath: appState.ServerConfig.Config.Persistence.DataPath,
 	}, remoteIndexClient, appState.Cluster) // TODO client
@@ -150,13 +153,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	classificationsTxClient := clients.NewClusterClassifications(&http.Client{})
+	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
 		appState.Cluster, localClassifierRepo)
 	appState.ClassificationRepo = classifierRepo
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	schemaTxClient := clients.NewClusterSchema(&http.Client{})
+	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster,
@@ -379,4 +382,20 @@ func initModules(ctx context.Context, appState *state.State) error {
 	}
 
 	return nil
+}
+
+func reasonableHttpClient() *http.Client {
+	t := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 120 * time.Second,
+		}).DialContext,
+		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{Transport: t}
 }

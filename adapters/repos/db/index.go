@@ -13,8 +13,11 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -33,6 +36,7 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // Index is the logical unit which contains all the data for one particular
@@ -529,33 +533,50 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
+	errgrp := &errgroup.Group{}
+	m := &sync.Mutex{}
+
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
 	dists := make([]float32, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+		shardName := shardName
+		errgrp.Go(func() error {
+			before := time.Now()
+			local := i.getSchema.
+				ShardingState(i.Config.ClassName.String()).
+				IsShardLocal(shardName)
 
-		var res []*storobj.Object
-		var resDists []float32
-		var err error
+			var res []*storobj.Object
+			var resDists []float32
+			var err error
 
-		if local {
-			shard := i.Shards[shardName]
-			res, resDists, err = shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
-			if err != nil {
-				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+			if local {
+				shard := i.Shards[shardName]
+				res, resDists, err = shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+				if err != nil {
+					return errors.Wrapf(err, "shard %s", shard.ID())
+				}
+
+			} else {
+				res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
+				if err != nil {
+					return errors.Wrapf(err, "remote shard %s", shardName)
+				}
 			}
 
-		} else {
-			res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
-			if err != nil {
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
-			}
-		}
+			m.Lock()
+			out = append(out, res...)
+			dists = append(dists, resDists...)
+			m.Unlock()
 
-		out = append(out, res...)
-		dists = append(dists, resDists...)
+			fmt.Printf("shard (%v) took %s\n", local, time.Since(before))
+
+			return nil
+		})
+	}
+
+	if err := errgrp.Wait(); err != nil {
+		return nil, err
 	}
 
 	if len(shardNames) == 1 {
