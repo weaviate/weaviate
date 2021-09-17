@@ -225,23 +225,32 @@ func (i *Index) putObjectBatch(ctx context.Context,
 		byShard[shardName] = group
 	}
 
-	for shardName, group := range byShard {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+	wg := &sync.WaitGroup{}
 
-		var errs []error
-		if !local {
-			errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
-		} else {
-			shard := i.Shards[shardName]
-			errs = shard.putObjectBatch(ctx, group.objects)
-		}
-		for i, err := range errs {
-			desiredPos := group.pos[i]
-			out[desiredPos] = err
-		}
+	for shardName, group := range byShard {
+		wg.Add(1)
+		go func(shardName string, group objsAndPos) {
+			defer wg.Done()
+
+			local := i.getSchema.
+				ShardingState(i.Config.ClassName.String()).
+				IsShardLocal(shardName)
+
+			var errs []error
+			if !local {
+				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
+			} else {
+				shard := i.Shards[shardName]
+				errs = shard.putObjectBatch(ctx, group.objects)
+			}
+			for i, err := range errs {
+				desiredPos := group.pos[i]
+				out[desiredPos] = err
+			}
+		}(shardName, group)
 	}
+
+	wg.Wait()
 
 	return out
 }
