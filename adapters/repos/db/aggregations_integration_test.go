@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -76,6 +77,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				Classes: []*models.Class{
 					productClass,
 					companyClass,
+					arrayTypesClass,
 				},
 			},
 		}
@@ -85,6 +87,8 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				migrator.AddClass(context.Background(), productClass))
 			require.Nil(t,
 				migrator.AddClass(context.Background(), companyClass))
+			require.Nil(t,
+				migrator.AddClass(context.Background(), arrayTypesClass))
 		})
 
 		schemaGetter.schema = schema
@@ -108,6 +112,20 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
 					fixture := models.Object{
 						Class:      companyClass.Class,
+						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+						Properties: schema,
+					}
+					require.Nil(t,
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
+				})
+			}
+		})
+
+		t.Run("import array types", func(t *testing.T) {
+			for i, schema := range arrayTypes {
+				t.Run(fmt.Sprintf("importing array type %d", i), func(t *testing.T) {
+					fixture := models.Object{
+						Class:      arrayTypesClass.Class,
 						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
 						Properties: schema,
 					}
@@ -843,6 +861,96 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
 				actualProps["price"].NumericalAggregations, 0.001)
 		})
+
+		t.Run("array types, single aggregator strings", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(arrayTypesClass.Class),
+					Property: schema.PropertyName("strings"),
+				},
+				IncludeMetaCount: true,
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 2,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"strings"},
+							Value: "a",
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"strings"},
+							Value: "b",
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"strings"},
+							Value: "c",
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+				},
+			}
+
+			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+		})
+
+		t.Run("array types, single aggregator numbers", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(arrayTypesClass.Class),
+					Property: schema.PropertyName("numbers"),
+				},
+				IncludeMetaCount: true,
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 2,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"numbers"},
+							Value: float64(1.0),
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+					aggregation.Group{
+						Count: 2,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"numbers"},
+							Value: float64(2.0),
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"numbers"},
+							Value: float64(3.0),
+						},
+						Properties: map[string]aggregation.Property{},
+					},
+				},
+			}
+
+			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+		})
 	}
 }
 
@@ -1377,6 +1485,122 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 										aggregation.TextOccurrence{
 											Value:  "Food",
 											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
+
+		t.Run("array types, only meta count, no other aggregations", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				ClassName:        schema.ClassName(arrayTypesClass.Class),
+				IncludeMetaCount: true,
+				GroupBy:          nil, // explicitly set to nil
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: nil,
+						Count:     2,
+					},
+				},
+			}
+
+			require.NotNil(t, res)
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
+
+		t.Run("array types, single aggregator numbers", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy:   nil, // explicitly set to nil
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("numbers"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: nil,
+						Properties: map[string]aggregation.Property{
+							"numbers": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    1.8,
+									"maximum": 3.0,
+									"minimum": 1.0,
+									"sum":     9.0,
+									"mode":    1.0,
+									"median":  3.0,
+									"count":   5,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
+
+		t.Run("array types, single aggregator strings", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy:   nil, // explicitly set to nil
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("strings"),
+						Aggregators: []traverser.Aggregator{
+							// limit is very restrictive
+							traverser.NewTopOccurrencesAggregator(ptInt(1)),
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: nil,
+						Properties: map[string]aggregation.Property{
+							"strings": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 4,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "a",
+											Occurs: 2,
 										},
 									},
 								},
