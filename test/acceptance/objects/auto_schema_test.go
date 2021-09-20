@@ -54,6 +54,9 @@ func autoSchemaObjects(t *testing.T) {
 							"nationalFormatted":      "020 1234567",
 							"valid":                  true,
 						},
+						"stringArray": []string{"a", "b", "c"},
+						"intArray":    []int{1, 2, 3},
+						"numberArray": []int{11.0, 22.0, 33.0},
 					},
 				}
 			},

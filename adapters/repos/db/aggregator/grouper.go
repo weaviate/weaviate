@@ -98,10 +98,26 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 		return nil
 	}
 
-	ids := g.values[item]
-	ids = append(ids, obj.DocID())
-	g.values[item] = ids
+	switch val := item.(type) {
+	case []string:
+		for i := range val {
+			g.addItem(val[i], obj.DocID())
+		}
+	case []float64:
+		for i := range val {
+			g.addItem(val[i], obj.DocID())
+		}
+	default:
+		g.addItem(val, obj.DocID())
+	}
+
 	return nil
+}
+
+func (g *grouper) addItem(item interface{}, docID uint64) {
+	ids := g.values[item]
+	ids = append(ids, docID)
+	g.values[item] = ids
 }
 
 func (g *grouper) aggregateAndSelect() ([]group, error) {
