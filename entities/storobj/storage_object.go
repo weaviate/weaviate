@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -53,6 +54,98 @@ func FromBinary(data []byte) (*Object, error) {
 	ko := &Object{}
 	if err := ko.UnmarshalBinary(data); err != nil {
 		return nil, err
+	}
+
+	return ko, nil
+}
+
+func FromBinaryOptional(data []byte,
+	addProp additional.Properties) (*Object, error) {
+	ko := &Object{}
+
+	var version uint8
+	r := bytes.NewReader(data)
+	le := binary.LittleEndian
+	if err := binary.Read(r, le, &version); err != nil {
+		return nil, err
+	}
+
+	if version != 1 {
+		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+
+	ko.MarshallerVersion = version
+
+	var (
+		kindByte            uint8
+		uuidBytes           = make([]byte, 16)
+		createTime          int64
+		updateTime          int64
+		vectorLength        uint16
+		classNameLength     uint16
+		schemaLength        uint32
+		metaLength          uint32
+		vectorWeightsLength uint32
+	)
+
+	ec := &errorCompounder{}
+	ec.add(binary.Read(r, le, &ko.docID), "doc id")
+	ec.add(binary.Read(r, le, &kindByte), "kind")
+	_, err := r.Read(uuidBytes)
+	ec.add(err, "uuid")
+	ec.add(binary.Read(r, le, &createTime), "create time")
+	ec.add(binary.Read(r, le, &updateTime), "update time")
+	ec.add(binary.Read(r, le, &vectorLength), "vector length")
+	if addProp.Vector {
+		ko.Vector = make([]float32, vectorLength)
+		ec.add(binary.Read(r, le, &ko.Vector), "read vector")
+	} else {
+		io.CopyN(io.Discard, r, int64(vectorLength*4))
+	}
+	fmt.Println("after vector")
+	ec.add(binary.Read(r, le, &classNameLength), "class name length")
+	className := make([]byte, classNameLength)
+	_, err = r.Read(className)
+	ec.add(err, "class name")
+	ec.add(binary.Read(r, le, &schemaLength), "schema length")
+	schema := make([]byte, schemaLength)
+	_, err = r.Read(schema)
+	ec.add(err, "schema")
+	ec.add(binary.Read(r, le, &metaLength), "additional length")
+	var meta []byte
+	if addProp.Classification || len(addProp.ModuleParams) > 0 {
+		meta = make([]byte, metaLength)
+		_, err = r.Read(meta)
+		ec.add(err, "read additional")
+	} else {
+		io.CopyN(io.Discard, r, int64(metaLength))
+	}
+
+	ec.add(binary.Read(r, le, &vectorWeightsLength), "vector weights length")
+	vectorWeights := make([]byte, vectorWeightsLength)
+	_, err = r.Read(vectorWeights)
+	ec.add(err, "vector weights")
+
+	if err := ec.toError(); err != nil {
+		return nil, errors.Wrap(err, "compound err")
+	}
+
+	uuidParsed, err := uuid.FromBytes(uuidBytes)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("before parse")
+
+	if err := ko.parseObject(
+		strfmt.UUID(uuidParsed.String()),
+		createTime,
+		updateTime,
+		string(className),
+		schema,
+		meta,
+		vectorWeights,
+	); err != nil {
+		return nil, errors.Wrap(err, "parse")
 	}
 
 	return ko, nil
@@ -197,7 +290,7 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	}
 
 	if version != 1 {
-		return 0, fmt.Errorf("unsupported binary marshaller version %d", version)
+		return 0, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
 	var docID uint64
@@ -230,7 +323,7 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // n          | []byte    | vectorweights as json
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
-		return nil, fmt.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
+		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
 
 	kindByte := uint8(0)
@@ -303,7 +396,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 
 	if version != 1 {
-		return fmt.Errorf("unsupported binary marshaller version %d", version)
+		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
 	ko.MarshallerVersion = version
@@ -347,7 +440,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	_, err = r.Read(vectorWeights)
 	ec.add(err)
 
-	if ec.toError() != nil {
+	if err := ec.toError(); err != nil {
 		return err
 	}
 
@@ -379,22 +472,24 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	}
 
 	var additionalProperties models.AdditionalProperties
-	if err := json.Unmarshal(additionalB, &additionalProperties); err != nil {
-		return err
-	}
+	if len(additionalB) > 0 {
+		if err := json.Unmarshal(additionalB, &additionalProperties); err != nil {
+			return err
+		}
 
-	if prop, ok := additionalProperties["classification"]; ok {
-		if classificationMap, ok := prop.(map[string]interface{}); ok {
-			marshalled, err := json.Marshal(classificationMap)
-			if err != nil {
-				return err
+		if prop, ok := additionalProperties["classification"]; ok {
+			if classificationMap, ok := prop.(map[string]interface{}); ok {
+				marshalled, err := json.Marshal(classificationMap)
+				if err != nil {
+					return err
+				}
+				var classification additional.Classification
+				err = json.Unmarshal(marshalled, &classification)
+				if err != nil {
+					return err
+				}
+				additionalProperties["classification"] = &classification
 			}
-			var classification additional.Classification
-			err = json.Unmarshal(marshalled, &classification)
-			if err != nil {
-				return err
-			}
-			additionalProperties["classification"] = &classification
 		}
 	}
 
@@ -499,9 +594,13 @@ type errorCompounder struct {
 	errors []error
 }
 
-func (ec *errorCompounder) add(err error) {
+func (ec *errorCompounder) add(err error, wrapMsg ...string) {
 	if err != nil {
-		ec.errors = append(ec.errors, err)
+		if len(wrapMsg) == 0 {
+			ec.errors = append(ec.errors, err)
+		} else {
+			ec.errors = append(ec.errors, errors.Wrap(err, wrapMsg[0]))
+		}
 	}
 }
 
@@ -519,5 +618,6 @@ func (ec *errorCompounder) toError() error {
 		msg.WriteString(err.Error())
 	}
 
+	fmt.Println(msg.String())
 	return errors.New(msg.String())
 }
