@@ -22,7 +22,7 @@ import (
 )
 
 type nerClient interface {
-	GetTokens(ctx context.Context, property, text string, certainty *float64) ([]ent.TokenResult, error)
+	GetTokens(ctx context.Context, property, text string) ([]ent.TokenResult, error)
 }
 
 type TokenProvider struct {

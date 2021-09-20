@@ -68,10 +68,12 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 					break
 				}
 
-				tokens, err := p.ner.GetTokens(ctx, property, value, certainty)
+				tokens, err := p.ner.GetTokens(ctx, property, value)
 				if err != nil {
 					return in, err
 				}
+
+				tokens = cutOffByCertainty(tokens, certainty)
 
 				tokensList = append(tokensList, tokens...)
 			}
@@ -86,6 +88,23 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 		}
 	}
 	return in, nil
+}
+
+func cutOffByCertainty(tokens []ent.TokenResult, certainty *float64) []ent.TokenResult {
+	min_certainty := 0.0
+	if certainty != nil {
+		min_certainty = *certainty
+	}
+	a := 0
+	for _, x := range tokens {
+		if x.Certainty >= min_certainty {
+			tokens[a] = x
+			a++
+		}
+	}
+	tokens = tokens[:a]
+
+	return tokens
 }
 
 func (p *TokenProvider) containsProperty(property string, properties []string) bool {
