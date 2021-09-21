@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"os"
 
@@ -23,21 +22,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type MemoryCondensor struct {
+type MemoryCondensor2 struct {
 	newLogFile *os.File
-	newLog     *bufio.Writer
+	newLog     *bufWriter
 	logger     logrus.FieldLogger
 }
 
-func (c *MemoryCondensor) Do(fileName string) error {
+func (c *MemoryCondensor2) Do(fileName string) error {
 	fd, err := os.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
-
 	fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-	res, err := NewDeserializer(c.logger).Do(fdBuf, nil)
+	res, err := NewDeserializer2(c.logger).Do(fdBuf, nil)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
@@ -49,7 +47,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	c.newLogFile = newLogFile
-	c.newLog = bufio.NewWriterSize(c.newLogFile, 1*1024*1024)
+
+	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 
 	for _, node := range res.Nodes {
 		if node == nil {
@@ -98,44 +97,52 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64(w io.Writer, in uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor2) writeUint64(w *bufWriter, in uint64) error {
+	toWrite := make([]byte, 8)
+	binary.LittleEndian.PutUint64(toWrite[0:8], in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing uint64")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint16(w io.Writer, in uint16) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor2) writeUint16(w *bufWriter, in uint16) error {
+	toWrite := make([]byte, 2)
+	binary.LittleEndian.PutUint16(toWrite[0:2], in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing uint16")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor2) writeCommitType(w *bufWriter, in HnswCommitType) error {
+	toWrite := make([]byte, 1)
+	toWrite[0] = byte(in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing commit type")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64Slice(w io.Writer, in []uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
-	if err != nil {
-		return errors.Wrap(err, "writing []uint64")
+func (c *MemoryCondensor2) writeUint64Slice(w *bufWriter, in []uint64) error {
+	for _, v := range in {
+		err := c.writeUint64(w, v)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 // AddNode adds an empty node
-func (c *MemoryCondensor) AddNode(node *vertex) error {
+func (c *MemoryCondensor2) AddNode(node *vertex) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, AddNode))
 	ec.add(c.writeUint64(c.newLog, node.id))
@@ -144,7 +151,7 @@ func (c *MemoryCondensor) AddNode(node *vertex) error {
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
+func (c *MemoryCondensor2) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
 	ec.add(c.writeUint64(c.newLog, nodeid))
@@ -165,7 +172,7 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []ui
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
+func (c *MemoryCondensor2) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
 	ec.add(c.writeUint64(c.newLog, id))
@@ -174,7 +181,7 @@ func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error 
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
+func (c *MemoryCondensor2) AddTombstone(nodeid uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, AddTombstone))
 	ec.add(c.writeUint64(c.newLog, nodeid))
@@ -182,6 +189,6 @@ func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	return ec.toError()
 }
 
-func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
-	return &MemoryCondensor{logger: logger}
+func NewMemoryCondensor2(logger logrus.FieldLogger) *MemoryCondensor2 {
+	return &MemoryCondensor2{logger: logger}
 }

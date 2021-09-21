@@ -304,18 +304,22 @@ type segmentReplaceNode struct {
 
 func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	out := keyIndex{}
-
 	written := 0
-	if err := binary.Write(w, binary.LittleEndian, s.tombstone); err != nil {
-		return out, errors.Wrapf(err, "write tombstone")
+
+	buf := make([]byte, 9)
+	if s.tombstone {
+		buf[0] = 1
+	} else {
+		buf[0] = 0
 	}
-	written += 1
 
 	valueLength := uint64(len(s.value))
-	if err := binary.Write(w, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrapf(err, "write value length encoding")
+	binary.LittleEndian.PutUint64(buf[1:9], valueLength)
+	if _, err := w.Write(buf); err != nil {
+		return out, err
 	}
-	written += 8
+
+	written += 9
 
 	n, err := w.Write(s.value)
 	if err != nil {
@@ -324,8 +328,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 	written += n
 
 	keyLength := uint32(len(s.primaryKey))
-	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
-		return out, errors.Wrapf(err, "write key length encoding")
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return out, err
 	}
 	written += 4
 
@@ -342,8 +347,9 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 		}
 
 		// write the key length in any case
-		if err := binary.Write(w, binary.LittleEndian, &secondaryKeyLength); err != nil {
-			return out, errors.Wrapf(err, "write secondary key length encoding")
+		binary.LittleEndian.PutUint32(buf[0:4], secondaryKeyLength)
+		if _, err := w.Write(buf[0:4]); err != nil {
+			return out, err
 		}
 		written += 4
 
@@ -371,17 +377,17 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNode, error) {
 	out := segmentReplaceNode{}
 
-	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
-		return out, errors.Wrap(err, "read tombstone")
+	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
+	// read in between.
+	tmpBuf := make([]byte, 9)
+	if n, err := r.Read(tmpBuf); err != nil {
+		return out, errors.Wrap(err, "read tombstone and value length")
+	} else {
+		out.offset += n
 	}
-	out.offset += 1
 
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return out, errors.Wrap(err, "read value length encoding")
-	}
-	out.offset += 8
-
+	out.tombstone = tmpBuf[0] == 0x1
+	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.value = make([]byte, valueLength)
 	if n, err := r.Read(out.value); err != nil {
 		return out, errors.Wrap(err, "read value")
@@ -389,12 +395,13 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		out.offset += n
 	}
 
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
+	if n, err := r.Read(tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key length encoding")
+	} else {
+		out.offset += n
 	}
-	out.offset += 4
 
+	keyLength := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLength)
 	if n, err := r.Read(out.primaryKey); err != nil {
 		return out, errors.Wrap(err, "read key")
@@ -407,12 +414,12 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
+		if n, err := r.Read(tmpBuf[0:4]); err != nil {
 			return out, errors.Wrap(err, "read secondary key length encoding")
+		} else {
+			out.offset += n
 		}
-		out.offset += 4
-
+		secKeyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 		if secKeyLen == 0 {
 			continue
 		}
@@ -504,22 +511,26 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	out := keyIndex{}
 	written := 0
 	valueLen := uint64(len(s.values))
-	if err := binary.Write(w, binary.LittleEndian, &valueLen); err != nil {
+	buf := make([]byte, 9)
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
 		return out, errors.Wrapf(err, "write values len for node")
 	}
 	written += 8
 
 	for i, value := range s.values {
-		if err := binary.Write(w, binary.LittleEndian, value.tombstone); err != nil {
-			return out, errors.Wrapf(err, "write tombstone for value %d", i)
+		if value.tombstone {
+			buf[0] = 0x01
+		} else {
+			buf[0] = 0x00
 		}
-		written += 1
 
 		valueLen := uint64(len(value.value))
-		if err := binary.Write(w, binary.LittleEndian, valueLen); err != nil {
+		binary.LittleEndian.PutUint64(buf[1:9], valueLen)
+		if _, err := w.Write(buf[0:9]); err != nil {
 			return out, errors.Wrapf(err, "write len of value %d", i)
 		}
-		written += 8
+		written += 9
 
 		n, err := w.Write(value.value)
 		if err != nil {
@@ -529,7 +540,8 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	}
 
 	keyLength := uint32(len(s.primaryKey))
-	if err := binary.Write(w, binary.LittleEndian, &keyLength); err != nil {
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
 		return out, errors.Wrapf(err, "write key length encoding for node")
 	}
 	written += 4
@@ -551,25 +563,26 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 
 func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
-	var valuesLen uint64
-	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
-		return out, errors.Wrap(err, "read values len")
-	}
-	out.offset += 8
+	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
+	// read in between.
+	tmpBuf := make([]byte, 9)
 
+	if n, err := r.Read(tmpBuf[0:8]); err != nil {
+		return out, errors.Wrap(err, "read values len")
+	} else {
+		out.offset += n
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
 	out.values = make([]value, valuesLen)
 	for i := range out.values {
-		if err := binary.Read(r, binary.LittleEndian, &out.values[i].tombstone); err != nil {
-			return out, errors.Wrap(err, "read value tombstone")
+		if n, err := r.Read(tmpBuf[0:9]); err != nil {
+			return out, errors.Wrap(err, "read value tombston and len")
+		} else {
+			out.offset += n
 		}
-		out.offset += 1
-
-		var valueLen uint64
-		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-			return out, errors.Wrap(err, "read value len")
-		}
-		out.offset += 8
-
+		out.values[i].tombstone = tmpBuf[0] == 0x1
+		valueLen := binary.LittleEndian.Uint64(tmpBuf[1:9])
 		out.values[i].value = make([]byte, valueLen)
 		n, err := r.Read(out.values[i].value)
 		if err != nil {
@@ -578,12 +591,12 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 		out.offset += n
 	}
 
-	var keyLen uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
+	if n, err := r.Read(tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key len")
+	} else {
+		out.offset += n
 	}
-	out.offset += 4
-
+	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLen)
 	n, err := r.Read(out.primaryKey)
 	if err != nil {

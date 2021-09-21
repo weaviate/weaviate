@@ -20,15 +20,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Deserializer struct {
+type Deserializer2 struct {
 	logger logrus.FieldLogger
 }
 
-func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
-	return &Deserializer{logger: logger}
+func NewDeserializer2(logger logrus.FieldLogger) *Deserializer2 {
+	return &Deserializer2{logger: logger}
 }
 
-type DeserializationResult struct {
+type DeserializationResult2 struct {
 	Nodes             []*vertex
 	Entrypoint        uint64
 	Level             uint16
@@ -36,7 +36,7 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 }
 
-func (c *Deserializer) Do(fd *bufio.Reader,
+func (c *Deserializer2) Do(fd *bufio.Reader,
 	initialState *DeserializationResult) (*DeserializationResult, error) {
 	out := initialState
 	if out == nil {
@@ -86,7 +86,7 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
 		if err != nil {
-			// do not return nil, err, because the err could be a recovarble one
+			// do not return nil, err, because the err could be a recoverable one
 			return out, err
 		}
 	}
@@ -94,7 +94,7 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 	return out, nil
 }
 
-func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadNode(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -122,7 +122,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
-func (c *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
+func (c *Deserializer2) ReadEP(r io.Reader) (uint64, uint16, error) {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return 0, 0, err
@@ -136,7 +136,7 @@ func (c *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
 	return id, level, nil
 }
 
-func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadLink(r io.Reader, res *DeserializationResult) error {
 	source, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -169,7 +169,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
-func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) error {
 	source, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 	return nil
 }
 
-func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
+func (c *Deserializer2) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -217,7 +217,7 @@ func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struc
 	return nil
 }
 
-func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
+func (c *Deserializer2) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -228,7 +228,7 @@ func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]st
 	return nil
 }
 
-func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -248,7 +248,7 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
-func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -263,42 +263,50 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
-func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
+func (c *Deserializer2) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
-	err := binary.Read(r, binary.LittleEndian, &value)
+	tmpBuf := make([]byte, 8)
+	_, err := io.ReadFull(r, tmpBuf)
 	if err != nil {
-		return 0, errors.Wrap(err, "reading uint64")
+		return 0, errors.Wrap(err, "failed to read uint64")
 	}
+
+	value = binary.LittleEndian.Uint64(tmpBuf)
 
 	return value, nil
 }
 
-func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
+func (c *Deserializer2) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
-	err := binary.Read(r, binary.LittleEndian, &value)
+	tmpBuf := make([]byte, 2)
+	_, err := io.ReadFull(r, tmpBuf)
 	if err != nil {
-		return 0, errors.Wrap(err, "reading uint16")
+		return 0, errors.Wrap(err, "failed to read uint16")
 	}
+
+	value = binary.LittleEndian.Uint16(tmpBuf)
 
 	return value, nil
 }
 
-func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {
-	var value uint8
-	err := binary.Read(r, binary.LittleEndian, &value)
-	if err != nil {
-		return 0, errors.Wrapf(err, "reading commit type (uint8)")
+func (c *Deserializer2) ReadCommitType(r io.Reader) (HnswCommitType, error) {
+	tmpBuf := make([]byte, 1)
+	if _, err := io.ReadFull(r, tmpBuf); err != nil {
+		return 0, errors.Wrap(err, "failed to read commit type")
 	}
 
-	return HnswCommitType(value), nil
+	return HnswCommitType(tmpBuf[0]), nil
 }
 
-func (c *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
-	value := make([]uint64, length)
-	err := binary.Read(r, binary.LittleEndian, &value)
-	if err != nil {
-		return nil, errors.Wrap(err, "reading []uint64")
+func (c *Deserializer2) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
+	values := make([]uint64, length)
+	for i := range values {
+		value, err := c.readUint64(r)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read []uint64")
+		}
+		values[i] = value
 	}
 
-	return value, nil
+	return values, nil
 }
