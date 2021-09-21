@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strings"
 
@@ -102,7 +101,6 @@ func FromBinaryOptional(data []byte,
 	} else {
 		io.CopyN(io.Discard, r, int64(vectorLength*4))
 	}
-	fmt.Println("after vector")
 	ec.add(binary.Read(r, le, &classNameLength), "class name length")
 	className := make([]byte, classNameLength)
 	_, err = r.Read(className)
@@ -134,7 +132,6 @@ func FromBinaryOptional(data []byte,
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("before parse")
 
 	if err := ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
@@ -276,6 +273,18 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 
 	for i, elem := range in {
 		out[i] = *(elem.SearchResult(additional))
+	}
+
+	return out
+}
+
+func SearchResultsWithDists(in []*Object, additional additional.Properties,
+	dists []float32) search.Results {
+	out := make(search.Results, len(in))
+
+	for i, elem := range in {
+		out[i] = *(elem.SearchResult(additional))
+		out[i].Dist = dists[i]
 	}
 
 	return out
@@ -618,6 +627,5 @@ func (ec *errorCompounder) toError() error {
 		msg.WriteString(err.Error())
 	}
 
-	fmt.Println(msg.String())
 	return errors.New(msg.String())
 }
