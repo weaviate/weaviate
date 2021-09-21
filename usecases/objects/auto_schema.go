@@ -170,26 +170,39 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 		return []schema.DataType{schema.DataTypeString}
 	case []interface{}:
 		if len(v) > 0 {
-			crossRefs := []schema.DataType{}
+			dataType := []schema.DataType{}
 			for i := range v {
-				if values, ok := v[i].(map[string]interface{}); ok && len(values) > 0 {
-					for k, v := range values {
-						if k == "beacon" {
-							if beacon, ok := v.(string); ok {
-								ref, err := crossref.Parse(beacon)
-								if err == nil {
-									res, err := m.vectorRepo.ObjectByID(context.Background(), ref.TargetID,
-										search.SelectProperties{}, additional.Properties{})
-									if err == nil && res != nil {
-										crossRefs = append(crossRefs, schema.DataType(res.ClassName))
+				switch arrayVal := v[i].(type) {
+				case map[string]interface{}:
+					if len(arrayVal) > 0 {
+						for k, v := range arrayVal {
+							if k == "beacon" {
+								if beacon, ok := v.(string); ok {
+									ref, err := crossref.Parse(beacon)
+									if err == nil {
+										res, err := m.vectorRepo.ObjectByID(context.Background(), ref.TargetID,
+											search.SelectProperties{}, additional.Properties{})
+										if err == nil && res != nil {
+											dataType = append(dataType, schema.DataType(res.ClassName))
+										}
 									}
 								}
 							}
 						}
 					}
+				case string:
+					if schema.DataType(m.config.DefaultString) == schema.DataTypeText {
+						return []schema.DataType{schema.DataTypeTextArray}
+					}
+					return []schema.DataType{schema.DataTypeStringArray}
+				case json.Number:
+					if schema.DataType(m.config.DefaultNumber) == schema.DataTypeInt {
+						return []schema.DataType{schema.DataTypeIntArray}
+					}
+					return []schema.DataType{schema.DataTypeNumberArray}
 				}
 			}
-			return crossRefs
+			return dataType
 		}
 		// fallback to String
 		return []schema.DataType{schema.DataTypeString}

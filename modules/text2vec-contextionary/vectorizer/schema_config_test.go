@@ -354,6 +354,32 @@ func TestConfigValidator(t *testing.T) {
 			assert.NotNil(t, err)
 		})
 	})
+
+	t.Run("with only array types", func(t *testing.T) {
+		class := &models.Class{
+			Vectorizer: "text2vec-contextionary",
+			Class:      "ValidName",
+			Properties: []*models.Property{
+				{
+					DataType: []string{"text[]"},
+					Name:     "decsriptions",
+				},
+				{
+					DataType: []string{"string[]"},
+					Name:     "names",
+				},
+			},
+		}
+
+		logger, _ := ltest.NewNullLogger()
+		v := NewConfigValidator(&fakeRemote{}, logger)
+		err := v.Do(context.Background(), class, nil, &fakeIndexChecker{
+			vectorizePropertyName: false,
+			vectorizeClassName:    false,
+			propertyIndexed:       true,
+		})
+		assert.Nil(t, err)
+	})
 }
 
 func TestConfigValidator_RiskOfDuplicateVectors(t *testing.T) {

@@ -59,6 +59,7 @@ type ContextionaryModule struct {
 	remote                       remoteClient
 	classifierContextual         modulecapabilities.Classifier
 	logger                       logrus.FieldLogger
+	nearTextTransformer          modulecapabilities.TextTransform
 }
 
 type remoteClient interface {
@@ -115,10 +116,6 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 		return errors.Wrap(err, "init vectorizer")
 	}
 
-	if err := m.initGraphqlProvider(); err != nil {
-		return errors.Wrap(err, "init graphql provider")
-	}
-
 	if err := m.initGraphqlAdditionalPropertiesProvider(); err != nil {
 		return errors.Wrap(err, "init graphql additional properties provider")
 	}
@@ -127,6 +124,24 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 		return errors.Wrap(err, "init classifiers")
 	}
 
+	return nil
+}
+
+func (m *ContextionaryModule) InitDependency(modules []modulecapabilities.Module) error {
+	for _, module := range modules {
+		if module.Name() == m.Name() {
+			continue
+		}
+		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
+			if arg != nil && arg.TextTransformers() != nil {
+				m.nearTextTransformer = arg.TextTransformers()["nearText"]
+			}
+		}
+	}
+
+	if err := m.initGraphqlProvider(); err != nil {
+		return errors.Wrap(err, "init graphql provider")
+	}
 	return nil
 }
 
@@ -159,7 +174,7 @@ func (m *ContextionaryModule) initVectorizer() error {
 }
 
 func (m *ContextionaryModule) initGraphqlProvider() error {
-	m.graphqlProvider = text2vecneartext.New()
+	m.graphqlProvider = text2vecneartext.New(m.nearTextTransformer)
 	return nil
 }
 

@@ -41,9 +41,17 @@ const (
 	DataTypePhoneNumber DataType = "phoneNumber"
 	// DataTypeBlob represents a base64 encoded data
 	DataTypeBlob DataType = "blob"
+	// DataTypeArrayString The data type is a value of type string array
+	DataTypeStringArray DataType = "string[]"
+	// DataTypeTextArray The data type is a value of type string array
+	DataTypeTextArray DataType = "text[]"
+	// DataTypeIntArray The data type is a value of type int array
+	DataTypeIntArray DataType = "int[]"
+	// DataTypeNumberArray The data type is a value of type number/float array
+	DataTypeNumberArray DataType = "number[]"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray}
 
 type PropertyKind int
 
@@ -127,7 +135,9 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 			case string(DataTypeString), string(DataTypeText),
 				string(DataTypeInt), string(DataTypeNumber),
 				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates),
-				string(DataTypePhoneNumber), string(DataTypeBlob):
+				string(DataTypePhoneNumber), string(DataTypeBlob),
+				string(DataTypeStringArray), string(DataTypeTextArray),
+				string(DataTypeIntArray), string(DataTypeNumberArray):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),

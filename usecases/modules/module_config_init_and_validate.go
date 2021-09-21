@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -95,5 +96,10 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 	}
 
 	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
-	return cc.ValidateClass(ctx, class, cfg)
+	err := cc.ValidateClass(ctx, class, cfg)
+	if err != nil {
+		return errors.Wrapf(err, "module '%s'", class.Vectorizer)
+	}
+
+	return nil
 }
