@@ -46,6 +46,8 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 			entryPointID = best.ID
 			entryPointDistance = best.Dist
 		}
+
+		h.pools.pqResults.Put(res)
 	}
 
 	eps := priorityqueue.NewMin(1)
@@ -72,5 +74,6 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 		i++
 	}
 
+	h.pools.pqResults.Put(res)
 	return out[:i], nil
 }

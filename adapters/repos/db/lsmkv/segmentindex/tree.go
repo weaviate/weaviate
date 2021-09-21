@@ -237,6 +237,12 @@ func (t *Tree) MarshalBinary() ([]byte, error) {
 
 func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 	offsets, size := t.calculateDiskOffsets()
+
+	// create buf just once and reuse for each iteration, each iteration
+	// overwrites every single byte of the buffer, so no initializing or
+	// resetting after a round is required.
+	buf := make([]byte, 36) // 1x uint32 + 4x uint64
+
 	for i, node := range t.nodes {
 		if node == nil {
 			continue
@@ -262,22 +268,19 @@ func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 		}
 
 		keyLen := uint32(len(node.Key))
-		if err := binary.Write(w, binary.LittleEndian, keyLen); err != nil {
+		binary.LittleEndian.PutUint32(buf[0:4], keyLen)
+		binary.LittleEndian.PutUint64(buf[4:12], node.Start)
+		binary.LittleEndian.PutUint64(buf[12:20], node.End)
+		binary.LittleEndian.PutUint64(buf[20:28], uint64(leftOffset))
+		binary.LittleEndian.PutUint64(buf[28:36], uint64(rightOffset))
+
+		if _, err := w.Write(buf[:4]); err != nil {
 			return 0, err
 		}
 		if _, err := w.Write(node.Key); err != nil {
 			return 0, err
 		}
-		if err := binary.Write(w, binary.LittleEndian, node.Start); err != nil {
-			return 0, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, node.End); err != nil {
-			return 0, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, leftOffset); err != nil {
-			return 0, err
-		}
-		if err := binary.Write(w, binary.LittleEndian, rightOffset); err != nil {
+		if _, err := w.Write(buf[4:36]); err != nil {
 			return 0, err
 		}
 	}

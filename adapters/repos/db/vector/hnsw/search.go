@@ -66,11 +66,11 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
 	h.Lock()
-	visited := h.visitedListPool.Borrow()
+	visited := h.pools.visitedLists.Borrow()
 	h.Unlock()
 
-	candidates := priorityqueue.NewMin(ef)
-	results := priorityqueue.NewMax(ef)
+	candidates := h.pools.pqCandidates.GetMin(ef)
+	results := h.pools.pqResults.GetMax(ef)
 	distancer := h.distancerProvider.New(queryVector)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
@@ -103,7 +103,10 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		candidateNode.Lock()
-		connections := candidateNode.connections[level]
+		connections := make([]uint64, len(candidateNode.connections[level]))
+		for i, conn := range candidateNode.connections[level] {
+			connections[i] = conn
+		}
 		candidateNode.Unlock()
 
 		for _, neighborID := range connections {
@@ -158,10 +161,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 	}
 
+	h.pools.pqCandidates.Put(candidates)
+
 	h.Lock()
-	h.visitedListPool.Return(visited)
+	h.pools.visitedLists.Return(visited)
 	h.Unlock()
 
+	// results are passed on, so it's in the callers responsibility to return the
+	// list to the pool after using it
 	return results, nil
 }
 
@@ -294,6 +301,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			// suitable node, we simply stick with the original, i.e. the global
 			// entrypoint
 		}
+
+		h.pools.pqResults.pool.Put(res)
 	}
 
 	eps := priorityqueue.NewMin(10)
@@ -319,6 +328,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		dists[i] = res.Dist
 		i--
 	}
+
+	h.pools.pqResults.Put(res)
 
 	return ids, dists, nil
 }

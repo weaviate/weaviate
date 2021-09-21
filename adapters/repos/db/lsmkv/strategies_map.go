@@ -118,7 +118,9 @@ func (kv MapPair) Bytes() ([]byte, error) {
 
 	out := bytes.NewBuffer(nil)
 
-	if err := binary.Write(out, binary.LittleEndian, &keyLen); err != nil {
+	lenBuf := make([]byte, 2) // can be reused for both key and value len
+	binary.LittleEndian.PutUint16(lenBuf, keyLen)
+	if _, err := out.Write(lenBuf); err != nil {
 		return nil, errors.Wrap(err, "write map key length indicator")
 	}
 
@@ -126,7 +128,8 @@ func (kv MapPair) Bytes() ([]byte, error) {
 		return nil, errors.Wrap(err, "write map key")
 	}
 
-	if err := binary.Write(out, binary.LittleEndian, &valueLen); err != nil {
+	binary.LittleEndian.PutUint16(lenBuf, valueLen)
+	if _, err := out.Write(lenBuf); err != nil {
 		return nil, errors.Wrap(err, "write map value length indicator")
 	}
 
@@ -138,40 +141,68 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
-	var read int
-	var keyLen uint16
-	var valueLen uint16
-	r := bytes.NewReader(in)
+	var read uint16
 
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
-		return errors.Wrap(err, "read map key length indicator")
-	}
+	keyLen := binary.LittleEndian.Uint16(in[:2])
 	read += 2 // uint16 -> 2 bytes
 
 	kv.Key = make([]byte, keyLen)
-	if n, err := r.Read(kv.Key); err != nil {
-		return errors.Wrap(err, "read map key")
-	} else {
-		read += n
-	}
+	copy(kv.Key, in[read:read+keyLen])
+	read += keyLen
 
 	if keyOnly {
 		return nil
 	}
 
-	if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-		return errors.Wrap(err, "read map value length indicator")
+	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	read += 2
+
+	if int(valueLen) > cap(kv.Value) {
+		kv.Value = make([]byte, valueLen)
+	} else {
+		kv.Value = kv.Value[:valueLen]
 	}
+	copy(kv.Value, in[read:read+valueLen])
+	read += valueLen
+
+	if read != uint16(len(in)) {
+		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+			read, len(in))
+	}
+
+	return nil
+}
+
+func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
+	var read uint16
+
+	keyLen := binary.LittleEndian.Uint16(in[:2])
 	read += 2 // uint16 -> 2 bytes
 
-	kv.Value = make([]byte, valueLen)
-	if n, err := r.Read(kv.Value); err != nil {
-		return errors.Wrap(err, "read map value")
+	if int(keyLen) > cap(kv.Key) {
+		kv.Key = make([]byte, keyLen)
 	} else {
-		read += n
+		kv.Key = kv.Key[:keyLen]
+	}
+	copy(kv.Key, in[read:read+keyLen])
+	read += keyLen
+
+	if keyOnly {
+		return nil
 	}
 
-	if read != len(in) {
+	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	read += 2
+
+	if int(valueLen) > cap(kv.Value) {
+		kv.Value = make([]byte, valueLen)
+	} else {
+		kv.Value = kv.Value[:valueLen]
+	}
+	copy(kv.Value, in[read:read+valueLen])
+	read += valueLen
+
+	if read != uint16(len(in)) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
 			read, len(in))
 	}
