@@ -43,6 +43,7 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 		},
 		AdditionalProperties: additional.Properties{
 			Classification: true,
+			Vector:         true,
 			ModuleParams: map[string]interface{}{
 				"interpretation": true,
 			},
@@ -64,6 +65,9 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 			Limit: 1,
 		},
 		Filters: filter,
+		AdditionalProperties: additional.Properties{
+			Vector: true,
+		},
 	})
 
 	return res, err
@@ -83,6 +87,9 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 			Limit: k,
 		},
 		Filters: mergedFilter,
+		AdditionalProperties: additional.Properties{
+			Vector: true,
+		},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")

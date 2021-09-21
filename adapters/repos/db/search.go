@@ -69,13 +69,14 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	res, err := idx.objectVectorSearch(ctx, params.SearchVector,
+	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
 		params.Pagination.Limit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.AdditionalProperties),
+	return db.enrichRefsForList(ctx,
+		storobj.SearchResultsWithDists(res, params.AdditionalProperties, dists),
 		params.Properties, params.AdditionalProperties)
 }
 
@@ -87,14 +88,18 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	mutex := &sync.Mutex{}
 	var searchErrors []error
 
-	emptyAdditional := additional.Properties{}
+	emptyAdditional := additional.Properties{
+		// TODO: the fact that we need the vector for resorting shows that something
+		// is not ideal here. We already get distances from the vector search, why not
+		// pass them along and use them for sorting?
+		Vector: true,
+	}
 	for _, index := range db.indices {
 		wg.Add(1)
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			// TODO support all additional props
-			res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
+			res, _, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -120,6 +125,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 		return nil, errors.New(msg.String())
 	}
 
+	// TODO: use dists
 	found, err := found.SortByDistanceToVector(vector)
 	if err != nil {
 		return nil, errors.Wrapf(err, "re-sort when merging indices")

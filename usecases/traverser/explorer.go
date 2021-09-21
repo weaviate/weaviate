@@ -163,18 +163,15 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if searchVector != nil {
-			dist, err := e.distancer(res.Vector, searchVector)
-			if err != nil {
-				return nil, errors.Errorf("explorer: calculate distance: %v", err)
-			}
-
+			// Dist is between 0..2, we need to reduce to the user space of 0..1
+			normalizedDist := res.Dist / 2
 			certainty := e.extractCertaintyFromParams(params)
-			if 1-(dist) < float32(certainty) {
+			if 1-(normalizedDist) < float32(certainty) {
 				continue
 			}
 
 			if params.AdditionalProperties.Certainty {
-				additionalProperties["certainty"] = 1 - dist
+				additionalProperties["certainty"] = 1 - normalizedDist
 			}
 		}
 

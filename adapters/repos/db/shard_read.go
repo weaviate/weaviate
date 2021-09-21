@@ -201,7 +201,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, nil
 	}
 
-	objs, err := s.objectsByDocID(ids)
+	objs, err := s.objectsByDocID(ids, additional)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -209,7 +209,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	return objs, dists, nil
 }
 
-func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+func (s *Shard) objectsByDocID(ids []uint64,
+	additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, len(ids))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -232,7 +233,7 @@ func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinary(res)
+		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}

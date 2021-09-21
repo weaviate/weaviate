@@ -538,7 +538,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -585,20 +586,21 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	}
 
 	if err := errgrp.Wait(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(shardNames) == 1 {
-		return out, nil
+		return out, dists, nil
 	}
 
 	sbd := sortObjsByDist{out, dists}
 	sort.Sort(sbd)
 	if len(sbd.objects) > limit {
 		sbd.objects = sbd.objects[:limit]
+		sbd.distances = sbd.distances[:limit]
 	}
 
-	return sbd.objects, nil
+	return sbd.objects, sbd.distances, nil
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,

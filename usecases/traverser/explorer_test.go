@@ -255,10 +255,12 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					ID: "id1",
+					ID:   "id1",
+					Dist: 2 * 0.69,
 				},
 				{
-					ID: "id2",
+					ID:   "id2",
+					Dist: 2 * 0.69,
 				},
 			}
 
@@ -1563,10 +1565,12 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					ID: "id1",
+					ID:   "id1",
+					Dist: 2 * 0.69,
 				},
 				{
-					ID: "id2",
+					ID:   "id2",
+					Dist: 2 * 0.69,
 				},
 			}
 
@@ -1586,7 +1590,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				search.AssertExpectations(t)
 			})
 
-			t.Run("no concept met the required certainty", func(t *testing.T) {
+			t.Run("no object met the required certainty", func(t *testing.T) {
 				assert.Len(t, res, 0)
 			})
 		})
@@ -1734,6 +1738,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					"age": 200,
 				},
 				Vector: []float32{0.5, 1.5, 0.0},
+				Dist:   2 * 0.69,
 			},
 		}
 
