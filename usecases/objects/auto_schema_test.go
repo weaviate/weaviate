@@ -178,6 +178,57 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			},
 			want: []schema.DataType{schema.DataType("Publication"), schema.DataType("Article")},
 		},
+		{
+			name: "determine string array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{"a", "b"},
+			},
+			want: []schema.DataType{schema.DataTypeStringArray},
+		},
+		{
+			name: "determine text array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultString: "text",
+				},
+			},
+			args: args{
+				value: []interface{}{"a", "b"},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
+			name: "determine int array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultNumber: "int",
+				},
+			},
+			args: args{
+				value: []interface{}{json.Number("11"), json.Number("12")},
+			},
+			want: []schema.DataType{schema.DataTypeIntArray},
+		},
+		{
+			name: "determine number array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultNumber: "number",
+				},
+			},
+			args: args{
+				value: []interface{}{json.Number("1.1"), json.Number("1.2")},
+			},
+			want: []schema.DataType{schema.DataTypeNumberArray},
+		},
 	}
 	for _, tt := range tests {
 		vectorRepo := &fakeVectorRepo{}
@@ -222,6 +273,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			"name":            "Jodie Sparrow",
 			"age":             json.Number("30"),
 			"publicationDate": "2002-10-02T15:00:00Z",
+			"stringArray":     []interface{}{"a", "b"},
+			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
 	// when
@@ -235,7 +288,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
-	assert.Equal(t, 3, len((schemaAfter.Objects.Classes)[0].Properties))
+	assert.Equal(t, 5, len((schemaAfter.Objects.Classes)[0].Properties))
 	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
 	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
 	assert.Equal(t, "string", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
@@ -245,6 +298,12 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
 	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
 	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray"))
+	assert.Equal(t, "stringArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").Name)
+	assert.Equal(t, "string[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
+	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
+	assert.Equal(t, "number[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
@@ -287,6 +346,8 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			"name":            "Jodie Sparrow",
 			"age":             json.Number("30"),
 			"publicationDate": "2002-10-02T15:00:00Z",
+			"stringArray":     []interface{}{"a", "b"},
+			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
 	// when
@@ -306,7 +367,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
-	assert.Equal(t, 3, len((schemaAfter.Objects.Classes)[0].Properties))
+	assert.Equal(t, 5, len((schemaAfter.Objects.Classes)[0].Properties))
 	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
 	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
 	assert.Equal(t, "int", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
@@ -316,6 +377,12 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
 	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
 	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray"))
+	assert.Equal(t, "stringArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").Name)
+	assert.Equal(t, "string[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
+	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
+	assert.Equal(t, "int[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
 }
 
 func getProperty(properties []*models.Property, name string) *models.Property {

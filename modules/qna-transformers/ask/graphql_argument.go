@@ -18,29 +18,29 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func getAskArgumentFn(classname string) *graphql.ArgumentConfig {
-	return askArgument("GetObjects", classname)
+func (g *GraphQLArgumentsProvider) getAskArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.askArgument("GetObjects", classname)
 }
 
-func exploreAskArgumentFn() *graphql.ArgumentConfig {
-	return askArgument("Explore", "")
+func (g *GraphQLArgumentsProvider) exploreAskArgumentFn() *graphql.ArgumentConfig {
+	return g.askArgument("Explore", "")
 }
 
-func askArgument(prefix, className string) *graphql.ArgumentConfig {
+func (g *GraphQLArgumentsProvider) askArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("QnATransformers%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sAskInpObj", prefixName),
-				Fields:      askFields(prefixName),
+				Fields:      g.askFields(prefixName),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func askFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func (g *GraphQLArgumentsProvider) askFields(prefix string) graphql.InputObjectConfigFieldMap {
+	askFields := graphql.InputObjectConfigFieldMap{
 		"question": &graphql.InputObjectFieldConfig{
 			Description: "Question to be answered",
 			Type:        graphql.NewNonNull(graphql.String),
@@ -54,4 +54,11 @@ func askFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
+	if g.askTransformer != nil {
+		askFields["autocorrect"] = &graphql.InputObjectFieldConfig{
+			Description: "Autocorrect input text values",
+			Type:        graphql.Boolean,
+		}
+	}
+	return askFields
 }

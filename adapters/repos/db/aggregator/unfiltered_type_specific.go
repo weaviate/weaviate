@@ -18,6 +18,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
@@ -77,6 +79,8 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 	agg := newNumericalAggregator()
 
 	c := b.SetCursor() // flat never has a frequency, so it's always a Set
+	defer c.Close()
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ua.parseAndAddFloatRow(agg, k, v); err != nil {
 			return nil, err
@@ -148,6 +152,27 @@ func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k []b
 	return nil
 }
 
+func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregator,
+	v []byte, propName schema.PropertyName) error {
+	items, ok, err := storobj.ParseAndExtractNumberArrayProp(v, propName.String())
+	if err != nil {
+		return errors.Wrap(err, "parse and extract prop")
+	}
+
+	if !ok {
+		return nil
+	}
+
+	for i := range items {
+		err := agg.AddNumberRow(items[i], 1)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	prop aggregation.ParamProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
@@ -176,6 +201,34 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	}
 
 	out.TextAggregation = agg.Res()
+
+	return &out, nil
+}
+
+func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
+	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type:                  aggregation.PropertyTypeNumerical,
+		NumericalAggregations: map[string]float64{},
+	}
+
+	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
+	}
+
+	agg := newNumericalAggregator()
+
+	c := b.Cursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if err := ua.parseAndAddNumberArrayRow(agg, v, prop.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	addNumericalAggregations(&out, prop.Aggregators, agg)
 
 	return &out, nil
 }

@@ -113,28 +113,7 @@ func (a *numericalAggregator) AddFloat64Row(number []byte,
 		return errors.Wrap(err, "read float64")
 	}
 
-	if count == 0 {
-		// skip
-		return nil
-	}
-
-	a.count += count
-	a.sum += numberParsed * float64(count)
-	if numberParsed < a.min {
-		a.min = numberParsed
-	}
-	if numberParsed > a.max {
-		a.max = numberParsed
-	}
-
-	if count > a.maxCount {
-		a.maxCount = count
-		a.mode = numberParsed
-	}
-
-	a.pairs = append(a.pairs, floatCountPair{value: numberParsed, count: count})
-
-	return nil
+	return a.AddNumberRow(numberParsed, count)
 }
 
 func (a *numericalAggregator) AddInt64Row(number []byte, count uint64) error {
@@ -143,28 +122,30 @@ func (a *numericalAggregator) AddInt64Row(number []byte, count uint64) error {
 		return errors.Wrap(err, "read int64")
 	}
 
-	asFloat := float64(numberParsed)
+	return a.AddNumberRow(float64(numberParsed), count)
+}
 
+func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 	if count == 0 {
 		// skip
 		return nil
 	}
 
 	a.count += count
-	a.sum += asFloat * float64(count)
-	if asFloat < a.min {
-		a.min = asFloat
+	a.sum += number * float64(count)
+	if number < a.min {
+		a.min = number
 	}
-	if asFloat > a.max {
-		a.max = asFloat
+	if number > a.max {
+		a.max = number
 	}
 
 	if count > a.maxCount {
 		a.maxCount = count
-		a.mode = asFloat
+		a.mode = number
 	}
 
-	a.pairs = append(a.pairs, floatCountPair{value: asFloat, count: count})
+	a.pairs = append(a.pairs, floatCountPair{value: number, count: count})
 
 	return nil
 }
