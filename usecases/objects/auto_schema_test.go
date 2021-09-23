@@ -229,6 +229,31 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			},
 			want: []schema.DataType{schema.DataTypeNumberArray},
 		},
+		{
+			name: "determine boolean array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{true, false},
+			},
+			want: []schema.DataType{schema.DataTypeBooleanArray},
+		},
+		{
+			name: "determine date array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:     true,
+					DefaultDate: "date",
+				},
+			},
+			args: args{
+				value: []interface{}{"2002-10-02T15:00:00Z", "2002-10-02T15:01:00Z"},
+			},
+			want: []schema.DataType{schema.DataTypeDateArray},
+		},
 	}
 	for _, tt := range tests {
 		vectorRepo := &fakeVectorRepo{}

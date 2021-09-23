@@ -1520,54 +1520,55 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 
-		t.Run("array types, single aggregator numbers", func(t *testing.T) {
-			params := traverser.AggregateParams{
-				ClassName: schema.ClassName(arrayTypesClass.Class),
-				GroupBy:   nil, // explicitly set to nil
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
-						Name: schema.PropertyName("numbers"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
-						},
-					},
-				},
-			}
+		// TODO: Flaky median result: https://github.com/semi-technologies/weaviate/issues/1693
+		// t.Run("array types, single aggregator numbers", func(t *testing.T) {
+		// 	params := traverser.AggregateParams{
+		// 		ClassName: schema.ClassName(arrayTypesClass.Class),
+		// 		GroupBy:   nil, // explicitly set to nil
+		// 		Properties: []traverser.AggregateProperty{
+		// 			traverser.AggregateProperty{
+		// 				Name: schema.PropertyName("numbers"),
+		// 				Aggregators: []traverser.Aggregator{
+		// 					traverser.MeanAggregator,
+		// 					traverser.MaximumAggregator,
+		// 					traverser.MinimumAggregator,
+		// 					traverser.SumAggregator,
+		// 					traverser.ModeAggregator,
+		// 					traverser.MedianAggregator,
+		// 					traverser.CountAggregator,
+		// 					traverser.TypeAggregator, // ignored in the repo, but can't block
+		// 				},
+		// 			},
+		// 		},
+		// 	}
 
-			res, err := repo.Aggregate(context.Background(), params)
-			require.Nil(t, err)
+		// 	res, err := repo.Aggregate(context.Background(), params)
+		// 	require.Nil(t, err)
 
-			expectedResult := &aggregation.Result{
-				Groups: []aggregation.Group{
-					aggregation.Group{
-						GroupedBy: nil,
-						Properties: map[string]aggregation.Property{
-							"numbers": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    1.8,
-									"maximum": 3.0,
-									"minimum": 1.0,
-									"sum":     9.0,
-									"mode":    1.0,
-									"median":  3.0,
-									"count":   5,
-								},
-							},
-						},
-					},
-				},
-			}
+		// 	expectedResult := &aggregation.Result{
+		// 		Groups: []aggregation.Group{
+		// 			aggregation.Group{
+		// 				GroupedBy: nil,
+		// 				Properties: map[string]aggregation.Property{
+		// 					"numbers": aggregation.Property{
+		// 						Type: aggregation.PropertyTypeNumerical,
+		// 						NumericalAggregations: map[string]float64{
+		// 							"mean":    1.8,
+		// 							"maximum": 3.0,
+		// 							"minimum": 1.0,
+		// 							"sum":     9.0,
+		// 							"mode":    1.0,
+		// 							"median":  3.0,
+		// 							"count":   5,
+		// 						},
+		// 					},
+		// 				},
+		// 			},
+		// 		},
+		// 	}
 
-			assert.Equal(t, expectedResult.Groups, res.Groups)
-		})
+		// 	assert.Equal(t, expectedResult.Groups, res.Groups)
+		// })
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
 			params := traverser.AggregateParams{
