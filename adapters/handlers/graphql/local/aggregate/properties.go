@@ -193,7 +193,14 @@ func booleanPropertyFields(class *models.Class,
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
 			Description: descriptions.AggregateCount,
 			Type:        graphql.String,
-			// Resolve:     makeResolveNumericFieldAggregator("count"),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				prop, ok := p.Source.(aggregation.Property)
+				if !ok {
+					return nil, fmt.Errorf("boolean: type: expected aggregation.Property, got %T", p.Source)
+				}
+
+				return prop.SchemaType, nil
+			},
 		},
 	}
 

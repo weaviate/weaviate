@@ -107,6 +107,10 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 		for i := range val {
 			g.addItem(val[i], obj.DocID())
 		}
+	case []bool:
+		for i := range val {
+			g.addItem(val[i], obj.DocID())
+		}
 	default:
 		g.addItem(val, obj.DocID())
 	}
