@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -181,6 +183,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
+	beforeAll := time.Now()
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
@@ -192,6 +195,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 		allowList = list
 	}
+	fmt.Printf("building inverted took %s\n", time.Since(beforeAll))
+	beforeVector := time.Now()
 	ids, dists, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "vector search")
@@ -200,11 +205,14 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
+	fmt.Printf("hnsw took %s\n", time.Since(beforeVector))
+	beforeObjects := time.Now()
 
 	objs, err := s.objectsByDocID(ids, additional)
 	if err != nil {
 		return nil, nil, err
 	}
+	fmt.Printf("retrieving objects took %s\n\n", time.Since(beforeObjects))
 
 	return objs, dists, nil
 }
