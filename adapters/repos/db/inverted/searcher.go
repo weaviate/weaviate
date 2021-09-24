@@ -65,7 +65,9 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	var out []*storobj.Object
-	if err := pv.fetchDocIDs(f, limit); err != nil {
+	// we assume that when retrieving objects, we can not tolerate duplicates as
+	// they would have a direct impact on the user
+	if err := pv.fetchDocIDs(f, limit, false); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -142,7 +144,9 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	before := time.Now()
-	if err := pv.fetchDocIDs(f, -1); err != nil {
+	// when building an allow list (which is a set anyway) we can skip the costly
+	// deduplication, as it doesn't matter
+	if err := pv.fetchDocIDs(f, -1, true); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 	fmt.Printf("--fetch ids took %s\n", time.Since(before))

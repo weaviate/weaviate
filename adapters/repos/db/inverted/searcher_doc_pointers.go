@@ -25,8 +25,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func (fs *Searcher) docPointers(prop string,
-	b *lsmkv.Bucket, limit int, pv *propValuePair) (docPointers, error) {
+func (fs *Searcher) docPointers(prop string, b *lsmkv.Bucket, limit int,
+	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
 	if pv.operator == filters.OperatorWithinGeoRange {
 		// geo props cannot be served by the inverted index and they require an
 		// external index. So, instead of trying to serve this chunk of the filter
@@ -35,21 +35,21 @@ func (fs *Searcher) docPointers(prop string,
 	} else {
 		// all other operators perform operations on the inverted index which we
 		// can serve directly
-		return fs.docPointersInverted(prop, b, limit, pv)
+		return fs.docPointersInverted(prop, b, limit, pv, tolerateDuplicates)
 	}
 }
 
 func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
 	if pv.hasFrequency {
-		return fs.docPointersInvertedFrequency(prop, b, limit, pv)
+		return fs.docPointersInvertedFrequency(prop, b, limit, pv, tolerateDuplicates)
 	}
 
-	return fs.docPointersInvertedNoFrequency(prop, b, limit, pv)
+	return fs.docPointersInvertedNoFrequency(prop, b, limit, pv, tolerateDuplicates)
 }
 
 func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
 	rr := NewRowReader(b, pv.value, pv.operator)
 
 	var pointers docPointers
@@ -102,7 +102,10 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 
 	before2 := time.Now()
 	pointers.checksum = newChecksum
-	pointers.removeDuplicates()
+
+	if !tolerateDuplicates {
+		pointers.removeDuplicates()
+	}
 	fmt.Printf("--remove duplicates took %s\n", time.Since(before2))
 	fmt.Printf("--checksums and remove duplicates took %s\n", time.Since(before))
 
@@ -110,7 +113,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 }
 
 func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
 	rr := NewRowReaderFrequency(b, pv.value, pv.operator)
 
 	var pointers docPointers
@@ -155,7 +158,9 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		return pointers, errors.Wrap(err, "calculate new checksum")
 	}
 
-	pointers.removeDuplicates()
+	if !tolerateDuplicates {
+		pointers.removeDuplicates()
+	}
 	pointers.checksum = newChecksum
 	return pointers, nil
 }

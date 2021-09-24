@@ -36,7 +36,8 @@ type propValuePair struct {
 	children      []*propValuePair
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
+	tolerateDuplicates bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == "id" {
@@ -53,7 +54,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		pointers, err := s.docPointers(id, b, limit, pv)
+		pointers, err := s.docPointers(id, b, limit, pv, tolerateDuplicates)
 		if err != nil {
 			return err
 		}
@@ -65,7 +66,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			// otherwise we run into situations where each subfilter on their own
 			// runs into the limit, possibly yielding in "less than limit" results
 			// after merging.
-			err := child.fetchDocIDs(s, 0)
+			err := child.fetchDocIDs(s, 0, tolerateDuplicates)
 			if err != nil {
 				return errors.Wrapf(err, "nested child %d", i)
 			}
