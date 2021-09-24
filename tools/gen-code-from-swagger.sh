@@ -28,7 +28,7 @@ fi
 (cd $DIR/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
-(cd $DIR/..; go generate ./deprecations)
+(cd $DIR/..; GO111MODULE=on go generate ./deprecations)
 
 echo Now add the header to the generated code too.
 (cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)
