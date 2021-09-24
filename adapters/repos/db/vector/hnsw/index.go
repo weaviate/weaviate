@@ -96,6 +96,8 @@ type hnsw struct {
 	cleanupInterval time.Duration
 
 	pools *pools
+
+	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 }
 
 type CommitLogger interface {

@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -140,9 +141,11 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
+	before := time.Now()
 	if err := pv.fetchDocIDs(f, -1); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
+	fmt.Printf("--fetch ids took %s\n", time.Since(before))
 
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
@@ -425,7 +428,7 @@ func (d docPointers) IDs() []uint64 {
 }
 
 func (d *docPointers) removeDuplicates() {
-	counts := map[uint64]uint16{}
+	counts := make(map[uint64]uint16, len(d.docIDs))
 	for _, id := range d.docIDs {
 		counts[id.id]++
 	}

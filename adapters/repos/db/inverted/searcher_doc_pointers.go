@@ -15,7 +15,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"hash/crc64"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -53,7 +55,11 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 	var pointers docPointers
 	var hashes [][]byte
 
+	beforeLoop := time.Now()
+	var insideLoop time.Duration
+
 	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
+		beginInside := time.Now()
 		currentDocIDs := make([]docPointer, len(ids))
 		for i, asBytes := range ids {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(asBytes)
@@ -77,18 +83,28 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 			return false, nil
 		}
 
+		insideLoop += time.Since(beginInside)
+
 		return true, nil
 	}); err != nil {
 		return pointers, errors.Wrap(err, "read row")
 	}
 
+	totalLoop := time.Since(beforeLoop)
+	fmt.Printf("total loop: %s - inside loop %s - inside row reader : %s", totalLoop, insideLoop, totalLoop-insideLoop)
+
+	before := time.Now()
 	newChecksum, err := combineChecksums(hashes)
 	if err != nil {
 		return pointers, errors.Wrap(err, "calculate new checksum")
 	}
+	fmt.Printf("--checksums took %s\n", time.Since(before))
 
+	before2 := time.Now()
 	pointers.checksum = newChecksum
 	pointers.removeDuplicates()
+	fmt.Printf("--remove duplicates took %s\n", time.Since(before2))
+	fmt.Printf("--checksums and remove duplicates took %s\n", time.Since(before))
 
 	return pointers, nil
 }
