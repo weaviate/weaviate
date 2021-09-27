@@ -31,6 +31,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
+	t.Run("import test data (array class)", addTestDataArrayClasses)
 
 	// tests
 	t.Run("getting objects", gettingObjects)
@@ -38,6 +39,11 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
+	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
+	t.Run("aggregates local meta with filters", localMetaWithFilters)
+	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
+	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
+	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -45,6 +51,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "City")
 	deleteObjectClass(t, "Airport")
 	deleteObjectClass(t, "Company")
+	deleteObjectClass(t, "ArrayClass")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -92,7 +99,7 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "name",
 				DataType: []string{"string"},
 			},
@@ -107,21 +114,25 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "name",
 				DataType: []string{"string"},
 			},
-			&models.Property{
+			{
 				Name:     "inCountry",
 				DataType: []string{"Country"},
 			},
-			&models.Property{
+			{
 				Name:     "population",
 				DataType: []string{"int"},
 			},
-			&models.Property{
+			{
 				Name:     "location",
 				DataType: []string{"geoCoordinates"},
+			},
+			{
+				Name:     "isCapital",
+				DataType: []string{"boolean"},
 			},
 		},
 	})
@@ -134,15 +145,15 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "code",
 				DataType: []string{"string"},
 			},
-			&models.Property{
+			{
 				Name:     "phone",
 				DataType: []string{"phoneNumber"},
 			},
-			&models.Property{
+			{
 				Name:     "inCity",
 				DataType: []string{"City"},
 			},
@@ -157,7 +168,7 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "name",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
@@ -166,7 +177,7 @@ func addTestSchema(t *testing.T) {
 					},
 				},
 			},
-			&models.Property{
+			{
 				Name:     "inCity",
 				DataType: []string{"City"},
 				ModuleConfig: map[string]interface{}{
@@ -186,7 +197,7 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     "name",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
@@ -195,7 +206,7 @@ func addTestSchema(t *testing.T) {
 					},
 				},
 			},
-			&models.Property{
+			{
 				Name:     "livesIn",
 				DataType: []string{"City"},
 				ModuleConfig: map[string]interface{}{
@@ -211,6 +222,25 @@ func addTestSchema(t *testing.T) {
 		Class:      "CustomVectorClass",
 		Vectorizer: "none",
 		Properties: []*models.Property{},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "ArrayClass",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "strings",
+				DataType: []string{"string[]"},
+			},
+			{
+				Name:     "numbers",
+				DataType: []string{"number[]"},
+			},
+		},
 	})
 }
 
@@ -264,6 +294,7 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", netherlands).String(),
 				},
 			},
+			"isCapital": true,
 		},
 	})
 	createObject(t, &models.Object{
@@ -277,6 +308,7 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", netherlands).String(),
 				},
 			},
+			"isCapital": false,
 		},
 	})
 	createObject(t, &models.Object{
@@ -290,6 +322,7 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", germany).String(),
 				},
 			},
+			"isCapital": true,
 		},
 	})
 	createObject(t, &models.Object{
@@ -307,6 +340,7 @@ func addTestDataCityAirport(t *testing.T) {
 				"latitude":  51.225556,
 				"longitude": 6.782778,
 			},
+			"isCapital": false,
 		},
 	})
 
@@ -320,6 +354,7 @@ func addTestDataCityAirport(t *testing.T) {
 				"latitude":  0,
 				"longitude": 0,
 			},
+			"isCapital": false,
 		},
 	})
 
@@ -406,15 +441,15 @@ func addTestDataCompanies(t *testing.T) {
 	}
 
 	companies := []companyTemplate{
-		companyTemplate{id: microsoft1, name: "Microsoft Inc.", inCity: []strfmt.UUID{dusseldorf}},
-		companyTemplate{id: microsoft2, name: "Microsoft Incorporated", inCity: []strfmt.UUID{dusseldorf, amsterdam}},
-		companyTemplate{id: microsoft3, name: "Microsoft", inCity: []strfmt.UUID{berlin}},
-		companyTemplate{id: apple1, name: "Apple Inc."},
-		companyTemplate{id: apple2, name: "Apple Incorporated"},
-		companyTemplate{id: apple3, name: "Apple"},
-		companyTemplate{id: google1, name: "Google Inc."},
-		companyTemplate{id: google2, name: "Google Incorporated"},
-		companyTemplate{id: google3, name: "Google"},
+		{id: microsoft1, name: "Microsoft Inc.", inCity: []strfmt.UUID{dusseldorf}},
+		{id: microsoft2, name: "Microsoft Incorporated", inCity: []strfmt.UUID{dusseldorf, amsterdam}},
+		{id: microsoft3, name: "Microsoft", inCity: []strfmt.UUID{berlin}},
+		{id: apple1, name: "Apple Inc."},
+		{id: apple2, name: "Apple Incorporated"},
+		{id: apple3, name: "Apple"},
+		{id: google1, name: "Google Inc."},
+		{id: google2, name: "Google Incorporated"},
+		{id: google3, name: "Google"},
 	}
 
 	// companies
@@ -507,4 +542,41 @@ func addTestDataCVC(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, cvc3)
+}
+
+func addTestDataArrayClasses(t *testing.T) {
+	var (
+		arrayClassID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
+		arrayClassID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
+		arrayClassID3 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534c"
+	)
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID1,
+		Properties: map[string]interface{}{
+			"strings": []string{"a", "b", "c"},
+			"numbers": []float64{1.0, 2.0, 3.0},
+		},
+	})
+	assertGetObjectEventually(t, arrayClassID1)
+
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID2,
+		Properties: map[string]interface{}{
+			"strings": []string{"a", "b"},
+			"numbers": []float64{1.0, 2.0},
+		},
+	})
+	assertGetObjectEventually(t, arrayClassID2)
+
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID3,
+		Properties: map[string]interface{}{
+			"strings": []string{"a"},
+			"numbers": []float64{1.0},
+		},
+	})
+	assertGetObjectEventually(t, arrayClassID3)
 }
