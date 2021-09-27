@@ -25,6 +25,17 @@ import (
 
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	prop traverser.AggregateProperty) (*aggregation.Property, error) {
+	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolRow)
+}
+
+func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
+	prop traverser.AggregateProperty) (*aggregation.Property, error) {
+	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolArrayRow)
+}
+
+func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
+	prop traverser.AggregateProperty,
+	parseFn func(agg *boolAggregator, k []byte, v [][]byte) error) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type: aggregation.PropertyTypeBoolean,
 	}
@@ -40,7 +51,7 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		err := ua.parseAndAddBoolRow(agg, k, v)
+		err := parseFn(agg, k, v)
 		if err != nil {
 			return nil, err
 		}
@@ -60,6 +71,21 @@ func (ua unfilteredAggregator) parseAndAddBoolRow(agg *boolAggregator, k []byte,
 
 	if err := agg.AddBoolRow(k, uint64(len(v))); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddBoolArrayRow(agg *boolAggregator, k []byte, v [][]byte) error {
+	values := make([][]byte, len(k))
+	for i := range k {
+		values[i] = []byte{k[i]}
+	}
+
+	for i := range values {
+		if err := agg.AddBoolRow(values[i], 1); err != nil {
+			return err
+		}
 	}
 
 	return nil

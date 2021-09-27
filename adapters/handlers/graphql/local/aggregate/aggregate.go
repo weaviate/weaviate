@@ -215,6 +215,10 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeIntArray, schema.DataTypeNumberArray:
 		return makePropertyField(class, property, numericPropertyFields)
+	case schema.DataTypeBooleanArray:
+		return makePropertyField(class, property, booleanPropertyFields)
+	case schema.DataTypeDateArray:
+		return makePropertyField(class, property, nonNumericPropertyFields)
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}

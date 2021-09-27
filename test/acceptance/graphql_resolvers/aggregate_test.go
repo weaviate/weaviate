@@ -288,6 +288,14 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 						type
 						count
 					}
+					booleans {
+						count
+						percentageFalse
+						percentageTrue
+						totalFalse
+						totalTrue
+						type
+					}
 				}
 			}
 		}
@@ -336,6 +344,19 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 			},
 		}
 		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+	})
+
+	t.Run("boolean props", func(t *testing.T) {
+		isCapital := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["booleans"]
+		expected := map[string]interface{}{
+			"count":           json.Number("6"),
+			"percentageTrue":  json.Number("0.5"),
+			"percentageFalse": json.Number("0.5"),
+			"totalTrue":       json.Number("3"),
+			"totalFalse":      json.Number("3"),
+			"type":            "boolean[]",
+		}
+		assert.Equal(t, expected, isCapital)
 	})
 }
 
