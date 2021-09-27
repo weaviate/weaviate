@@ -240,6 +240,10 @@ func addTestSchema(t *testing.T) {
 				Name:     "numbers",
 				DataType: []string{"number[]"},
 			},
+			{
+				Name:     "booleans",
+				DataType: []string{"boolean[]"},
+			},
 		},
 	})
 }
@@ -554,8 +558,9 @@ func addTestDataArrayClasses(t *testing.T) {
 		Class: "ArrayClass",
 		ID:    arrayClassID1,
 		Properties: map[string]interface{}{
-			"strings": []string{"a", "b", "c"},
-			"numbers": []float64{1.0, 2.0, 3.0},
+			"strings":  []string{"a", "b", "c"},
+			"numbers":  []float64{1.0, 2.0, 3.0},
+			"booleans": []bool{true, true},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID1)
@@ -564,8 +569,9 @@ func addTestDataArrayClasses(t *testing.T) {
 		Class: "ArrayClass",
 		ID:    arrayClassID2,
 		Properties: map[string]interface{}{
-			"strings": []string{"a", "b"},
-			"numbers": []float64{1.0, 2.0},
+			"strings":  []string{"a", "b"},
+			"numbers":  []float64{1.0, 2.0},
+			"booleans": []bool{false, false},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID2)
@@ -574,8 +580,9 @@ func addTestDataArrayClasses(t *testing.T) {
 		Class: "ArrayClass",
 		ID:    arrayClassID3,
 		Properties: map[string]interface{}{
-			"strings": []string{"a"},
-			"numbers": []float64{1.0},
+			"strings":  []string{"a"},
+			"numbers":  []float64{1.0},
+			"booleans": []bool{true, false},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID3)

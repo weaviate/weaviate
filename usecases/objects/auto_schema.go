@@ -190,6 +190,10 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 						}
 					}
 				case string:
+					_, err := time.Parse(time.RFC3339, arrayVal)
+					if err == nil {
+						return []schema.DataType{schema.DataTypeDateArray}
+					}
 					if schema.DataType(m.config.DefaultString) == schema.DataTypeText {
 						return []schema.DataType{schema.DataTypeTextArray}
 					}
@@ -199,6 +203,8 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 						return []schema.DataType{schema.DataTypeIntArray}
 					}
 					return []schema.DataType{schema.DataTypeNumberArray}
+				case bool:
+					return []schema.DataType{schema.DataTypeBooleanArray}
 				}
 			}
 			return dataType
