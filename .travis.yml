@@ -53,7 +53,6 @@ install:
   - wget https://raw.githubusercontent.com/creativesoftwarefdn/semver-tool/master/src/semver
   - chmod +x semver
 before_script:
-  - go clean -modcache && go mod tidy # try to fix travis module download issue
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils 
   - |
