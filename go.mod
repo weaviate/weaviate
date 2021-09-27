@@ -37,6 +37,7 @@ require (
 	go.mongodb.org/mongo-driver v1.7.2 // indirect
 	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
 	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e
+	golang.org/x/tools v0.1.6 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
