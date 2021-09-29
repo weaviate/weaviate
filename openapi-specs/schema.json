@@ -1069,6 +1069,15 @@
     "version": "1.8.0-rc.2"
   },
   "parameters": {
+    "CommonOffsetParameterQuery": {
+      "description": "The starting index of the result window. Default value is 0.",
+      "format": "int64",
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "type": "integer",
+      "default": 0
+    },
     "CommonLimitParameterQuery": {
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "format": "int64",
@@ -1139,6 +1148,9 @@
         "operationId": "objects.list",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
+          {
+            "$ref": "#/parameters/CommonOffsetParameterQuery"
+          },
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },

@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -42,7 +43,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -91,7 +92,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
-		res, err := repo.ObjectSearch(context.Background(), 100,
+		res, err := repo.ObjectSearch(context.Background(), 0, 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: op,

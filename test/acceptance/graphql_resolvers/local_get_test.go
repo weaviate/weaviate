@@ -74,4 +74,61 @@ func gettingObjects(t *testing.T) {
 		cities := body["data"].(map[string]interface{})["Get"].(map[string]interface{})["City"].([]interface{})
 		assert.Greater(t, len(cities), 0)
 	})
+
+	t.Run("listing cities with limit", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(limit: 2) { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Rotterdam"},
+			map[string]interface{}{"name": "Dusseldorf"},
+		}
+
+		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("listing cities with offset and limit", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2 limit: 2) { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Amsterdam"},
+			map[string]interface{}{"name": "Null Island"},
+		}
+
+		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("listing cities with offset", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2) { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Amsterdam"},
+			map[string]interface{}{"name": "Null Island"},
+			map[string]interface{}{"name": "Berlin"},
+		}
+
+		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("listing cities with offset and limit beyond results size", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 4 limit: 10) { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Berlin"},
+		}
+
+		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("listing cities with offset beyond results size", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 5) { name } } }")
+		cities := result.Get("Get", "City").AsSlice()
+
+		expected := []interface{}{}
+
+		assert.ElementsMatch(t, expected, cities)
+	})
 }

@@ -45,7 +45,7 @@ type Traverser struct {
 
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
-		limit int, filters *filters.LocalFilter) ([]search.Result, error)
+		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 }
 

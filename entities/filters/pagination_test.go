@@ -31,6 +31,28 @@ func TestExtractPagination(t *testing.T) {
 		})
 		require.Nil(t, err)
 		require.NotNil(t, p)
+		assert.Equal(t, 0, p.Offset)
+		assert.Equal(t, 25, p.Limit)
+	})
+
+	t.Run("with a offset present", func(t *testing.T) {
+		p, err := ExtractPaginationFromArgs(map[string]interface{}{
+			"offset": 11,
+		})
+		require.Nil(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, 11, p.Offset)
+		assert.Equal(t, -1, p.Limit)
+	})
+
+	t.Run("with offset and limit present", func(t *testing.T) {
+		p, err := ExtractPaginationFromArgs(map[string]interface{}{
+			"offset": 11,
+			"limit":  25,
+		})
+		require.Nil(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, 11, p.Offset)
 		assert.Equal(t, 25, p.Limit)
 	})
 }

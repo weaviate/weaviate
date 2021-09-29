@@ -541,6 +541,9 @@ func init() {
         "operationId": "objects.list",
         "parameters": [
           {
+            "$ref": "#/parameters/CommonOffsetParameterQuery"
+          },
+          {
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },
           {
@@ -2515,6 +2518,14 @@ func init() {
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
       "in": "query"
+    },
+    "CommonOffsetParameterQuery": {
+      "type": "integer",
+      "format": "int64",
+      "default": 0,
+      "description": "The starting index of the result window. Default value is 0.",
+      "name": "offset",
+      "in": "query"
     }
   },
   "securityDefinitions": {
@@ -3073,6 +3084,14 @@ func init() {
         "summary": "Get a list of Objects.",
         "operationId": "objects.list",
         "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "description": "The starting index of the result window. Default value is 0.",
+            "name": "offset",
+            "in": "query"
+          },
           {
             "type": "integer",
             "format": "int64",
@@ -5172,6 +5191,14 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
+      "in": "query"
+    },
+    "CommonOffsetParameterQuery": {
+      "type": "integer",
+      "format": "int64",
+      "default": 0,
+      "description": "The starting index of the result window. Default value is 0.",
+      "name": "offset",
       "in": "query"
     }
   },

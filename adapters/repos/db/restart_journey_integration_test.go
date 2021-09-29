@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -55,7 +56,7 @@ func TestRestartJourney(t *testing.T) {
 	}
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -108,7 +109,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 10,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -129,7 +130,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 10,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -170,7 +171,7 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-		newRepo = New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		newRepo = New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 			&fakeNodeResolver{})
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
@@ -188,7 +189,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 10,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -209,7 +210,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 10,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,

@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -26,7 +27,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -53,7 +54,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
 
@@ -92,7 +93,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
 
@@ -240,7 +241,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), limit, filters,
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
 					additional.Properties{})
 				assert.Nil(t, err)
 
@@ -324,7 +325,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorSearch(context.Background(), queryVec, limit, nil)
+				res, err := repo.VectorSearch(context.Background(), queryVec, 0, limit, nil)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -445,10 +446,11 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 		obj      *models.Object
 	}
 
+	distProv := distancer.NewDotProductProvider()
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {
-		dist := 1 - asm.Dot(normalize(query), normalize(objs[i].Vector))
+		dist, _, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
 		distances[i] = distanceAndObj{
 			distance: dist,
 			obj:      objs[i],
