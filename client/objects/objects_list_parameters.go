@@ -31,8 +31,11 @@ import (
 // NewObjectsListParams creates a new ObjectsListParams object
 // with the default values initialized.
 func NewObjectsListParams() *ObjectsListParams {
-	var ()
+	var (
+		offsetDefault = int64(0)
+	)
 	return &ObjectsListParams{
+		Offset: &offsetDefault,
 
 		timeout: cr.DefaultTimeout,
 	}
@@ -41,8 +44,11 @@ func NewObjectsListParams() *ObjectsListParams {
 // NewObjectsListParamsWithTimeout creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewObjectsListParamsWithTimeout(timeout time.Duration) *ObjectsListParams {
-	var ()
+	var (
+		offsetDefault = int64(0)
+	)
 	return &ObjectsListParams{
+		Offset: &offsetDefault,
 
 		timeout: timeout,
 	}
@@ -51,8 +57,11 @@ func NewObjectsListParamsWithTimeout(timeout time.Duration) *ObjectsListParams {
 // NewObjectsListParamsWithContext creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewObjectsListParamsWithContext(ctx context.Context) *ObjectsListParams {
-	var ()
+	var (
+		offsetDefault = int64(0)
+	)
 	return &ObjectsListParams{
+		Offset: &offsetDefault,
 
 		Context: ctx,
 	}
@@ -61,8 +70,11 @@ func NewObjectsListParamsWithContext(ctx context.Context) *ObjectsListParams {
 // NewObjectsListParamsWithHTTPClient creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewObjectsListParamsWithHTTPClient(client *http.Client) *ObjectsListParams {
-	var ()
+	var (
+		offsetDefault = int64(0)
+	)
 	return &ObjectsListParams{
+		Offset:     &offsetDefault,
 		HTTPClient: client,
 	}
 }
@@ -82,6 +94,11 @@ type ObjectsListParams struct {
 
 	*/
 	Limit *int64
+	/*Offset
+	  The starting index of the result window. Default value is 0.
+
+	*/
+	Offset *int64
 
 	timeout    time.Duration
 	Context    context.Context
@@ -143,6 +160,17 @@ func (o *ObjectsListParams) SetLimit(limit *int64) {
 	o.Limit = limit
 }
 
+// WithOffset adds the offset to the objects list params
+func (o *ObjectsListParams) WithOffset(offset *int64) *ObjectsListParams {
+	o.SetOffset(offset)
+	return o
+}
+
+// SetOffset adds the offset to the objects list params
+func (o *ObjectsListParams) SetOffset(offset *int64) {
+	o.Offset = offset
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -177,6 +205,22 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		qLimit := swag.FormatInt64(qrLimit)
 		if qLimit != "" {
 			if err := r.SetQueryParam("limit", qLimit); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	if o.Offset != nil {
+
+		// query param offset
+		var qrOffset int64
+		if o.Offset != nil {
+			qrOffset = *o.Offset
+		}
+		qOffset := swag.FormatInt64(qrOffset)
+		if qOffset != "" {
+			if err := r.SetQueryParam("offset", qOffset); err != nil {
 				return err
 			}
 		}

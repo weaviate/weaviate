@@ -19,6 +19,7 @@ const (
 	Keywords             = "Keywords are a list of search terms. Array type, e.g. [\"keyword 1\", \"keyword 2\"]"
 	Network              = "Set to true, if the exploration should include remote peers"
 	Limit                = "Limit the results set (usually fewer results mean faster queries)"
+	Offset               = "Offset of the results set (usually fewer results mean faster queries)"
 	Certainty            = "Desired Certainty. The higher the value the stricter the search becomes, the lower the value the fuzzier the search becomes"
 	Force                = "The force to apply for a particular movements. Must be between 0 and 1 where 0 is equivalent to no movement and 1 is equivalent to largest movement possible"
 	ClassName            = "Name of the Class"

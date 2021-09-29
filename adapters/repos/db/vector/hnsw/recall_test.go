@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build benchmarkRecall
 // +build benchmarkRecall
 
 package hnsw

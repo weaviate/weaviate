@@ -14,18 +14,29 @@ package filters
 // Pagination for now only contains a limit parameter, but might be extended in
 // the future
 type Pagination struct {
-	Limit int
+	Offset int
+	Limit  int
 }
 
 // ExtractPaginationFromArgs gets the limit key out of a map. Not specific to
 // GQL, but can be used from GQL
 func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error) {
-	limit, ok := args["limit"]
-	if !ok {
+	offset, offsetOk := args["offset"]
+	if !offsetOk {
+		offset = 0
+	}
+
+	limit, limitOk := args["limit"]
+	if !limitOk {
+		limit = -1
+	}
+
+	if !offsetOk && !limitOk {
 		return nil, nil
 	}
 
 	return &Pagination{
-		Limit: limit.(int),
+		Offset: offset.(int),
+		Limit:  limit.(int),
 	}, nil
 }

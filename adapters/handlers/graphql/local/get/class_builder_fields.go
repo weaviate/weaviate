@@ -205,6 +205,10 @@ func buildGetClassField(classObject *graphql.Object,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
+			"offset": &graphql.ArgumentConfig{
+				Description: descriptions.After,
+				Type:        graphql.Int,
+			},
 
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),

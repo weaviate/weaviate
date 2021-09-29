@@ -27,10 +27,18 @@ import (
 )
 
 // NewObjectsListParams creates a new ObjectsListParams object
-// no default values defined in spec.
+// with the default values initialized.
 func NewObjectsListParams() ObjectsListParams {
 
-	return ObjectsListParams{}
+	var (
+		// initialize parameters with default values
+
+		offsetDefault = int64(0)
+	)
+
+	return ObjectsListParams{
+		Offset: &offsetDefault,
+	}
 }
 
 // ObjectsListParams contains all the bound params for the objects list operation
@@ -50,6 +58,11 @@ type ObjectsListParams struct {
 	  In: query
 	*/
 	Limit *int64
+	/*The starting index of the result window. Default value is 0.
+	  In: query
+	  Default: 0
+	*/
+	Offset *int64
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,6 +83,11 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	qLimit, qhkLimit, _ := qs.GetOK("limit")
 	if err := o.bindLimit(qLimit, qhkLimit, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qOffset, qhkOffset, _ := qs.GetOK("offset")
+	if err := o.bindOffset(qOffset, qhkOffset, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -115,6 +133,29 @@ func (o *ObjectsListParams) bindLimit(rawData []string, hasKey bool, formats str
 		return errors.InvalidType("limit", "query", "int64", raw)
 	}
 	o.Limit = &value
+
+	return nil
+}
+
+// bindOffset binds and validates parameter Offset from query.
+func (o *ObjectsListParams) bindOffset(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewObjectsListParams()
+		return nil
+	}
+
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("offset", "query", "int64", raw)
+	}
+	o.Offset = &value
 
 	return nil
 }

@@ -831,6 +831,48 @@ func TestExtractPagination(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
+func TestExtractPaginationWithOffset(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := traverser.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Pagination: &filters.Pagination{
+			Offset: 5,
+			Limit:  10,
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := "{ Get { SomeAction(offset: 5 limit: 10) { intField } } }"
+	resolver.AssertResolve(t, query)
+}
+
+func TestExtractPaginationWithOnlyOffset(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := traverser.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Pagination: &filters.Pagination{
+			Offset: 5,
+			Limit:  -1,
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := "{ Get { SomeAction(offset: 5) { intField } } }"
+	resolver.AssertResolve(t, query)
+}
+
 func TestExtractGroupParams(t *testing.T) {
 	t.Parallel()
 

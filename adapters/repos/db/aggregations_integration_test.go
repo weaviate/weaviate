@@ -50,7 +50,7 @@ func Test_Aggregations(t *testing.T) {
 	shardState := singleShardState()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -82,7 +82,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	shardState := fixedMultiShardState()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())

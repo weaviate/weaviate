@@ -104,6 +104,17 @@ func FromEnv(config *Config) error {
 		config.QueryDefaults.Limit = int64(asInt)
 	}
 
+	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse QUERY_MAXIMUM_RESULTS as int")
+		}
+
+		config.QueryMaximumResults = int64(asInt)
+	} else {
+		config.QueryMaximumResults = DefaultQueryMaximumResults
+	}
+
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
 		config.DefaultVectorizerModule = v
 	} else {
@@ -137,6 +148,8 @@ func FromEnv(config *Config) error {
 
 	return nil
 }
+
+const DefaultQueryMaximumResults = int64(10000)
 
 const VectorizerModuleNone = "none"
 

@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTestBug
 // +build integrationTestBug
 
 package hnsw

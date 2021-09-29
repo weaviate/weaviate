@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build ignore
 // +build ignore
 
 // The following directive is necessary to make the package coherent:

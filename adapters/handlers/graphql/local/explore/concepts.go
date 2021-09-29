@@ -33,6 +33,10 @@ func Build(schema *models.Schema, modulesProvider ModulesProvider) *graphql.Fiel
 		Type:        graphql.NewList(exploreObject()),
 		Resolve:     newResolver(modulesProvider).resolve,
 		Args: graphql.FieldConfigArgument{
+			"offset": &graphql.ArgumentConfig{
+				Type:        graphql.Int,
+				Description: descriptions.Offset,
+			},
 			"limit": &graphql.ArgumentConfig{
 				Type:        graphql.Int,
 				Description: descriptions.Limit,
