@@ -926,6 +926,9 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
+			if !exact {
+				t.Skip()
+			}
 			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy: &filters.Path{
@@ -971,6 +974,9 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 		})
 
 		t.Run("array types, single aggregator numbers", func(t *testing.T) {
+			if !exact {
+				t.Skip()
+			}
 			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy: &filters.Path{
@@ -1757,6 +1763,9 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		// })
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
+			if !exact {
+				t.Skip()
+			}
 			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy:   nil, // explicitly set to nil
