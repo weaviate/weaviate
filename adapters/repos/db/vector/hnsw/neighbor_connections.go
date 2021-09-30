@@ -88,7 +88,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	max := n.maximumConnections(level)
+	// max := n.maximumConnections(level)
+	max := n.graph.maximumConnections
 	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
 		return err
 	}
@@ -101,6 +102,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		id := results.Pop().ID
 		neighbors = append(neighbors, id)
 	}
+
+	n.graph.pools.pqResults.Put(results)
 
 	// set all outoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
@@ -175,10 +178,13 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
 	maximumConnections := n.maximumConnections(level)
-	updatedConnections := make([]uint64, 0, maximumConnections)
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
-		updatedConnections = append(currentConnections, n.node.id)
+		// updatedConnections = append(currentConnections, n.node.id)
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id)
+		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
+			return err
+		}
 	} else {
 		// we need to run the heurisitc
 
@@ -215,17 +221,20 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return errors.Wrap(err, "connect neighbors")
 		}
 
+		neighbor.resetConnectionsAtLevelNoLock(level)
+		if err := n.graph.commitLog.ClearLinks(neighbor.id); err != nil {
+			return err
+		}
+
 		for candidates.Len() > 0 {
-			updatedConnections = append(updatedConnections, candidates.Pop().ID)
+			id := candidates.Pop().ID
+			neighbor.appendConnectionAtLevelNoLock(level, id)
+			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
+				return err
+			}
 		}
 	}
 
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
-		updatedConnections); err != nil {
-		return err
-	}
-
-	neighbor.setConnectionsAtLevelNoLock(level, updatedConnections)
 	return nil
 }
 

@@ -47,8 +47,9 @@ func TestBatchPutObjects(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -80,7 +81,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},

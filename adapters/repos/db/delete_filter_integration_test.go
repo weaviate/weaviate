@@ -62,8 +62,9 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 			DataType: []string{string(schema.DataTypeBoolean)},
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -71,7 +72,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
+			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{

@@ -16,11 +16,11 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Resolver struct {
@@ -28,7 +28,7 @@ type Resolver struct {
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, additional traverser.AdditionalProperties) error
+	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -37,7 +37,7 @@ func NewResolver(cacher cacher) *Resolver {
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, additional traverser.AdditionalProperties) ([]search.Result, error) {
+	properties search.SelectProperties, additional additional.Properties) ([]search.Result, error) {
 	if err := r.cacher.Build(ctx, objects, properties, additional); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
@@ -45,8 +45,8 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	return r.parseObjects(objects, properties, additional)
 }
 
-func (r *Resolver) parseObjects(objects []search.Result, properties traverser.SelectProperties,
-	additional traverser.AdditionalProperties) ([]search.Result, error) {
+func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
+	additional additional.Properties) ([]search.Result, error) {
 	for i, obj := range objects {
 		parsed, err := r.parseObject(obj, properties, additional)
 		if err != nil {
@@ -59,8 +59,8 @@ func (r *Resolver) parseObjects(objects []search.Result, properties traverser.Se
 	return objects, nil
 }
 
-func (r *Resolver) parseObject(object search.Result, properties traverser.SelectProperties,
-	additional traverser.AdditionalProperties) (search.Result, error) {
+func (r *Resolver) parseObject(object search.Result, properties search.SelectProperties,
+	additional additional.Properties) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
 	}
@@ -80,7 +80,7 @@ func (r *Resolver) parseObject(object search.Result, properties traverser.Select
 }
 
 func (r *Resolver) parseSchema(schema map[string]interface{},
-	properties traverser.SelectProperties) (map[string]interface{}, error) {
+	properties search.SelectProperties) (map[string]interface{}, error) {
 	for propName, value := range schema {
 		refs, ok := value.(models.MultipleRef)
 		if !ok {
@@ -108,7 +108,7 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 }
 
 func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
-	selectProp traverser.SelectProperty) ([]interface{}, error) {
+	selectProp search.SelectProperty) ([]interface{}, error) {
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
 		innerProperties := selectPropRef.RefProperties
@@ -123,7 +123,7 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 }
 
 func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
-	innerProperties traverser.SelectProperties) ([]interface{}, error) {
+	innerProperties search.SelectProperties) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
 		resolved, err := r.resolveRef(item, desiredClass, innerProperties)
@@ -142,7 +142,7 @@ func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
 }
 
 func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
-	innerProperties traverser.SelectProperties) (*search.LocalRef, error) {
+	innerProperties search.SelectProperties) (*search.LocalRef, error) {
 	var out search.LocalRef
 
 	ref, err := crossref.Parse(item.Beacon.String())

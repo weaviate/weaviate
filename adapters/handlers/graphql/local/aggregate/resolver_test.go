@@ -18,14 +18,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name                     string
 	query                    string
-	expectedProps            []traverser.AggregateProperty
+	expectedProps            []aggregation.ParamProperty
 	resolverReturn           interface{}
 	expectedResults          []result
 	expectedGroupBy          *filters.Path
@@ -81,10 +80,10 @@ func Test_Resolve(t *testing.T) {
 						}
 					}
 			}`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "modelName",
-					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -146,10 +145,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "without grouping prop",
 			query: `{ Aggregate { Car { horsepower { mean } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -178,10 +177,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "setting limits overall",
 			query: `{ Aggregate { Car(limit:20) { horsepower { mean } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -217,31 +216,31 @@ func Test_Resolve(t *testing.T) {
 				meta { count }
 				} } } `,
 			expectedIncludeMetaCount: true,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name: "stillInProduction",
-					Aggregators: []traverser.Aggregator{
-						traverser.TypeAggregator,
-						traverser.CountAggregator,
-						traverser.TotalTrueAggregator,
-						traverser.PercentageTrueAggregator,
-						traverser.TotalFalseAggregator,
-						traverser.PercentageFalseAggregator,
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.CountAggregator,
+						aggregation.TotalTrueAggregator,
+						aggregation.PercentageTrueAggregator,
+						aggregation.TotalFalseAggregator,
+						aggregation.PercentageFalseAggregator,
 					},
 				},
 				{
 					Name: "modelName",
-					Aggregators: []traverser.Aggregator{
-						traverser.TypeAggregator,
-						traverser.CountAggregator,
-						traverser.NewTopOccurrencesAggregator(ptInt(5)),
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.CountAggregator,
+						aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 					},
 				},
 				{
 					Name: "madeBy",
-					Aggregators: []traverser.Aggregator{
-						traverser.TypeAggregator,
-						traverser.PointingToAggregator,
+					Aggregators: []aggregation.Aggregator{
+						aggregation.TypeAggregator,
+						aggregation.PointingToAggregator,
 					},
 				},
 			},
@@ -331,11 +330,11 @@ func Test_Resolve(t *testing.T) {
 			query: `{ Aggregate { Car { 
 				modelName { topOccurrences(limit: 7) { value occurs } } 
 				} } } `,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name: "modelName",
-					Aggregators: []traverser.Aggregator{
-						traverser.NewTopOccurrencesAggregator(ptInt(7)),
+					Aggregators: []aggregation.Aggregator{
+						aggregation.NewTopOccurrencesAggregator(ptInt(7)),
 					},
 				},
 			},
@@ -387,10 +386,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean (with type)",
 			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean type } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator, traverser.TypeAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator, aggregation.TypeAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -424,10 +423,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean with groupedBy path/value",
 			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -479,10 +478,10 @@ func Test_Resolve(t *testing.T) {
 					}
 				} 
 			}`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -530,10 +529,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "all int props",
 			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean, median, mode, maximum, minimum, count, sum } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []traverser.Aggregator{traverser.MeanAggregator, traverser.MedianAggregator, traverser.ModeAggregator, traverser.MaximumAggregator, traverser.MinimumAggregator, traverser.CountAggregator, traverser.SumAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator, aggregation.MedianAggregator, aggregation.ModeAggregator, aggregation.MaximumAggregator, aggregation.MinimumAggregator, aggregation.CountAggregator, aggregation.SumAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -582,10 +581,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: string",
 			query: `{ Aggregate { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } }`,
-			expectedProps: []traverser.AggregateProperty{
+			expectedProps: []aggregation.ParamProperty{
 				{
 					Name:        "modelName",
-					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
 				},
 			},
 			resolverReturn: []aggregation.Group{
@@ -626,7 +625,7 @@ func (tests testCases) AssertExtraction(t *testing.T, className string) {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &traverser.AggregateParams{
+			expectedParams := &aggregation.Params{
 				ClassName:        schema.ClassName(className),
 				Properties:       testCase.expectedProps,
 				GroupBy:          testCase.expectedGroupBy,

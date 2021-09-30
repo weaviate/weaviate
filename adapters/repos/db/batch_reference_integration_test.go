@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -44,8 +45,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -87,7 +89,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range s.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 			})
 		}
@@ -231,7 +233,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	})
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ObjectByID(context.Background(), sourceID, nil, traverser.AdditionalProperties{})
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		refs := source.Object().Properties.(map[string]interface{})["toTarget"]

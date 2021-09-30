@@ -41,6 +41,7 @@ type batchWriter struct {
 	mutex           sync.RWMutex
 	vectorRepo      vectorRepo
 	batchItemsCount int
+	batchIndex      int
 	batchObjects    objects.BatchObjects
 	saveObjectItems chan objects.BatchObjects
 	errorCount      int64
@@ -82,17 +83,19 @@ func (r *batchWriter) Stop() WriterResults {
 }
 
 func (r *batchWriter) storeObject(item search.Result) error {
-	r.batchItemsCount++
 	batchObject := objects.BatchObject{
 		UUID:          item.ID,
 		Object:        item.Object(),
-		OriginalIndex: r.batchItemsCount,
+		OriginalIndex: r.batchIndex,
 		Vector:        item.Vector,
 	}
+	r.batchItemsCount++
+	r.batchIndex++
 	r.batchObjects = append(r.batchObjects, batchObject)
 	if len(r.batchObjects) >= r.batchTreshold {
 		r.saveObjectItems <- r.batchObjects
 		r.batchObjects = objects.BatchObjects{}
+		r.batchIndex = 0
 	}
 	return nil
 }

@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,8 +40,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -50,7 +51,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 			})
 		}
@@ -208,28 +209,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchema, res.Schema)
@@ -268,28 +269,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
@@ -324,28 +325,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
@@ -424,28 +425,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, nil, traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarage(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
-			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), traverser.AdditionalProperties{})
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEither(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)
@@ -453,16 +454,16 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	})
 }
 
-func parkedAtGarage() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func parkedAtGarage() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "parkedAt",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName: "MultiRefParkingGarage",
-					RefProperties: traverser.SelectProperties{
-						traverser.SelectProperty{
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
 							Name:        "name",
 							IsPrimitive: true,
 						},
@@ -473,16 +474,16 @@ func parkedAtGarage() traverser.SelectProperties {
 	}
 }
 
-func parkedAtLot() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func parkedAtLot() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "parkedAt",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName: "MultiRefParkingLot",
-					RefProperties: traverser.SelectProperties{
-						traverser.SelectProperty{
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
 							Name:        "name",
 							IsPrimitive: true,
 						},
@@ -493,25 +494,25 @@ func parkedAtLot() traverser.SelectProperties {
 	}
 }
 
-func parkedAtEither() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func parkedAtEither() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "parkedAt",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName: "MultiRefParkingLot",
-					RefProperties: traverser.SelectProperties{
-						traverser.SelectProperty{
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
 							Name:        "name",
 							IsPrimitive: true,
 						},
 					},
 				},
-				traverser.SelectClass{
+				search.SelectClass{
 					ClassName: "MultiRefParkingGarage",
-					RefProperties: traverser.SelectProperties{
-						traverser.SelectProperty{
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
 							Name:        "name",
 							IsPrimitive: true,
 						},
@@ -522,13 +523,13 @@ func parkedAtEither() traverser.SelectProperties {
 	}
 }
 
-func drivesCarparkedAtLot() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func drivesCarparkedAtLot() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "drives",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtLot(),
 				},
@@ -537,13 +538,13 @@ func drivesCarparkedAtLot() traverser.SelectProperties {
 	}
 }
 
-func drivesCarparkedAtGarage() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func drivesCarparkedAtGarage() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "drives",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtGarage(),
 				},
@@ -552,13 +553,13 @@ func drivesCarparkedAtGarage() traverser.SelectProperties {
 	}
 }
 
-func drivesCarparkedAtEither() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func drivesCarparkedAtEither() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "drives",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtEither(),
 				},
@@ -567,13 +568,13 @@ func drivesCarparkedAtEither() traverser.SelectProperties {
 	}
 }
 
-func friendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func friendsWithdrivesCarparkedAtLot() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "friendsWith",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtLot(),
 				},
@@ -582,13 +583,13 @@ func friendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
 	}
 }
 
-func friendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func friendsWithdrivesCarparkedAtGarage() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "friendsWith",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtGarage(),
 				},
@@ -597,13 +598,13 @@ func friendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
 	}
 }
 
-func friendsWithdrivesCarparkedAtEither() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func friendsWithdrivesCarparkedAtEither() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "friendsWith",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtEither(),
 				},
@@ -612,13 +613,13 @@ func friendsWithdrivesCarparkedAtEither() traverser.SelectProperties {
 	}
 }
 
-func hasMembersfriendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func hasMembersfriendsWithdrivesCarparkedAtLot() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "hasMembers",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtLot(),
 				},
@@ -627,13 +628,13 @@ func hasMembersfriendsWithdrivesCarparkedAtLot() traverser.SelectProperties {
 	}
 }
 
-func hasMembersfriendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func hasMembersfriendsWithdrivesCarparkedAtGarage() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "hasMembers",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtGarage(),
 				},
@@ -642,13 +643,13 @@ func hasMembersfriendsWithdrivesCarparkedAtGarage() traverser.SelectProperties {
 	}
 }
 
-func hasMembersfriendsWithdrivesCarparkedAtEither() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func hasMembersfriendsWithdrivesCarparkedAtEither() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "hasMembers",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtEither(),
 				},

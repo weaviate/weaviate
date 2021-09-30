@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -45,8 +46,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -63,9 +65,9 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -141,8 +143,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -159,9 +162,9 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -267,8 +270,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -285,9 +289,9 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), productClass))
+			migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 		require.Nil(t,
-			migrator.AddClass(context.Background(), companyClass))
+			migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 
 		schemaGetter.schema = schema
 	})
@@ -308,7 +312,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
@@ -336,7 +340,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,
@@ -351,7 +355,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		func(t *testing.T) {
 			filter := buildFilter("makesProduct", 0, eq, dtInt)
 			res, err := repo.Aggregate(context.Background(),
-				traverser.AggregateParams{
+				aggregation.Params{
 					ClassName:        schema.ClassName(companyClass.Class),
 					Filters:          filter,
 					IncludeMetaCount: true,

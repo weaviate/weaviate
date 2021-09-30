@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -24,6 +25,8 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/clients"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
@@ -41,11 +44,13 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -112,16 +117,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
+	clusterHttpClient := reasonableHttpClient()
+
 	var vectorRepo vectorRepo
 	var vectorMigrator migrate.Migrator
 	var migrator migrate.Migrator
 	var explorer explorer
 	var schemaRepo schemaUC.Repo
-	var classifierRepo classification.Repo
+	// var classifierRepo classification.Repo
 
+	// TODO: configure http transport for efficient intra-cluster comm
+	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
 		RootPath: appState.ServerConfig.Config.Persistence.DataPath,
-	})
+	}, remoteIndexClient, appState.Cluster) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -136,7 +145,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	classifierRepo, err = classifications.NewRepo(
+	localClassifierRepo, err := classifications.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -145,9 +154,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	// TODO: configure http transport for efficient intra-cluster comm
+	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
+	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
+		appState.Cluster, localClassifierRepo)
+	appState.ClassificationRepo = classifierRepo
+
+	// TODO: configure http transport for efficient intra-cluster comm
+	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, appState.Modules)
+		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster,
+		schemaTxClient)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -155,6 +173,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	appState.SchemaManager = schemaManager
+
+	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
+
+	go clusterapi.Serve(appState)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
@@ -269,6 +291,15 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, logger)
+	if err != nil {
+		logger.WithField("action", "startup").WithError(err).
+			Error("could not init cluster state")
+		logger.Exit(1)
+	}
+
+	appState.Cluster = clusterState
+
 	return appState
 }
 
@@ -361,4 +392,20 @@ func initModules(ctx context.Context, appState *state.State) error {
 	}
 
 	return nil
+}
+
+func reasonableHttpClient() *http.Client {
+	t := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 120 * time.Second,
+		}).DialContext,
+		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{Transport: t}
 }

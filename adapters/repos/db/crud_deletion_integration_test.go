@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
@@ -40,8 +41,9 @@ func TestDeleteJourney(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -54,7 +56,8 @@ func TestDeleteJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), updateTestClass())
+		err := migrator.AddClass(context.Background(), updateTestClass(),
+			schemaGetter.ShardingState(updateTestClass().Class))
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
@@ -101,7 +104,7 @@ func TestDeleteJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, traverser.AdditionalProperties{})
+			}, additional.Properties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}

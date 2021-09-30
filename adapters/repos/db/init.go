@@ -48,8 +48,9 @@ func (d *DB) init(ctx context.Context) error {
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, invertedConfig, class.VectorIndexConfig.(schema.VectorIndexConfig),
-				d.schemaGetter, d, d.logger)
+			}, d.schemaGetter.ShardingState(class.Class), invertedConfig,
+				class.VectorIndexConfig.(schema.VectorIndexConfig),
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

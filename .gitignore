@@ -83,6 +83,7 @@ weave-current-discovery.json
 graphqlapi/prototype/node_modules/
 
 data/
+data-node2/
 docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out
@@ -90,6 +91,8 @@ c.out
 esbackups/
 adapters/repos/db/testdata/
 adapters/repos/db/vector/hnsw/testdata
+adapters/repos/db/lsmkv/testdata
+adapters/repos/db/clusterintegrationtest/testdata
 adapters/repos/classifications/testdata
 usecases/classification/integrationtest/testdata
 adapters/repos/schema/testdata

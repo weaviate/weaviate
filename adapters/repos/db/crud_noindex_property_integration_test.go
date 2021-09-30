@@ -23,9 +23,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -55,8 +57,9 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			IndexInverted: ptBool(false),
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -64,7 +67,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
+			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
@@ -95,7 +98,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			search.SelectProperties{}, additional.Properties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",

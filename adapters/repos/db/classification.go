@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -40,8 +41,9 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 		Pagination: &libfilters.Pagination{
 			Limit: 10000, // TODO: gh-1219 increase
 		},
-		AdditionalProperties: traverser.AdditionalProperties{
+		AdditionalProperties: additional.Properties{
 			Classification: true,
+			Vector:         true,
 			ModuleParams: map[string]interface{}{
 				"interpretation": true,
 			},
@@ -63,6 +65,9 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 			Limit: 1,
 		},
 		Filters: filter,
+		AdditionalProperties: additional.Properties{
+			Vector: true,
+		},
 	})
 
 	return res, err
@@ -82,6 +87,9 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 			Limit: k,
 		},
 		Filters: mergedFilter,
+		AdditionalProperties: additional.Properties{
+			Vector: true,
+		},
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")

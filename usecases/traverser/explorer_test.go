@@ -255,10 +255,12 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					ID: "id1",
+					ID:   "id1",
+					Dist: 2 * 0.69,
 				},
 				{
-					ID: "id2",
+					ID:   "id2",
+					Dist: 2 * 0.69,
 				},
 			}
 
@@ -360,7 +362,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ModuleParams: map[string]interface{}{
 					"semanticPath": getDefaultParam("semanticPath"),
 				},
@@ -405,7 +407,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				Classification: true,
 			},
 		}
@@ -472,7 +474,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ModuleParams: map[string]interface{}{
 					"interpretation": true,
 				},
@@ -553,7 +555,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				Vector: true,
 			},
 		}
@@ -601,7 +603,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ModuleParams: map[string]interface{}{
 					"nearestNeighbors": true,
 				},
@@ -713,7 +715,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ModuleParams: map[string]interface{}{
 					"featureProjection": getDefaultParam("featureProjection"),
 				},
@@ -805,13 +807,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
-							AdditionalProperties: AdditionalProperties{
+							AdditionalProperties: additional.Properties{
 								ID: true,
 							},
 						},
@@ -920,22 +922,22 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
-							AdditionalProperties: AdditionalProperties{
+							AdditionalProperties: additional.Properties{
 								ID: true,
 							},
-							RefProperties: SelectProperties{
-								SelectProperty{
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
 									Name: "ofBestRefInnerClass",
-									Refs: []SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "BestRefInnerClass",
-											AdditionalProperties: AdditionalProperties{
+											AdditionalProperties: additional.Properties{
 												ID: true,
 											},
 										},
@@ -1086,31 +1088,31 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			Properties: []SelectProperty{
+			Properties: []search.SelectProperty{
 				{
 					Name: "ofBestRefClass",
-					Refs: []SelectClass{
+					Refs: []search.SelectClass{
 						{
 							ClassName: "BestRefClass",
-							AdditionalProperties: AdditionalProperties{
+							AdditionalProperties: additional.Properties{
 								ID: true,
 							},
-							RefProperties: SelectProperties{
-								SelectProperty{
+							RefProperties: search.SelectProperties{
+								search.SelectProperty{
 									Name: "ofBestRefInnerClass",
-									Refs: []SelectClass{
+									Refs: []search.SelectClass{
 										{
 											ClassName: "BestRefInnerClass",
-											AdditionalProperties: AdditionalProperties{
+											AdditionalProperties: additional.Properties{
 												ID: true,
 											},
-											RefProperties: SelectProperties{
-												SelectProperty{
+											RefProperties: search.SelectProperties{
+												search.SelectProperty{
 													Name: "ofBestRefInnerInnerClass",
-													Refs: []SelectClass{
+													Refs: []search.SelectClass{
 														{
 															ClassName: "BestRefInnerInnerClass",
-															AdditionalProperties: AdditionalProperties{
+															AdditionalProperties: additional.Properties{
 																ID: true,
 															},
 														},
@@ -1303,7 +1305,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ID:             true,
 				Classification: true,
 				ModuleParams: map[string]interface{}{
@@ -1563,10 +1565,12 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 			searchResults := []search.Result{
 				{
-					ID: "id1",
+					ID:   "id1",
+					Dist: 2 * 0.69,
 				},
 				{
-					ID: "id2",
+					ID:   "id2",
+					Dist: 2 * 0.69,
 				},
 			}
 
@@ -1586,7 +1590,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				search.AssertExpectations(t)
 			})
 
-			t.Run("no concept met the required certainty", func(t *testing.T) {
+			t.Run("no object met the required certainty", func(t *testing.T) {
 				assert.Len(t, res, 0)
 			})
 		})
@@ -1715,7 +1719,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
 			SearchVector: []float32{1.0, 2.0, 3.0},
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				Certainty: true,
 			},
 			ModuleParams: map[string]interface{}{
@@ -1734,6 +1738,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					"age": 200,
 				},
 				Vector: []float32{0.5, 1.5, 0.0},
+				Dist:   2 * 0.69,
 			},
 		}
 
@@ -1773,7 +1778,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			AdditionalProperties: AdditionalProperties{
+			AdditionalProperties: additional.Properties{
 				ModuleParams: map[string]interface{}{
 					"semanticPath": getDefaultParam("semanticPath"),
 				},

@@ -14,23 +14,24 @@ package traverser
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetParams(t *testing.T) {
 	t.Run("without any select properties", func(t *testing.T) {
-		sp := SelectProperties{}
+		sp := search.SelectProperties{}
 		assert.Equal(t, false, sp.HasRefs(), "indicates no refs are present")
 	})
 
 	t.Run("with only primitive select properties", func(t *testing.T) {
-		sp := SelectProperties{
-			SelectProperty{
+		sp := search.SelectProperties{
+			search.SelectProperty{
 				IsPrimitive: true,
 				Name:        "Foo",
 			},
-			SelectProperty{
+			search.SelectProperty{
 				IsPrimitive: true,
 				Name:        "Bar",
 			},
@@ -44,30 +45,30 @@ func TestGetParams(t *testing.T) {
 	})
 
 	t.Run("with a ref prop", func(t *testing.T) {
-		sp := SelectProperties{
-			SelectProperty{
+		sp := search.SelectProperties{
+			search.SelectProperty{
 				IsPrimitive: true,
 				Name:        "name",
 			},
-			SelectProperty{
+			search.SelectProperty{
 				IsPrimitive: false,
 				Name:        "inCity",
-				Refs: []SelectClass{
-					SelectClass{
+				Refs: []search.SelectClass{
+					search.SelectClass{
 						ClassName: "City",
-						RefProperties: SelectProperties{
-							SelectProperty{
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
 								Name:        "name",
 								IsPrimitive: true,
 							},
-							SelectProperty{
+							search.SelectProperty{
 								Name:        "inCountry",
 								IsPrimitive: false,
-								Refs: []SelectClass{
-									SelectClass{
+								Refs: []search.SelectClass{
+									search.SelectClass{
 										ClassName: "Country",
-										RefProperties: SelectProperties{
-											SelectProperty{
+										RefProperties: search.SelectProperties{
+											search.SelectProperty{
 												Name:        "name",
 												IsPrimitive: true,
 											},

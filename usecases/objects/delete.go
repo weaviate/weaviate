@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // DeleteObject Class Instance from the conncected DB
@@ -37,7 +37,7 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) error {
-	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.AdditionalProperties{})
+	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
 	if err != nil {
 		return err
 	}

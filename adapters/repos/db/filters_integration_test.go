@@ -43,8 +43,9 @@ func TestFilters(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -91,7 +92,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), carClass))
+				migrator.AddClass(context.Background(), carClass, schemaGetter.shardState))
 			schemaGetter.schema.Objects = &models.Schema{
 				Classes: []*models.Class{
 					carClass,
@@ -625,8 +626,9 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -646,7 +648,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 			},
 		}
 
-		migrator.AddClass(context.Background(), class)
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
@@ -734,8 +736,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -807,7 +810,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), class))
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{
 				class,

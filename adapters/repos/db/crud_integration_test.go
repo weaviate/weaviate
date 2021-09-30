@@ -80,8 +80,9 @@ func TestCRUD(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -89,12 +90,12 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), thingclass))
+			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), actionclass))
+			migrator.AddClass(context.Background(), actionclass, schemaGetter.shardState))
 	})
 
 	// update schema getter so it's in sync with class
@@ -245,7 +246,7 @@ func TestCRUD(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
-			traverser.AdditionalProperties{})
+			additional.Properties{})
 		require.Nil(t, err)
 
 		assert.Equal(t, expected, res.ObjectWithVector(false))
@@ -525,7 +526,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -542,7 +543,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.AdditionalProperties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, additional.Properties{Vector: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -559,7 +560,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector and Interpretation additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		params := traverser.AdditionalProperties{
+		params := additional.Properties{
 			Vector: true,
 			ModuleParams: map[string]interface{}{
 				"interpretation": true,
@@ -597,7 +598,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.AdditionalProperties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -620,7 +621,7 @@ func TestCRUD(t *testing.T) {
 				ClassName: "TheBestThingClass",
 			},
 		}
-		res, err := repo.MultiGet(context.Background(), query, traverser.AdditionalProperties{})
+		res, err := repo.MultiGet(context.Background(), query, additional.Properties{})
 		require.Nil(t, err)
 		require.Len(t, res, 2, "length must match even with nil-items")
 
@@ -636,7 +637,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.AdditionalProperties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -655,8 +656,8 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with Classification and Vector additional properties", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{},
-			traverser.AdditionalProperties{Classification: true, Vector: true, RefMeta: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{},
+			additional.Properties{Classification: true, Vector: true, RefMeta: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -696,7 +697,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID with only Vector additional property", func(t *testing.T) {
-		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.AdditionalProperties{Vector: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, search.SelectProperties{}, additional.Properties{Vector: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -708,7 +709,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 10, nil, traverser.AdditionalProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 10, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -838,14 +839,14 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), thingID,
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), actionID,
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})

@@ -24,10 +24,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,8 +120,9 @@ func TestNestedReferences(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -130,7 +131,7 @@ func TestNestedReferences(t *testing.T) {
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 			})
 		}
@@ -255,7 +256,7 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), traverser.AdditionalProperties{})
+			fullyNestedSelectProperties(), additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
@@ -289,14 +290,14 @@ func TestNestedReferences(t *testing.T) {
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), traverser.AdditionalProperties{})
+			partiallyNestedSelectProperties(), additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{}, traverser.AdditionalProperties{})
+			search.SelectProperties{}, additional.Properties{})
 
 		expectedSchema := map[string]interface{}{
 			"id": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
@@ -333,34 +334,34 @@ func TestNestedReferences(t *testing.T) {
 	})
 }
 
-func fullyNestedSelectProperties() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func fullyNestedSelectProperties() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "inCity",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName: "City",
-					RefProperties: traverser.SelectProperties{
-						traverser.SelectProperty{
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
 							Name:        "inCountry",
 							IsPrimitive: false,
-							Refs: []traverser.SelectClass{
-								traverser.SelectClass{
+							Refs: []search.SelectClass{
+								search.SelectClass{
 									ClassName: "Country",
-									RefProperties: traverser.SelectProperties{
-										traverser.SelectProperty{
+									RefProperties: search.SelectProperties{
+										search.SelectProperty{
 											Name:        "onContinent",
 											IsPrimitive: false,
-											Refs: []traverser.SelectClass{
-												traverser.SelectClass{
+											Refs: []search.SelectClass{
+												search.SelectClass{
 													ClassName: "Continent",
-													RefProperties: traverser.SelectProperties{
-														traverser.SelectProperty{
+													RefProperties: search.SelectProperties{
+														search.SelectProperty{
 															Name:        "onPlanet",
 															IsPrimitive: false,
-															Refs: []traverser.SelectClass{
-																traverser.SelectClass{
+															Refs: []search.SelectClass{
+																search.SelectClass{
 																	ClassName:     "Planet",
 																	RefProperties: nil,
 																},
@@ -381,15 +382,15 @@ func fullyNestedSelectProperties() traverser.SelectProperties {
 	}
 }
 
-func partiallyNestedSelectProperties() traverser.SelectProperties {
-	return traverser.SelectProperties{
-		traverser.SelectProperty{
+func partiallyNestedSelectProperties() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
 			Name:        "inCity",
 			IsPrimitive: false,
-			Refs: []traverser.SelectClass{
-				traverser.SelectClass{
+			Refs: []search.SelectClass{
+				search.SelectClass{
 					ClassName:     "City",
-					RefProperties: traverser.SelectProperties{},
+					RefProperties: search.SelectProperties{},
 				},
 			},
 		},
@@ -457,8 +458,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -467,7 +469,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 			})
 		}
@@ -516,7 +518,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check reference was added", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.AdditionalProperties{})
+			additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())
@@ -548,7 +550,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("check both references are now present", func(t *testing.T) {
 		source, err := repo.ObjectByID(context.Background(), sourceID, nil,
-			traverser.AdditionalProperties{})
+			additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, source)
 		require.NotNil(t, source.Object())

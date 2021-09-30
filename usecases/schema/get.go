@@ -16,6 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 // GetSchema retrieves a locally cached copy of the schema
@@ -74,4 +75,8 @@ func (m *Manager) getClassByName(name string) *models.Class {
 	}
 
 	return s.FindClassByName(schema.ClassName(name))
+}
+
+func (m *Manager) ShardingState(className string) *sharding.State {
+	return m.state.ShardingState[className]
 }

@@ -15,15 +15,14 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-func extractLimitFromTopOccs(aggs []traverser.Aggregator) int {
+func extractLimitFromTopOccs(aggs []aggregation.Aggregator) int {
 	for _, agg := range aggs {
-		if agg.Type == traverser.TopOccurrencesType && agg.Limit != nil {
+		if agg.Type == aggregation.TopOccurrencesType && agg.Limit != nil {
 			return *agg.Limit
 		}
 	}

@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"os"
@@ -22,6 +23,8 @@ import (
 )
 
 func (h *hnsw) init(cfg Config) error {
+	h.pools = newPools(h.maximumConnectionsLayerZero)
+
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
@@ -63,7 +66,9 @@ func (h *hnsw) restoreFromDisk() error {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
-		state, err = NewDeserializer(h.logger).Do(fd, state)
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		state, err = NewDeserializer2(h.logger).Do(fdBuf, state)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where
@@ -92,9 +97,9 @@ func (h *hnsw) restoreFromDisk() error {
 	h.cache.grow(uint64(len(h.nodes)))
 
 	// make sure the visited list pool fits the current size
-	h.visitedListPool.Destroy()
-	h.visitedListPool = nil
-	h.visitedListPool = visited.NewPool(1, len(h.nodes)+500)
+	h.pools.visitedLists.Destroy()
+	h.pools.visitedLists = nil
+	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+500)
 
 	return nil
 }

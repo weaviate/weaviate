@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // UpdateObject Class Instance to the connected DB. If the class contains a network
@@ -45,7 +45,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalObject, err := m.getObjectFromRepo(ctx, id, traverser.AdditionalProperties{})
+	originalObject, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}

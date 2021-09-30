@@ -14,6 +14,7 @@ package get
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -25,7 +26,7 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 
 	expectedParams := traverser.GetParams{
 		ClassName: "SomeThing",
-		AdditionalProperties: traverser.AdditionalProperties{
+		AdditionalProperties: additional.Properties{
 			ID: true,
 		},
 	}

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -48,8 +49,31 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 		return err
 	}
 
-	class.Properties = append(class.Properties, prop)
+	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
+		AddPropertyPayload{className, prop})
+	if err != nil {
+		// possible causes for errors could be nodes down (we expect every node to
+		// the up for a schema transaction) or concurrent transactions from other
+		// nodes
+		return errors.Wrap(err, "open cluster-wide transaction")
+	}
 
+	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+		return errors.Wrap(err, "commit cluster-wide transaction")
+	}
+
+	return m.addClassPropertyApplyChanges(ctx, className, prop)
+}
+
+func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
+	className string, prop *models.Property) error {
+	semanticSchema := m.state.SchemaFor()
+	class, err := schema.GetClassByName(semanticSchema, className)
+	if err != nil {
+		return err
+	}
+
+	class.Properties = append(class.Properties, prop)
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return nil

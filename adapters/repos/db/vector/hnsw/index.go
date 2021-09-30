@@ -20,10 +20,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
 
@@ -96,12 +95,13 @@ type hnsw struct {
 
 	cleanupInterval time.Duration
 
-	visitedListPool *visited.Pool
+	pools *pools
 }
 
 type CommitLogger interface {
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
+	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error
@@ -109,7 +109,6 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	Reset() error
 	Drop() error
-	NewBufferedLinksLogger() BufferedLinksLogger
 	Flush() error
 }
 
@@ -171,7 +170,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstoneLock:     &sync.RWMutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
-		visitedListPool:   visited.NewPool(1, initialSize+500),
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -310,6 +308,8 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 				entryPointID = elem.ID
 			}
 		}
+
+		h.pools.pqResults.Put(res)
 	}
 
 	return entryPointID, nil
@@ -355,8 +355,16 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.connections[level] = connections
 }
 
-func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
-	v.connections[level] = connections
+// func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
+// 	v.connections[level] = connections
+// }
+
+func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
+	v.connections[level] = append(v.connections[level], connection)
+}
+
+func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
+	v.connections[level] = v.connections[level][:0]
 }
 
 func min(a, b int) int {

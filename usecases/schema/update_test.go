@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -175,7 +176,7 @@ func TestClassUpdates(t *testing.T) {
 				update: &models.Class{
 					Class: "InitialName",
 					VectorIndexConfig: map[string]interface{}{
-						"some-setting": "old-value",
+						"some-setting": "new-value",
 					},
 				},
 				expectedError: nil,
@@ -200,8 +201,8 @@ func TestClassUpdates(t *testing.T) {
 	t.Run("update vector index config", func(t *testing.T) {
 		t.Run("with a validation error", func(t *testing.T) {
 			sm := newSchemaManager()
-			migrator := &vectorIndexConfigMigrator{
-				validationError: errors.Errorf("don't think so!"),
+			migrator := &configMigrator{
+				vectorConfigValidationError: errors.Errorf("don't think so!"),
 			}
 			sm.migrator = migrator
 
@@ -234,14 +235,14 @@ func TestClassUpdates(t *testing.T) {
 
 				require.NotNil(t, err)
 				assert.Equal(t, expectedErrMsg, err.Error())
-				assert.Equal(t, expectedValidateCalledWith, migrator.validateCalledWith)
-				assert.Equal(t, expectedUpdateCalled, migrator.updateCalled)
+				assert.Equal(t, expectedValidateCalledWith, migrator.vectorConfigValidateCalledWith)
+				assert.Equal(t, expectedUpdateCalled, migrator.vectorConfigUpdateCalled)
 			})
 		})
 
 		t.Run("with a valid update", func(t *testing.T) {
 			sm := newSchemaManager()
-			migrator := &vectorIndexConfigMigrator{}
+			migrator := &configMigrator{}
 			sm.migrator = migrator
 
 			t.Run("create an initial class", func(t *testing.T) {
@@ -276,9 +277,9 @@ func TestClassUpdates(t *testing.T) {
 				expectedUpdateCalled := true
 
 				require.Nil(t, err)
-				assert.Equal(t, expectedValidateCalledWith, migrator.validateCalledWith)
-				assert.Equal(t, expectedUpdateCalledWith, migrator.updateCalledWith)
-				assert.Equal(t, expectedUpdateCalled, migrator.updateCalled)
+				assert.Equal(t, expectedValidateCalledWith, migrator.vectorConfigValidateCalledWith)
+				assert.Equal(t, expectedUpdateCalledWith, migrator.vectorConfigUpdateCalledWith)
+				assert.Equal(t, expectedUpdateCalled, migrator.vectorConfigUpdateCalled)
 			})
 
 			t.Run("the update is reflected", func(t *testing.T) {
@@ -294,25 +295,54 @@ func TestClassUpdates(t *testing.T) {
 			})
 		})
 	})
+
+	t.Run("update sharding config", func(t *testing.T) {
+		t.Run("with a validation error (immutable field)", func(t *testing.T) {
+			sm := newSchemaManager()
+			migrator := &NilMigrator{}
+			sm.migrator = migrator
+
+			t.Run("create an initial class", func(t *testing.T) {
+				err := sm.AddClass(context.Background(), nil, &models.Class{
+					Class: "ClassWithShardingConfig",
+				})
+
+				assert.Nil(t, err)
+			})
+
+			t.Run("attempt an update of the vector index config", func(t *testing.T) {
+				err := sm.UpdateClass(context.Background(), nil,
+					"ClassWithShardingConfig", &models.Class{
+						Class: "ClassWithShardingConfig",
+						ShardingConfig: map[string]interface{}{
+							"desiredCount": json.Number("7"),
+						},
+					})
+				expectedErrMsg := "sharding config: re-sharding not supported yet: shard count is immutable: attempted change from \"1\" to \"7\""
+				require.NotNil(t, err)
+				assert.Equal(t, expectedErrMsg, err.Error())
+			})
+		})
+	})
 }
 
-type vectorIndexConfigMigrator struct {
+type configMigrator struct {
 	NilMigrator
-	validationError    error
-	validateCalledWith schema.VectorIndexConfig
-	updateCalled       bool
-	updateCalledWith   schema.VectorIndexConfig
+	vectorConfigValidationError    error
+	vectorConfigValidateCalledWith schema.VectorIndexConfig
+	vectorConfigUpdateCalled       bool
+	vectorConfigUpdateCalledWith   schema.VectorIndexConfig
 }
 
-func (m *vectorIndexConfigMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	old, updated schema.VectorIndexConfig) error {
-	m.validateCalledWith = updated
-	return m.validationError
+	m.vectorConfigValidateCalledWith = updated
+	return m.vectorConfigValidationError
 }
 
-func (m *vectorIndexConfigMigrator) UpdateVectorIndexConfig(ctx context.Context,
+func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
 	className string, updated schema.VectorIndexConfig) error {
-	m.updateCalledWith = updated
-	m.updateCalled = true
+	m.vectorConfigUpdateCalledWith = updated
+	m.vectorConfigUpdateCalled = true
 	return nil
 }

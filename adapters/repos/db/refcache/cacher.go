@@ -17,16 +17,16 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier, additional traverser.AdditionalProperties) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier, additional additional.Properties) ([]search.Result, error)
 }
 
 func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
@@ -39,7 +39,7 @@ func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
 
 type cacherJob struct {
 	si       multi.Identifier
-	props    traverser.SelectProperties
+	props    search.SelectProperties
 	complete bool
 }
 
@@ -49,7 +49,7 @@ type Cacher struct {
 	logger     logrus.FieldLogger
 	repo       repo
 	store      map[multi.Identifier]search.Result
-	additional traverser.AdditionalProperties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -72,7 +72,7 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, additional traverser.AdditionalProperties) error {
+	properties search.SelectProperties, additional additional.Properties) error {
 	c.additional = additional
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 // references. In a recursive lookup this can both be done on the rootlevel to
 // start the first lookup as well as recursively on the results of a lookup to
 // further look if a next-level call is required.
-func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traverser.SelectProperties) error {
+func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search.SelectProperties) error {
 	for _, obj := range objects {
 		var err error
 
@@ -148,7 +148,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 	return nil
 }
 
-func (c *Cacher) skipProperty(key string, value interface{}, selectProp *traverser.SelectProperty) (bool, models.MultipleRef) {
+func (c *Cacher) skipProperty(key string, value interface{}, selectProp *search.SelectProperty) (bool, models.MultipleRef) {
 	// the cacher runs at a point where primitive props have already been
 	// parsed, so we can simply look for parsed, but not resolved refenereces
 	parsed, ok := value.(models.MultipleRef)
@@ -171,7 +171,7 @@ func (c *Cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, e
 }
 
 func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
-	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
+	properties search.SelectProperties) (search.SelectProperties, error) {
 	if properties != nil {
 		// don't overwrite the properties if the caller has explicitly set them,
 		// this can only mean they're at the root level
@@ -192,7 +192,7 @@ func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	return properties, nil
 }
 
-func (c *Cacher) addJob(si multi.Identifier, props traverser.SelectProperties) {
+func (c *Cacher) addJob(si multi.Identifier, props search.SelectProperties) {
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
 }
 

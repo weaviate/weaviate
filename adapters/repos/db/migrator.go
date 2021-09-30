@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,17 +27,19 @@ type Migrator struct {
 	logger logrus.FieldLogger
 }
 
-func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
+func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
+	shardState *sharding.State) error {
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName: schema.ClassName(class.Class),
 			RootPath:  m.db.config.RootPath,
 		},
+		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		class.InvertedIndexConfig,
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
-		m.db.schemaGetter, m.db, m.logger)
+		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -98,12 +101,6 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 		return errors.New("weaviate does not support renaming of properties")
 	}
 
-	return nil
-}
-
-// UpdatePropertyAddDataType is ignored, API compliant change
-func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, className string, propName string, newDataType string) error {
-	// ignore but don't error
 	return nil
 }
 

@@ -1624,6 +1624,10 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
+        "shardingConfig": {
+          "description": "Manage how the index should be sharded and distributed in the cluster",
+          "type": "object"
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -4224,6 +4228,10 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        },
+        "shardingConfig": {
+          "description": "Manage how the index should be sharded and distributed in the cluster",
+          "type": "object"
         },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",

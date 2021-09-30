@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // DeleteObjectReference from connected DB
@@ -40,7 +40,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 	// get object to see if it exists
-	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.AdditionalProperties{})
+	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
 	if err != nil {
 		return err
 	}

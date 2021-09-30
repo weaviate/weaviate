@@ -18,17 +18,20 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class) error {
+	m.Lock()
+	defer m.Unlock()
+
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
 	initial := m.getClassByName(className)
-
 	if initial == nil {
 		return ErrNotFound
 	}
@@ -45,15 +48,47 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	if err := m.parseShardingConfig(ctx, updated); err != nil {
+		return err
+	}
+
 	if err := m.migrator.ValidateVectorIndexConfigUpdate(ctx,
 		initial.VectorIndexConfig.(schema.VectorIndexConfig),
 		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
 
+	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
+		updated.ShardingConfig.(sharding.Config)); err != nil {
+		return errors.Wrap(err, "sharding config")
+	}
+
+	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
+		UpdateClassPayload{className, updated, nil})
+	if err != nil {
+		// possible causes for errors could be nodes down (we expect every node to
+		// the up for a schema transaction) or concurrent transactions from other
+		// nodes
+		return errors.Wrap(err, "open cluster-wide transaction")
+	}
+
+	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+		return errors.Wrap(err, "commit cluster-wide transaction")
+	}
+
+	return m.updateClassApplyChanges(ctx, className, updated)
+}
+
+func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
+	updated *models.Class) error {
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
+	}
+
+	initial := m.getClassByName(className)
+	if initial == nil {
+		return ErrNotFound
 	}
 
 	*initial = *updated

@@ -22,11 +22,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,10 +70,10 @@ type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
 
-	ObjectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
-		additional traverser.AdditionalProperties) (*search.Result, error)
+	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
+		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-		additional traverser.AdditionalProperties) (search.Results, error)
+		additional additional.Properties) (search.Results, error)
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 

@@ -14,8 +14,8 @@ package db
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
@@ -47,7 +47,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 	for indexID, queue := range byIndex {
 		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
 		for index, err := range errs {
-			objects[queue.originalIndex[index]].Err = err
+			if err != nil {
+				objects[queue.originalIndex[index]].Err = err
+			}
 		}
 	}
 
@@ -76,7 +78,9 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	for indexID, queue := range byIndex {
 		errs := db.indices[indexID].addReferencesBatch(ctx, queue)
 		for index, err := range errs {
-			references[queue[index].OriginalIndex].Err = err
+			if err != nil {
+				references[queue[index].OriginalIndex].Err = err
+			}
 		}
 	}
 

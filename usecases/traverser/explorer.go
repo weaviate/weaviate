@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -58,7 +59,7 @@ type vectorClassSearch interface {
 	VectorSearch(ctx context.Context, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID,
-		props SelectProperties, additional AdditionalProperties) (*search.Result, error)
+		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -162,18 +163,15 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if searchVector != nil {
-			dist, err := e.distancer(res.Vector, searchVector)
-			if err != nil {
-				return nil, errors.Errorf("explorer: calculate distance: %v", err)
-			}
-
+			// Dist is between 0..2, we need to reduce to the user space of 0..1
+			normalizedDist := res.Dist / 2
 			certainty := e.extractCertaintyFromParams(params)
-			if 1-(dist) < float32(certainty) {
+			if 1-(normalizedDist) < float32(certainty) {
 				continue
 			}
 
 			if params.AdditionalProperties.Certainty {
-				additionalProperties["certainty"] = 1 - dist
+				additionalProperties["certainty"] = 1 - normalizedDist
 			}
 		}
 
@@ -197,7 +195,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	return output, nil
 }
 
-func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params SelectProperties) {
+func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params search.SelectProperties) {
 	for _, selectProp := range params {
 		for _, refClass := range selectProp.Refs {
 			propertySchemaMap, ok := propertySchema.(map[string]interface{})
@@ -228,7 +226,8 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 	}
 }
 
-func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{}, refClass SelectClass) {
+func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
+	refClass search.SelectClass) {
 	innerRefClass, ok := ref.([]interface{})
 	if ok {
 		for _, innerRefProp := range innerRefClass {
@@ -488,7 +487,7 @@ func (e *Explorer) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := e.search.ObjectByID(ctx, id, SelectProperties{}, AdditionalProperties{})
+	res, err := e.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
