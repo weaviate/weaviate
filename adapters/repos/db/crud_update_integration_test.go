@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -49,8 +50,9 @@ func TestUpdateJourney(t *testing.T) {
 	}()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -63,7 +65,7 @@ func TestUpdateJourney(t *testing.T) {
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), updateTestClass())
+		err := migrator.AddClass(context.Background(), updateTestClass(), schemaGetter.shardState)
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
@@ -110,7 +112,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, traverser.AdditionalProperties{})
+			}, additional.Properties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
@@ -141,8 +143,8 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105}
 			id := updateTestData()[0].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
-				traverser.AdditionalProperties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
+				additional.Properties{})
 			require.Nil(t, err)
 
 			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
@@ -194,8 +196,8 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
-			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
-				traverser.AdditionalProperties{})
+			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{},
+				additional.Properties{})
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)

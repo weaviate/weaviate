@@ -44,6 +44,9 @@ type Class struct {
 	// The properties of the class.
 	Properties []*Property `json:"properties"`
 
+	// Manage how the index should be sharded and distributed in the cluster
+	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
+
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
 	VectorIndexConfig interface{} `json:"vectorIndexConfig,omitempty"`
 

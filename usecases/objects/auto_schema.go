@@ -18,12 +18,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -180,7 +181,7 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 									ref, err := crossref.Parse(beacon)
 									if err == nil {
 										res, err := m.vectorRepo.ObjectByID(context.Background(), ref.TargetID,
-											traverser.SelectProperties{}, traverser.AdditionalProperties{})
+											search.SelectProperties{}, additional.Properties{})
 										if err == nil && res != nil {
 											dataType = append(dataType, schema.DataType(res.ClassName))
 										}

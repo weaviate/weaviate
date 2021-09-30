@@ -18,9 +18,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -666,11 +666,11 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.AdditionalProperties) (*models.Object, error) {
+func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ additional.Properties) (*models.Object, error) {
 	return f.getObjectReturn, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ traverser.AdditionalProperties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ additional.Properties) ([]*models.Object, error) {
 	return f.getObjectsReturn, nil
 }
 

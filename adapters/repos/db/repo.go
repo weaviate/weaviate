@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,6 +26,8 @@ type DB struct {
 	schemaGetter schemaUC.SchemaGetter
 	config       Config
 	indices      map[string]*Index
+	remoteClient sharding.RemoteIndexClient
+	nodeResolver nodeResolver
 }
 
 func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -35,11 +38,14 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 	return d.init(ctx)
 }
 
-func New(logger logrus.FieldLogger, config Config) *DB {
+func New(logger logrus.FieldLogger, config Config,
+	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver) *DB {
 	return &DB{
-		logger:  logger,
-		config:  config,
-		indices: map[string]*Index{},
+		logger:       logger,
+		config:       config,
+		indices:      map[string]*Index{},
+		remoteClient: remoteClient,
+		nodeResolver: nodeResolver,
 	}
 }
 
@@ -49,6 +55,17 @@ type Config struct {
 
 // GetIndex returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndex(className schema.ClassName) *Index {
+	id := indexID(className)
+	index, ok := d.indices[id]
+	if !ok {
+		return nil
+	}
+
+	return index
+}
+
+// GetIndexForIncoming returns the index if it exists or nil if it doesn't
+func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {

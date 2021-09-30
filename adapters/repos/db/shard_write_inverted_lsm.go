@@ -12,7 +12,6 @@
 package db
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 
@@ -71,17 +70,13 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		return err
 	}
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-
-	var freqBuf bytes.Buffer
-	if err := binary.Write(&freqBuf, binary.LittleEndian, &item.TermFrequency); err != nil {
-		return err
-	}
+	buf := make([]byte, 16) // 8 bytes for doc id, 8 bytes for frequency
+	binary.LittleEndian.PutUint64(buf[:8], docID)
+	binary.LittleEndian.PutUint64(buf[8:], uint64(item.TermFrequency))
 
 	pair := lsmkv.MapPair{
-		Key:   docIDBytes,
-		Value: freqBuf.Bytes(),
+		Key:   buf[:8],
+		Value: buf[8:],
 	}
 
 	return b.MapSet(item.Data, pair)

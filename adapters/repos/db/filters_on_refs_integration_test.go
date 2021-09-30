@@ -43,8 +43,9 @@ func TestRefFilters(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -54,7 +55,7 @@ func TestRefFilters(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range parkingGaragesSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})
@@ -463,8 +464,9 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -474,7 +476,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
 		for _, class := range cityCountryAirportSchema().Objects.Classes {
 			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
-				err := migrator.AddClass(context.Background(), class)
+				err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 				require.Nil(t, err)
 				schemaGetter.schema.Objects.Classes = append(schemaGetter.schema.Objects.Classes, class)
 			})

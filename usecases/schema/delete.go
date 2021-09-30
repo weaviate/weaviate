@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -32,6 +33,23 @@ func (m *Manager) deleteClass(ctx context.Context, className string) error {
 	m.Lock()
 	defer m.Unlock()
 
+	tx, err := m.cluster.BeginTransaction(ctx, DeleteClass,
+		DeleteClassPayload{className})
+	if err != nil {
+		// possible causes for errors could be nodes down (we expect every node to
+		// the up for a schema transaction) or concurrent transactions from other
+		// nodes
+		return errors.Wrap(err, "open cluster-wide transaction")
+	}
+
+	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+		return errors.Wrap(err, "commit cluster-wide transaction")
+	}
+
+	return m.deleteClassApplyChanges(ctx, className)
+}
+
+func (m *Manager) deleteClassApplyChanges(ctx context.Context, className string) error {
 	semanticSchema := m.state.SchemaFor()
 	classIdx := -1
 	for idx, class := range semanticSchema.Classes {

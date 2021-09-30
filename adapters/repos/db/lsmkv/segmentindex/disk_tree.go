@@ -89,33 +89,27 @@ func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
 
 func (t *DiskTree) readNode(r io.Reader) (dtNode, error) {
 	var out dtNode
+	tmpBuf := make([]byte, 32) // 32 bytes (4x uint64 is the most we'll ever read at the same time)
 
-	var keyLen uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLen); err != nil {
+	if _, err := r.Read(tmpBuf[0:4]); err != nil {
 		return out, err
 	}
 
+	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.key = make([]byte, keyLen)
 	if _, err := r.Read(out.key); err != nil {
 		return out, err
 	}
 
-	if err := binary.Read(r, binary.LittleEndian, &out.startPos); err != nil {
+	// read the next four 8 byte numbers at once
+	if _, err := r.Read(tmpBuf[0:32]); err != nil {
 		return out, err
 	}
 
-	if err := binary.Read(r, binary.LittleEndian, &out.endPos); err != nil {
-		return out, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.leftChild); err != nil {
-		return out, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.rightChild); err != nil {
-		return out, err
-	}
-
+	out.startPos = binary.LittleEndian.Uint64(tmpBuf[0:8])
+	out.endPos = binary.LittleEndian.Uint64(tmpBuf[8:16])
+	out.leftChild = int64(binary.LittleEndian.Uint64(tmpBuf[16:24]))
+	out.rightChild = int64(binary.LittleEndian.Uint64(tmpBuf[24:32]))
 	return out, nil
 }
 

@@ -19,16 +19,17 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params traverser.AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -68,13 +69,14 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	res, err := idx.objectVectorSearch(ctx, params.SearchVector,
+	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
 		params.Pagination.Limit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res, params.AdditionalProperties),
+	return db.enrichRefsForList(ctx,
+		storobj.SearchResultsWithDists(res, params.AdditionalProperties, dists),
 		params.Properties, params.AdditionalProperties)
 }
 
@@ -86,14 +88,18 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	mutex := &sync.Mutex{}
 	var searchErrors []error
 
-	emptyAdditional := traverser.AdditionalProperties{}
+	emptyAdditional := additional.Properties{
+		// TODO: the fact that we need the vector for resorting shows that something
+		// is not ideal here. We already get distances from the vector search, why not
+		// pass them along and use them for sorting?
+		Vector: true,
+	}
 	for _, index := range db.indices {
 		wg.Add(1)
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			// TODO support all additional props
-			res, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
+			res, _, err := index.objectVectorSearch(ctx, vector, limit, filters, emptyAdditional)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -119,6 +125,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 		return nil, errors.New(msg.String())
 	}
 
+	// TODO: use dists
 	found, err := found.SortByDistanceToVector(vector)
 	if err != nil {
 		return nil, errors.Wrapf(err, "re-sort when merging indices")
@@ -134,13 +141,13 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 }
 
 func (d *DB) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	additional traverser.AdditionalProperties) (search.Results, error) {
+	additional additional.Properties) (search.Results, error) {
 	return d.objectSearch(ctx, limit, filters, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter,
-	additional traverser.AdditionalProperties) (search.Results, error) {
+	additional additional.Properties) (search.Results, error) {
 	var found search.Results
 
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -167,7 +174,7 @@ func (d *DB) objectSearch(ctx context.Context, limit int,
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
-	props traverser.SelectProperties, additional traverser.AdditionalProperties) (search.Results, error) {
+	props search.SelectProperties, additional additional.Properties) (search.Results, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, additional)
 	if err != nil {

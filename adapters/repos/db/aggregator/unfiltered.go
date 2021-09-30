@@ -19,7 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // unfilteredAggregator allows for relatively efficient whole-dataset
@@ -112,7 +111,7 @@ func (ua unfilteredAggregator) properties(
 }
 
 func (ua unfilteredAggregator) property(ctx context.Context,
-	prop traverser.AggregateProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty) (*aggregation.Property, error) {
 	aggType, dt, err := ua.aggTypeOfProperty(prop.Name)
 	if err != nil {
 		return nil, err

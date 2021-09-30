@@ -20,9 +20,9 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -71,7 +71,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(g.store, s, g.invertedRowCache, nil,
 		g.classSearcher, g.deletedDocIDs).
-		DocIDs(ctx, g.params.Filters, traverser.AdditionalProperties{},
+		DocIDs(ctx, g.params.Filters, additional.Properties{},
 			g.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")

@@ -109,7 +109,7 @@ func TestRecallGeo(t *testing.T) {
 		for i := 0; i < queries; i++ {
 			controlList := bruteForce(vectors, queryVectors[i], k)
 			before := time.Now()
-			results, err := vectorIndex.knnSearchByVector(queryVectors[i], k, 800, nil)
+			results, _, err := vectorIndex.knnSearchByVector(queryVectors[i], k, 800, nil)
 			times += time.Since(before)
 
 			require.Nil(t, err)

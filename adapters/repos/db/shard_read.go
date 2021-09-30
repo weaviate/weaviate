@@ -21,15 +21,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties,
-	additional traverser.AdditionalProperties) (*storobj.Object, error) {
+	props search.SelectProperties,
+	additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -166,7 +167,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, error) {
 	if filters == nil {
 		return s.objectList(ctx, limit, additional)
 	}
@@ -178,7 +179,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -186,24 +187,30 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 			s.deletedDocIDs).
 			DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 		if err != nil {
-			return nil, errors.Wrap(err, "build inverted filter allow list")
+			return nil, nil, errors.Wrap(err, "build inverted filter allow list")
 		}
 
 		allowList = list
 	}
-	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+	ids, dists, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
-		return nil, errors.Wrap(err, "vector search")
+		return nil, nil, errors.Wrap(err, "vector search")
 	}
 
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return s.objectsByDocID(ids)
+	objs, err := s.objectsByDocID(ids, additional)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return objs, dists, nil
 }
 
-func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+func (s *Shard) objectsByDocID(ids []uint64,
+	additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, len(ids))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -226,7 +233,7 @@ func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinary(res)
+		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -239,7 +246,7 @@ func (s *Shard) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	additional traverser.AdditionalProperties) ([]*storobj.Object, error) {
+	additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()

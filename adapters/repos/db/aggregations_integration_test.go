@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,9 +47,11 @@ func Test_Aggregations(t *testing.T) {
 		fmt.Println(err)
 	}()
 
+	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
-	repo := New(logger, Config{RootPath: dirName})
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -60,10 +61,42 @@ func Test_Aggregations(t *testing.T) {
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
 
 	t.Run("numerical aggregations with grouping",
-		testNumericalAggregationsWithGrouping(repo))
+		testNumericalAggregationsWithGrouping(repo, true))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo))
+		testNumericalAggregationsWithoutGrouping(repo, true))
+
+	// t.Run("clean up",
+	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
+}
+
+func Test_Aggregations_MultiShard(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	shardState := fixedMultiShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("prepare test schema and data ",
+		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
+
+	t.Run("numerical aggregations with grouping",
+		testNumericalAggregationsWithGrouping(repo, false))
+
+	t.Run("numerical aggregations without grouping (formerly Meta)",
+		testNumericalAggregationsWithoutGrouping(repo, false))
 
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -84,11 +117,11 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
-				migrator.AddClass(context.Background(), productClass))
+				migrator.AddClass(context.Background(), productClass, schemaGetter.shardState))
 			require.Nil(t,
-				migrator.AddClass(context.Background(), companyClass))
+				migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 			require.Nil(t,
-				migrator.AddClass(context.Background(), arrayTypesClass))
+				migrator.AddClass(context.Background(), arrayTypesClass, schemaGetter.shardState))
 		})
 
 		schemaGetter.schema = schema
@@ -108,16 +141,20 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 		})
 
 		t.Run("import companies", func(t *testing.T) {
-			for i, schema := range companies {
-				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
-					fixture := models.Object{
-						Class:      companyClass.Class,
-						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
-						Properties: schema,
-					}
-					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
-				})
+			// import everything 10 times to even out the multi-shard errors a bit
+			// more
+			for j := 0; j < 10; j++ {
+				for i, schema := range companies {
+					t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
+						fixture := models.Object{
+							Class:      companyClass.Class,
+							ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+							Properties: schema,
+						}
+						require.Nil(t,
+							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
+					})
+				}
 			}
 		})
 
@@ -144,20 +181,25 @@ func cleanupCompanyTestSchemaAndData(repo *DB,
 	}
 }
 
-func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
+func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 	return func(t *testing.T) {
+		epsilon := 0.1
+		if !exact {
+			epsilon = 1.0
+		}
+
 		t.Run("single field, single aggregator", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("sector"),
 				},
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -168,7 +210,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6,
+						Count: 60,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -177,13 +219,13 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
-									"mean": 2.066666666666667,
+									"mean": 2.066666666666666,
 								},
 							},
 						},
 					},
 					aggregation.Group{
-						Count: 3,
+						Count: 30,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -192,7 +234,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
-									"mean": 2.1999999999999997,
+									"mean": 2.1999999999999999,
 								},
 							},
 						},
@@ -200,20 +242,31 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+			require.Equal(t, len(expectedResult.Groups), len(res.Groups))
+
+			for i := 0; i <= 1; i++ {
+				assert.Equal(t, expectedResult.Groups[i].Count,
+					res.Groups[i].Count)
+
+				expectedDivYield := expectedResult.Groups[i].Properties["dividendYield"]
+				actualDivYield := res.Groups[i].Properties["dividendYield"]
+
+				assert.InEpsilon(t, expectedDivYield.NumericalAggregations["mean"],
+					actualDivYield.NumericalAggregations["mean"], epsilon)
+			}
 		})
 
 		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("listedInIndex"),
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -224,7 +277,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 8,
+						Count: 80,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"listedInIndex"},
 							Value: true,
@@ -239,7 +292,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"listedInIndex"},
 							Value: false,
@@ -261,68 +314,68 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
 			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
-			assert.InDelta(t, expectedResult.Groups[0].Properties["dividendYield"].
+			assert.InEpsilon(t, expectedResult.Groups[0].Properties["dividendYield"].
 				NumericalAggregations["mean"],
 				res.Groups[0].Properties["dividendYield"].NumericalAggregations["mean"],
-				0.001)
+				epsilon)
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
 			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
 			assert.InDelta(t, expectedResult.Groups[1].Properties["dividendYield"].
 				NumericalAggregations["mean"],
 				res.Groups[1].Properties["dividendYield"].NumericalAggregations["mean"],
-				0.001)
+				epsilon)
 		})
 
 		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
 					Property: schema.PropertyName("sector"),
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -334,7 +387,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6,
+						Count: 60,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -346,10 +399,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.06667,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     12.4,
+									"sum":     124,
 									"mode":    0,
 									"median":  1.1,
-									"count":   6,
+									"count":   60,
 								},
 							},
 							"price": aggregation.Property{
@@ -358,46 +411,46 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    218.33333,
 									"maximum": 800,
 									"minimum": 10,
-									"sum":     1310,
+									"sum":     13100,
 									// "mode":    70,
 									"median": 70,
-									"count":  6,
+									"count":  60,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
-									TotalFalse:      1,
+									TotalTrue:       50,
+									TotalFalse:      10,
 									PercentageTrue:  0.8333333333333334,
 									PercentageFalse: 0.16666666666666666,
-									Count:           6,
+									Count:           60,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -405,7 +458,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 3,
+						Count: 30,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -417,10 +470,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.2,
 									"maximum": 4.0,
 									"minimum": 1.3,
-									"sum":     6.6,
+									"sum":     66,
 									"mode":    1.3,
 									"median":  1.3,
-									"count":   3,
+									"count":   30,
 								},
 							},
 							"price": aggregation.Property{
@@ -429,34 +482,34 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    265.66667,
 									"maximum": 600,
 									"minimum": 47,
-									"sum":     797,
+									"sum":     7970,
 									// "mode":    47,
 									"median": 150,
-									"count":  3,
+									"count":  30,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       3,
+									TotalTrue:       30,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           3,
+									Count:           30,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 3,
+									Count: 30,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -473,12 +526,15 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
 			expectedProps := expectedResult.Groups[0].Properties
 			actualProps := res.Groups[0].Properties
-			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["location"].TextAggregation.Count,
+				actualProps["location"].TextAggregation.Count)
+			assert.ElementsMatch(t, expectedProps["location"].TextAggregation.Items,
+				actualProps["location"].TextAggregation.Items)
 			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
 			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
-				actualProps["dividendYield"].NumericalAggregations, 0.001)
+				actualProps["dividendYield"].NumericalAggregations, epsilon*100)
 			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
-				actualProps["price"].NumericalAggregations, 0.001)
+				actualProps["price"].NumericalAggregations, epsilon*100)
 
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
@@ -488,13 +544,13 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, expectedProps["location"], actualProps["location"])
 			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
 			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
-				actualProps["dividendYield"].NumericalAggregations, 0.001)
+				actualProps["dividendYield"].NumericalAggregations, epsilon*100)
 			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
-				actualProps["price"].NumericalAggregations, 0.001)
+				actualProps["price"].NumericalAggregations, epsilon*500)
 		})
 
 		t.Run("with filters,  grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -512,48 +568,48 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -565,7 +621,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 5,
+						Count: 50,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -577,9 +633,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.48,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     12.4,
+									"sum":     124,
 									"median":  1.3,
-									"count":   5,
+									"count":   50,
 								},
 							},
 							"price": aggregation.Property{
@@ -588,41 +644,41 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    102,
 									"maximum": 200,
 									"minimum": 10,
-									"sum":     510,
+									"sum":     5100,
 									"median":  70,
-									"count":   5,
+									"count":   50,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
+									TotalTrue:       50,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           5,
+									Count:           50,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 5,
+									Count: 50,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -630,7 +686,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
-						Count: 2,
+						Count: 20,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -642,9 +698,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    1.3,
 									"maximum": 1.3,
 									"minimum": 1.3,
-									"sum":     2.6,
+									"sum":     26,
 									"median":  1.3,
-									"count":   2,
+									"count":   20,
 								},
 							},
 							"price": aggregation.Property{
@@ -653,33 +709,33 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    98.5,
 									"maximum": 150,
 									"minimum": 47,
-									"sum":     197,
+									"sum":     1970,
 									"median":  47,
-									"count":   2,
+									"count":   20,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       2,
+									TotalTrue:       20,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           2,
+									Count:           20,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 2,
+									Count: 20,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -696,28 +752,34 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
 			expectedProps := expectedResult.Groups[0].Properties
 			actualProps := res.Groups[0].Properties
-			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["location"].TextAggregation.Count,
+				actualProps["location"].TextAggregation.Count)
+			assert.ElementsMatch(t, expectedProps["location"].TextAggregation.Items,
+				actualProps["location"].TextAggregation.Items)
 			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
 			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
-				actualProps["dividendYield"].NumericalAggregations, 0.001)
+				actualProps["dividendYield"].NumericalAggregations, epsilon*100)
 			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
-				actualProps["price"].NumericalAggregations, 0.001)
+				actualProps["price"].NumericalAggregations, epsilon*100)
 
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
 			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
 			expectedProps = expectedResult.Groups[1].Properties
 			actualProps = res.Groups[1].Properties
-			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["location"].TextAggregation.Count,
+				actualProps["location"].TextAggregation.Count)
+			assert.ElementsMatch(t, expectedProps["location"].TextAggregation.Items,
+				actualProps["location"].TextAggregation.Items)
 			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
 			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
-				actualProps["dividendYield"].NumericalAggregations, 0.001)
+				actualProps["dividendYield"].NumericalAggregations, epsilon*100)
 			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
-				actualProps["price"].NumericalAggregations, 0.001)
+				actualProps["price"].NumericalAggregations, epsilon*100)
 		})
 
 		t.Run("with ref filter, grouped by string", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(companyClass.Class),
@@ -739,48 +801,48 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 						},
 					},
 				},
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							// traverser.ModeAggregator, // ignore as there is no most common value
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
-							traverser.TypeAggregator,
-							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -788,11 +850,12 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 
 			res, err := repo.Aggregate(context.Background(), params)
 			require.Nil(t, err)
+			require.NotNil(t, res)
 
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -804,9 +867,9 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     8.0,
+									"sum":     80,
 									"median":  8.0,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"price": aggregation.Property{
@@ -815,29 +878,29 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 									"mean":    10,
 									"maximum": 10,
 									"minimum": 10,
-									"sum":     10,
+									"sum":     100,
 									"median":  10,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       1,
+									TotalTrue:       10,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           1,
+									Count:           10,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -863,7 +926,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			if !exact {
+				t.Skip()
+			}
+			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(arrayTypesClass.Class),
@@ -908,7 +974,10 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("array types, single aggregator numbers", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			if !exact {
+				t.Skip()
+			}
+			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy: &filters.Path{
 					Class:    schema.ClassName(arrayTypesClass.Class),
@@ -954,10 +1023,11 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 	}
 }
 
-func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
+func testNumericalAggregationsWithoutGrouping(repo *DB,
+	exact bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				IncludeMetaCount: true,
 				GroupBy:          nil, // explicitly set to nil
@@ -970,7 +1040,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 				Groups: []aggregation.Group{
 					aggregation.Group{
 						GroupedBy: nil,
-						Count:     9,
+						Count:     90,
 					},
 				},
 			}
@@ -980,13 +1050,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("single field, single aggregator", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name:        schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
 					},
 				},
 			}
@@ -994,91 +1064,98 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			res, err := repo.Aggregate(context.Background(), params)
 			require.Nil(t, err)
 
-			expectedResult := &aggregation.Result{
-				Groups: []aggregation.Group{
-					aggregation.Group{
-						GroupedBy: nil,
-						Properties: map[string]aggregation.Property{
-							"dividendYield": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean": 2.111111111111111,
+			if exact {
+				expectedResult := &aggregation.Result{
+					Groups: []aggregation.Group{
+						aggregation.Group{
+							GroupedBy: nil,
+							Properties: map[string]aggregation.Property{
+								"dividendYield": aggregation.Property{
+									Type: aggregation.PropertyTypeNumerical,
+									NumericalAggregations: map[string]float64{
+										"mean": 2.111111111111111,
+									},
 								},
 							},
 						},
 					},
-				},
-			}
+				}
 
-			assert.Equal(t, expectedResult.Groups, res.Groups)
+				assert.Equal(t, expectedResult.Groups, res.Groups)
+			} else {
+				require.Len(t, res.Groups, 1)
+				divYield := res.Groups[0].Properties["dividendYield"]
+				assert.Equal(t, aggregation.PropertyTypeNumerical, divYield.Type)
+				assert.InDelta(t, 2.1111, divYield.NumericalAggregations["mean"], 2)
+			}
 		})
 
 		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},
@@ -1090,7 +1167,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 9, // because includeMetaCount was set
+						Count: 90, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
@@ -1098,10 +1175,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    2.111111111111111,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     19,
+									"sum":     190,
 									"mode":    1.3,
 									"median":  1.3,
-									"count":   9,
+									"count":   90,
 								},
 							},
 							"price": aggregation.Property{
@@ -1110,46 +1187,46 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    234.11111111111111,
 									"maximum": 800,
 									"minimum": 10,
-									"sum":     2107,
+									"sum":     21070,
 									"mode":    70,
 									"median":  150,
-									"count":   9,
+									"count":   90,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       8,
-									TotalFalse:      1,
+									TotalTrue:       80,
+									TotalFalse:      10,
 									PercentageTrue:  0.8888888888888888,
 									PercentageFalse: 0.1111111111111111,
-									Count:           9,
+									Count:           90,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 9,
+									Count: 90,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 3,
+											Occurs: 30,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1157,11 +1234,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 9,
+									Count: 90,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 6,
+											Occurs: 60,
 										},
 									},
 								},
@@ -1171,76 +1248,145 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, expectedResult.Groups, res.Groups)
+			if exact {
+				assert.Equal(t, expectedResult.Groups, res.Groups)
+			} else {
+				t.Run("numerical fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["dividendYield"].NumericalAggregations
+					expextedAggs := expectedResult.Groups[0].Properties["dividendYield"].NumericalAggregations
+
+					// max, min, count, sum are always exact matches, but we need an
+					// epsiolon check because of floating point arithmetics
+					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
+					assert.Equal(t, expextedAggs["minimum"], aggs["minimum"]) // equal because the result == 0
+					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
+					assert.InEpsilon(t, expextedAggs["sum"], aggs["sum"], 0.1)
+
+					// mean, mode, median are always fuzzy
+					assert.InDelta(t, expextedAggs["mean"], aggs["mean"], 2)
+					assert.InDelta(t, expextedAggs["mode"], aggs["mode"], 2)
+					assert.InDelta(t, expextedAggs["median"], aggs["median"], 2)
+				})
+
+				t.Run("int fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["price"].NumericalAggregations
+					expextedAggs := expectedResult.Groups[0].Properties["price"].NumericalAggregations
+
+					// max, min, count, sum are always exact matches, but we need an
+					// epsiolon check because of floating point arithmetics
+					assert.InEpsilon(t, expextedAggs["maximum"], aggs["maximum"], 0.1)
+					assert.InEpsilon(t, expextedAggs["minimum"], aggs["minimum"], 0.1)
+					assert.InEpsilon(t, expextedAggs["count"], aggs["count"], 0.1)
+					assert.InEpsilon(t, expextedAggs["sum"], aggs["sum"], 0.1)
+
+					// mean, mode, median are always fuzzy
+					assert.InEpsilon(t, expextedAggs["mean"], aggs["mean"], 0.5, "mean")
+					assert.InEpsilon(t, expextedAggs["mode"], aggs["mode"], 10, "mode")
+					assert.InEpsilon(t, expextedAggs["median"], aggs["median"], 0.5, "median")
+				})
+
+				t.Run("boolean fields", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["listedInIndex"].BooleanAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["listedInIndex"].BooleanAggregation
+
+					assert.InEpsilon(t, expectedAggs.TotalTrue, aggs.TotalTrue, 0.1)
+					assert.InEpsilon(t, expectedAggs.TotalFalse, aggs.TotalFalse, 0.1)
+					assert.InEpsilon(t, expectedAggs.PercentageTrue, aggs.PercentageTrue, 0.1)
+					assert.InEpsilon(t, expectedAggs.PercentageFalse, aggs.PercentageFalse, 0.1)
+					assert.InEpsilon(t, expectedAggs.Count, aggs.Count, 0.1)
+				})
+
+				t.Run("text fields (location)", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["location"].TextAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["location"].TextAggregation
+
+					assert.Equal(t, expectedAggs.Count, aggs.Count)
+					assert.ElementsMatch(t, expectedAggs.Items, aggs.Items)
+				})
+				t.Run("text fields (sector)", func(t *testing.T) {
+					aggs := res.Groups[0].Properties["sector"].TextAggregation
+					expectedAggs := expectedResult.Groups[0].Properties["sector"].TextAggregation
+
+					assert.Equal(t, expectedAggs.Count, aggs.Count)
+					assert.ElementsMatch(t, expectedAggs.Items, aggs.Items)
+				})
+			}
 		})
 
 		t.Run("multiple fields, multiple aggregators, single-level filter", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			if !exact {
+				// filtering is happening inside a shard, so there is no need to test
+				// this again for multi-sharding. This saves us from adapting all the
+				// assertions to work with fuzzy values
+				t.Skip()
+			}
+
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				GroupBy:          nil, // explicitly set to nil,
 				Filters:          sectorEqualsFoodFilter(),
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},
@@ -1249,69 +1395,76 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			res, err := repo.Aggregate(context.Background(), params)
 			require.Nil(t, err)
 
+			actualDivYield := res.Groups[0].Properties["dividendYield"]
+			delete(res.Groups[0].Properties, "dividendYield")
+			actualPrice := res.Groups[0].Properties["price"]
+			delete(res.Groups[0].Properties, "price")
+
+			expectedDivYield := aggregation.Property{
+				Type: aggregation.PropertyTypeNumerical,
+				NumericalAggregations: map[string]float64{
+					"mean":    2.066666666666666,
+					"maximum": 8.0,
+					"minimum": 0.0,
+					"sum":     124,
+					"mode":    0.0,
+					"median":  1.1,
+					"count":   60,
+				},
+			}
+
+			expectedPrice := aggregation.Property{
+				Type: aggregation.PropertyTypeNumerical,
+				NumericalAggregations: map[string]float64{
+					"mean":    218.33333333333334,
+					"maximum": 800,
+					"minimum": 10,
+					"sum":     13100,
+					"mode":    70,
+					"median":  70,
+					"count":   60,
+				},
+			}
+
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 6, // because includeMetaCount was set
+						Count: 60, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
-							"dividendYield": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    2.066666666666667,
-									"maximum": 8.0,
-									"minimum": 0.0,
-									"sum":     12.4,
-									"mode":    0.0,
-									"median":  1.1,
-									"count":   6,
-								},
-							},
-							"price": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    218.33333333333334,
-									"maximum": 800,
-									"minimum": 10,
-									"sum":     1310,
-									"mode":    70,
-									"median":  70,
-									"count":   6,
-								},
-							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       5,
-									TotalFalse:      1,
+									TotalTrue:       50,
+									TotalFalse:      10,
 									PercentageTrue:  0.8333333333333334,
 									PercentageFalse: 0.16666666666666666,
-									Count:           6,
+									Count:           60,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Atlanta",
-											Occurs: 2,
+											Occurs: 20,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "New York",
-											Occurs: 1,
+											Occurs: 10,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1319,11 +1472,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 6,
+									Count: 60,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 6,
+											Occurs: 60,
 										},
 									},
 								},
@@ -1334,10 +1487,49 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedResult.Groups, res.Groups)
+
+			// floating point arithmetic for numerical fields
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["mean"],
+				actualDivYield.NumericalAggregations["mean"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["mean"],
+				actualPrice.NumericalAggregations["mean"], 0.1)
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["maximum"],
+				actualDivYield.NumericalAggregations["maximum"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["maximum"],
+				actualPrice.NumericalAggregations["maximum"], 0.1)
+
+			assert.Equal(t, expectedDivYield.NumericalAggregations["minimum"],
+				actualDivYield.NumericalAggregations["minimum"])
+			assert.Equal(t, expectedPrice.NumericalAggregations["minimum"],
+				actualPrice.NumericalAggregations["minimum"])
+
+			assert.Equal(t, expectedDivYield.NumericalAggregations["mode"],
+				actualDivYield.NumericalAggregations["mode"])
+			assert.Equal(t, expectedPrice.NumericalAggregations["mode"],
+				actualPrice.NumericalAggregations["mode"])
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["median"],
+				actualDivYield.NumericalAggregations["median"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["median"],
+				actualPrice.NumericalAggregations["median"], 0.1)
+
+			assert.InEpsilon(t, expectedDivYield.NumericalAggregations["count"],
+				actualDivYield.NumericalAggregations["count"], 0.1)
+			assert.InEpsilon(t, expectedPrice.NumericalAggregations["count"],
+				actualPrice.NumericalAggregations["count"], 0.1)
 		})
 
 		t.Run("multiple fields, multiple aggregators, ref filter", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			if !exact {
+				// filtering is happening inside a shard, so there is no need to test
+				// this again for multi-sharding. This saves us from adapting all the
+				// assertions to work with fuzzy values
+				t.Skip()
+			}
+
+			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
 				GroupBy:   nil, // explicitly set to nil,
 				Filters: &filters.LocalFilter{
@@ -1357,67 +1549,67 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 					},
 				},
 				IncludeMetaCount: true,
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("dividendYield"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("price"),
-						Aggregators: []traverser.Aggregator{
-							traverser.MeanAggregator,
-							traverser.MaximumAggregator,
-							traverser.MinimumAggregator,
-							traverser.SumAggregator,
-							traverser.ModeAggregator,
-							traverser.MedianAggregator,
-							traverser.CountAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("listedInIndex"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PercentageTrueAggregator,
-							traverser.PercentageFalseAggregator,
-							traverser.TotalTrueAggregator,
-							traverser.TotalFalseAggregator,
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("location"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is so high, it's not really restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(10)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(10)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("sector"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					// we are not expecting any result from the following agg, as this is
 					// handled in the usecase. However, we at least want to make sure it
 					// doesn't block or lead to any errors
-					traverser.AggregateProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("makesProduct"),
-						Aggregators: []traverser.Aggregator{
-							traverser.PointingToAggregator,
-							traverser.TypeAggregator,
+						Aggregators: []aggregation.Aggregator{
+							aggregation.PointingToAggregator,
+							aggregation.TypeAggregator,
 						},
 					},
 				},
@@ -1429,7 +1621,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 1,
+						Count: 10,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
@@ -1437,10 +1629,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     8.0,
+									"sum":     80,
 									"mode":    8.0,
 									"median":  8.0,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"price": aggregation.Property{
@@ -1449,30 +1641,30 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"mean":    10,
 									"maximum": 10,
 									"minimum": 10,
-									"sum":     10,
+									"sum":     100,
 									"mode":    10,
 									"median":  10,
-									"count":   1,
+									"count":   10,
 								},
 							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       1,
+									TotalTrue:       10,
 									TotalFalse:      0,
 									PercentageTrue:  1,
 									PercentageFalse: 0,
-									Count:           1,
+									Count:           10,
 								},
 							},
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Detroit",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1480,11 +1672,11 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"sector": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									Count: 1,
+									Count: 10,
 									Items: []aggregation.TextOccurrence{
 										aggregation.TextOccurrence{
 											Value:  "Food",
-											Occurs: 1,
+											Occurs: 10,
 										},
 									},
 								},
@@ -1498,7 +1690,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 		})
 
 		t.Run("array types, only meta count, no other aggregations", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			params := aggregation.Params{
 				ClassName:        schema.ClassName(arrayTypesClass.Class),
 				IncludeMetaCount: true,
 				GroupBy:          nil, // explicitly set to nil
@@ -1522,21 +1714,21 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 		// TODO: Flaky median result: https://github.com/semi-technologies/weaviate/issues/1693
 		// t.Run("array types, single aggregator numbers", func(t *testing.T) {
-		// 	params := traverser.AggregateParams{
+		// 	params := aggregation.Params{
 		// 		ClassName: schema.ClassName(arrayTypesClass.Class),
 		// 		GroupBy:   nil, // explicitly set to nil
-		// 		Properties: []traverser.AggregateProperty{
-		// 			traverser.AggregateProperty{
+		// 		Properties: []aggregation.ParamProperty{
+		// 			aggregation.ParamProperty{
 		// 				Name: schema.PropertyName("numbers"),
-		// 				Aggregators: []traverser.Aggregator{
-		// 					traverser.MeanAggregator,
-		// 					traverser.MaximumAggregator,
-		// 					traverser.MinimumAggregator,
-		// 					traverser.SumAggregator,
-		// 					traverser.ModeAggregator,
-		// 					traverser.MedianAggregator,
-		// 					traverser.CountAggregator,
-		// 					traverser.TypeAggregator, // ignored in the repo, but can't block
+		// 				Aggregators: []aggregation.Aggregator{
+		// 					aggregation.MeanAggregator,
+		// 					aggregation.MaximumAggregator,
+		// 					aggregation.MinimumAggregator,
+		// 					aggregation.SumAggregator,
+		// 					aggregation.ModeAggregator,
+		// 					aggregation.MedianAggregator,
+		// 					aggregation.CountAggregator,
+		// 					aggregation.TypeAggregator, // ignored in the repo, but can't block
 		// 				},
 		// 			},
 		// 		},
@@ -1571,16 +1763,19 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 		// })
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
-			params := traverser.AggregateParams{
+			if !exact {
+				t.Skip()
+			}
+			params := aggregation.Params{
 				ClassName: schema.ClassName(arrayTypesClass.Class),
 				GroupBy:   nil, // explicitly set to nil
-				Properties: []traverser.AggregateProperty{
-					traverser.AggregateProperty{
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
 						Name: schema.PropertyName("strings"),
-						Aggregators: []traverser.Aggregator{
+						Aggregators: []aggregation.Aggregator{
 							// limit is very restrictive
-							traverser.NewTopOccurrencesAggregator(ptInt(1)),
-							traverser.TypeAggregator, // ignored in the repo, but can't block
+							aggregation.NewTopOccurrencesAggregator(ptInt(1)),
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 				},

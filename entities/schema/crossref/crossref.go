@@ -27,9 +27,9 @@ import (
 // Do not use directly, such as crossref.Ref{}, as you won't have any
 // guarantees in this case. Always use one of the parsing options or New()
 type Ref struct {
-	Local    bool
-	PeerName string
-	TargetID strfmt.UUID
+	Local    bool        `json:"local"`
+	PeerName string      `json:"peerName"`
+	TargetID strfmt.UUID `json:"targetID"`
 }
 
 // Parse is a safe way to generate a Ref, as it will error if any of the input

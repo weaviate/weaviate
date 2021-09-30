@@ -22,10 +22,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 type Searcher struct {
@@ -56,7 +56,7 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 
 // Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int,
-	filter *filters.LocalFilter, additional traverser.AdditionalProperties,
+	filter *filters.LocalFilter, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
@@ -78,7 +78,7 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		pointers.docIDs = pointers.docIDs[:limit]
 	}
 
-	res, err := f.objectsByDocID(pointers.IDs())
+	res, err := f.objectsByDocID(pointers.IDs(), additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
@@ -87,7 +87,8 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	return out, nil
 }
 
-func (f *Searcher) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
+func (f *Searcher) objectsByDocID(ids []uint64,
+	additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, len(ids))
 
 	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
@@ -110,7 +111,7 @@ func (f *Searcher) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinary(res)
+		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -133,7 +134,7 @@ func (f *Searcher) objectsByDocID(ids []uint64) ([]*storobj.Object, error) {
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	additional traverser.AdditionalProperties, className schema.ClassName) (helpers.AllowList, error) {
+	additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err

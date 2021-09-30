@@ -78,6 +78,55 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
+func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+	)
+
+	before.SetDocID(7)
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	t.Run("without any optional", func(t *testing.T) {
+		after, err := FromBinaryOptional(asBinary, additional.Properties{})
+		require.Nil(t, err)
+
+		t.Run("compare", func(t *testing.T) {
+			// modify before to match expectations of after
+			before.Object.Additional = nil
+			before.Vector = nil
+			assert.Equal(t, before, after)
+
+			assert.Equal(t, before.docID, after.docID)
+		})
+	})
+}
+
 func TestNewStorageObject(t *testing.T) {
 	t.Run("objects", func(t *testing.T) {
 		so := New(12)

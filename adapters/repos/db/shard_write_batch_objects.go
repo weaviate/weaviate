@@ -19,12 +19,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object) map[int]error {
+	objects []*storobj.Object) []error {
 	return newObjectsBatcher(s).Objects(ctx, objects)
 }
 
@@ -35,7 +35,7 @@ type objectsBatcher struct {
 	sync.Mutex
 	shard      *Shard
 	statuses   map[strfmt.UUID]objectInsertStatus
-	errs       map[int]error
+	errs       []error
 	duplicates map[int]struct{}
 	objects    []*storobj.Object
 }
@@ -46,7 +46,7 @@ func newObjectsBatcher(s *Shard) *objectsBatcher {
 
 // Objects imports the specified objects in parallel in a batch-fashion
 func (b *objectsBatcher) Objects(ctx context.Context,
-	objects []*storobj.Object) map[int]error {
+	objects []*storobj.Object) []error {
 	beforeBatch := time.Now()
 	defer b.shard.metrics.BatchObject(beforeBatch, len(objects))
 
@@ -60,7 +60,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 func (b *objectsBatcher) init(objects []*storobj.Object) {
 	b.objects = objects
 	b.statuses = map[strfmt.UUID]objectInsertStatus{}
-	b.errs = map[int]error{} // int represents original index
+	b.errs = make([]error, len(objects))
 	b.duplicates = findDuplicatesInBatchObjects(objects)
 }
 
@@ -214,9 +214,7 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 func (b *objectsBatcher) hasErrorAtIndex(i int) bool {
 	b.Lock()
 	defer b.Unlock()
-	_, ok := b.errs[i]
-
-	return ok
+	return b.errs[i] != nil
 }
 
 // setErrorAtIndex is thread-safe as it uses the underlying mutex to lock

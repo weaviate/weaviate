@@ -49,10 +49,10 @@ type BatchObjects []BatchObject
 // However, error'd objects are not removed to make sure that the list in
 // Objects matches the order and content of the incoming batch request
 type BatchReference struct {
-	OriginalIndex int
-	Err           error
-	From          *crossref.RefSource
-	To            *crossref.Ref
+	OriginalIndex int                 `json:"originalIndex"`
+	Err           error               `json:"err"`
+	From          *crossref.RefSource `json:"from"`
+	To            *crossref.Ref       `json:"to"`
 }
 
 // BatchReferences groups many Reference items together. The order matches the

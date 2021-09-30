@@ -19,8 +19,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,6 +38,8 @@ type Manager struct {
 	config              config.Config
 	vectorizerValidator VectorizerValidator
 	moduleConfig        ModuleConfig
+	cluster             *cluster.TxManager
+	clusterState        clusterState
 	sync.Mutex
 
 	hnswConfigParser VectorConfigParser
@@ -45,6 +49,7 @@ type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
+	ShardingState(class string) *sharding.State
 }
 
 type VectorizerValidator interface {
@@ -66,11 +71,24 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
+type clusterState interface {
+	// Hostnames initializes a broadcast
+	Hostnames() []string
+
+	// AllNames initializes shard distribution across nodes
+	AllNames() []string
+
+	LocalName() string
+
+	NodeCount() int
+}
+
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
-	moduleConfig ModuleConfig) (*Manager, error) {
+	moduleConfig ModuleConfig, clusterState clusterState,
+	txClient cluster.Client) (*Manager, error) {
 	m := &Manager{
 		config:              config,
 		migrator:            migrator,
@@ -81,7 +99,11 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		hnswConfigParser:    hnswConfigParser,
 		vectorizerValidator: vectorizerValidator,
 		moduleConfig:        moduleConfig,
+		cluster:             cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		clusterState:        clusterState,
 	}
+
+	m.cluster.SetCommitFn(m.handleCommit)
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -91,6 +113,10 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	return m, nil
 }
 
+func (s *Manager) TxManager() *cluster.TxManager {
+	return s.cluster
+}
+
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
@@ -98,7 +124,8 @@ type authorizer interface {
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {
-	ObjectSchema *models.Schema `json:"object"`
+	ObjectSchema  *models.Schema `json:"object"`
+	ShardingState map[string]*sharding.State
 }
 
 // SchemaFor a specific kind
@@ -145,16 +172,58 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		schema = newSchema()
 	}
 
-	if err := m.parseVectorIndexConfigs(ctx, schema); err != nil {
+	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
 	}
 
 	// store in local cache
 	m.state = *schema
 
+	if err := m.checkSingleShardMigration(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version")
+	}
+
 	// store in remote repo
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
+	for _, c := range m.state.ObjectSchema.Classes {
+		if _, ok := m.state.ShardingState[c.Class]; ok {
+			// there is sharding state for this class. Nothing to do
+			continue
+		}
+
+		m.logger.WithField("className", c.Class).WithField("action", "initialize_schema").
+			Warningf("No sharding state found for class %q, initializing new state. "+
+				"This is expected behavior if the schema was created with an older Weaviate "+
+				"version, prior to supporting multi-shard indices.", c.Class)
+
+		// there is no sharding state for this class, let's create the correct
+		// config. This class must have been created prior to the sharding feature,
+		// so we now that the shardCount==1 - we do not care about any of the other
+		// parameters and simply use the defaults for those
+		c.ShardingConfig = map[string]interface{}{
+			"desiredCount": 1,
+		}
+		if err := m.parseShardingConfig(ctx, c); err != nil {
+			return err
+		}
+
+		shardState, err := sharding.InitState(c.Class,
+			c.ShardingConfig.(sharding.Config), m.clusterState)
+		if err != nil {
+			return errors.Wrap(err, "init sharding state")
+		}
+
+		if m.state.ShardingState == nil {
+			m.state.ShardingState = map[string]*sharding.State{}
+		}
+		m.state.ShardingState[c.Class] = shardState
 	}
 
 	return nil
@@ -165,14 +234,23 @@ func newSchema() *State {
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{},
 		},
+		ShardingState: map[string]*sharding.State{},
 	}
 }
 
-func (m *Manager) parseVectorIndexConfigs(ctx context.Context, schema *State) error {
+func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
 		if err := m.parseVectorIndexConfig(ctx, class); err != nil {
-			return errors.Wrapf(err, "class %s", class.Class)
+			return errors.Wrapf(err, "class %s: vector index config", class.Class)
 		}
+
+		if err := m.parseShardingConfig(ctx, class); err != nil {
+			return errors.Wrapf(err, "class %s: sharding config", class.Class)
+		}
+	}
+
+	for _, shardState := range schema.ShardingState {
+		shardState.SetLocalName(m.clusterState.LocalName())
 	}
 
 	return nil

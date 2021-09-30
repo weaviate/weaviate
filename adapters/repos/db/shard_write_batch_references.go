@@ -20,14 +20,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences) map[int]error {
+	refs objects.BatchReferences) []error {
 	return newReferencesBatcher(s).References(ctx, refs)
 }
 
@@ -37,7 +37,7 @@ func (s *Shard) addReferencesBatch(ctx context.Context,
 type referencesBatcher struct {
 	sync.Mutex
 	shard *Shard
-	errs  map[int]error
+	errs  []error
 	refs  objects.BatchReferences
 }
 
@@ -48,7 +48,7 @@ func newReferencesBatcher(s *Shard) *referencesBatcher {
 }
 
 func (b *referencesBatcher) References(ctx context.Context,
-	refs objects.BatchReferences) map[int]error {
+	refs objects.BatchReferences) []error {
 	b.init(refs)
 	b.storeInObjectStore(ctx)
 	b.flushWALs(ctx)
@@ -57,7 +57,7 @@ func (b *referencesBatcher) References(ctx context.Context,
 
 func (b *referencesBatcher) init(refs objects.BatchReferences) {
 	b.refs = refs
-	b.errs = map[int]error{} // int represents original index
+	b.errs = []error{}
 }
 
 func (b *referencesBatcher) storeInObjectStore(

@@ -21,6 +21,7 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -28,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -88,7 +90,7 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
-	params AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
@@ -106,7 +108,7 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props SelectProperties, additional AdditionalProperties) (*search.Result, error) {
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
@@ -132,7 +134,7 @@ func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params AggregateParams) (*aggregation.Result, error) {
+	params aggregation.Params) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
@@ -160,6 +162,10 @@ type fakeSchemaGetter struct {
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
+	panic("not implemented")
 }
 
 type fakeInterpretation struct{}

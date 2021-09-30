@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 // AddClass to the schema
@@ -46,19 +47,50 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	err = m.parseShardingConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
 	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
 		return err
 	}
 
+	shardState, err := sharding.InitState(class.Class,
+		class.ShardingConfig.(sharding.Config), m.clusterState)
+	if err != nil {
+		return errors.Wrap(err, "init sharding state")
+	}
+
+	tx, err := m.cluster.BeginTransaction(ctx, AddClass,
+		AddClassPayload{class, shardState})
+	if err != nil {
+		// possible causes for errors could be nodes down (we expect every node to
+		// the up for a schema transaction) or concurrent transactions from other
+		// nodes
+		return errors.Wrap(err, "open cluster-wide transaction")
+	}
+
+	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+		return errors.Wrap(err, "commit cluster-wide transaction")
+	}
+
+	return m.addClassApplyChanges(ctx, class, shardState)
+}
+
+func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
+	shardState *sharding.State) error {
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
-	err = m.saveSchema(ctx)
+
+	m.state.ShardingState[class.Class] = shardState
+	err := m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	return m.migrator.AddClass(ctx, class)
+	return m.migrator.AddClass(ctx, class, shardState)
 	// TODO gh-846: Rollback state upate if migration fails
 }
 
@@ -149,6 +181,19 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	}
 
 	class.VectorIndexConfig = parsed
+
+	return nil
+}
+
+func (m *Manager) parseShardingConfig(ctx context.Context,
+	class *models.Class) error {
+	parsed, err := sharding.ParseConfig(class.ShardingConfig,
+		m.clusterState.NodeCount())
+	if err != nil {
+		return errors.Wrap(err, "parse vector index config")
+	}
+
+	class.ShardingConfig = parsed
 
 	return nil
 }

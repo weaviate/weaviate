@@ -12,9 +12,9 @@
 package hnsw
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -36,7 +36,7 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 }
 
-func (c *Deserializer) Do(fd *os.File,
+func (c *Deserializer) Do(fd *bufio.Reader,
 	initialState *DeserializationResult) (*DeserializationResult, error) {
 	out := initialState
 	if out == nil {

@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 )
 
 type fakeRepo struct {
@@ -103,5 +104,39 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 }
 
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
+	return nil
+}
+
+type fakeClusterState struct {
+	hosts []string
+}
+
+func (f *fakeClusterState) Hostnames() []string {
+	return f.hosts
+}
+
+func (f *fakeClusterState) AllNames() []string {
+	return []string{"node1"}
+}
+
+func (f *fakeClusterState) LocalName() string {
+	return "node1"
+}
+
+func (f *fakeClusterState) NodeCount() int {
+	return 1
+}
+
+type fakeTxClient struct{}
+
+func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	return nil
+}
+
+func (f *fakeTxClient) AbortTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	return nil
+}
+
+func (f *fakeTxClient) CommitTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
 	return nil
 }

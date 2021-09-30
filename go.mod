@@ -19,6 +19,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.2.0
 	github.com/graphql-go/graphql v0.7.9
+	github.com/hashicorp/memberlist v0.2.4
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/mapstructure v1.4.2 // indirect
@@ -28,7 +29,7 @@ require (
 	github.com/rs/cors v1.5.0
 	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
 	github.com/sirupsen/logrus v1.6.0
-	github.com/spaolacci/murmur3 v1.1.0 // indirect
+	github.com/spaolacci/murmur3 v1.1.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/willf/bitset v1.1.11 // indirect
@@ -36,8 +37,8 @@ require (
 	go.etcd.io/bbolt v1.3.5
 	go.mongodb.org/mongo-driver v1.7.2 // indirect
 	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e
-	golang.org/x/tools v0.1.6 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect

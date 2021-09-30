@@ -18,30 +18,29 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func addNumericalAggregations(prop *aggregation.Property,
-	aggs []traverser.Aggregator, agg *numericalAggregator) {
+	aggs []aggregation.Aggregator, agg *numericalAggregator) {
 	if prop.NumericalAggregations == nil {
 		prop.NumericalAggregations = map[string]float64{}
 	}
 
 	for _, aProp := range aggs {
 		switch aProp {
-		case traverser.MeanAggregator:
+		case aggregation.MeanAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Mean()
-		case traverser.MinimumAggregator:
+		case aggregation.MinimumAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Min()
-		case traverser.MaximumAggregator:
+		case aggregation.MaximumAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Max()
-		case traverser.MedianAggregator:
+		case aggregation.MedianAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Median()
-		case traverser.ModeAggregator:
+		case aggregation.ModeAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Mode()
-		case traverser.SumAggregator:
+		case aggregation.SumAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Sum()
-		case traverser.CountAggregator:
+		case aggregation.CountAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Count()
 
 		default:

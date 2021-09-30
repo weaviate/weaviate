@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -270,14 +270,14 @@ func Test_MergeObject(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
+				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
 						Vector:    test.previous.Vector,
 					}, nil)
 			} else {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
+				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
 					Return((*search.Result)(nil), nil)
 			}
 
@@ -469,13 +469,13 @@ func Test_MergeThing(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
+				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Properties,
 						ClassName: test.previous.Class,
 					}, nil)
 			} else {
-				vectorRepo.On("ObjectByID", test.id, traverser.SelectProperties(nil), traverser.AdditionalProperties{}).
+				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
 					Return((*search.Result)(nil), nil)
 			}
 
