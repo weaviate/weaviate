@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -62,6 +63,22 @@ var companyClass = &models.Class{
 		{
 			Name:     "makesProduct",
 			DataType: []string{"AggregationsTestProduct"},
+		},
+	},
+}
+
+var arrayTypesClass = &models.Class{
+	Class:               "AggregationsTestArrayTypes",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
+	Properties: []*models.Property{
+		{
+			Name:     "strings",
+			DataType: []string{"string[]"},
+		},
+		{
+			Name:     "numbers",
+			DataType: []string{"number[]"},
 		},
 	},
 }
@@ -144,5 +161,16 @@ var companies = []map[string]interface{}{
 		"dividendYield": 1.1,
 		"price":         int64(70),
 		"listedInIndex": true,
+	},
+}
+
+var arrayTypes = []map[string]interface{}{
+	{
+		"strings": []string{"a", "b", "c"},
+		"numbers": []float64{1.0, 2.0, 3.0},
+	},
+	{
+		"strings": []string{"a"},
+		"numbers": []float64{1.0, 2.0},
 	},
 }
