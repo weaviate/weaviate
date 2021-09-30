@@ -46,8 +46,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"vectorCacheMaxObjects":  float64(2e6),
 				},
 				"shardingConfig": map[string]interface{}{
-					"actualCount":         float64(0),
-					"actualVirtualCount":  float64(0),
+					"actualCount":         float64(1),
+					"actualVirtualCount":  float64(128),
 					"desiredCount":        float64(1),
 					"desiredVirtualCount": float64(128),
 					"function":            "murmur3",

@@ -43,6 +43,11 @@ func (c *Config) setDefaults(nodeCount int) {
 	c.Function = DefaultFunction
 	c.Key = DefaultKey
 	c.Strategy = DefaultStrategy
+
+	// these will only differ once there is an async component through replication
+	// or dynamic scaling. For now they have to be the same
+	c.ActualCount = c.DesiredCount
+	c.ActualVirtualCount = c.DesiredVirtualCount
 }
 
 func (c *Config) validate() error {
@@ -114,6 +119,11 @@ func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 	}); err != nil {
 		return out, err
 	}
+
+	// these will only differ once there is an async component through replication
+	// or dynamic scaling. For now they have to be the same
+	out.ActualCount = out.DesiredCount
+	out.ActualVirtualCount = out.DesiredVirtualCount
 
 	if err := out.validate(); err != nil {
 		return out, err
