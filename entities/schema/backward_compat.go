@@ -132,6 +132,10 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeIntArray
 		} else if dt == string(DataTypeNumberArray) {
 			returnDataType = DataTypeNumberArray
+		} else if dt == string(DataTypeBooleanArray) {
+			returnDataType = DataTypeBooleanArray
+		} else if dt == string(DataTypeDateArray) {
+			returnDataType = DataTypeDateArray
 		}
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
@@ -156,7 +160,9 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeStringArray),
 		string(DataTypeTextArray),
 		string(DataTypeIntArray),
-		string(DataTypeNumberArray):
+		string(DataTypeNumberArray),
+		string(DataTypeBooleanArray),
+		string(DataTypeDateArray):
 		return true
 	}
 	return false
@@ -179,7 +185,7 @@ func IsBlobDataType(dt []string) bool {
 func IsArrayDataType(dt []string) bool {
 	for i := range dt {
 		switch DataType(dt[i]) {
-		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray:
+		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray:
 			return true
 		}
 	}

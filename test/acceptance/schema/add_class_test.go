@@ -54,6 +54,37 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 	})
 }
 
+func TestInvalidPropertyName(t *testing.T) {
+	t.Parallel()
+	className := "WrongPropertyClass"
+
+	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
+		assert.NotContains(t, GetObjectClassNames(t), className)
+	})
+
+	t.Run("trying to create class with invalid property name", func(t *testing.T) {
+		c := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "some-property",
+					DataType: []string{"string"},
+				},
+			},
+		}
+
+		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		helper.AssertRequestFail(t, resp, err, func() {
+			parsed, ok := err.(*schema.SchemaObjectsCreateUnprocessableEntity)
+			require.True(t, ok, "error should be unprocessable entity")
+			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
+				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]*/”.",
+				parsed.Payload.Error[0].Message)
+		})
+	})
+}
+
 func TestAddAndRemoveObjectClass(t *testing.T) {
 	randomObjectClassName := "YellowCars"
 

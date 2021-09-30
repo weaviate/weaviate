@@ -49,9 +49,13 @@ const (
 	DataTypeIntArray DataType = "int[]"
 	// DataTypeNumberArray The data type is a value of type number/float array
 	DataTypeNumberArray DataType = "number[]"
+	// DataTypeBooleanArray The data type is a value of type boolean array
+	DataTypeBooleanArray DataType = "boolean[]"
+	// DataTypeDateArray The data type is a value of type date array
+	DataTypeDateArray DataType = "date[]"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray}
 
 type PropertyKind int
 
@@ -137,7 +141,8 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates),
 				string(DataTypePhoneNumber), string(DataTypeBlob),
 				string(DataTypeStringArray), string(DataTypeTextArray),
-				string(DataTypeIntArray), string(DataTypeNumberArray):
+				string(DataTypeIntArray), string(DataTypeNumberArray),
+				string(DataTypeBooleanArray), string(DataTypeDateArray):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),

@@ -128,7 +128,12 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 			return ua.intProperty(ctx, prop)
 		}
 	case aggregation.PropertyTypeBoolean:
-		return ua.boolProperty(ctx, prop)
+		switch dt {
+		case schema.DataTypeBooleanArray:
+			return ua.boolArrayProperty(ctx, prop)
+		default:
+			return ua.boolProperty(ctx, prop)
+		}
 	case aggregation.PropertyTypeText:
 		return ua.textProperty(ctx, prop)
 	case aggregation.PropertyTypeReference:

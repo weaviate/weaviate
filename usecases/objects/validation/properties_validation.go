@@ -156,12 +156,22 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 	case schema.DataTypeIntArray:
 		data, err = intArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid integer property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid integer array property '%s' on class '%s': %s", propertyName, className, err)
 		}
 	case schema.DataTypeNumberArray:
 		data, err = numberArrayVal(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid number property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid number array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeBooleanArray:
+		data, err = boolArrayVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid boolean array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeDateArray:
+		data, err = dateArrayVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date array property '%s' on class '%s': %s", propertyName, className, err)
 		}
 
 	default:
@@ -487,6 +497,36 @@ func numberArrayVal(val interface{}) ([]interface{}, error) {
 	for i := range typed {
 		if _, err := numberVal(typed[i]); err != nil {
 			return nil, fmt.Errorf("invalid integer array value: %s", val)
+		}
+	}
+
+	return typed, nil
+}
+
+func boolArrayVal(val interface{}) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not a boolean array, but %T", val)
+	}
+
+	for i := range typed {
+		if _, err := boolVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid boolean array value: %s", val)
+		}
+	}
+
+	return typed, nil
+}
+
+func dateArrayVal(val interface{}) ([]interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not a date array, but %T", val)
+	}
+
+	for i := range typed {
+		if _, err := dateVal(typed[i]); err != nil {
+			return nil, fmt.Errorf("invalid date array value: %s", val)
 		}
 	}
 

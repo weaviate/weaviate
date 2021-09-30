@@ -211,6 +211,38 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
+	case schema.DataTypeBooleanArray:
+		hasFrequency = HasFrequency(dt)
+		in := make([]bool, len(values))
+		for i, value := range values {
+			asBool, ok := value.(bool)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
+			}
+			in[i] = asBool
+		}
+
+		var err error
+		items, err = a.BoolArray(in) // convert to int before analyzing
+		if err != nil {
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
+	case schema.DataTypeDateArray:
+		hasFrequency = HasFrequency(dt)
+		in := make([]int64, len(values))
+		for i, value := range values {
+			asTime, ok := value.(time.Time)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
+			}
+			in[i] = asTime.UnixNano()
+		}
+
+		var err error
+		items, err = a.IntArray(in)
+		if err != nil {
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
 
 	default:
 		// ignore unsupported prop type

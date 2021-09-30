@@ -150,6 +150,22 @@ func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	return out, nil
 }
 
+// BoolArray requires no analysis, so it's actually just a simple conversion to a
+// little-endian ordered byte slice
+func (a *Analyzer) BoolArray(in []bool) ([]Countable, error) {
+	out := make([]Countable, len(in))
+	for i := range in {
+		b := bytes.NewBuffer(nil)
+		err := binary.Write(b, binary.LittleEndian, &in)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = Countable{Data: b.Bytes()}
+	}
+
+	return out, nil
+}
+
 // Bool requires no analysis, so it's actually just a simple conversion to a
 // little-endian ordered byte slice
 func (a *Analyzer) Bool(in bool) ([]Countable, error) {
