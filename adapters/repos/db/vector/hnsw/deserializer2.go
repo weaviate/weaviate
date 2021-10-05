@@ -37,7 +37,8 @@ type DeserializationResult2 struct {
 }
 
 func (c *Deserializer2) Do(fd *bufio.Reader,
-	initialState *DeserializationResult) (*DeserializationResult, error) {
+	initialState *DeserializationResult) (*DeserializationResult, int, error) {
+	validLength := 0
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
@@ -53,12 +54,15 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 				break
 			}
 
-			return nil, err
+			return nil, validLength, err
 		}
+
+		var readThisRound int
 
 		switch ct {
 		case AddNode:
 			err = c.ReadNode(fd, out)
+			readThisRound = 10
 		case SetEntryPointMaxLevel:
 			var entrypoint uint64
 			var level uint16
@@ -66,18 +70,24 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 			out.Entrypoint = entrypoint
 			out.Level = level
 			out.EntrypointChanged = true
+			readThisRound = 10
 		case AddLinkAtLevel:
 			err = c.ReadLink(fd, out)
+			readThisRound = 18
 		case ReplaceLinksAtLevel:
-			err = c.ReadLinks(fd, out)
+			readThisRound, err = c.ReadLinks(fd, out)
 		case AddTombstone:
 			err = c.ReadAddTombstone(fd, out.Tombstones)
+			readThisRound = 8
 		case RemoveTombstone:
 			err = c.ReadRemoveTombstone(fd, out.Tombstones)
+			readThisRound = 8
 		case ClearLinks:
 			err = c.ReadClearLinks(fd, out)
+			readThisRound = 8
 		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
+			readThisRound = 8
 		case ResetIndex:
 			out.Entrypoint = 0
 			out.Level = 0
@@ -87,11 +97,13 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 		}
 		if err != nil {
 			// do not return nil, err, because the err could be a recoverable one
-			return out, err
+			return out, validLength, err
+		} else {
+			validLength += 1 + readThisRound // 1 byte for commit type
 		}
 	}
 
-	return out, nil
+	return out, validLength, nil
 }
 
 func (c *Deserializer2) ReadNode(r io.Reader, res *DeserializationResult) error {
@@ -169,30 +181,30 @@ func (c *Deserializer2) ReadLink(r io.Reader, res *DeserializationResult) error 
 	return nil
 }
 
-func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) (int, error) {
 	source, err := c.readUint64(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	level, err := c.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	length, err := c.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	targets, err := c.readUint64Slice(r, int(length))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if changed {
@@ -203,7 +215,7 @@ func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) error
 		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
 	}
 	res.Nodes[int(source)].connections[int(level)] = targets
-	return nil
+	return 12 + int(length)*8, nil
 }
 
 func (c *Deserializer2) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {

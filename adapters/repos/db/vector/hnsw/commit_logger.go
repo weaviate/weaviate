@@ -211,6 +211,30 @@ const (
 	ResetIndex
 )
 
+func (t HnswCommitType) String() string {
+	switch t {
+	case AddNode:
+		return "AddNode"
+	case SetEntryPointMaxLevel:
+		return "SetEntryPointWithMaxLayer"
+	case AddLinkAtLevel:
+		return "AddLinkAtLevel"
+	case ReplaceLinksAtLevel:
+		return "ReplaceLinksAtLevel"
+	case AddTombstone:
+		return "AddTombstone"
+	case RemoveTombstone:
+		return "RemoveTombstone"
+	case ClearLinks:
+		return "ClearLinks"
+	case DeleteNode:
+		return "DeleteNode"
+	case ResetIndex:
+		return "ResetIndex"
+	}
+	return "unknown commit type"
+}
+
 // AddNode adds an empty node
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
