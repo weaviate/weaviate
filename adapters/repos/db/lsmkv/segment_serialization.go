@@ -145,6 +145,21 @@ func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
 	currentOffset := uint64(s.keys[len(s.keys)-1].valueEnd)
 	var written int64
 
+	if _, err := os.Stat(s.scratchSpacePath); err == nil {
+		// exists, we need to delete
+		// This could be the case if Weaviate shut down unexpectedly (i.e. crashed)
+		// while a compaction was running. We can safely discard the contents of
+		// the scratch space.
+
+		if err := os.RemoveAll(s.scratchSpacePath); err != nil {
+			return written, errors.Wrap(err, "clean up previous scratch space")
+		}
+	} else if os.IsNotExist(err) {
+		// does not exist yet, nothing to - will be created in the next step
+	} else {
+		return written, errors.Wrap(err, "check for scratch space directory")
+	}
+
 	if err := os.Mkdir(s.scratchSpacePath, 0o777); err != nil {
 		return written, errors.Wrap(err, "create scratch space")
 	}
