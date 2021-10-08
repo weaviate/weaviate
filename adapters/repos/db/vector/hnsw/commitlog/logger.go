@@ -38,6 +38,7 @@ const (
 	DeleteNode
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1705
 )
 
 func NewLogger(fileName string) *Logger {
@@ -77,6 +78,21 @@ func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 	binary.LittleEndian.PutUint64(toWrite[11:19], target)
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
+	toWrite := make([]byte, 13+len(targets)*8)
+	toWrite[0] = byte(AddLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], id)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
+	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(len(targets)))
+	for i, target := range targets {
+		offsetStart := 13 + i*8
+		offsetEnd := offsetStart + 8
+		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
+	}
 	_, err := l.bufw.Write(toWrite)
 	return err
 }

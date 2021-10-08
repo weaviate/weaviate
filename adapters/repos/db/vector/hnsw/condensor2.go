@@ -72,11 +72,9 @@ func (c *MemoryCondensor2) Do(fileName string) error {
 						"write links for node %d at level %dto commit log", node.id, level)
 				}
 			} else {
-				for _, link := range links {
-					if err := c.AddLinkAtLevel(node.id, uint16(level), link); err != nil {
-						return errors.Wrapf(err,
-							"write links for node %d at level %dto commit log", node.id, level)
-					}
+				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %dto commit log", node.id, level)
 				}
 			}
 		}
@@ -184,6 +182,21 @@ func (c *MemoryCondensor2) SetLinksAtLevel(nodeid uint64, level int, targets []u
 	ec.add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
 
 	return ec.toError()
+}
+
+func (c *MemoryCondensor2) AddLinksAtLevel(nodeid uint64, level uint16, targets []uint64) error {
+	toWrite := make([]byte, 13+len(targets)*8)
+	toWrite[0] = byte(AddLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
+	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(len(targets)))
+	for i, target := range targets {
+		offsetStart := 13 + i*8
+		offsetEnd := offsetStart + 8
+		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
+	}
+	_, err := c.newLog.Write(toWrite)
+	return err
 }
 
 func (c *MemoryCondensor2) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {

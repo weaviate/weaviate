@@ -89,6 +89,8 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 		case AddLinkAtLevel:
 			err = c.ReadLink(fd, out)
 			readThisRound = 18
+		case AddLinksAtLevel:
+			readThisRound, err = c.ReadAddLinks(fd, out)
 		case ReplaceLinksAtLevel:
 			readThisRound, err = c.ReadLinks(fd, out, keepLinkReplaceInformation)
 		case AddTombstone:
@@ -245,6 +247,46 @@ func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult,
 
 		res.LinksReplaced[source][level] = struct{}{}
 	}
+
+	return 12 + int(length)*8, nil
+}
+
+func (c *Deserializer2) ReadAddLinks(r io.Reader,
+	res *DeserializationResult) (int, error) {
+	source, err := c.readUint64(r)
+	if err != nil {
+		return 0, err
+	}
+
+	level, err := c.readUint16(r)
+	if err != nil {
+		return 0, err
+	}
+
+	length, err := c.readUint16(r)
+	if err != nil {
+		return 0, err
+	}
+
+	targets, err := c.readUint64Slice(r, int(length))
+	if err != nil {
+		return 0, err
+	}
+
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	if err != nil {
+		return 0, err
+	}
+
+	if changed {
+		res.Nodes = newNodes
+	}
+
+	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
+	}
+	res.Nodes[int(source)].connections[int(level)] = append(
+		res.Nodes[int(source)].connections[int(level)], targets...)
 
 	return 12 + int(length)*8, nil
 }
