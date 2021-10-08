@@ -51,6 +51,10 @@ func (n *NoopCommitLogger) ClearLinks(nodeid uint64) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) Reset() error {
 	return nil
 }
