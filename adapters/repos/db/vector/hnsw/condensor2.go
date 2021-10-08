@@ -35,7 +35,7 @@ func (c *MemoryCondensor2) Do(fileName string) error {
 	}
 	fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-	res, _, err := NewDeserializer2(c.logger).Do(fdBuf, nil)
+	res, _, err := NewDeserializer2(c.logger).Do(fdBuf, nil, true)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
@@ -56,14 +56,28 @@ func (c *MemoryCondensor2) Do(fileName string) error {
 			continue
 		}
 
-		if err := c.AddNode(node); err != nil {
-			return errors.Wrapf(err, "write node %d to commit log", node.id)
+		if node.level > 0 {
+			// nodes are implicitly added when they are first linked, if the level is
+			// not zero we know this node was new. If the level is zero it doesn't
+			// matter if it gets added explicitly or implicitly
+			if err := c.AddNode(node); err != nil {
+				return errors.Wrapf(err, "write node %d to commit log", node.id)
+			}
 		}
 
 		for level, links := range node.connections {
-			if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
-				return errors.Wrapf(err,
-					"write links for node %d at level %dto commit log", node.id, level)
+			if res.ReplaceLinks(node.id, uint16(level)) {
+				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %dto commit log", node.id, level)
+				}
+			} else {
+				for _, link := range links {
+					if err := c.AddLinkAtLevel(node.id, uint16(level), link); err != nil {
+						return errors.Wrapf(err,
+							"write links for node %d at level %dto commit log", node.id, level)
+					}
+				}
 			}
 		}
 	}
@@ -168,6 +182,16 @@ func (c *MemoryCondensor2) SetLinksAtLevel(nodeid uint64, level int, targets []u
 	}
 	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
 	ec.add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
+
+	return ec.toError()
+}
+
+func (c *MemoryCondensor2) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
+	ec := &errorCompounder{}
+	ec.add(c.writeCommitType(c.newLog, AddLinkAtLevel))
+	ec.add(c.writeUint64(c.newLog, nodeid))
+	ec.add(c.writeUint16(c.newLog, uint16(level)))
+	ec.add(c.writeUint64(c.newLog, target))
 
 	return ec.toError()
 }
