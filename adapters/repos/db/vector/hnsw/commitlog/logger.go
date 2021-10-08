@@ -23,8 +23,10 @@ type Logger struct {
 	bufw *bufWriter
 }
 
+// TODO: these are duplicates with the hnsw package, unify them
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
 
+// TODO: these are duplicates with the hnsw package, unify them
 const (
 	AddNode HnswCommitType = iota
 	SetEntryPointMaxLevel
@@ -35,6 +37,7 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
 )
 
 func NewLogger(fileName string) *Logger {
@@ -145,6 +148,15 @@ func (l *Logger) ClearLinks(id uint64) error {
 	toWrite := make([]byte, 9)
 	toWrite[0] = byte(ClearLinks)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(ClearLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], id)
+	binary.LittleEndian.PutUint16(toWrite[9:11], level)
 	_, err := l.bufw.Write(toWrite)
 	return err
 }

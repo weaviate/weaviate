@@ -247,6 +247,7 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
 )
 
 func (t HnswCommitType) String() string {
@@ -269,6 +270,8 @@ func (t HnswCommitType) String() string {
 		return "DeleteNode"
 	case ResetIndex:
 		return "ResetIndex"
+	case ClearLinksAtLevel:
+		return "ClearLinksAtLevel"
 	}
 	return "unknown commit type"
 }
@@ -322,6 +325,13 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	defer l.Unlock()
 
 	return l.commitLogger.ClearLinks(nodeid)
+}
+
+func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.ClearLinksAtLevel(nodeid, level)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {

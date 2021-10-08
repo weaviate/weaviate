@@ -85,6 +85,9 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 		case ClearLinks:
 			err = c.ReadClearLinks(fd, out)
 			readThisRound = 8
+		case ClearLinksAtLevel:
+			err = c.ReadClearLinksAtLevel(fd, out)
+			readThisRound = 10
 		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
 			readThisRound = 8
@@ -257,6 +260,36 @@ func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult) 
 	}
 
 	res.Nodes[id].connections = map[int][]uint64{}
+	return nil
+}
+
+func (c *Deserializer2) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult) error {
+	id, err := c.readUint64(r)
+	if err != nil {
+		return err
+	}
+
+	level, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(res.Nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	if res.Nodes[id] == nil {
+		// node has been deleted or never existed, nothing to do
+		return nil
+	}
+
+	if res.Nodes[id].connections == nil {
+		res.Nodes[id].connections = map[int][]uint64{}
+	} else {
+		res.Nodes[id].connections[int(level)] = []uint64{}
+	}
+
 	return nil
 }
 
