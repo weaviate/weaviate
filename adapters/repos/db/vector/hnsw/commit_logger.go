@@ -248,6 +248,7 @@ const (
 	DeleteNode
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1705
 )
 
 func (t HnswCommitType) String() string {
@@ -258,6 +259,8 @@ func (t HnswCommitType) String() string {
 		return "SetEntryPointWithMaxLayer"
 	case AddLinkAtLevel:
 		return "AddLinkAtLevel"
+	case AddLinksAtLevel:
+		return "AddLinksAtLevel"
 	case ReplaceLinksAtLevel:
 		return "ReplaceLinksAtLevel"
 	case AddTombstone:
