@@ -220,9 +220,6 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 		assert.True(t, strings.HasSuffix(condensed2, ".condensed"),
 			"commit log is now saved as condensed")
 
-		fmt.Printf("%s %s %s\n", condensed1, condensed2, control)
-		t.Fail()
-
 		assertIndicesFromCommitLogsMatch(t, commitLogFileName(rootPath, "control", control),
 			[]string{
 				commitLogFileName(rootPath, "uncondensed1", condensed1),
