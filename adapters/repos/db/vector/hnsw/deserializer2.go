@@ -24,26 +24,41 @@ type Deserializer2 struct {
 	logger logrus.FieldLogger
 }
 
-func NewDeserializer2(logger logrus.FieldLogger) *Deserializer2 {
-	return &Deserializer2{logger: logger}
-}
-
-type DeserializationResult2 struct {
+type DeserializationResult struct {
 	Nodes             []*vertex
 	Entrypoint        uint64
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
+
+	// If there is no entry for the links at a level to be replaced, we must
+	// assume that all links were appended and prior stat must exist
+	LinksReplaced map[uint64]map[uint16]struct{}
+}
+
+func (dr DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
+	levels, ok := dr.LinksReplaced[node]
+	if !ok {
+		return false
+	}
+
+	_, ok = levels[level]
+	return ok
+}
+
+func NewDeserializer2(logger logrus.FieldLogger) *Deserializer2 {
+	return &Deserializer2{logger: logger}
 }
 
 func (c *Deserializer2) Do(fd *bufio.Reader,
-	initialState *DeserializationResult) (*DeserializationResult, int, error) {
+	initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, int, error) {
 	validLength := 0
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:      make([]*vertex, initialSize),
-			Tombstones: make(map[uint64]struct{}),
+			Nodes:         make([]*vertex, initialSize),
+			Tombstones:    make(map[uint64]struct{}),
+			LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		}
 	}
 
@@ -75,7 +90,7 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 			err = c.ReadLink(fd, out)
 			readThisRound = 18
 		case ReplaceLinksAtLevel:
-			readThisRound, err = c.ReadLinks(fd, out)
+			readThisRound, err = c.ReadLinks(fd, out, keepLinkReplaceInformation)
 		case AddTombstone:
 			err = c.ReadAddTombstone(fd, out.Tombstones)
 			readThisRound = 8
@@ -184,7 +199,8 @@ func (c *Deserializer2) ReadLink(r io.Reader, res *DeserializationResult) error 
 	return nil
 }
 
-func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) (int, error) {
+func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool) (int, error) {
 	source, err := c.readUint64(r)
 	if err != nil {
 		return 0, err
@@ -218,6 +234,18 @@ func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) (int,
 		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
 	}
 	res.Nodes[int(source)].connections[int(level)] = targets
+
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[source]; !ok {
+			res.LinksReplaced[source] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[source][level] = struct{}{}
+	}
+
 	return 12 + int(length)*8, nil
 }
 

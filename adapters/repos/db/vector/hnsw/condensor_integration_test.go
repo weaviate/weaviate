@@ -180,7 +180,7 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 
 	t.Run("create a control log", func(t *testing.T) {
 		control.AddNode(&vertex{id: 0, level: 0})
-		control.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3, 5, 6})
+		control.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3, 4, 5, 6})
 
 		require.Nil(t, control.Flush())
 	})
@@ -317,7 +317,7 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 
 		bufr := bufio.NewReader(fd)
 		logger, _ := test.NewNullLogger()
-		res, _, err = NewDeserializer2(logger).Do(bufr, res)
+		res, _, err = NewDeserializer2(logger).Do(bufr, res, false)
 		require.Nil(t, err)
 	}
 
