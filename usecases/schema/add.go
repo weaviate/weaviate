@@ -135,6 +135,11 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 			return err
 		}
 
+		err = m.validateReservedPropertyName(property.Name)
+		if err != nil {
+			return err
+		}
+
 		if foundNames[property.Name] {
 			return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
 		}
