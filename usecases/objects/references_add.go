@@ -87,6 +87,11 @@ func (m *Manager) validateCanModifyReference(principal *models.Principal,
 		return NewErrInvalidUserInput("invalid class name in reference: %v", err)
 	}
 
+	err = schema.ValidateReservedPropertyName(propertyName)
+	if err != nil {
+		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
+	}
+
 	propName, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
