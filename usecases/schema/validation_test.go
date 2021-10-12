@@ -184,21 +184,54 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	// all inputs represent property names (!)
 	tests := []testCase{
 		// valid names
-		testCase{
+		{
 			name:     "Single uppercase word, stored as lowercase",
 			input:    "Brand",
 			valid:    true,
 			storedAs: "brand",
 		},
-		testCase{
+		{
 			name:     "Single lowercase word",
 			input:    "brand",
 			valid:    true,
 			storedAs: "brand",
 		},
-		testCase{
+		{
+			name:     "Property with underscores",
+			input:    "property_name",
+			valid:    true,
+			storedAs: "property_name",
+		},
+		{
+			name:     "Property with underscores and numbers",
+			input:    "property_name_2",
+			valid:    true,
+			storedAs: "property_name_2",
+		},
+		{
+			name:     "Property starting with underscores",
+			input:    "_property_name",
+			valid:    true,
+			storedAs: "_property_name",
+		},
+		{
 			name:  "empty prop name",
 			input: "",
+			valid: false,
+		},
+		{
+			name:  "reserved prop name: id",
+			input: "id",
+			valid: false,
+		},
+		{
+			name:  "reserved prop name: _id",
+			input: "_id",
+			valid: false,
+		},
+		{
+			name:  "reserved prop name: _additional",
+			input: "_additional",
 			valid: false,
 		},
 	}
@@ -271,7 +304,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Vectorizer: "text2vec-contextionary",
 						Class:      "ValidName",
 						Properties: []*models.Property{
-							&models.Property{
+							{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
 								DataType: []string{"string"},
 							},

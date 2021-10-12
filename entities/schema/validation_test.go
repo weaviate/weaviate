@@ -112,19 +112,44 @@ func TestFailValidateBadPropertyName(t *testing.T) {
 	if err == nil {
 		t.Fail()
 	}
+}
 
-	_, err = ValidatePropertyName("_additional")
-	if err == nil {
-		t.Fail()
+func TestValidateReservedPropertyName(t *testing.T) {
+	type args struct {
+		name string
 	}
-
-	_, err = ValidatePropertyName("_id")
-	if err == nil {
-		t.Fail()
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "Reserved name: _additional",
+			args: args{
+				name: "_additional",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Reserved name: id",
+			args: args{
+				name: "id",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Reserved name: _id",
+			args: args{
+				name: "_id",
+			},
+			wantErr: true,
+		},
 	}
-
-	_, err = ValidatePropertyName("id")
-	if err == nil {
-		t.Fail()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateReservedPropertyName(tt.args.name); (err != nil) != tt.wantErr {
+				t.Errorf("ValidateReservedPropertyName() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
