@@ -222,7 +222,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		}
 
 		neighbor.resetConnectionsAtLevelNoLock(level)
-		if err := n.graph.commitLog.ClearLinks(neighbor.id); err != nil {
+		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
 			return err
 		}
 

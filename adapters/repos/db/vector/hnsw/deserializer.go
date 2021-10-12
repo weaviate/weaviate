@@ -28,21 +28,14 @@ func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
 	return &Deserializer{logger: logger}
 }
 
-type DeserializationResult struct {
-	Nodes             []*vertex
-	Entrypoint        uint64
-	Level             uint16
-	Tombstones        map[uint64]struct{}
-	EntrypointChanged bool
-}
-
 func (c *Deserializer) Do(fd *bufio.Reader,
 	initialState *DeserializationResult) (*DeserializationResult, error) {
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:      make([]*vertex, initialSize),
-			Tombstones: make(map[uint64]struct{}),
+			Nodes:         make([]*vertex, initialSize),
+			Tombstones:    make(map[uint64]struct{}),
+			LinksReplaced: map[uint64]map[uint16]struct{}{},
 		}
 	}
 

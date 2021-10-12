@@ -143,6 +143,91 @@ func TestCondensor(t *testing.T) {
 	})
 }
 
+func TestCondensorAppendNodeLinks(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(rootPath, 0o777)
+	defer func() {
+		err := os.RemoveAll(rootPath)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	require.Nil(t, err)
+
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	require.Nil(t, err)
+
+	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	require.Nil(t, err)
+
+	t.Run("add data to the first log", func(t *testing.T) {
+		uncondensed1.AddLinkAtLevel(0, 0, 1)
+		uncondensed1.AddLinkAtLevel(0, 0, 2)
+		uncondensed1.AddLinkAtLevel(0, 0, 3)
+
+		require.Nil(t, uncondensed1.Flush())
+	})
+
+	t.Run("append data to the second log", func(t *testing.T) {
+		uncondensed2.AddLinkAtLevel(0, 0, 4)
+		uncondensed2.AddLinkAtLevel(0, 0, 5)
+		uncondensed2.AddLinkAtLevel(0, 0, 6)
+
+		require.Nil(t, uncondensed2.Flush())
+	})
+
+	t.Run("create a control log", func(t *testing.T) {
+		control.AddNode(&vertex{id: 0, level: 0})
+		control.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3, 4, 5, 6})
+
+		require.Nil(t, control.Flush())
+	})
+
+	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		require.Nil(t, err)
+
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		require.Nil(t, err)
+
+		control, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "control"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed1, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed2, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(condensed1, ".condensed"),
+			"commit log is now saved as condensed")
+		assert.True(t, strings.HasSuffix(condensed2, ".condensed"),
+			"commit log is now saved as condensed")
+
+		assertIndicesFromCommitLogsMatch(t, commitLogFileName(rootPath, "control", control),
+			[]string{
+				commitLogFileName(rootPath, "uncondensed1", condensed1),
+				commitLogFileName(rootPath, "uncondensed2", condensed2),
+			})
+	})
+}
+
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
@@ -193,7 +278,6 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
-
 	})
 }
 
@@ -214,4 +298,50 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	}
 
 	dumpIndex(index)
+}
+
+func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
+	fileNames []string) {
+	control := readFromCommitLogs(t, fileNameControl)
+	actual := readFromCommitLogs(t, fileNames...)
+
+	assert.Equal(t, control, actual)
+}
+
+func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
+	var res *DeserializationResult
+
+	for _, fileName := range fileNames {
+		fd, err := os.Open(fileName)
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		logger, _ := test.NewNullLogger()
+		res, _, err = NewDeserializer2(logger).Do(bufr, res, false)
+		require.Nil(t, err)
+	}
+
+	return &hnsw{
+		nodes:               removeTrailingNilNodes(res.Nodes),
+		currentMaximumLayer: int(res.Level),
+		entryPointID:        res.Entrypoint,
+		tombstones:          res.Tombstones,
+	}
+}
+
+// just a test helper to make the output easier to compare, remove all trailing
+// nil nodes by starting from the last and stopping as soon as a node is not
+// nil
+func removeTrailingNilNodes(in []*vertex) []*vertex {
+	pos := len(in) - 1
+
+	for pos >= 0 {
+		if in[pos] != nil {
+			break
+		}
+
+		pos--
+	}
+
+	return in[:pos+1]
 }
