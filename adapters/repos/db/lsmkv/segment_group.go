@@ -145,9 +145,11 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
 
+	before := time.Now()
 	var out []value
 
 	// start with first and do not exit
+	fmt.Printf("have %d segments\n", len(ig.segments))
 	for _, segment := range ig.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
@@ -158,8 +160,14 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 			return nil, err
 		}
 
-		out = append(out, v...)
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
 	}
+
+	fmt.Printf("segment group get collection took %s\n", time.Since(before))
 
 	return out, nil
 }
