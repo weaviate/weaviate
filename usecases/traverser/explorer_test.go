@@ -1866,6 +1866,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		explorer := NewExplorer(searcher, newFakeDistancer(), log, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder))
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+		expectedParamsToSearch.AdditionalProperties.Vector = true // any custom additional params will trigger vector
 		searcher.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1883,6 +1884,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
+						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								&SemanticPathElement{
@@ -1907,6 +1909,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
+						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								&SemanticPathElement{

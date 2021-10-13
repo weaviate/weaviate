@@ -36,6 +36,13 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 					}
 
 					schema[propName] = parsed
+				case bool:
+					parsed, err := parseBoolArrayValue(typed)
+					if err != nil {
+						return errors.Wrapf(err, "property %q of type boolean array", propName)
+					}
+
+					schema[propName] = parsed
 				default:
 					parsed, err := parseStringArrayValue(typed)
 					if err != nil {
@@ -221,6 +228,18 @@ func parseNumberArrayValue(value []interface{}) ([]float64, error) {
 			return nil, fmt.Errorf("number array: expected element %d to be float - got %T", i, value[i])
 		}
 		parsed[i] = asFloat
+	}
+	return parsed, nil
+}
+
+func parseBoolArrayValue(value []interface{}) ([]bool, error) {
+	parsed := make([]bool, len(value))
+	for i := range value {
+		asBool, ok := value[i].(bool)
+		if !ok {
+			return nil, fmt.Errorf("boolean array: expected element %d to be bool - got %T", i, value[i])
+		}
+		parsed[i] = asBool
 	}
 	return parsed, nil
 }

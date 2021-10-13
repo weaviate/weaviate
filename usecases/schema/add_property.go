@@ -90,6 +90,12 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return err
 	}
 
+	// Verify that property name is not a reserved name
+	err = schema.ValidateReservedPropertyName(property.Name)
+	if err != nil {
+		return err
+	}
+
 	// First check if there is a name clash.
 	err = validatePropertyNameUniqueness(property.Name, class)
 	if err != nil {

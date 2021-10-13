@@ -37,7 +37,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-	res, err := NewDeserializer(c.logger).Do(fdBuf, nil)
+	res, _, err := NewDeserializer2(c.logger).Do(fdBuf, nil, false)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}

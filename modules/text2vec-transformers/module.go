@@ -21,6 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional"
+	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional/projector"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -31,12 +33,13 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer          textVectorizer
-	metaProvider        metaProvider
-	graphqlProvider     modulecapabilities.GraphQLArguments
-	searcher            modulecapabilities.Searcher
-	nearTextTransformer modulecapabilities.TextTransform
-	logger              logrus.FieldLogger
+	vectorizer                   textVectorizer
+	metaProvider                 metaProvider
+	graphqlProvider              modulecapabilities.GraphQLArguments
+	searcher                     modulecapabilities.Searcher
+	nearTextTransformer          modulecapabilities.TextTransform
+	logger                       logrus.FieldLogger
+	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
 type textVectorizer interface {
@@ -66,6 +69,10 @@ func (m *TransformersModule) Init(ctx context.Context,
 
 	if err := m.initVectorizer(ctx, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
+	}
+
+	if err := m.initAdditionalPropertiesProvider(); err != nil {
+		return errors.Wrap(err, "init additional properties provider")
 	}
 
 	return nil
@@ -108,6 +115,12 @@ func (m *TransformersModule) initVectorizer(ctx context.Context,
 	return nil
 }
 
+func (m *TransformersModule) initAdditionalPropertiesProvider() error {
+	projector := projector.New()
+	m.additionalPropertiesProvider = additional.New(projector)
+	return nil
+}
+
 func (m *TransformersModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
@@ -121,6 +134,10 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 
 func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
+}
+
+func (m *TransformersModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
 // verify we implement the modules.Module interface

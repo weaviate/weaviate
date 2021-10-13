@@ -109,6 +109,7 @@ type CommitLogger interface {
 	RemoveTombstone(nodeid uint64) error
 	DeleteNode(nodeid uint64) error
 	ClearLinks(nodeid uint64) error
+	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
 	Drop() error
 	Flush() error
