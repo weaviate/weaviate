@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,7 +48,8 @@ func NewCommitLogger(rootPath, name string,
 		maintainenceInterval: maintainenceInterval,
 		condensor:            NewMemoryCondensor2(logger),
 		logger:               logger,
-		maxSize:              maxUncondensedCommitLogSize, // TODO: make configurable
+		maxSizeIndividual:    maxUncondensedCommitLogSize / 5, // TODO: make configurable
+		maxSizeCombining:     maxUncondensedCommitLogSize,     // TODO: make configurable
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -99,6 +101,12 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
+	files = removeTmpScratchFiles(files)
+	files, err = removeTmpCombiningFiles(dir, files)
+	if err != nil {
+		return nil, errors.Wrap(err, "remove temporary files")
+	}
+
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -141,6 +149,10 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 	}
 
 	files = removeTmpScratchFiles(files)
+	files, err = removeTmpCombiningFiles(dirPath, files)
+	if err != nil {
+		return "", false, errors.Wrap(err, "clean up tmp combining files")
+	}
 
 	ec := &errorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
@@ -177,6 +189,31 @@ func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
 	return out[:i]
 }
 
+func removeTmpCombiningFiles(dirPath string,
+	in []fs.FileInfo) ([]fs.FileInfo, error) {
+	out := make([]fs.FileInfo, len(in))
+	i := 0
+	for _, info := range in {
+		if strings.HasSuffix(info.Name(), ".combined.tmp") {
+			// a temporary combining file was found which means that the combining
+			// process never completed, this file is thus considered corrupt (too
+			// short) and must be deleted. The original sources still exist (because
+			// the only get deleted after the .tmp file is removed), so it's safe to
+			// delete this without data loss.
+
+			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
+				return out, errors.Wrap(err, "remove tmp combining file")
+			}
+			continue
+		}
+
+		out[i] = info
+		i++
+	}
+
+	return out[:i], nil
+}
+
 func asTimeStamp(in string) (int64, error) {
 	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
 }
@@ -193,7 +230,8 @@ type hnswCommitLogger struct {
 	condensor            condensor
 	maintainenceInterval time.Duration
 	logger               logrus.FieldLogger
-	maxSize              int64
+	maxSizeIndividual    int64
+	maxSizeCombining     int64
 	commitLogger         *commitlog.Logger
 }
 
@@ -209,7 +247,37 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1705
 )
+
+func (t HnswCommitType) String() string {
+	switch t {
+	case AddNode:
+		return "AddNode"
+	case SetEntryPointMaxLevel:
+		return "SetEntryPointWithMaxLayer"
+	case AddLinkAtLevel:
+		return "AddLinkAtLevel"
+	case AddLinksAtLevel:
+		return "AddLinksAtLevel"
+	case ReplaceLinksAtLevel:
+		return "ReplaceLinksAtLevel"
+	case AddTombstone:
+		return "AddTombstone"
+	case RemoveTombstone:
+		return "RemoveTombstone"
+	case ClearLinks:
+		return "ClearLinks"
+	case DeleteNode:
+		return "DeleteNode"
+	case ResetIndex:
+		return "ResetIndex"
+	case ClearLinksAtLevel:
+		return "ClearLinksAtLevel"
+	}
+	return "unknown commit type"
+}
 
 // AddNode adds an empty node
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
@@ -260,6 +328,13 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	defer l.Unlock()
 
 	return l.commitLogger.ClearLinks(nodeid)
+}
+
+func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.ClearLinksAtLevel(nodeid, level)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
@@ -360,7 +435,7 @@ func (l *hnswCommitLogger) maintenance() error {
 		return err
 	}
 
-	if size <= l.maxSize {
+	if size <= l.maxSizeIndividual {
 		return nil
 	}
 
@@ -427,7 +502,7 @@ func (l *hnswCommitLogger) combineLogs() error {
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
-	threshold := int64(float64(l.maxSize) * 1.75)
+	threshold := int64(float64(l.maxSizeCombining) * 1.75)
 	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
 }
 

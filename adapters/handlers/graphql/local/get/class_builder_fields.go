@@ -114,6 +114,18 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.NewList(graphql.Float),
 		}
+	case schema.DataTypeBooleanArray:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.NewList(graphql.Boolean),
+		}
+	case schema.DataTypeDateArray:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.NewList(graphql.String), // String since no graphql date datatype exists
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
 			className, property.Name, propertyType.AsPrimitive()))

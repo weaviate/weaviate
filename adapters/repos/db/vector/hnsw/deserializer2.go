@@ -24,25 +24,41 @@ type Deserializer2 struct {
 	logger logrus.FieldLogger
 }
 
-func NewDeserializer2(logger logrus.FieldLogger) *Deserializer2 {
-	return &Deserializer2{logger: logger}
-}
-
-type DeserializationResult2 struct {
+type DeserializationResult struct {
 	Nodes             []*vertex
 	Entrypoint        uint64
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
+
+	// If there is no entry for the links at a level to be replaced, we must
+	// assume that all links were appended and prior stat must exist
+	LinksReplaced map[uint64]map[uint16]struct{}
+}
+
+func (dr DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
+	levels, ok := dr.LinksReplaced[node]
+	if !ok {
+		return false
+	}
+
+	_, ok = levels[level]
+	return ok
+}
+
+func NewDeserializer2(logger logrus.FieldLogger) *Deserializer2 {
+	return &Deserializer2{logger: logger}
 }
 
 func (c *Deserializer2) Do(fd *bufio.Reader,
-	initialState *DeserializationResult) (*DeserializationResult, error) {
+	initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, int, error) {
+	validLength := 0
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:      make([]*vertex, initialSize),
-			Tombstones: make(map[uint64]struct{}),
+			Nodes:         make([]*vertex, initialSize),
+			Tombstones:    make(map[uint64]struct{}),
+			LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		}
 	}
 
@@ -53,12 +69,15 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 				break
 			}
 
-			return nil, err
+			return nil, validLength, err
 		}
+
+		var readThisRound int
 
 		switch ct {
 		case AddNode:
 			err = c.ReadNode(fd, out)
+			readThisRound = 10
 		case SetEntryPointMaxLevel:
 			var entrypoint uint64
 			var level uint16
@@ -66,18 +85,29 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 			out.Entrypoint = entrypoint
 			out.Level = level
 			out.EntrypointChanged = true
+			readThisRound = 10
 		case AddLinkAtLevel:
 			err = c.ReadLink(fd, out)
+			readThisRound = 18
+		case AddLinksAtLevel:
+			readThisRound, err = c.ReadAddLinks(fd, out)
 		case ReplaceLinksAtLevel:
-			err = c.ReadLinks(fd, out)
+			readThisRound, err = c.ReadLinks(fd, out, keepLinkReplaceInformation)
 		case AddTombstone:
 			err = c.ReadAddTombstone(fd, out.Tombstones)
+			readThisRound = 8
 		case RemoveTombstone:
 			err = c.ReadRemoveTombstone(fd, out.Tombstones)
+			readThisRound = 8
 		case ClearLinks:
 			err = c.ReadClearLinks(fd, out)
+			readThisRound = 8
+		case ClearLinksAtLevel:
+			err = c.ReadClearLinksAtLevel(fd, out)
+			readThisRound = 10
 		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
+			readThisRound = 8
 		case ResetIndex:
 			out.Entrypoint = 0
 			out.Level = 0
@@ -87,11 +117,13 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 		}
 		if err != nil {
 			// do not return nil, err, because the err could be a recoverable one
-			return out, err
+			return out, validLength, err
+		} else {
+			validLength += 1 + readThisRound // 1 byte for commit type
 		}
 	}
 
-	return out, nil
+	return out, validLength, nil
 }
 
 func (c *Deserializer2) ReadNode(r io.Reader, res *DeserializationResult) error {
@@ -169,30 +201,31 @@ func (c *Deserializer2) ReadLink(r io.Reader, res *DeserializationResult) error 
 	return nil
 }
 
-func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool) (int, error) {
 	source, err := c.readUint64(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	level, err := c.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	length, err := c.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	targets, err := c.readUint64Slice(r, int(length))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if changed {
@@ -203,7 +236,59 @@ func (c *Deserializer2) ReadLinks(r io.Reader, res *DeserializationResult) error
 		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
 	}
 	res.Nodes[int(source)].connections[int(level)] = targets
-	return nil
+
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[source]; !ok {
+			res.LinksReplaced[source] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[source][level] = struct{}{}
+	}
+
+	return 12 + int(length)*8, nil
+}
+
+func (c *Deserializer2) ReadAddLinks(r io.Reader,
+	res *DeserializationResult) (int, error) {
+	source, err := c.readUint64(r)
+	if err != nil {
+		return 0, err
+	}
+
+	level, err := c.readUint16(r)
+	if err != nil {
+		return 0, err
+	}
+
+	length, err := c.readUint16(r)
+	if err != nil {
+		return 0, err
+	}
+
+	targets, err := c.readUint64Slice(r, int(length))
+	if err != nil {
+		return 0, err
+	}
+
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
+	if err != nil {
+		return 0, err
+	}
+
+	if changed {
+		res.Nodes = newNodes
+	}
+
+	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
+	}
+	res.Nodes[int(source)].connections[int(level)] = append(
+		res.Nodes[int(source)].connections[int(level)], targets...)
+
+	return 12 + int(length)*8, nil
 }
 
 func (c *Deserializer2) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
@@ -245,6 +330,36 @@ func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult) 
 	}
 
 	res.Nodes[id].connections = map[int][]uint64{}
+	return nil
+}
+
+func (c *Deserializer2) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult) error {
+	id, err := c.readUint64(r)
+	if err != nil {
+		return err
+	}
+
+	level, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(res.Nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	if res.Nodes[id] == nil {
+		// node has been deleted or never existed, nothing to do
+		return nil
+	}
+
+	if res.Nodes[id].connections == nil {
+		res.Nodes[id].connections = map[int][]uint64{}
+	} else {
+		res.Nodes[id].connections[int(level)] = []uint64{}
+	}
+
 	return nil
 }
 

@@ -66,9 +66,12 @@ func (h *hnsw) restoreFromDisk() error {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
+		defer fd.Close()
+
 		fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-		state, err = NewDeserializer2(h.logger).Do(fdBuf, state)
+		var valid int
+		state, valid, err = NewDeserializer2(h.logger).Do(fdBuf, state, false)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where
@@ -80,6 +83,11 @@ func (h *hnsw) restoreFromDisk() error {
 				h.logger.WithField("action", "hnsw_load_commit_log_corruption").
 					WithField("path", fileName).
 					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
+
+				// we need to truncate the file to its valid length!
+				if err := os.Truncate(fileName, int64(valid)); err != nil {
+					return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
+				}
 			} else {
 				// only return an actual error on non-EOF errors, otherwise we'll end
 				// up in a startup crashloop

@@ -36,6 +36,8 @@ func Test_Config(t *testing.T) {
 				VirtualPerPhysical:  DefaultVirtualPerPhysical,
 				DesiredCount:        7, // cluster size
 				DesiredVirtualCount: DefaultVirtualPerPhysical * 7,
+				ActualCount:         7, // cluster size
+				ActualVirtualCount:  DefaultVirtualPerPhysical * 7,
 				Key:                 DefaultKey,
 				Strategy:            DefaultStrategy,
 				Function:            DefaultFunction,
@@ -56,6 +58,8 @@ func Test_Config(t *testing.T) {
 				VirtualPerPhysical:  64,
 				DesiredCount:        3,
 				DesiredVirtualCount: 192,
+				ActualCount:         3,
+				ActualVirtualCount:  192,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",
@@ -76,6 +80,8 @@ func Test_Config(t *testing.T) {
 				VirtualPerPhysical:  64,
 				DesiredCount:        3,
 				DesiredVirtualCount: 192,
+				ActualCount:         3,
+				ActualVirtualCount:  192,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",

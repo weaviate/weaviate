@@ -10,9 +10,9 @@ require (
 	github.com/fatih/camelcase v1.0.0
 	github.com/go-openapi/errors v0.20.1
 	github.com/go-openapi/loads v0.19.5
-	github.com/go-openapi/runtime v0.19.31
+	github.com/go-openapi/runtime v0.20.0
 	github.com/go-openapi/spec v0.19.8
-	github.com/go-openapi/strfmt v0.20.2
+	github.com/go-openapi/strfmt v0.20.3
 	github.com/go-openapi/swag v0.19.15
 	github.com/go-openapi/validate v0.19.10
 	github.com/go-stack/stack v1.8.1 // indirect
@@ -35,11 +35,11 @@ require (
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
-	go.mongodb.org/mongo-driver v1.7.2 // indirect
-	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
+	go.mongodb.org/mongo-driver v1.7.3 // indirect
+	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210510120138-977fb7262007
-	golang.org/x/tools v0.1.5 // indirect
+	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e
+	golang.org/x/tools v0.1.7 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect

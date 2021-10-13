@@ -20,12 +20,14 @@ var (
 	validateClassNameRegex    *regexp.Regexp
 	validatePropertyNameRegex *regexp.Regexp
 	validateNetworkClassRegex *regexp.Regexp
+	reservedPropertyNames     []string
 )
 
 func init() {
 	validateClassNameRegex = regexp.MustCompile(`^([A-Z][a-z]+)+$`)
-	validatePropertyNameRegex = regexp.MustCompile(`^[a-z]+([A-Z][a-z]+)*$`)
+	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
+	reservedPropertyNames = []string{"_additional", "_id", "id"}
 }
 
 // ValidateClassName validates that this string is a valid class name (formate
@@ -42,8 +44,19 @@ func ValidatePropertyName(name string) (PropertyName, error) {
 	if validatePropertyNameRegex.MatchString(name) {
 		return PropertyName(name), nil
 	}
+	return "", fmt.Errorf("'%s' is not a valid property name. "+
+		"Property names in Weaviate are restricted to valid GraphQL names, "+
+		"which must be “/[_A-Za-z][_0-9A-Za-z]*/”.", name)
+}
 
-	return "", fmt.Errorf("'%s' is not a valid property name", name)
+// ValidateReservedPropertyName validates that a string is not a reserved property name
+func ValidateReservedPropertyName(name string) error {
+	for i := range reservedPropertyNames {
+		if name == reservedPropertyNames[i] {
+			return fmt.Errorf("'%s' is a reserved property name", name)
+		}
+	}
+	return nil
 }
 
 // ValidNetworkClassName verifies if the specified class is a valid

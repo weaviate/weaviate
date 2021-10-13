@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 // +build integrationTest
 
 package clusterintegrationtest
@@ -23,7 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -563,10 +574,11 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 		obj      *models.Object
 	}
 
+	distProv := distancer.NewDotProductProvider()
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {
-		dist := 1 - asm.Dot(normalize(query), normalize(objs[i].Vector))
+		dist, _, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
 		distances[i] = distanceAndObj{
 			distance: dist,
 			obj:      objs[i],

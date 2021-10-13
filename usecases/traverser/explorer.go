@@ -94,6 +94,13 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 
 	params.SearchVector = searchVector
 
+	if len(params.AdditionalProperties.ModuleParams) > 0 {
+		// if a module-specific additional prop is set, assume it needs the vector
+		// present for backward-compatibility. This could be improved by actually
+		// asking the module based on specific conditions
+		params.AdditionalProperties.Vector = true
+	}
+
 	res, err := e.search.VectorClassSearch(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
