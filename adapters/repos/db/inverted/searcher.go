@@ -156,10 +156,12 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
+	before = time.Now()
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
 	}
+	fmt.Printf("--turn to map took %s\n", time.Since(before))
 
 	return out, nil
 }
