@@ -53,7 +53,7 @@ func autoEfFromK(k int) int {
 	return ef
 }
 
-const flatSearchThreshold = 10000
+const flatSearchThreshold = 40000
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	if h.distancerProvider.Type() == "cosine-dot" {
@@ -63,7 +63,6 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	}
 
 	if allowList != nil && !h.forbidFlat && len(allowList) < flatSearchThreshold {
-		fmt.Println("flat search")
 		return h.flatSearch(vector, k, allowList)
 	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)

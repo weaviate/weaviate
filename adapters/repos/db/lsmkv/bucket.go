@@ -170,14 +170,9 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-	before := time.Now()
-	defer func() {
-		fmt.Printf("entire SetList took %s\n", time.Since(before))
-	}()
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	beforeDisk := time.Now()
 	var out []value
 
 	v, err := b.disk.getCollection(key)
@@ -187,7 +182,6 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 		}
 	}
 	out = v
-	fmt.Printf("disk including appends took %s\n", time.Since(beforeDisk))
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
