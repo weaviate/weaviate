@@ -14,19 +14,12 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
-	before := time.Now()
-	defer func() {
-		fmt.Printf("entire get collection took %s\n", time.Since(before))
-	}()
-
 	if i.strategy != SegmentStrategySetCollection &&
 		i.strategy != SegmentStrategyMapCollection {
 		return nil, errors.Errorf("get only possible for strategies %q, %q",
@@ -50,7 +43,6 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 }
 
 func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
-	before := time.Now()
 	if len(in) == 0 {
 		return nil, NotFound
 	}
@@ -75,7 +67,6 @@ func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 		valueIndex++
 	}
 
-	fmt.Printf("collection parse took %s\n", time.Since(before))
 	return values, nil
 }
 
