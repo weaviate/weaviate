@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"os"
@@ -35,7 +36,7 @@ func (p *commitloggerParser) Do() error {
 		return err
 	}
 
-	p.reader = f
+	p.reader = bufio.NewReader(f)
 
 	for {
 		var commitType CommitType

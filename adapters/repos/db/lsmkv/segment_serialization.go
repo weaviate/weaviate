@@ -395,7 +395,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
 	// read in between.
 	tmpBuf := make([]byte, 9)
-	if n, err := r.Read(tmpBuf); err != nil {
+	if n, err := io.ReadFull(r, tmpBuf); err != nil {
 		return out, errors.Wrap(err, "read tombstone and value length")
 	} else {
 		out.offset += n
@@ -404,13 +404,13 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	out.tombstone = tmpBuf[0] == 0x1
 	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.value = make([]byte, valueLength)
-	if n, err := r.Read(out.value); err != nil {
+	if n, err := io.ReadFull(r, out.value); err != nil {
 		return out, errors.Wrap(err, "read value")
 	} else {
 		out.offset += n
 	}
 
-	if n, err := r.Read(tmpBuf[0:4]); err != nil {
+	if n, err := io.ReadFull(r, tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key length encoding")
 	} else {
 		out.offset += n
@@ -418,7 +418,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 
 	keyLength := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLength)
-	if n, err := r.Read(out.primaryKey); err != nil {
+	if n, err := io.ReadFull(r, out.primaryKey); err != nil {
 		return out, errors.Wrap(err, "read key")
 	} else {
 		out.offset += n
@@ -429,7 +429,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	}
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
-		if n, err := r.Read(tmpBuf[0:4]); err != nil {
+		if n, err := io.ReadFull(r, tmpBuf[0:4]); err != nil {
 			return out, errors.Wrap(err, "read secondary key length encoding")
 		} else {
 			out.offset += n
@@ -440,7 +440,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		}
 
 		out.secondaryKeys[j] = make([]byte, secKeyLen)
-		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+		if n, err := io.ReadFull(r, out.secondaryKeys[j]); err != nil {
 			return out, errors.Wrap(err, "read secondary key")
 		} else {
 			out.offset += n
@@ -582,7 +582,7 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	// read in between.
 	tmpBuf := make([]byte, 9)
 
-	if n, err := r.Read(tmpBuf[0:8]); err != nil {
+	if n, err := io.ReadFull(r, tmpBuf[0:8]); err != nil {
 		return out, errors.Wrap(err, "read values len")
 	} else {
 		out.offset += n
@@ -591,7 +591,7 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
 	out.values = make([]value, valuesLen)
 	for i := range out.values {
-		if n, err := r.Read(tmpBuf[0:9]); err != nil {
+		if n, err := io.ReadFull(r, tmpBuf[0:9]); err != nil {
 			return out, errors.Wrap(err, "read value tombston and len")
 		} else {
 			out.offset += n
@@ -599,21 +599,21 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 		out.values[i].tombstone = tmpBuf[0] == 0x1
 		valueLen := binary.LittleEndian.Uint64(tmpBuf[1:9])
 		out.values[i].value = make([]byte, valueLen)
-		n, err := r.Read(out.values[i].value)
+		n, err := io.ReadFull(r, out.values[i].value)
 		if err != nil {
 			return out, errors.Wrap(err, "read value")
 		}
 		out.offset += n
 	}
 
-	if n, err := r.Read(tmpBuf[0:4]); err != nil {
+	if n, err := io.ReadFull(r, tmpBuf[0:4]); err != nil {
 		return out, errors.Wrap(err, "read key len")
 	} else {
 		out.offset += n
 	}
 	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
 	out.primaryKey = make([]byte, keyLen)
-	n, err := r.Read(out.primaryKey)
+	n, err := io.ReadFull(r, out.primaryKey)
 	if err != nil {
 		return out, errors.Wrap(err, "read key")
 	}

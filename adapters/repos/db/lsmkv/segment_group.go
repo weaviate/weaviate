@@ -14,8 +14,11 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +57,30 @@ func newSegmentGroup(dir string,
 	for _, fileInfo := range list {
 		if filepath.Ext(fileInfo.Name()) != ".db" {
 			// skip, this could be commit log, etc.
+			continue
+		}
+
+		// before we can mount this file, we need to check if a WAL exists for it.
+		// If yes, we must assume that the flush never finished, as otherwise the
+		// WAL would have been deleted. Thus we must remove it.
+		potentialWALFileName := strings.TrimSuffix(fileInfo.Name(), ".db") + ".wal"
+		ok, err := fileExists(filepath.Join(dir, potentialWALFileName))
+		if err != nil {
+			return nil, errors.Wrapf(err, "check for presence of wals for segment %s",
+				fileInfo.Name())
+		}
+
+		if ok {
+			if err := os.Remove(filepath.Join(dir, fileInfo.Name())); err != nil {
+				return nil, errors.Wrapf(err, "delete corrupt segment %s", fileInfo.Name())
+			}
+
+			logger.WithField("action", "lsm_segment_init").
+				WithField("path", filepath.Join(dir, fileInfo.Name())).
+				WithField("wal_path", potentialWALFileName).
+				Info("Discarded (partially written) LSM segment, because an active WAL for " +
+					"the same segment was found. A recovery from the WAL will follow.")
+
 			continue
 		}
 
@@ -176,4 +203,17 @@ func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, err
 }

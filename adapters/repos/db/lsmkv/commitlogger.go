@@ -15,12 +15,18 @@ import (
 	"bufio"
 	"encoding/binary"
 	"os"
+
+	"github.com/pkg/errors"
 )
 
 type commitLogger struct {
 	file   *os.File
 	writer *bufio.Writer
 	path   string
+
+	// e.g. when recovering from an existing log, we do not want to write into a
+	// new log again
+	paused bool
 }
 
 type CommitType uint16
@@ -50,6 +56,10 @@ func newCommitLogger(path string) (*commitLogger, error) {
 }
 
 func (cl *commitLogger) put(node segmentReplaceNode) error {
+	if cl.paused {
+		return nil
+	}
+
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeReplace); err != nil {
 		return err
@@ -63,6 +73,10 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 }
 
 func (cl *commitLogger) append(node segmentCollectionNode) error {
+	if cl.paused {
+		return nil
+	}
+
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeCollection); err != nil {
 		return err
@@ -76,11 +90,23 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 }
 
 func (cl *commitLogger) close() error {
+	if cl.paused {
+		return errors.Errorf("attempting to close a paused commit logger")
+	}
+
 	if err := cl.writer.Flush(); err != nil {
 		return err
 	}
 
 	return cl.file.Close()
+}
+
+func (cl *commitLogger) pause() {
+	cl.paused = true
+}
+
+func (cl *commitLogger) unpause() {
+	cl.paused = false
 }
 
 func (cl *commitLogger) delete() error {
