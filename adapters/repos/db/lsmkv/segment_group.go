@@ -84,6 +84,10 @@ func newSegmentGroup(dir string,
 			continue
 		}
 
+		if fileInfo.Size() == 0 {
+			continue
+		}
+
 		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
