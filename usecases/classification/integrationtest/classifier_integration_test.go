@@ -52,7 +52,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	shardState := singleShardState()
 	sg := &fakeSchemaGetter{shardState: shardState}
 
-	vrepo := db.New(logger, db.Config{RootPath: dirName, QueryMaximumResults: 1000000}, &fakeRemoteClient{},
+	vrepo := db.New(logger, db.Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
@@ -169,7 +169,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				ClassName: "Article",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{
-					Limit: 100000,
+					Limit: 10000,
 				},
 			})
 

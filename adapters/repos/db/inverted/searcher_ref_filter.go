@@ -37,6 +37,7 @@ type refFilterExtractor struct {
 type ClassSearcher interface {
 	ClassSearch(ctx context.Context,
 		params traverser.GetParams) ([]search.Result, error)
+	GetQueryMaximumResults() int
 }
 
 func newRefFilterExtractor(classSearcher ClassSearcher,
@@ -72,7 +73,7 @@ func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, erro
 			// implementation, so using a 10x as high value should be safe. However,
 			// we might come back to reduce this number in case this leads to
 			// unexpected performance issues
-			Limit: 1e5,
+			Limit: r.classSearcher.GetQueryMaximumResults(),
 		},
 	}, nil
 }
