@@ -99,6 +99,7 @@ const (
 	DefaultEF                     = -1 // indicates "let Weaviate pick"
 	DefaultVectorCacheMaxObjects  = 2000000
 	DefaultSkip                   = false
+	DefaultFlatSearchCutoff       = 40000
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -109,6 +110,7 @@ type UserConfig struct {
 	EFConstruction         int  `json:"efConstruction"`
 	EF                     int  `json:"ef"`
 	VectorCacheMaxObjects  int  `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int  `json:"flatSearchCutoff"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -125,6 +127,7 @@ func (c *UserConfig) SetDefaults() {
 	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
 	c.EF = DefaultEF
 	c.Skip = DefaultSkip
+	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -168,6 +171,12 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 
 	if err := optionalIntFromMap(asMap, "vectorCacheMaxObjects", func(v int) {
 		uc.VectorCacheMaxObjects = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "flatSearchCutoff", func(v int) {
+		uc.FlatSearchCutoff = v
 	}); err != nil {
 		return uc, err
 	}
