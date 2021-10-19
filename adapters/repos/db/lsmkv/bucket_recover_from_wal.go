@@ -90,6 +90,11 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 }
 
 func (b *Bucket) parseWALIntoMemtable(fname string) error {
+	// pause commit logging while reading the old log to avoid creating a
+	// duplicate of the log
+	b.active.commitlog.pause()
+	defer b.active.commitlog.unpause()
+
 	err := newCommitLoggerParser(fname, b.active).Do()
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		// we need to check for both EOF or UnexpectedEOF, as we don't know where
