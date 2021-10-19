@@ -45,7 +45,7 @@ func TestRefFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryLimit: 20, QueryMaximumResults: 100001}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryLimit: 20, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -466,7 +466,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 100001}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())

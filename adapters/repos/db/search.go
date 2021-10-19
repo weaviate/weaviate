@@ -38,6 +38,10 @@ func (db *DB) Aggregate(ctx context.Context,
 	return idx.aggregate(ctx, params)
 }
 
+func (db *DB) GetQueryMaximumResults() int {
+	return int(db.config.QueryMaximumResults)
+}
+
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
