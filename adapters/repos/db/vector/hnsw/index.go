@@ -65,6 +65,9 @@ type hnsw struct {
 	// ef at search time
 	ef int64
 
+	// on filtered searches with less than n elements, perform flat search
+	flatSearchCutoff int64
+
 	levelNormalizer float64
 
 	nodes []*vertex
@@ -160,6 +163,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:    uc.EFConstruction,
 		ef:                int64(uc.EF),
+		flatSearchCutoff:  int64(uc.FlatSearchCutoff),
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
