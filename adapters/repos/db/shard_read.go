@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -26,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/sirupsen/logrus"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
@@ -181,6 +183,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
+	beforeAll := time.Now()
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
@@ -192,6 +195,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 		allowList = list
 	}
+	invertedTook := time.Since(beforeAll)
+	beforeVector := time.Now()
 	ids, dists, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "vector search")
@@ -200,11 +205,21 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
+	hnswTook := time.Since(beforeVector)
+	beforeObjects := time.Now()
 
 	objs, err := s.objectsByDocID(ids, additional)
 	if err != nil {
 		return nil, nil, err
 	}
+	objectsTook := time.Since(beforeObjects)
+
+	s.index.logger.WithField("action", "filtered_vector_search").
+		WithFields(logrus.Fields{
+			"inverted_took":         uint64(invertedTook),
+			"hnsw_took":             uint64(hnswTook),
+			"retrieve_objects_took": uint64(objectsTook),
+		}).Trace("completed filtered vector search")
 
 	return objs, dists, nil
 }

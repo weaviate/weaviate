@@ -59,6 +59,11 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
+
+	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	if allowList != nil && !h.forbidFlat && len(allowList) < flatSearchCutoff {
+		return h.flatSearch(vector, k, allowList)
+	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 

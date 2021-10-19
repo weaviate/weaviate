@@ -13,11 +13,9 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -551,7 +549,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
-			before := time.Now()
 			local := i.getSchema.
 				ShardingState(i.Config.ClassName.String()).
 				IsShardLocal(shardName)
@@ -578,8 +575,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			out = append(out, res...)
 			dists = append(dists, resDists...)
 			m.Unlock()
-
-			fmt.Printf("shard (%v) took %s\n", local, time.Since(before))
 
 			return nil
 		})

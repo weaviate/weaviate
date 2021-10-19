@@ -64,7 +64,9 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	var out []*storobj.Object
-	if err := pv.fetchDocIDs(f, limit); err != nil {
+	// we assume that when retrieving objects, we can not tolerate duplicates as
+	// they would have a direct impact on the user
+	if err := pv.fetchDocIDs(f, limit, false); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -140,7 +142,9 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(f, -1); err != nil {
+	// when building an allow list (which is a set anyway) we can skip the costly
+	// deduplication, as it doesn't matter
+	if err := pv.fetchDocIDs(f, -1, true); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -425,7 +429,7 @@ func (d docPointers) IDs() []uint64 {
 }
 
 func (d *docPointers) removeDuplicates() {
-	counts := map[uint64]uint16{}
+	counts := make(map[uint64]uint16, len(d.docIDs))
 	for _, id := range d.docIDs {
 		counts[id.id]++
 	}

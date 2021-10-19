@@ -189,7 +189,11 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 			return nil, err
 		}
 
-		out = append(out, v...)
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
 	}
 
 	return out, nil
