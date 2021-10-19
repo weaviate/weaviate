@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -114,18 +113,13 @@ func (m *Manager) localOffsetOrZero(paramOffset *int64) int {
 }
 
 func (m *Manager) localLimitOrGlobalLimit(offset int64, paramMaxResults *int64) int {
-	maxResults := m.config.Config.QueryMaximumResults
-	if offset < m.config.Config.QueryMaximumResults {
-		maxResults = m.config.Config.QueryMaximumResults - offset
-	}
-	limit := maxResults
+	limit := int64(m.config.Config.QueryDefaults.Limit)
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		limit = *paramMaxResults
 	}
 
-	// Max results form URL, otherwise max = config.Limit.
-	return int(math.Min(float64(limit), float64(maxResults)))
+	return int(limit)
 }
 
 func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, int, error) {
