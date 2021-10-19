@@ -47,35 +47,24 @@ func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 		return nil, NotFound
 	}
 
-	r := bytes.NewReader(in)
+	offset := 0
 
-	readSoFar := 0
-
-	var valuesLen uint64
-	if err := binary.Read(r, binary.LittleEndian, &valuesLen); err != nil {
-		return nil, errors.Wrap(err, "read values len")
-	}
-	readSoFar += 8
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	offset += 8
 
 	values := make([]value, valuesLen)
-	for i := range values {
-		if err := binary.Read(r, binary.LittleEndian, &values[i].tombstone); err != nil {
-			return nil, errors.Wrap(err, "read value tombstone")
-		}
-		readSoFar += 1
+	valueIndex := 0
+	for valueIndex < int(valuesLen) {
+		values[valueIndex].tombstone = in[offset] == 0x01
+		offset += 1
 
-		var valueLen uint64
-		if err := binary.Read(r, binary.LittleEndian, &valueLen); err != nil {
-			return nil, errors.Wrap(err, "read value len")
-		}
-		readSoFar += 8
+		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		offset += 8
 
-		values[i].value = make([]byte, valueLen)
-		n, err := r.Read(values[i].value)
-		if err != nil {
-			return nil, errors.Wrap(err, "read value")
-		}
-		readSoFar += n
+		values[valueIndex].value = in[offset : offset+int(valueLen)]
+		offset += int(valueLen)
+
+		valueIndex++
 	}
 
 	return values, nil

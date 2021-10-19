@@ -83,6 +83,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	// Store atomatically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&h.ef, int64(parsed.EF))
+	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
 	h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
 

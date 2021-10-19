@@ -41,6 +41,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"skip":                   false,
 					"cleanupIntervalSeconds": float64(300),
 					"efConstruction":         float64(128),
+					"flatSearchCutoff":       float64(40000),
 					"ef":                     float64(-1),
 					"maxConnections":         float64(64),
 					"vectorCacheMaxObjects":  float64(2e6),

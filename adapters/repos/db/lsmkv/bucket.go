@@ -181,7 +181,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 			return nil, err
 		}
 	}
-	out = append(out, v...)
+	out = v
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
@@ -200,7 +200,10 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 			return nil, err
 		}
 	}
-	out = append(out, v...)
+	if len(v) > 0 {
+		// skip the expensive append operation if there was no memtable
+		out = append(out, v...)
+	}
 
 	return newSetDecoder().Do(out), nil
 }

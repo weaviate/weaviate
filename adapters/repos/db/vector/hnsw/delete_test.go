@@ -677,6 +677,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	}
 
 	index, err := NewFromJSONDump(snapshotBefore, vecForID)
+	index.forbidFlat = true
 	require.Nil(t, err)
 
 	var control []uint64

@@ -115,12 +115,15 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
-	h.nodes[nodeId] = node
 	h.Unlock()
 
 	// // make sure this new vec is immediately present in the cache, so we don't
 	// // have to read it from disk again
 	h.cache.preload(node.id, nodeVec)
+
+	h.Lock()
+	h.nodes[nodeId] = node
+	h.Unlock()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
