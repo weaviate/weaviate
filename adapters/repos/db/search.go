@@ -49,7 +49,12 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	res, err := idx.objectSearch(ctx, db.getTotalLimit(params.Pagination),
+	totalLimit, err := db.getTotalLimit(params.Pagination)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid pagination params")
+	}
+
+	res, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
@@ -66,13 +71,18 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return db.ClassSearch(ctx, params)
 	}
 
+	totalLimit, err := db.getTotalLimit(params.Pagination)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid pagination params")
+	}
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
-		db.getTotalLimit(params.Pagination), params.Filters, params.AdditionalProperties)
+		totalLimit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -180,12 +190,12 @@ func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
 	return res, nil
 }
 
-func (db *DB) getTotalLimit(pagination *filters.Pagination) int {
+func (db *DB) getTotalLimit(pagination *filters.Pagination) (int, error) {
 	totalLimit := pagination.Offset + db.getLimit(pagination.Limit)
 	if totalLimit > int(db.config.QueryMaximumResults) {
-		return int(db.config.QueryMaximumResults)
+		return 0, errors.New("query maximum results exceeded")
 	}
-	return pagination.Offset + db.getLimit(pagination.Limit)
+	return totalLimit, nil
 }
 
 func (d *DB) getSearchResults(found search.Results, paramOffset, paramLimit int) search.Results {
