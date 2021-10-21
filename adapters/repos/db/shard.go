@@ -166,6 +166,11 @@ func (s *Shard) drop() error {
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
+	err = s.propertyIndices.DropAll()
+	if err != nil {
+		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
+	}
+
 	return nil
 }
 

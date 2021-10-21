@@ -43,6 +43,7 @@ type vectorIndex interface {
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id uint64) error
 	Dump(...string)
+	Drop() error
 }
 
 // Config is passed to the GeoIndex when its created
@@ -76,6 +77,15 @@ func NewIndex(config Config) (*Index, error) {
 	}
 
 	return i, nil
+}
+
+func (i *Index) Drop() error {
+	if err := i.vectorIndex.Drop(); err != nil {
+		return err
+	}
+
+	i.vectorIndex = nil
+	return nil
 }
 
 func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {

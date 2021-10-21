@@ -12,6 +12,7 @@
 package propertyspecific
 
 import (
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/geo"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -34,4 +35,22 @@ type Indices map[string]Index
 func (i Indices) ByProp(propName string) (Index, bool) {
 	index, ok := i[propName]
 	return index, ok
+}
+
+func (i Indices) DropAll() error {
+	for propName, index := range i {
+		if index.Type != schema.DataTypeGeoCoordinates {
+			return errors.Errorf("no implementation to delete property %s index of type %v",
+				propName, index.Type)
+		}
+
+		if err := index.GeoIndex.Drop(); err != nil {
+			return errors.Wrapf(err, "drop property %s", propName)
+		}
+
+		index.GeoIndex = nil
+		delete(i, propName)
+
+	}
+	return nil
 }
