@@ -156,7 +156,7 @@ func TestMapEncoderDecoderJourney(t *testing.T) {
 				require.Nil(t, err)
 				encoded[i] = enc[0]
 			}
-			res, err := newMapDecoder().Do(encoded)
+			res, err := newMapDecoder().Do(encoded, false, false)
 			require.Nil(t, err)
 			// NOTE: we are accpeting that the order can be lost on updates
 			assert.ElementsMatch(t, test.out, res)

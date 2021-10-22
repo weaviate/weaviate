@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -144,19 +145,23 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	// when building an allow list (which is a set anyway) we can skip the costly
 	// deduplication, as it doesn't matter
+	beforeFetch := time.Now()
 	if err := pv.fetchDocIDs(f, -1, true); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
+	fmt.Printf("fetch took %s\n", time.Since(beforeFetch))
 
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
+	beforeAllow := time.Now()
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
 	}
+	fmt.Printf("build allow took %s\n", time.Since(beforeAllow))
 
 	return out, nil
 }

@@ -83,7 +83,8 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 		return err
 	}
 
-	v, err := rr.bucket.MapList(rr.value)
+	v, err := rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDeleted(),
+		lsmkv.MapListAcceptDuplicates())
 	if err != nil {
 		return err
 	}
