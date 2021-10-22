@@ -25,22 +25,33 @@ func newMapDecoder() *mapDecoder {
 	return &mapDecoder{}
 }
 
-func (m *mapDecoder) Do(in []value) ([]MapPair, error) {
+func (m *mapDecoder) Do(in []value, acceptDuplicates, acceptDeleted bool) ([]MapPair, error) {
+	if acceptDuplicates && acceptDeleted {
+		return m.doSimplified(in)
+	}
 	seenKeys := map[string]uint{}
 	kvs := make([]MapPair, len(in))
 
+	// unmarshalling := time.Duration(0)
+
+	// beforeFirst := time.Now()
 	for i, pair := range in {
 		kv := MapPair{}
+		// beforeUnmarshal := time.Now()
 		err := kv.FromBytes(pair.value, pair.tombstone)
 		if err != nil {
 			return nil, err
 		}
+		// unmarshalling += time.Since(beforeUnmarshal)
 		kv.Tombstone = pair.tombstone
 		kvs[i] = kv
 		count := seenKeys[string(kv.Key)]
 		seenKeys[string(kv.Key)] = count + 1
 	}
+	// fmt.Printf("first decoder loop took %s\n", time.Since(beforeFirst))
+	// fmt.Printf("unmarshalling in first loop took %s\n", unmarshalling)
 
+	// beforeSecond := time.Now()
 	out := make([]MapPair, len(in))
 	i := 0
 	for _, pair := range kvs {
@@ -58,8 +69,63 @@ func (m *mapDecoder) Do(in []value) ([]MapPair, error) {
 		out[i] = pair
 		i++
 	}
+	// fmt.Printf("second decoder loop took %s\n", time.Since(beforeSecond))
 
 	return out[:i], nil
+}
+
+type tombstone struct {
+	pos int
+	key []byte
+}
+
+func (m *mapDecoder) doSimplified(in []value) ([]MapPair, error) {
+	out := make([]MapPair, len(in))
+
+	var tombstones []tombstone
+
+	i := 0
+	for _, raw := range in {
+		if raw.tombstone {
+			mp := MapPair{}
+			mp.FromBytes(raw.value, true)
+			tombstones = append(tombstones, tombstone{pos: i, key: mp.Key})
+			continue
+		}
+
+		out[i].FromBytes(raw.value, raw.tombstone)
+		i++
+	}
+
+	out = out[:i]
+
+	if len(tombstones) > 0 {
+		out = m.removeTombstonesFromResults(out, tombstones)
+	}
+
+	return out, nil
+}
+
+func (m *mapDecoder) removeTombstonesFromResults(results []MapPair,
+	tombstones []tombstone) []MapPair {
+	for _, ts := range tombstones {
+		// we need to eliminate every matching elements up until the specified pos,
+		// any entry after the pos would have been a re-create after the deletion
+
+		for i, result := range results {
+			if !bytes.Equal(result.Key, ts.key) {
+				continue
+			}
+
+			if i == len(results)-1 {
+				results = results[:i]
+			} else {
+				results = append(results[:i], results[i+1:]...)
+			}
+		}
+	}
+
+	return results
 }
 
 // DoPartial keeps "unused" tombstones
@@ -146,8 +212,9 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	keyLen := binary.LittleEndian.Uint16(in[:2])
 	read += 2 // uint16 -> 2 bytes
 
-	kv.Key = make([]byte, keyLen)
-	copy(kv.Key, in[read:read+keyLen])
+	// kv.Key = make([]byte, keyLen)
+	// copy(kv.Key, in[read:read+keyLen])
+	kv.Key = in[read : read+keyLen]
 	read += keyLen
 
 	if keyOnly {
@@ -157,12 +224,13 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
 	read += 2
 
-	if int(valueLen) > cap(kv.Value) {
-		kv.Value = make([]byte, valueLen)
-	} else {
-		kv.Value = kv.Value[:valueLen]
-	}
-	copy(kv.Value, in[read:read+valueLen])
+	// if int(valueLen) > cap(kv.Value) {
+	// 	kv.Value = make([]byte, valueLen)
+	// } else {
+	// 	kv.Value = kv.Value[:valueLen]
+	// }
+	// copy(kv.Value, in[read:read+valueLen])
+	kv.Value = in[read : read+valueLen]
 	read += valueLen
 
 	if read != uint16(len(in)) {

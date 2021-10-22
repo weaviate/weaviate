@@ -181,7 +181,7 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		c.advanceInner(id)
 	}
 
-	values, err := newMapDecoder().Do(raw)
+	values, err := newMapDecoder().Do(raw, false, false)
 	if err != nil {
 		panic(errors.Wrap(err, "unexpected error decoding map values"))
 	}

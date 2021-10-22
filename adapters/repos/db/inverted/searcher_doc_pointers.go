@@ -15,7 +15,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"hash/crc64"
+	"math"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -103,17 +106,25 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 	var pointers docPointers
 	var hashes [][]byte
 
+	beforeLoop := time.Now()
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
+		insideLoop := time.Now()
 		currentDocIDs := make([]docPointer, len(pairs))
+		beforePairs := time.Now()
 		for i, pair := range pairs {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
-
-			r := bytes.NewReader(pair.Value)
-			binary.Read(r, binary.LittleEndian, &currentDocIDs[i].frequency)
+			freqBits := binary.LittleEndian.Uint64(pair.Value)
+			freq := math.Float64frombits(freqBits)
+			currentDocIDs[i].frequency = &freq
 		}
+		fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 
 		pointers.count += uint64(len(pairs))
-		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+		if len(pointers.docIDs) > 0 {
+			pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+		} else {
+			pointers.docIDs = currentDocIDs
+		}
 
 		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
 		if b == nil {
@@ -132,10 +143,12 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			return false, nil
 		}
 
+		fmt.Printf("inside loop took %s\n", time.Since(insideLoop))
 		return true, nil
 	}); err != nil {
 		return pointers, errors.Wrap(err, "read row")
 	}
+	fmt.Printf("entire loop took %s\n", time.Since(beforeLoop))
 
 	newChecksum, err := combineChecksums(hashes)
 	if err != nil {

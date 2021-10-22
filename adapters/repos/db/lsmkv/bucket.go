@@ -234,19 +234,53 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
-func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
+type MapListOptionConfig struct {
+	acceptDuplicates bool
+	acceptDeleted    bool
+}
+
+type MapListOption func(c *MapListOptionConfig)
+
+func MapListAcceptDuplicates() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.acceptDuplicates = true
+	}
+}
+
+func MapListAcceptDeleted() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.acceptDeleted = true
+	}
+}
+
+func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
 	var raw []value
 
+	beforeDiskCollection := time.Now()
 	v, err := b.disk.getCollection(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	raw = append(raw, v...)
+	fmt.Printf("get disk collection took %s\n", time.Since(beforeDiskCollection))
+	beforeAppend := time.Now()
+
+	if len(raw) > 0 {
+		raw = append(raw, v...)
+	} else {
+		raw = v
+	}
+
+	fmt.Printf("append took %s\n", time.Since(beforeAppend))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getCollection(key)
@@ -266,7 +300,11 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 	}
 	raw = append(raw, v...)
 
-	return newMapDecoder().Do(raw)
+	beforeDecode := time.Now()
+	defer func() {
+		fmt.Printf("decode took %s\n", time.Since(beforeDecode))
+	}()
+	return newMapDecoder().Do(raw, c.acceptDuplicates, c.acceptDeleted)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
