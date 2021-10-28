@@ -200,6 +200,9 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 }
 
 func (ig *SegmentGroup) shutdown(ctx context.Context) error {
+	ig.maintenanceLock.Lock()
+	defer ig.maintenanceLock.Unlock()
+
 	ig.stopCompactionCycle <- struct{}{}
 
 	for i, seg := range ig.segments {
