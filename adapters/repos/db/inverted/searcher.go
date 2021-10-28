@@ -138,10 +138,28 @@ func (f *Searcher) objectsByDocID(ids []uint64,
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
+	beforeAll := time.Now()
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
+
+	cacheable := pv.cacheable()
+	if !cacheable {
+		fmt.Printf("query type not cacheable")
+	} else {
+		if err := pv.fetchHashes(f); err != nil {
+			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
+		}
+
+		res, ok := f.rowCache.Load(pv.docIDs.checksum)
+		if ok && res.Type == CacheTypeAllowList {
+			fmt.Printf("serve allow list from cache took %s\n", time.Since(beforeAll))
+			return res.AllowList, nil
+		}
+	}
+
+	fmt.Printf("pv after fetch hash: %v\n", pv)
 
 	// when building an allow list (which is a set anyway) we can skip the costly
 	// deduplication, as it doesn't matter
@@ -150,6 +168,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 	fmt.Printf("fetch took %s\n", time.Since(beforeFetch))
+	fmt.Printf("pv after fetch doc ids: %v\n", pv.docIDs.checksum)
 
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
@@ -162,6 +181,15 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		out.Insert(p.id)
 	}
 	fmt.Printf("build allow took %s\n", time.Since(beforeAllow))
+
+	if cacheable {
+		f.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+			Type:      CacheTypeAllowList,
+			AllowList: out,
+			Partial:   &pv.docIDs,
+			Hash:      pv.docIDs.checksum,
+		})
+	}
 
 	return out, nil
 }
