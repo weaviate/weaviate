@@ -25,8 +25,8 @@ func newMapDecoder() *mapDecoder {
 	return &mapDecoder{}
 }
 
-func (m *mapDecoder) Do(in []value, acceptDuplicates, acceptDeleted bool) ([]MapPair, error) {
-	if acceptDuplicates && acceptDeleted {
+func (m *mapDecoder) Do(in []value, acceptDuplicates bool) ([]MapPair, error) {
+	if acceptDuplicates {
 		return m.doSimplified(in)
 	}
 	seenKeys := map[string]uint{}

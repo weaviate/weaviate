@@ -21,10 +21,16 @@ type CursorMap struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
 	unlock       func()
+	listCfg      MapListOptionConfig
 }
 
-func (b *Bucket) MapCursor() *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	b.flushLock.RLock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
 
 	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
 
@@ -45,6 +51,7 @@ func (b *Bucket) MapCursor() *CursorMap {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
+		listCfg:      c,
 	}
 }
 
@@ -54,6 +61,10 @@ func (c *CursorMap) Seek(key []byte) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) Next() ([]byte, []MapPair) {
+	// before := time.Now()
+	// defer func() {
+	// 	fmt.Printf("-- total next took %s\n", time.Since(before))
+	// }()
 	return c.serveCurrentStateAndAdvance()
 }
 
@@ -175,16 +186,28 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// all the same
 	key := c.state[ids[0]].key
 
+	// appending := time.Duration(0)
+	// advancing := time.Duration(0)
+
 	var raw []value
 	for _, id := range ids {
+		// before := time.Now()
 		raw = append(raw, c.state[id].value...)
-		c.advanceInner(id)
-	}
+		// appending += time.Since(before)
 
-	values, err := newMapDecoder().Do(raw, false, false)
+		// before = time.Now()
+		c.advanceInner(id)
+		// advancing += time.Since(before)
+	}
+	// fmt.Printf("--- extract values [appending] took %s\n", appending)
+	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
+
+	// before := time.Now()
+	values, err := newMapDecoder().Do(raw, c.listCfg.acceptDuplicates)
 	if err != nil {
 		panic(errors.Wrap(err, "unexpected error decoding map values"))
 	}
+	// fmt.Printf("--- decode values took %s\n", time.Since(before))
 
 	return key, values
 }

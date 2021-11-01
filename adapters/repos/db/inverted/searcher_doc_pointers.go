@@ -106,18 +106,20 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 	var pointers docPointers
 	var hashes [][]byte
 
+	insideLoopTook := time.Duration(0)
+
 	beforeLoop := time.Now()
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
 		insideLoop := time.Now()
 		currentDocIDs := make([]docPointer, len(pairs))
-		beforePairs := time.Now()
+		// beforePairs := time.Now()
 		for i, pair := range pairs {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
 			freqBits := binary.LittleEndian.Uint64(pair.Value)
 			freq := math.Float64frombits(freqBits)
 			currentDocIDs[i].frequency = &freq
 		}
-		fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
+		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 
 		pointers.count += uint64(len(pairs))
 		if len(pointers.docIDs) > 0 {
@@ -143,11 +145,12 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			return false, nil
 		}
 
-		fmt.Printf("inside loop took %s\n", time.Since(insideLoop))
+		insideLoopTook += time.Since(insideLoop)
 		return true, nil
 	}); err != nil {
 		return pointers, errors.Wrap(err, "read row")
 	}
+	fmt.Printf("inside loop took %s\n", insideLoopTook)
 	fmt.Printf("entire loop took %s\n", time.Since(beforeLoop))
 
 	newChecksum, err := combineChecksums(hashes)
