@@ -50,7 +50,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 15*time.Second, logger)
+	sg, err := newSegmentGroup(dir, 3*time.Second, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -236,7 +236,6 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 
 type MapListOptionConfig struct {
 	acceptDuplicates bool
-	acceptDeleted    bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -244,12 +243,6 @@ type MapListOption func(c *MapListOptionConfig)
 func MapListAcceptDuplicates() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.acceptDuplicates = true
-	}
-}
-
-func MapListAcceptDeleted() MapListOption {
-	return func(c *MapListOptionConfig) {
-		c.acceptDeleted = true
 	}
 }
 
@@ -304,7 +297,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	defer func() {
 		fmt.Printf("decode took %s\n", time.Since(beforeDecode))
 	}()
-	return newMapDecoder().Do(raw, c.acceptDuplicates, c.acceptDeleted)
+	return newMapDecoder().Do(raw, c.acceptDuplicates)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {

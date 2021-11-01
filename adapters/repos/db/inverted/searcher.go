@@ -170,10 +170,12 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	fmt.Printf("fetch took %s\n", time.Since(beforeFetch))
 	fmt.Printf("pv after fetch doc ids: %v\n", pv.docIDs.checksum)
 
+	beforeMerge := time.Now()
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
+	fmt.Printf("merge took %s\n", time.Since(beforeMerge))
 
 	beforeAllow := time.Now()
 	out := make(helpers.AllowList, len(pointers.docIDs))

@@ -83,8 +83,9 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 		return err
 	}
 
-	v, err := rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDeleted(),
-		lsmkv.MapListAcceptDuplicates())
+	// TODO: don't we need to check here if this is a doc id vs a object search?
+	// Or is this not a problem because the latter removes duplicates anyway?
+	v, err := rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
 	if err != nil {
 		return err
 	}
@@ -186,7 +187,9 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 		return errors.Wrapf(err, "parse like value")
 	}
 
-	c := rr.bucket.MapCursor()
+	// TODO: don't we need to check here if this is a doc id vs a object search?
+	// Or is this not a problem because the latter removes duplicates anyway?
+	c := rr.bucket.MapCursor(lsmkv.MapListAcceptDuplicates())
 	defer c.Close()
 
 	var (
