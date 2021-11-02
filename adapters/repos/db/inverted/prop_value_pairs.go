@@ -83,7 +83,7 @@ func (pv *propValuePair) mergeDocIDs() (*docPointers, error) {
 
 	switch pv.operator {
 	case filters.OperatorAnd:
-		return mergeAnd(pv.children)
+		return mergeAndOptimized(pv.children)
 	case filters.OperatorOr:
 		return mergeOr(pv.children)
 	default:
@@ -91,6 +91,9 @@ func (pv *propValuePair) mergeDocIDs() (*docPointers, error) {
 	}
 }
 
+// TODO: Delete?
+// This is only left so we can use it as a control or baselines in tests and
+// benchmkarks against the newer optimized version.
 func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 

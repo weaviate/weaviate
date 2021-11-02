@@ -59,6 +59,46 @@ func BenchmarkAnd10k1m_Optimized(b *testing.B) {
 	}
 }
 
+func BenchmarkMultipleListsOf20k_Old(b *testing.B) {
+	b.StopTimer()
+
+	lists := make([]*propValuePair, 10)
+	for i := range lists {
+		lists[i] = &propValuePair{
+			docIDs: docPointers{
+				docIDs:   randomIDs(2e4),
+				checksum: []byte{uint8(i)},
+			},
+			operator: filters.OperatorEqual,
+		}
+	}
+
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		mergeAnd(lists)
+	}
+}
+
+func BenchmarkMultipleListsOf20k_Optimized(b *testing.B) {
+	b.StopTimer()
+
+	lists := make([]*propValuePair, 10)
+	for i := range lists {
+		lists[i] = &propValuePair{
+			docIDs: docPointers{
+				docIDs:   randomIDs(2e4),
+				checksum: []byte{uint8(i)},
+			},
+			operator: filters.OperatorEqual,
+		}
+	}
+
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		mergeAndOptimized(lists)
+	}
+}
+
 func BenchmarkSort10k(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
