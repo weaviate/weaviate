@@ -9,7 +9,13 @@ import (
 func mergeAndOptimized(children []*propValuePair) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 
-	// retrieve child IDs
+	// Since the nested filter could have further children which are AND/OR
+	// filters, we need to merge the innermost of them first
+
+	// Part 1: Merge Children if any
+	// -----------------------------
+	// If the given operands are Value filters, merge will simply return the
+	// respective values
 	for i, child := range children {
 		docIDs, err := child.mergeDocIDs()
 		if err != nil {
@@ -19,14 +25,16 @@ func mergeAndOptimized(children []*propValuePair) (*docPointers, error) {
 		sets[i] = docIDs
 	}
 
+	// Potential early exit condition
+	// ------------------------------
 	if len(sets) == 1 || checksumsIdentical(sets) {
 		// all children are identical, no need to merge, simply return the first
 		// set
 		return sets[0], nil
 	}
 
-	// merge AND
-
+	// Part 2: Recursively intersect sets
+	// ----------------------------------
 	// The idea is that we pick the smallest list first and check against it, as
 	// building a map is considerably more expensive than a map lookup. So we
 	// build a small map first. Since the overall strategy is AND, we know that
@@ -40,28 +48,52 @@ func mergeAndOptimized(children []*propValuePair) (*docPointers, error) {
 		return len(sets[a].docIDs) < len(sets[b].docIDs)
 	})
 
-	// TODO: implement
-	if len(sets) > 2 {
-		panic("support for more than 2 not implement yet")
+	// Now we start a recursive merge where merge element 0 and element 1, then
+	// remove both from the list. If there are elements left we merge the result
+	// of the first round with the next smallest set (originally element 2, now
+	// element 0) and so on until we are left with only a single element
+
+	for len(sets) > 1 {
+		merged := intersectAnd(sets[0], sets[1])
+		sets[0] = nil // set to nil to avoid mem leak, as we are cutting from * slice
+		sets[1] = nil // set to nil to avoid mem leak, as we are cutting from * slice
+		sets = append([]*docPointers{merged}, sets[2:]...)
 	}
 
-	lookup := make(map[uint64]struct{}, len(sets[0].docIDs))
-	eligibile := docPointers{
-		docIDs: make([]docPointer, len(sets[0].docIDs)),
-	}
+	idsForChecksum := make([]uint64, len(sets[0].docIDs))
 	for i := range sets[0].docIDs {
-		lookup[sets[0].docIDs[i].id] = struct{}{}
+		idsForChecksum[i] = sets[0].docIDs[i].id
+	}
+
+	checksum, err := docPointerChecksum(idsForChecksum)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate checksum")
+	}
+
+	sets[0].checksum = checksum
+
+	return sets[0], nil
+}
+
+func intersectAnd(smaller, larger *docPointers) *docPointers {
+	lookup := make(map[uint64]struct{}, len(smaller.docIDs))
+	eligibile := docPointers{
+		docIDs: make([]docPointer, len(smaller.docIDs)),
+	}
+	for i := range smaller.docIDs {
+		lookup[smaller.docIDs[i].id] = struct{}{}
 	}
 
 	matches := 0
-	for i := range sets[1].docIDs {
-		if _, ok := lookup[sets[1].docIDs[i].id]; ok {
-			eligibile.docIDs[matches] = docPointer{id: sets[1].docIDs[i].id}
+	for i := range larger.docIDs {
+		if _, ok := lookup[larger.docIDs[i].id]; ok {
+			eligibile.docIDs[matches] = docPointer{id: larger.docIDs[i].id}
 			matches++
 		}
 	}
 
 	eligibile.docIDs = eligibile.docIDs[:matches]
+	eligibile.count = uint64(matches)
 
-	return &eligibile, nil
+	return &eligibile
 }

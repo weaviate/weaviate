@@ -38,13 +38,38 @@ func TestMergeAnd_Old(t *testing.T) {
 		operator: filters.OperatorEqual,
 	}
 
-	res, err := mergeAnd([]*propValuePair{&list1, &list2})
+	list3 := propValuePair{
+		docIDs: docPointers{
+			docIDs: []docPointer{
+				{id: 1},
+				{id: 3},
+				{id: 5},
+				{id: 7},
+				{id: 9},
+			},
+			checksum: []byte{0x03},
+		},
+		operator: filters.OperatorEqual,
+	}
+
+	list4 := propValuePair{
+		docIDs: docPointers{
+			docIDs: []docPointer{
+				{id: 1},
+				{id: 3},
+				{id: 5},
+				{id: 7},
+			},
+			checksum: []byte{0x04},
+		},
+		operator: filters.OperatorEqual,
+	}
+
+	res, err := mergeAnd([]*propValuePair{&list1, &list2, &list3, &list4})
 	require.Nil(t, err)
 
 	expectedPointers := []docPointer{
 		{id: 7},
-		{id: 9},
-		{id: 11},
 	}
 
 	assert.ElementsMatch(t, expectedPointers, res.docIDs)
@@ -80,13 +105,38 @@ func TestMergeAnd_Optimized(t *testing.T) {
 		operator: filters.OperatorEqual,
 	}
 
-	res, err := mergeAndOptimized([]*propValuePair{&list1, &list2})
+	list3 := propValuePair{
+		docIDs: docPointers{
+			docIDs: []docPointer{
+				{id: 1},
+				{id: 3},
+				{id: 5},
+				{id: 7},
+				{id: 9},
+			},
+			checksum: []byte{0x03},
+		},
+		operator: filters.OperatorEqual,
+	}
+
+	list4 := propValuePair{
+		docIDs: docPointers{
+			docIDs: []docPointer{
+				{id: 1},
+				{id: 3},
+				{id: 5},
+				{id: 7},
+			},
+			checksum: []byte{0x04},
+		},
+		operator: filters.OperatorEqual,
+	}
+
+	res, err := mergeAndOptimized([]*propValuePair{&list1, &list2, &list3, &list4})
 	require.Nil(t, err)
 
 	expectedPointers := []docPointer{
 		{id: 7},
-		{id: 9},
-		{id: 11},
 	}
 
 	assert.ElementsMatch(t, expectedPointers, res.docIDs)
