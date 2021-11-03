@@ -71,7 +71,7 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs()
+	pointers, err := pv.mergeDocIDs(false)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -171,7 +171,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	fmt.Printf("pv after fetch doc ids: %v\n", pv.docIDs.checksum)
 
 	beforeMerge := time.Now()
-	pointers, err := pv.mergeDocIDs()
+	pointers, err := pv.mergeDocIDs(true)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}

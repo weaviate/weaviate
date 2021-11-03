@@ -65,7 +65,7 @@ func TestMergeAnd_Old(t *testing.T) {
 		operator: filters.OperatorEqual,
 	}
 
-	res, err := mergeAnd([]*propValuePair{&list1, &list2, &list3, &list4})
+	res, err := mergeAnd([]*propValuePair{&list1, &list2, &list3, &list4}, false)
 	require.Nil(t, err)
 
 	expectedPointers := []docPointer{
@@ -132,7 +132,7 @@ func TestMergeAnd_Optimized(t *testing.T) {
 		operator: filters.OperatorEqual,
 	}
 
-	res, err := mergeAndOptimized([]*propValuePair{&list1, &list2, &list3, &list4})
+	res, err := mergeAndOptimized([]*propValuePair{&list1, &list2, &list3, &list4}, false)
 	require.Nil(t, err)
 
 	expectedPointers := []docPointer{
