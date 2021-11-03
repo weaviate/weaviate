@@ -76,16 +76,18 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs() (*docPointers, error) {
+// if duplicates are acceptable, simpler (and faster) algorithms can be used
+// for merging
+func (pv *propValuePair) mergeDocIDs(acceptDuplicates bool) (*docPointers, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
 
 	switch pv.operator {
 	case filters.OperatorAnd:
-		return mergeAndOptimized(pv.children)
+		return mergeAndOptimized(pv.children, acceptDuplicates)
 	case filters.OperatorOr:
-		return mergeOr(pv.children)
+		return mergeOr(pv.children, acceptDuplicates)
 	default:
 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
 	}
@@ -94,12 +96,12 @@ func (pv *propValuePair) mergeDocIDs() (*docPointers, error) {
 // TODO: Delete?
 // This is only left so we can use it as a control or baselines in tests and
 // benchmkarks against the newer optimized version.
-func mergeAnd(children []*propValuePair) (*docPointers, error) {
+func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 
 	// retrieve child IDs
 	for i, child := range children {
-		docIDs, err := child.mergeDocIDs()
+		docIDs, err := child.mergeDocIDs(acceptDuplicates)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc ids of child %d", i)
 		}
@@ -148,12 +150,12 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	return &out, nil
 }
 
-func mergeOr(children []*propValuePair) (*docPointers, error) {
+func mergeOr(children []*propValuePair, acceptDuplicates bool) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 
 	// retrieve child IDs
 	for i, child := range children {
-		docIDs, err := child.mergeDocIDs()
+		docIDs, err := child.mergeDocIDs(acceptDuplicates)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc ids of child %d", i)
 		}
@@ -167,6 +169,10 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 		return sets[0], nil
 	}
 
+	if acceptDuplicates {
+		return mergeOrAcceptDuplicates(sets)
+	}
+
 	// merge OR
 	var checksums [][]byte
 	found := map[uint64]uint64{} // map[id]count
@@ -175,8 +181,8 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 			count := found[pointer.id]
 			count++
 			found[pointer.id] = count
-			checksums = append(checksums, set.checksum)
 		}
+		checksums = append(checksums, set.checksum)
 	}
 
 	var out docPointers

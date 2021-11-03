@@ -6,7 +6,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-func mergeAndOptimized(children []*propValuePair) (*docPointers, error) {
+func mergeAndOptimized(children []*propValuePair,
+	acceptDuplicates bool) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 
 	// Since the nested filter could have further children which are AND/OR
@@ -17,7 +18,7 @@ func mergeAndOptimized(children []*propValuePair) (*docPointers, error) {
 	// If the given operands are Value filters, merge will simply return the
 	// respective values
 	for i, child := range children {
-		docIDs, err := child.mergeDocIDs()
+		docIDs, err := child.mergeDocIDs(acceptDuplicates)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc ids of child %d", i)
 		}
@@ -96,4 +97,23 @@ func intersectAnd(smaller, larger *docPointers) *docPointers {
 	eligibile.count = uint64(matches)
 
 	return &eligibile
+}
+
+func mergeOrAcceptDuplicates(in []*docPointers) (*docPointers, error) {
+	size := 0
+	for i := range in {
+		size += len(in[i].docIDs)
+	}
+
+	out := docPointers{
+		docIDs: make([]docPointer, size),
+	}
+
+	for i := range in {
+		for j := range in[i].docIDs {
+			out.docIDs[i+j] = in[i].docIDs[j]
+		}
+	}
+
+	return &out, nil
 }

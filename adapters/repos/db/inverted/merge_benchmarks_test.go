@@ -30,7 +30,7 @@ func BenchmarkAnd10k1m_Old(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		mergeAnd([]*propValuePair{&list1, &list2})
+		mergeAnd([]*propValuePair{&list1, &list2}, false)
 	}
 }
 
@@ -55,7 +55,7 @@ func BenchmarkAnd10k1m_Optimized(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		mergeAndOptimized([]*propValuePair{&list1, &list2})
+		mergeAndOptimized([]*propValuePair{&list1, &list2}, false)
 	}
 }
 
@@ -75,7 +75,7 @@ func BenchmarkMultipleListsOf20k_Old(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		mergeAnd(lists)
+		mergeAnd(lists, false)
 	}
 }
 
@@ -95,14 +95,14 @@ func BenchmarkMultipleListsOf20k_Optimized(b *testing.B) {
 
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		mergeAndOptimized(lists)
+		mergeAndOptimized(lists, false)
 	}
 }
 
 func BenchmarkSort10k(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		list := randomIDs(1e5)
+		list := randomIDs(1e4)
 		b.StartTimer()
 
 		sort.Slice(list, func(a, b int) bool {
