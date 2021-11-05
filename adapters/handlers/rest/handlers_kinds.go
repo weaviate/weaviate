@@ -45,7 +45,7 @@ type kindsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
 	GetObject(context.Context, *models.Principal, strfmt.UUID, additional.Properties) (*models.Object, error)
-	GetObjects(context.Context, *models.Principal, *int64, additional.Properties) ([]*models.Object, error)
+	GetObjects(context.Context, *models.Principal, *int64, *int64, additional.Properties) ([]*models.Object, error)
 	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
@@ -139,7 +139,7 @@ func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 
 	var deprecationsRes []*models.Deprecation
 
-	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Limit, additional)
+	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Offset, params.Limit, additional)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

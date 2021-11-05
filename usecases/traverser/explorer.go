@@ -56,7 +56,7 @@ type distancer func(a, b []float32) (float32, error)
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, vector []float32, limit int,
+	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
@@ -74,7 +74,8 @@ func (e *Explorer) GetClass(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
-			Limit: 100,
+			Offset: 0,
+			Limit:  100,
 		}
 	}
 
@@ -306,7 +307,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.search.VectorSearch(ctx, vector, params.Limit, nil)
+	res, err := e.search.VectorSearch(ctx, vector, params.Offset, params.Limit, nil)
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}

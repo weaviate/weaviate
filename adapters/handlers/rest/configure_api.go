@@ -129,7 +129,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
-		RootPath: appState.ServerConfig.Config.Persistence.DataPath,
+		RootPath:            appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:          appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults: appState.ServerConfig.Config.QueryMaximumResults,
 	}, remoteIndexClient, appState.Cluster) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo

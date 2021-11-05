@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -81,7 +82,7 @@ func TestCRUD(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -410,7 +411,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), searchVector, 10, nil)
+		res, err := repo.VectorSearch(context.Background(), searchVector, 0, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -526,7 +527,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -543,7 +544,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, additional.Properties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, additional.Properties{Vector: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -566,7 +567,7 @@ func TestCRUD(t *testing.T) {
 				"interpretation": true,
 			},
 		}
-		res, err := repo.ObjectSearch(context.Background(), 100, nil, params)
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, params)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -709,7 +710,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 10, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)

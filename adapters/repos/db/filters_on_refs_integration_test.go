@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package db
@@ -44,7 +45,7 @@ func TestRefFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryLimit: 20, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -465,7 +466,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -773,7 +774,8 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) traverse
 		// on it worked
 		Properties: nil,
 		Pagination: &filters.Pagination{
-			Limit: 10,
+			Offset: 0,
+			Limit:  10,
 		},
 		ClassName: className,
 	}

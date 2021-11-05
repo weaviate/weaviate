@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package clusterintegrationtest
@@ -380,7 +381,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
-	n.repo = db.New(logger, db.Config{RootPath: localDir}, client, nodeResolver)
+	n.repo = db.New(logger, db.Config{RootPath: localDir, QueryMaximumResults: 10000}, client, nodeResolver)
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},

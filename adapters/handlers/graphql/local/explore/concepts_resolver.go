@@ -82,6 +82,10 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 		params.NearObject = &extracted
 	}
 
+	if param, ok := p.Args["offset"]; ok {
+		params.Offset = param.(int)
+	}
+
 	if param, ok := p.Args["limit"]; ok {
 		params.Limit = param.(int)
 	}

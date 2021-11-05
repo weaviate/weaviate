@@ -79,13 +79,15 @@ type fakeVectorSearcher struct {
 	mock.Mock
 	calledWithVector []float32
 	calledWithLimit  int
+	calledWithOffset int
 	results          []search.Result
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
+	vector []float32, offset, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
+	f.calledWithOffset = offset
 	return f.results, nil
 }
 
@@ -129,7 +131,7 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
 }
 
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
-	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
+	vector []float32, offset, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 
