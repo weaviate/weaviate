@@ -53,6 +53,8 @@ func Test_GetAction(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
+		cfg.Config.QueryDefaults.Limit = 20
+		cfg.Config.QueryMaximumResults = 200
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
@@ -96,7 +98,7 @@ func Test_GetAction(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("list all existing actions", func(t *testing.T) {
+	t.Run("list all existing actions with all default pagination settings", func(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
@@ -107,7 +109,8 @@ func Test_GetAction(t *testing.T) {
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
+		vectorRepo.On("ObjectSearch", 0, 20, mock.Anything, mock.Anything,
+			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
 			&models.Object{
@@ -118,9 +121,65 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
+	})
+
+	t.Run("list all existing actions with all explicit offset and limit", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		results := []search.Result{
+			search.Result{
+				ID:        id,
+				ClassName: "ActionClass",
+				Schema:    map[string]interface{}{"foo": "bar"},
+			},
+		}
+		vectorRepo.On("ObjectSearch", 7, 2, mock.Anything, mock.Anything,
+			mock.Anything).Return(results, nil).Once()
+
+		expected := []*models.Object{
+			&models.Object{
+				ID:            id,
+				Class:         "ActionClass",
+				Properties:    map[string]interface{}{"foo": "bar"},
+				VectorWeights: (map[string]string)(nil),
+			},
+		}
+
+		res, err := manager.GetObjects(context.Background(), &models.Principal{},
+			ptInt64(7), ptInt64(2), additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("with an offset greater than the maximum", func(t *testing.T) {
+		reset()
+
+		_, err := manager.GetObjects(context.Background(), &models.Principal{},
+			ptInt64(201), ptInt64(2), additional.Properties{})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "query maximum results exceeded")
+	})
+
+	t.Run("with a limit greater than the minimum", func(t *testing.T) {
+		reset()
+
+		_, err := manager.GetObjects(context.Background(), &models.Principal{},
+			ptInt64(0), ptInt64(202), additional.Properties{})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "query maximum results exceeded")
+	})
+
+	t.Run("with limit and offset individually smaller, but combined greater", func(t *testing.T) {
+		reset()
+
+		_, err := manager.GetObjects(context.Background(), &models.Principal{},
+			ptInt64(150), ptInt64(150), additional.Properties{})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
 
 	t.Run("additional props", func(t *testing.T) {
@@ -231,7 +290,8 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -269,7 +329,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -290,7 +350,8 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -318,7 +379,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
@@ -356,6 +417,8 @@ func Test_GetThing(t *testing.T) {
 		}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
+		cfg.Config.QueryDefaults.Limit = 20
+		cfg.Config.QueryMaximumResults = 200
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
@@ -410,7 +473,8 @@ func Test_GetThing(t *testing.T) {
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(results, nil).Once()
+		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
 			&models.Object{
@@ -421,7 +485,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -515,7 +579,8 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -553,7 +618,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -574,7 +639,8 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					search.Result{
 						ID:        id,
@@ -602,7 +668,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),

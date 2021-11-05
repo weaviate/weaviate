@@ -28,6 +28,7 @@ import (
 type ObjectsListURL struct {
 	Include *string
 	Limit   *int64
+	Offset  *int64
 
 	_basePath string
 	// avoid unkeyed usage
@@ -77,6 +78,14 @@ func (o *ObjectsListURL) Build() (*url.URL, error) {
 	}
 	if limitQ != "" {
 		qs.Set("limit", limitQ)
+	}
+
+	var offsetQ string
+	if o.Offset != nil {
+		offsetQ = swag.FormatInt64(*o.Offset)
+	}
+	if offsetQ != "" {
+		qs.Set("offset", offsetQ)
 	}
 
 	_result.RawQuery = qs.Encode()

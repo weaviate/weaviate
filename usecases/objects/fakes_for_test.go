@@ -148,9 +148,9 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, limit int,
+func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, additional additional.Properties) (search.Results, error) {
-	args := f.Called(limit, filters, additional)
+	args := f.Called(offset, limit, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 

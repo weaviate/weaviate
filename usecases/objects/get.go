@@ -13,8 +13,8 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -46,7 +46,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	limit *int64, additional additional.Properties) ([]*models.Object, error) {
+	offset, limit *int64, additional additional.Properties) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.getObjectsFromRepo(ctx, limit, additional)
+	return m.getObjectsFromRepo(ctx, offset, limit, additional)
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
@@ -82,11 +82,13 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 	return res, nil
 }
 
-func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
+func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
 	additional additional.Properties) ([]*models.Object, error) {
-	smartLimit := m.localLimitOrGlobalLimit(limit)
-
-	res, err := m.vectorRepo.ObjectSearch(ctx, smartLimit, nil, additional)
+	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
+	if err != nil {
+		return nil, NewErrInternal("list objects: %v", err)
+	}
+	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit, nil, additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
@@ -101,13 +103,32 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, limit *int64,
 	return res.ObjectsWithVector(additional.Vector), nil
 }
 
-func (m *Manager) localLimitOrGlobalLimit(paramMaxResults *int64) int {
-	maxResults := m.config.Config.QueryDefaults.Limit
-	// Get the max results from params, if exists
-	if paramMaxResults != nil {
-		maxResults = *paramMaxResults
+func (m *Manager) localOffsetOrZero(paramOffset *int64) int {
+	offset := int64(0)
+	if paramOffset != nil {
+		offset = *paramOffset
 	}
 
-	// Max results form URL, otherwise max = config.Limit.
-	return int(math.Min(float64(maxResults), float64(m.config.Config.QueryDefaults.Limit)))
+	return int(offset)
+}
+
+func (m *Manager) localLimitOrGlobalLimit(offset int64, paramMaxResults *int64) int {
+	limit := int64(m.config.Config.QueryDefaults.Limit)
+	// Get the max results from params, if exists
+	if paramMaxResults != nil {
+		limit = *paramMaxResults
+	}
+
+	return int(limit)
+}
+
+func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, int, error) {
+	offset := m.localOffsetOrZero(paramOffset)
+	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
+
+	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
+		return 0, 0, errors.New("query maximum results exceeded")
+	}
+
+	return offset, limit, nil
 }

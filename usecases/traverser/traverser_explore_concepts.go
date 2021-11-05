@@ -48,6 +48,7 @@ type NearObjectParams struct {
 type ExploreParams struct {
 	NearVector   *NearVectorParams
 	NearObject   *NearObjectParams
+	Offset       int
 	Limit        int
 	ModuleParams map[string]interface{}
 }
