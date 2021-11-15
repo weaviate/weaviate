@@ -85,13 +85,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 		return pointers, errors.Wrap(err, "read row")
 	}
 
-	newChecksum, err := combineChecksums(hashes)
-	if err != nil {
-		return pointers, errors.Wrap(err, "calculate new checksum")
-	}
-
-	pointers.checksum = newChecksum
-
+	pointers.checksum = combineChecksums(hashes, pv.operator)
 	if !tolerateDuplicates {
 		pointers.removeDuplicates()
 	}
@@ -153,15 +147,11 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 	fmt.Printf("inside loop took %s\n", insideLoopTook)
 	fmt.Printf("entire loop took %s\n", time.Since(beforeLoop))
 
-	newChecksum, err := combineChecksums(hashes)
-	if err != nil {
-		return pointers, errors.Wrap(err, "calculate new checksum")
-	}
+	pointers.checksum = combineChecksums(hashes, pv.operator)
 
 	if !tolerateDuplicates {
 		pointers.removeDuplicates()
 	}
-	pointers.checksum = newChecksum
 	return pointers, nil
 }
 
@@ -205,24 +195,42 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 // single row in the inverted index, but several (e.g. for greater than 5, we
 // right read the row containing 5, 6, 7 and so on. Since a field contains just
 // one value the docIDs are guaranteed to be unique, we can simply append them.
-// But to be able to recognize this read operation further than the line (e.g.
+// But to be able to recognize this read operation further down the line (e.g.
 // when merging independent filter) we need a new checksum describing exactly
 // this request. Thus we simply treat the existing checksums as an input string
 // (appended) and caculate a new one
-func combineChecksums(checksums [][]byte) ([]byte, error) {
+func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 	if len(checksums) == 1 {
-		return checksums[0], nil
+		return checksums[0]
 	}
 
-	var total []byte
-	for _, chksum := range checksums {
-		total = append(total, chksum...)
+	total := make([]byte, len(checksums)*8+1) // one extra byte for operator encoding
+	for i, chksum := range checksums {
+		copy(total[(i*8):(i+1)*8], chksum)
 	}
+	total[len(total)-1] = uint8(operator)
 
 	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
-	buf := bytes.NewBuffer(make([]byte, 0, 8))
-	err := binary.Write(buf, binary.LittleEndian, &newChecksum)
-	return buf.Bytes(), err
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, newChecksum)
+	return buf
+}
+
+func combineSetChecksums(sets []*docPointers, operator filters.Operator) []byte {
+	if len(sets) == 1 {
+		return sets[0].checksum
+	}
+
+	total := make([]byte, 8*len(sets)+1) // one extra byte for operator encoding
+	for i, set := range sets {
+		copy(total[(i*8):(i+1)*8], set.checksum)
+	}
+	total[len(total)-1] = uint8(operator)
+
+	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, newChecksum)
+	return buf
 }
 
 // docPointerChecksum is a way to generate a checksum from an already "parsed"

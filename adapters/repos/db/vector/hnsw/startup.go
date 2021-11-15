@@ -159,10 +159,10 @@ func (h *hnsw) prefillCache() {
 	// By setting the level lower, we make sure the topmost layers are present in
 	// the cache and anything that is cached subsequently follows user
 	// demand based on actual load as opposed to our predictions.
-	limit := 500000 / 2 // TODO: v1 make configurable when cache is configurable.
+	limit := 500000000 / 2 // TODO: v1 make configurable when cache is configurable.
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
 		err := newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
