@@ -194,12 +194,7 @@ func mergeOr(children []*propValuePair, acceptDuplicates bool) (*docPointers, er
 		})
 	}
 
-	checksum, err := combineChecksums(checksums)
-	if err != nil {
-		return nil, errors.Wrap(err, "combine checksums")
-	}
-
-	out.checksum = checksum
+	out.checksum = combineChecksums(checksums, filters.OperatorOr)
 	return &out, nil
 }
 

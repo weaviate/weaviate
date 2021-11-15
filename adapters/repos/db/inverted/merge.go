@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
 func mergeAndOptimized(children []*propValuePair,
@@ -34,6 +35,8 @@ func mergeAndOptimized(children []*propValuePair,
 		return sets[0], nil
 	}
 
+	checksum := combineSetChecksums(sets, filters.OperatorAnd)
+
 	// Part 2: Recursively intersect sets
 	// ----------------------------------
 	// The idea is that we pick the smallest list first and check against it, as
@@ -59,16 +62,6 @@ func mergeAndOptimized(children []*propValuePair,
 		sets[0] = nil // set to nil to avoid mem leak, as we are cutting from * slice
 		sets[1] = nil // set to nil to avoid mem leak, as we are cutting from * slice
 		sets = append([]*docPointers{merged}, sets[2:]...)
-	}
-
-	idsForChecksum := make([]uint64, len(sets[0].docIDs))
-	for i := range sets[0].docIDs {
-		idsForChecksum[i] = sets[0].docIDs[i].id
-	}
-
-	checksum, err := docPointerChecksum(idsForChecksum)
-	if err != nil {
-		return nil, errors.Wrapf(err, "calculate checksum")
 	}
 
 	sets[0].checksum = checksum
