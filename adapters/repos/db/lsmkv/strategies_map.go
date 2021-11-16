@@ -106,26 +106,28 @@ func (m *mapDecoder) doSimplified(in []value) ([]MapPair, error) {
 	return out, nil
 }
 
-func (m *mapDecoder) removeTombstonesFromResults(results []MapPair,
+func (m *mapDecoder) removeTombstonesFromResults(candidates []MapPair,
 	tombstones []tombstone) []MapPair {
-	for _, ts := range tombstones {
-		// we need to eliminate every matching elements up until the specified pos,
-		// any entry after the pos would have been a re-create after the deletion
+	after := make([]MapPair, len(candidates))
+	newPos := 0
+	for origPos, candidate := range candidates {
 
-		for i, result := range results {
-			if !bytes.Equal(result.Key, ts.key) {
-				continue
-			}
-
-			if i == len(results)-1 {
-				results = results[:i]
-			} else {
-				results = append(results[:i], results[i+1:]...)
+		skip := false
+		for _, tombstone := range tombstones {
+			if tombstone.pos > origPos && bytes.Equal(tombstone.key, candidate.Key) {
+				skip = true
 			}
 		}
+
+		if skip == true {
+			continue
+		}
+
+		after[newPos] = candidate
+		newPos++
 	}
 
-	return results
+	return after[:newPos]
 }
 
 // DoPartial keeps "unused" tombstones

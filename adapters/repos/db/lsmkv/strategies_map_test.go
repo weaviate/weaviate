@@ -163,3 +163,174 @@ func TestMapEncoderDecoderJourney(t *testing.T) {
 		})
 	}
 }
+
+func TestDecoderRemoveTombstones(t *testing.T) {
+	t.Run("single entry, no tombstones", func(t *testing.T) {
+		m := newMapDecoder()
+		input := mustEncode([]MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		})
+
+		actual, err := m.doSimplified(input)
+		require.Nil(t, err)
+
+		expected := []MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("single entry, single tombstone", func(t *testing.T) {
+		m := newMapDecoder()
+		input := mustEncode([]MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+			{
+				Key:       []byte("hello"),
+				Tombstone: true,
+			},
+		})
+
+		actual, err := m.doSimplified(input)
+		require.Nil(t, err)
+
+		expected := []MapPair{}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("single entry, single tombstone, then readded", func(t *testing.T) {
+		m := newMapDecoder()
+		input := mustEncode([]MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+			{
+				Key:       []byte("hello"),
+				Tombstone: true,
+			},
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		})
+
+		actual, err := m.doSimplified(input)
+		require.Nil(t, err)
+
+		expected := []MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("three entries, two tombstones at the end", func(t *testing.T) {
+		m := newMapDecoder()
+		input := mustEncode([]MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("bonjour"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("guten tag"),
+				Value: []byte("world"),
+			},
+			{
+				Key:       []byte("hello"),
+				Tombstone: true,
+			},
+			{
+				Key:       []byte("bonjour"),
+				Tombstone: true,
+			},
+		})
+
+		actual, err := m.doSimplified(input)
+		require.Nil(t, err)
+
+		expected := []MapPair{
+			{
+				Key:   []byte("guten tag"),
+				Value: []byte("world"),
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("three entries, two tombstones at the end, then recreate the first", func(t *testing.T) {
+		m := newMapDecoder()
+		input := mustEncode([]MapPair{
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("bonjour"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("guten tag"),
+				Value: []byte("world"),
+			},
+			{
+				Key:       []byte("hello"),
+				Tombstone: true,
+			},
+			{
+				Key:       []byte("bonjour"),
+				Tombstone: true,
+			},
+			{
+				Key:   []byte("bonjour"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		})
+
+		actual, err := m.doSimplified(input)
+		require.Nil(t, err)
+
+		expected := []MapPair{
+			{
+				Key:   []byte("guten tag"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("bonjour"),
+				Value: []byte("world"),
+			},
+			{
+				Key:   []byte("hello"),
+				Value: []byte("world"),
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+}
+
+func mustEncode(kvs []MapPair) []value {
+	res, err := newMapEncoder().DoMulti(kvs)
+	if err != nil {
+		panic(err)
+	}
+
+	return res
+}
