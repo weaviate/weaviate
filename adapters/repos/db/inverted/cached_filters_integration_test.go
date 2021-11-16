@@ -168,6 +168,48 @@ func Test_CachedFilters(t *testing.T) {
 				return list
 			},
 		},
+		{
+			name: "exact match - and filter",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "foo",
+								Property: schema.PropertyName(propName),
+							},
+							Value: &filters.Value{
+								Value: "modulo-7",
+								Type:  schema.DataTypeString,
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "foo",
+								Property: schema.PropertyName(propName),
+							},
+							Value: &filters.Value{
+								Value: "modulo-14",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(14)
+				return list
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(14)
+				return list
+			},
+		},
 	}
 
 	for _, test := range tests {
