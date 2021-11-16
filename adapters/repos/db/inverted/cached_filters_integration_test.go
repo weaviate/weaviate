@@ -82,10 +82,17 @@ func Test_CachedFilters(t *testing.T) {
 	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
 
-	// TODO: instead of loop add different cases
-	for i := 0; i < 10; i++ {
-		t.Run("exact match", func(t *testing.T) {
-			filter := &filters.LocalFilter{
+	type test struct {
+		name                     string
+		filter                   *filters.LocalFilter
+		expectedListBeforeUpdate func() helpers.AllowList
+		expectedListAfterUpdate  func() helpers.AllowList
+	}
+
+	tests := []test{
+		{
+			name: "exact match - single level",
+			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorEqual,
 					On: &filters.Path{
@@ -97,8 +104,25 @@ func Test_CachedFilters(t *testing.T) {
 						Type:  schema.DataTypeString,
 					},
 				},
-			}
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(14)
+				return list
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(14)
+				list.Insert(21)
+				return list
+			},
+		},
+	}
 
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			rowCacher.reset()
 
 			t.Run("cache should be empty", func(t *testing.T) {
@@ -106,12 +130,10 @@ func Test_CachedFilters(t *testing.T) {
 			})
 
 			t.Run("with cold cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				res, err := searcher.DocIDs(context.Background(), test.filter,
+					additional.Properties{}, "")
 				assert.Nil(t, err)
-				assert.Equal(t, helpers.AllowList{
-					7:  struct{}{},
-					14: struct{}{},
-				}, res)
+				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
 
 			t.Run("cache should be filled now", func(t *testing.T) {
@@ -122,12 +144,10 @@ func Test_CachedFilters(t *testing.T) {
 			})
 
 			t.Run("with warm cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				res, err := searcher.DocIDs(context.Background(), test.filter,
+					additional.Properties{}, "")
 				assert.Nil(t, err)
-				assert.Equal(t, helpers.AllowList{
-					7:  struct{}{},
-					14: struct{}{},
-				}, res)
+				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
 
 			t.Run("cache should have received a hit", func(t *testing.T) {
@@ -147,13 +167,10 @@ func Test_CachedFilters(t *testing.T) {
 			})
 
 			t.Run("with a stale cache", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				res, err := searcher.DocIDs(context.Background(), test.filter,
+					additional.Properties{}, "")
 				assert.Nil(t, err)
-				assert.Equal(t, helpers.AllowList{
-					7:  struct{}{},
-					14: struct{}{},
-					21: struct{}{},
-				}, res)
+				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
 
 			t.Run("cache should have not have received another hit", func(t *testing.T) {
@@ -161,24 +178,23 @@ func Test_CachedFilters(t *testing.T) {
 			})
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
-				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				res, err := searcher.DocIDs(context.Background(), test.filter,
+					additional.Properties{}, "")
 				assert.Nil(t, err)
-				assert.Equal(t, helpers.AllowList{
-					7:  struct{}{},
-					14: struct{}{},
-					21: struct{}{},
-				}, res)
+				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
 
 			t.Run("cache should have received another hit", func(t *testing.T) {
 				assert.Equal(t, 2, rowCacher.hitCount)
 			})
 
-			t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-				idsMapValues := idsToBinaryMapValues([]uint64{21})
-				require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"), idsMapValues[0].Key))
-				rowCacher.reset()
-			})
+			t.Run("restore inverted index, so we can run test suite again",
+				func(t *testing.T) {
+					idsMapValues := idsToBinaryMapValues([]uint64{21})
+					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"),
+						idsMapValues[0].Key))
+					rowCacher.reset()
+				})
 		})
 	}
 }
