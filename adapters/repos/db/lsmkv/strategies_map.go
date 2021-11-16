@@ -119,7 +119,7 @@ func (m *mapDecoder) removeTombstonesFromResults(candidates []MapPair,
 			}
 		}
 
-		if skip == true {
+		if skip {
 			continue
 		}
 
