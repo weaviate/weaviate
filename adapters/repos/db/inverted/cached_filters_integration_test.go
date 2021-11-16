@@ -79,11 +79,12 @@ func Test_CachedFilters(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	rowCacher := NewRowCacher(1e6)
+	rowCacher := newRowCacherSpy()
 	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
 
-	for _, state := range []string{"cold", "warm"} {
-		t.Run(fmt.Sprintf("exact match with %s cache", state), func(t *testing.T) {
+	// TODO: instead of loop add different cases
+	for i := 0; i < 10; i++ {
+		t.Run("exact match", func(t *testing.T) {
 			filter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorEqual,
@@ -97,12 +98,87 @@ func Test_CachedFilters(t *testing.T) {
 					},
 				},
 			}
-			res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
-			assert.Nil(t, err)
-			assert.Equal(t, helpers.AllowList{
-				7:  struct{}{},
-				14: struct{}{},
-			}, res)
+
+			rowCacher.reset()
+
+			t.Run("cache should be empty", func(t *testing.T) {
+				assert.Equal(t, 0, rowCacher.count)
+			})
+
+			t.Run("with cold cache", func(t *testing.T) {
+				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				assert.Nil(t, err)
+				assert.Equal(t, helpers.AllowList{
+					7:  struct{}{},
+					14: struct{}{},
+				}, res)
+			})
+
+			t.Run("cache should be filled now", func(t *testing.T) {
+				assert.Equal(t, 1, rowCacher.count)
+				assert.Equal(t, helpers.AllowList{7: struct{}{}, 14: struct{}{}},
+					rowCacher.lastEntry.AllowList)
+				assert.Equal(t, 0, rowCacher.hitCount)
+			})
+
+			t.Run("with warm cache", func(t *testing.T) {
+				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				assert.Nil(t, err)
+				assert.Equal(t, helpers.AllowList{
+					7:  struct{}{},
+					14: struct{}{},
+				}, res)
+			})
+
+			t.Run("cache should have received a hit", func(t *testing.T) {
+				assert.Equal(t, 1, rowCacher.hitCount)
+			})
+
+			t.Run("alter the state to invalidate the cache", func(t *testing.T) {
+				value := []byte("modulo-7")
+				idsMapValues := idsToBinaryMapValues([]uint64{21})
+				hash := make([]byte, 16)
+				_, err := rand.Read(hash)
+				require.Nil(t, err)
+				for _, pair := range idsMapValues {
+					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+				}
+				require.Nil(t, bHashes.Put([]byte(value), hash))
+			})
+
+			t.Run("with a stale cache", func(t *testing.T) {
+				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				assert.Nil(t, err)
+				assert.Equal(t, helpers.AllowList{
+					7:  struct{}{},
+					14: struct{}{},
+					21: struct{}{},
+				}, res)
+			})
+
+			t.Run("cache should have not have received another hit", func(t *testing.T) {
+				assert.Equal(t, 1, rowCacher.hitCount)
+			})
+
+			t.Run("with the cache being fresh again now", func(t *testing.T) {
+				res, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, "")
+				assert.Nil(t, err)
+				assert.Equal(t, helpers.AllowList{
+					7:  struct{}{},
+					14: struct{}{},
+					21: struct{}{},
+				}, res)
+			})
+
+			t.Run("cache should have received another hit", func(t *testing.T) {
+				assert.Equal(t, 2, rowCacher.hitCount)
+			})
+
+			t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
+				idsMapValues := idsToBinaryMapValues([]uint64{21})
+				require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"), idsMapValues[0].Key))
+				rowCacher.reset()
+			})
 		})
 	}
 }
@@ -130,4 +206,38 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 	}
 
 	return out
+}
+
+type rowCacherSpy struct {
+	cacher    *RowCacher
+	count     int
+	hitCount  int
+	lastEntry *CacheEntry
+}
+
+func newRowCacherSpy() *rowCacherSpy {
+	spy := rowCacherSpy{}
+	spy.reset()
+	return &spy
+}
+
+func (s *rowCacherSpy) Load(id []byte) (*CacheEntry, bool) {
+	entry, ok := s.cacher.Load(id)
+	if ok {
+		s.hitCount++
+	}
+	return entry, ok
+}
+
+func (s *rowCacherSpy) Store(id []byte, entry *CacheEntry) {
+	s.count++
+	s.lastEntry = entry
+	s.cacher.Store(id, entry)
+}
+
+func (s *rowCacherSpy) reset() {
+	s.count = 0
+	s.hitCount = 0
+	s.lastEntry = nil
+	s.cacher = NewRowCacher(1e6)
 }

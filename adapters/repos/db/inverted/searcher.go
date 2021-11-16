@@ -32,10 +32,15 @@ import (
 type Searcher struct {
 	store         *lsmkv.Store
 	schema        schema.Schema
-	rowCache      *RowCacher
+	rowCache      cacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+}
+
+type cacher interface {
+	Store(id []byte, entry *CacheEntry)
+	Load(id []byte) (*CacheEntry, bool)
 }
 
 type DeletedDocIDChecker interface {
@@ -43,7 +48,7 @@ type DeletedDocIDChecker interface {
 }
 
 func NewSearcher(store *lsmkv.Store, schema schema.Schema,
-	rowCache *RowCacher, propIndices propertyspecific.Indices,
+	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
 	return &Searcher{
 		store:         store,
