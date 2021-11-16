@@ -119,6 +119,55 @@ func Test_CachedFilters(t *testing.T) {
 				return list
 			},
 		},
+		{
+			name: "exact match - or filter",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "foo",
+								Property: schema.PropertyName(propName),
+							},
+							Value: &filters.Value{
+								Value: "modulo-7",
+								Type:  schema.DataTypeString,
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "foo",
+								Property: schema.PropertyName(propName),
+							},
+							Value: &filters.Value{
+								Value: "modulo-8",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(8)
+				list.Insert(14)
+				list.Insert(16)
+				return list
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(8)
+				list.Insert(14)
+				list.Insert(16)
+				list.Insert(21)
+				return list
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -138,7 +187,7 @@ func Test_CachedFilters(t *testing.T) {
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
-				assert.Equal(t, helpers.AllowList{7: struct{}{}, 14: struct{}{}},
+				assert.Equal(t, test.expectedListBeforeUpdate(),
 					rowCacher.lastEntry.AllowList)
 				assert.Equal(t, 0, rowCacher.hitCount)
 			})

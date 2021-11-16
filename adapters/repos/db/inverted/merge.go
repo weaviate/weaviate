@@ -102,9 +102,11 @@ func mergeOrAcceptDuplicates(in []*docPointers) (*docPointers, error) {
 		docIDs: make([]docPointer, size),
 	}
 
+	index := 0
 	for i := range in {
 		for j := range in[i].docIDs {
-			out.docIDs[i+j] = in[i].docIDs[j]
+			out.docIDs[index] = in[i].docIDs[j]
+			index++
 		}
 	}
 
