@@ -51,7 +51,7 @@ func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
 
 func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
-	rr := NewRowReader(b, pv.value, pv.operator)
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 
 	var pointers docPointers
 	var hashes [][]byte
@@ -70,7 +70,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
 		}
 
-		currHash, err := hashBucket.Get(pv.value)
+		currHash, err := hashBucket.Get(k)
 		if err != nil {
 			return false, errors.Wrap(err, "get hash")
 		}
