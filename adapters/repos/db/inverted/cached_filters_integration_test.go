@@ -392,6 +392,51 @@ func Test_CachedFilters_Int(t *testing.T) {
 			},
 		},
 		{
+			name: "exact match - greater than",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorGreaterThan,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: 6,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(14)
+				list.Insert(8)
+				list.Insert(16)
+				list.Insert(9)
+				list.Insert(10)
+				list.Insert(11)
+				list.Insert(12)
+				list.Insert(13)
+				list.Insert(15)
+				return list
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				list := helpers.AllowList{}
+				list.Insert(7)
+				list.Insert(14)
+				list.Insert(8)
+				list.Insert(16)
+				list.Insert(9)
+				list.Insert(10)
+				list.Insert(11)
+				list.Insert(12)
+				list.Insert(13)
+				list.Insert(15)
+				list.Insert(21)
+				return list
+			},
+		},
+		{
 			name: "exact match - or filter",
 			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
@@ -501,6 +546,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
+				require.NotNil(t, rowCacher.lastEntry)
 				assert.Equal(t, test.expectedListBeforeUpdate(),
 					rowCacher.lastEntry.AllowList)
 				assert.Equal(t, 0, rowCacher.hitCount)

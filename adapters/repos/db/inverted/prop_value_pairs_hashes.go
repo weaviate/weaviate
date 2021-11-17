@@ -1,8 +1,11 @@
 package inverted
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
@@ -13,15 +16,13 @@ func (pv *propValuePair) cacheable() bool {
 		}
 	}
 
-	if pv.operator != filters.OperatorEqual &&
-		pv.operator != filters.OperatorAnd &&
-		pv.operator != filters.OperatorOr {
-		// non exact matches not yet cachable
+	switch pv.operator {
+	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
+		filters.OperatorGreaterThan:
+		return true
+	default:
 		return false
 	}
-
-	// exact match filters can be cached
-	return true
 }
 
 func (pv *propValuePair) fetchHashes(s *Searcher) error {
@@ -37,9 +38,19 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 			return errors.Errorf("hash bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		hash, err := b.Get(pv.value)
-		if err != nil {
-			return err
+		var hash []byte
+		var err error
+		if pv.operator == filters.OperatorEqual {
+			hash, err = b.Get(pv.value)
+			if err != nil {
+				return err
+			}
+		} else {
+			hash, err = pv.hashForNonEqualOp(s.store, b)
+			if err != nil {
+				return err
+			}
+
 		}
 
 		pv.docIDs.checksum = hash
@@ -57,4 +68,38 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	}
 
 	return nil
+}
+
+func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
+	hashBucket *lsmkv.Bucket) ([]byte, error) {
+	if pv.hasFrequency {
+		return nil, errors.Errorf("obtain hash for non-equal op for prop with frequency not implemented yet")
+	}
+
+	bucketName := helpers.BucketFromPropNameLSM(pv.prop)
+	propBucket := store.Bucket(bucketName)
+	if propBucket == nil && pv.operator != filters.OperatorWithinGeoRange {
+		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+	}
+
+	rr := NewRowReader(propBucket, pv.value, pv.operator, true)
+
+	var keys [][]byte
+	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
+		keys = append(keys, k)
+		return true, nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "read row")
+	}
+
+	hashes := make([][]byte, len(keys))
+	for i, key := range keys {
+		h, err := hashBucket.Get(key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get hash for key %v", key)
+		}
+		hashes[i] = h
+	}
+
+	return combineChecksums(hashes, pv.operator), nil
 }
