@@ -106,17 +106,10 @@ func Test_CachedFilters_String(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				return list
+				return allowList(7, 14)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				list.Insert(21)
-				return list
+				return allowList(7, 14, 21)
 			},
 		},
 		{
@@ -151,21 +144,10 @@ func Test_CachedFilters_String(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(8)
-				list.Insert(14)
-				list.Insert(16)
-				return list
+				return allowList(7, 8, 14, 16)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(8)
-				list.Insert(14)
-				list.Insert(16)
-				list.Insert(21)
-				return list
+				return allowList(7, 8, 14, 16, 21)
 			},
 		},
 		{
@@ -200,14 +182,10 @@ func Test_CachedFilters_String(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(14)
-				return list
+				return allowList(14)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(14)
-				return list
+				return allowList(14)
 			},
 		},
 	}
@@ -378,21 +356,14 @@ func Test_CachedFilters_Int(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				return list
+				return allowList(7, 14)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				list.Insert(21)
-				return list
+				return allowList(7, 14, 21)
 			},
 		},
 		{
-			name: "exact match - greater than",
+			name: "greater than",
 			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorGreaterThan,
@@ -407,33 +378,98 @@ func Test_CachedFilters_Int(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				list.Insert(8)
-				list.Insert(16)
-				list.Insert(9)
-				list.Insert(10)
-				list.Insert(11)
-				list.Insert(12)
-				list.Insert(13)
-				list.Insert(15)
-				return list
+				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(14)
-				list.Insert(8)
-				list.Insert(16)
-				list.Insert(9)
-				list.Insert(10)
-				list.Insert(11)
-				list.Insert(12)
-				list.Insert(13)
-				list.Insert(15)
-				list.Insert(21)
-				return list
+				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15, 21)
+			},
+		},
+		{
+			name: "greater than equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorGreaterThanEqual,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: 6,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15)
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15, 21)
+			},
+		},
+		{
+			name: "less than",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorLessThan,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: 8,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
+			},
+		},
+		{
+			name: "less than equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorLessThanEqual,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: 8,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
+			},
+		},
+		{
+			name: "not equal",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNotEqual,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: 13,
+						Type:  schema.DataTypeInt,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16)
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21)
 			},
 		},
 		{
@@ -468,21 +504,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(8)
-				list.Insert(14)
-				list.Insert(16)
-				return list
+				return allowList(7, 8, 14, 16)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(7)
-				list.Insert(8)
-				list.Insert(14)
-				list.Insert(16)
-				list.Insert(21)
-				return list
+				return allowList(7, 8, 14, 16, 21)
 			},
 		},
 		{
@@ -517,14 +542,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 				},
 			},
 			expectedListBeforeUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(14)
-				return list
+				return allowList(14)
 			},
 			expectedListAfterUpdate: func() helpers.AllowList {
-				list := helpers.AllowList{}
-				list.Insert(14)
-				return list
+				return allowList(14)
 			},
 		},
 	}
@@ -663,4 +684,13 @@ func (s *rowCacherSpy) reset() {
 	s.hitCount = 0
 	s.lastEntry = nil
 	s.cacher = NewRowCacher(1e6)
+}
+
+func allowList(in ...uint64) helpers.AllowList {
+	list := helpers.AllowList{}
+	for _, elem := range in {
+		list.Insert(elem)
+	}
+
+	return list
 }

@@ -18,7 +18,9 @@ func (pv *propValuePair) cacheable() bool {
 
 	switch pv.operator {
 	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
-		filters.OperatorGreaterThan:
+		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual,
+		filters.OperatorLessThan, filters.OperatorLessThanEqual,
+		filters.OperatorNotEqual:
 		return true
 	default:
 		return false
