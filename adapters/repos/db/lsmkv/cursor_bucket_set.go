@@ -247,6 +247,8 @@ func (c *CursorSet) advanceInner(id int) {
 	}
 
 	c.state[id].key = k
-	c.state[id].value = v
+	if !c.keyOnly {
+		c.state[id].value = v
+	}
 	c.state[id].err = nil
 }
