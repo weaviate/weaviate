@@ -20,7 +20,7 @@ func (pv *propValuePair) cacheable() bool {
 	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
 		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual,
 		filters.OperatorLessThan, filters.OperatorLessThanEqual,
-		filters.OperatorNotEqual:
+		filters.OperatorNotEqual, filters.OperatorLike:
 		return true
 	default:
 		return false
@@ -74,20 +74,48 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 
 func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	hashBucket *lsmkv.Bucket) ([]byte, error) {
-	if pv.hasFrequency {
-		return nil, errors.Errorf("obtain hash for non-equal op for prop with frequency not implemented yet")
-	}
-
 	bucketName := helpers.BucketFromPropNameLSM(pv.prop)
 	propBucket := store.Bucket(bucketName)
 	if propBucket == nil && pv.operator != filters.OperatorWithinGeoRange {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
+	if pv.hasFrequency {
+		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket)
+	}
+	return pv.hashForNonEqualOpWithoutFrequency(propBucket, hashBucket)
+}
+
+func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
+	hashBucket *lsmkv.Bucket) ([]byte, error) {
 	rr := NewRowReader(propBucket, pv.value, pv.operator, true)
 
 	var keys [][]byte
 	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
+		keys = append(keys, k)
+		return true, nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "read row")
+	}
+
+	hashes := make([][]byte, len(keys))
+	for i, key := range keys {
+		h, err := hashBucket.Get(key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get hash for key %v", key)
+		}
+		hashes[i] = h
+	}
+
+	return combineChecksums(hashes, pv.operator), nil
+}
+
+func (pv *propValuePair) hashForNonEqualOpWithFrequency(propBucket,
+	hashBucket *lsmkv.Bucket) ([]byte, error) {
+	rr := NewRowReaderFrequency(propBucket, pv.value, pv.operator, true)
+
+	var keys [][]byte
+	if err := rr.Read(context.TODO(), func(k []byte, ids []lsmkv.MapPair) (bool, error) {
 		keys = append(keys, k)
 		return true, nil
 	}); err != nil {

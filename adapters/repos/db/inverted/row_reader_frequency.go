@@ -27,14 +27,16 @@ type RowReaderFrequency struct {
 	value    []byte
 	bucket   *lsmkv.Bucket
 	operator filters.Operator
+	keyOnly  bool
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator) *RowReaderFrequency {
+	operator filters.Operator, keyOnly bool) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:   bucket,
 		value:    value,
 		operator: operator,
+		keyOnly:  keyOnly,
 	}
 }
 
@@ -98,7 +100,7 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFrequency,
 	allowEqual bool) error {
-	c := rr.bucket.MapCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
@@ -128,7 +130,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 // prior to that.
 func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequency,
 	allowEqual bool) error {
-	c := rr.bucket.MapCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
@@ -156,7 +158,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequency) error {
-	c := rr.bucket.MapCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -189,7 +191,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 
 	// TODO: don't we need to check here if this is a doc id vs a object search?
 	// Or is this not a problem because the latter removes duplicates anyway?
-	c := rr.bucket.MapCursor(lsmkv.MapListAcceptDuplicates())
+	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
 	defer c.Close()
 
 	var (
@@ -236,4 +238,15 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 	}
 
 	return nil
+}
+
+// newCursor will either return a regular cursor - or a key-only cursor if
+// keyOnly==true
+func (rr *RowReaderFrequency) newCursor(
+	opts ...lsmkv.MapListOption) *lsmkv.CursorMap {
+	if rr.keyOnly {
+		return rr.bucket.MapCursorKeyOnly(opts...)
+	}
+
+	return rr.bucket.MapCursor(opts...)
 }

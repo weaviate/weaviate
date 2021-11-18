@@ -113,6 +113,28 @@ func Test_CachedFilters_String(t *testing.T) {
 			},
 		},
 		{
+			name: "like operator",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorLike,
+					On: &filters.Path{
+						Class:    "foo",
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: "modulo-1*",
+						Type:  schema.DataTypeString,
+					},
+				},
+			},
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList(10, 11, 12, 13, 14, 15, 16)
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList(10, 11, 12, 13, 14, 15, 16, 17)
+			},
+		},
+		{
 			name: "exact match - or filter",
 			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
@@ -207,6 +229,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
+				require.NotNil(t, rowCacher.lastEntry)
 				assert.Equal(t, test.expectedListBeforeUpdate(),
 					rowCacher.lastEntry.AllowList)
 				assert.Equal(t, 0, rowCacher.hitCount)
@@ -228,6 +251,17 @@ func Test_CachedFilters_String(t *testing.T) {
 				idsMapValues := idsToBinaryMapValues([]uint64{21})
 				hash := make([]byte, 16)
 				_, err := rand.Read(hash)
+				require.Nil(t, err)
+				for _, pair := range idsMapValues {
+					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
+				}
+				require.Nil(t, bHashes.Put([]byte(value), hash))
+
+				// for like filter
+				value = []byte("modulo-17")
+				idsMapValues = idsToBinaryMapValues([]uint64{17})
+				hash = make([]byte, 16)
+				_, err = rand.Read(hash)
 				require.Nil(t, err)
 				for _, pair := range idsMapValues {
 					require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
@@ -261,6 +295,10 @@ func Test_CachedFilters_String(t *testing.T) {
 				func(t *testing.T) {
 					idsMapValues := idsToBinaryMapValues([]uint64{21})
 					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-7"),
+						idsMapValues[0].Key))
+
+					idsMapValues = idsToBinaryMapValues([]uint64{17})
+					require.Nil(t, bWithFrequency.MapDeleteKey([]byte("modulo-17"),
 						idsMapValues[0].Key))
 					rowCacher.reset()
 				})
