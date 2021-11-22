@@ -40,6 +40,15 @@ type CacheEntry struct {
 	AllowList helpers.AllowList
 }
 
+// Size cannot be determined accurately since a golang map does not have fixed
+// size per elements. However, through experimentation we have found that a
+// map[uint64]struct{} rarely exceeds 25 bytes per entry, so we are using this
+// as an estimate. In addition, we know that the partial content uses an array
+// where we can assume full efficiency, i.e. 8 bytes per entry.
+func (ce *CacheEntry) Size() uint64 {
+	return uint64(25*len(ce.AllowList) + 8*len(ce.Partial.docIDs))
+}
+
 type CacheEntryType uint8
 
 func (t CacheEntryType) String() string {
@@ -59,7 +68,7 @@ const (
 )
 
 func (rc *RowCacher) Store(id []byte, row *CacheEntry) {
-	size := uint64(100) // TODO: calculate size
+	size := row.Size()
 	if size > rc.maxSize {
 		return
 	}
@@ -74,8 +83,8 @@ func (rc *RowCacher) Store(id []byte, row *CacheEntry) {
 func (rc *RowCacher) deleteExistingEntries(sizeToDelete uint64) {
 	var deleted uint64
 	rc.rowStore.Range(func(key, value interface{}) bool {
-		parsed := value.(*docPointers)
-		size := uint64(parsed.count * 4)
+		parsed := value.(*CacheEntry)
+		size := parsed.Size()
 		rc.rowStore.Delete(key)
 		deleted += size
 		atomic.AddUint64(&rc.currentSize, -size)
@@ -90,10 +99,6 @@ func (rc *RowCacher) Load(id []byte) (*CacheEntry, bool) {
 	}
 
 	parsed := retrieved.(*CacheEntry)
-	// if !bytes.Equal(parsed.checksum, expectedChecksum) {
-	// 	rc.rowStore.Delete(string(id))
-	// 	return nil, false
-	// }
 
 	return parsed, true
 }
