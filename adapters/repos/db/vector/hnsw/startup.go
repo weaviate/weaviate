@@ -151,15 +151,7 @@ func (h *hnsw) PostStartup() {
 }
 
 func (h *hnsw) prefillCache() {
-	// The motivation behind having a limit that is lower than the overall cache
-	// limit, is so we don't fill up the whole cache right away. This would lead
-	// to it overflowing on the next request which would reset it and in turn
-	// diminish the benefit of prefilling it in the first place.
-	//
-	// By setting the level lower, we make sure the topmost layers are present in
-	// the cache and anything that is cached subsequently follows user
-	// demand based on actual load as opposed to our predictions.
-	limit := 500000000 / 2 // TODO: v1 make configurable when cache is configurable.
+	limit := int(h.cache.copyMaxSize())
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
