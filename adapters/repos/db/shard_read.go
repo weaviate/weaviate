@@ -115,33 +115,11 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 func (s *Shard) objectByIndexID(ctx context.Context,
 	indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
-	keyBuf := bytes.NewBuffer(nil)
-	binary.Write(keyBuf, binary.LittleEndian, &indexID)
-	key := keyBuf.Bytes()
-
-	// uuidLookup, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, key)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// if uuidLookup == nil {
-	// 	return nil, storobj.NewErrNotFoundf(indexID,
-	// 		"doc id inverted resolved to a nil object, i.e. no uuid found")
-	// }
-
-	// lookup, err := docid.LookupFromBinary(uuidLookup)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "unmarshal docID lookup")
-	// }
-
-	// if lookup.Deleted && !acceptDeleted {
-	// 	return nil, storobj.NewErrNotFoundf(indexID,
-	// 		"doc id is marked as deleted at %s",
-	// 		lookup.DeletionTime.String())
-	// }
+	keyBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(0, key)
+		GetBySecondary(0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -160,12 +138,21 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 }
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
-	obj, err := s.objectByIndexID(ctx, indexID, true)
+	keyBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(keyBuf, indexID)
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondary(0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
 
-	return obj.Vector, nil
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"uuid found for docID, but object is nil")
+	}
+
+	return storobj.VectorFromBinary(bytes)
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
