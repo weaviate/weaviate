@@ -118,7 +118,7 @@ func (n *shardedLockCache) drop() {
 
 func (c *shardedLockCache) watchForDeletion() {
 	go func() {
-		t := time.Tick(10 * time.Second)
+		t := time.Tick(3 * time.Second)
 		for {
 			select {
 			case <-c.cancel:
@@ -140,6 +140,7 @@ func (c *shardedLockCache) replaceIfFull() {
 		}
 		c.releaseAllLocks()
 	}
+	atomic.StoreInt64(&c.count, 0)
 }
 
 func (c *shardedLockCache) obtainAllLocks() {
@@ -163,6 +164,11 @@ func (c *shardedLockCache) releaseAllLocks() {
 
 func (c *shardedLockCache) updateMaxSize(size int64) {
 	atomic.StoreInt64(&c.maxSize, size)
+}
+
+func (c *shardedLockCache) copyMaxSize() int64 {
+	sizeCopy := atomic.LoadInt64(&c.maxSize)
+	return sizeCopy
 }
 
 // noopCache can be helpful in debugging situations, where we want to
