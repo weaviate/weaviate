@@ -38,6 +38,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
+	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
@@ -374,6 +375,10 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["text-spellcheck"]; ok {
 		appState.Modules.Register(modspellcheck.New())
+	}
+
+	if _, ok := enabledModules["multi2vec-clip"]; ok {
+		appState.Modules.Register(modclip.New())
 	}
 
 	return nil

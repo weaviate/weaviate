@@ -46,3 +46,7 @@ services:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
       - "8004:8080"
+  multi2vec-clip:
+    image: multi2vec-clip:latest
+    ports:
+      - "8005:8080"
