@@ -106,6 +106,10 @@ func (f *fakeCache) drop() {
 	panic("not implemented")
 }
 
+func (f *fakeCache) copyMaxSize() int64 {
+	return 1e6
+}
+
 func (f *fakeCache) reset() {
 	f.store = map[uint64]struct{}{}
 }

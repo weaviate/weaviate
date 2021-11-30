@@ -24,19 +24,23 @@ import (
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-	// prop         []byte
 	value    []byte
 	bucket   *lsmkv.Bucket
 	operator filters.Operator
-	// hasFrequency bool
+
+	keyOnly bool
 }
 
+// If keyOnly is set, the RowReader will request key-only cursors wherever
+// cursors are used, the specified value arguments in the ReadFn will always be
+// nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator) *RowReader {
+	operator filters.Operator, keyOnly bool) *RowReader {
 	return &RowReader{
 		bucket:   bucket,
 		value:    value,
 		operator: operator,
+		keyOnly:  keyOnly,
 	}
 }
 
@@ -56,10 +60,9 @@ func NewRowReader(bucket *lsmkv.Bucket, value []byte,
 // if false is returned once, the loop is broken.
 type ReadFn func(k []byte, values [][]byte) (bool, error)
 
-// // ReadFnWithFrequency is the same as ReadFn, except that each id is also
-// // associated with an additional frequency
-// type ReadFnWithFrequency func(k []byte, values []lsmkv.MapPair) (bool, error)
-
+// Read a row using the specified ReadFn. If RowReader was created with
+// keysOnly==true, the values argument in the readFn will always be nil on all
+// requests involving cursors
 func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 	switch rr.operator {
 	case filters.OperatorEqual:
@@ -102,7 +105,7 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool) error {
-	c := rr.bucket.SetCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
@@ -132,7 +135,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 // prior to that.
 func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool) error {
-	c := rr.bucket.SetCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
@@ -160,7 +163,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.bucket.SetCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -191,7 +194,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 		return errors.Wrapf(err, "parse like value")
 	}
 
-	c := rr.bucket.SetCursor()
+	c := rr.newCursor()
 	defer c.Close()
 
 	var (
@@ -238,4 +241,14 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	}
 
 	return nil
+}
+
+// newCursor will either return a regular cursor - or a key-only cursor if
+// keyOnly==true
+func (rr *RowReader) newCursor() *lsmkv.CursorSet {
+	if rr.keyOnly {
+		return rr.bucket.SetCursorKeyOnly()
+	}
+
+	return rr.bucket.SetCursor()
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -35,6 +36,7 @@ type Explorer struct {
 	distancer       distancer
 	logger          logrus.FieldLogger
 	modulesProvider ModulesProvider
+	schemaGetter    schema.SchemaGetter
 }
 
 type ModulesProvider interface {
@@ -66,7 +68,11 @@ type vectorClassSearch interface {
 func NewExplorer(search vectorClassSearch,
 	distancer distancer, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) *Explorer {
-	return &Explorer{search, distancer, logger, modulesProvider}
+	return &Explorer{search, distancer, logger, modulesProvider, nil} // schemaGetter is set later
+}
+
+func (e *Explorer) SetSchemaGetter(sg schema.SchemaGetter) {
+	e.schemaGetter = sg
 }
 
 // GetClass from search and connector repo
@@ -77,6 +83,10 @@ func (e *Explorer) GetClass(ctx context.Context,
 			Offset: 0,
 			Limit:  100,
 		}
+	}
+
+	if err := e.validateFilters(params.Filters); err != nil {
+		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
@@ -329,8 +339,6 @@ func (e *Explorer) Concepts(ctx context.Context,
 	return results, nil
 }
 
-// TODO: This is temporary as the logic needs to be dynamic due to modules
-// providing some of the near<> Features
 func (e *Explorer) validateExploreParams(params ExploreParams) error {
 	if params.NearVector == nil && params.NearObject == nil && len(params.ModuleParams) == 0 {
 		return errors.Errorf("received no search params, one of [nearVector, nearObject] " +

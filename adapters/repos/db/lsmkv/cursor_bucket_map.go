@@ -21,10 +21,17 @@ type CursorMap struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
 	unlock       func()
+	listCfg      MapListOptionConfig
+	keyOnly      bool
 }
 
-func (b *Bucket) MapCursor() *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	b.flushLock.RLock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
 
 	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
 
@@ -45,7 +52,14 @@ func (b *Bucket) MapCursor() *CursorMap {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
+		listCfg:      c,
 	}
+}
+
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
+	c := b.MapCursor(cfgs...)
+	c.keyOnly = true
+	return c
 }
 
 func (c *CursorMap) Seek(key []byte) ([]byte, []MapPair) {
@@ -54,6 +68,10 @@ func (c *CursorMap) Seek(key []byte) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) Next() ([]byte, []MapPair) {
+	// before := time.Now()
+	// defer func() {
+	// 	fmt.Printf("-- total next took %s\n", time.Since(before))
+	// }()
 	return c.serveCurrentStateAndAdvance()
 }
 
@@ -80,7 +98,9 @@ func (c *CursorMap) seekAll(target []byte) {
 		}
 
 		state[i].key = key
-		state[i].value = value
+		if !c.keyOnly {
+			state[i].value = value
+		}
 	}
 
 	c.state = state
@@ -100,7 +120,9 @@ func (c *CursorMap) firstAll() {
 		}
 
 		state[i].key = key
-		state[i].value = value
+		if !c.keyOnly {
+			state[i].value = value
+		}
 	}
 
 	c.state = state
@@ -175,18 +197,34 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// all the same
 	key := c.state[ids[0]].key
 
+	// appending := time.Duration(0)
+	// advancing := time.Duration(0)
+
 	var raw []value
 	for _, id := range ids {
+		// before := time.Now()
 		raw = append(raw, c.state[id].value...)
+		// appending += time.Since(before)
+
+		// before = time.Now()
 		c.advanceInner(id)
+		// advancing += time.Since(before)
 	}
+	// fmt.Printf("--- extract values [appending] took %s\n", appending)
+	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
 
-	values, err := newMapDecoder().Do(raw)
-	if err != nil {
-		panic(errors.Wrap(err, "unexpected error decoding map values"))
+	if !c.keyOnly {
+		// before := time.Now()
+		values, err := newMapDecoder().Do(raw, c.listCfg.acceptDuplicates)
+		if err != nil {
+			panic(errors.Wrap(err, "unexpected error decoding map values"))
+		}
+		// fmt.Printf("--- decode values took %s\n", time.Since(before))
+
+		return key, values
+	} else {
+		return key, nil
 	}
-
-	return key, values
 }
 
 func (c *CursorMap) advanceInner(id int) {
@@ -210,6 +248,8 @@ func (c *CursorMap) advanceInner(id int) {
 	}
 
 	c.state[id].key = k
-	c.state[id].value = v
+	if !c.keyOnly {
+		c.state[id].value = v
+	}
 	c.state[id].err = nil
 }

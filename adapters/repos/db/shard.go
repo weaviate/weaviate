@@ -53,7 +53,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	s := &Shard{
 		index:            index,
 		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
+		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(index.invertedIndexConfig.

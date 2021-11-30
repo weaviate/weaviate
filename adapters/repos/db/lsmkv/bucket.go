@@ -50,7 +50,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 15*time.Second, logger)
+	sg, err := newSegmentGroup(dir, 3*time.Second, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -234,9 +234,26 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
-func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
+type MapListOptionConfig struct {
+	acceptDuplicates bool
+}
+
+type MapListOption func(c *MapListOptionConfig)
+
+func MapListAcceptDuplicates() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.acceptDuplicates = true
+	}
+}
+
+func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
 
 	var raw []value
 
@@ -246,7 +263,12 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 			return nil, err
 		}
 	}
-	raw = append(raw, v...)
+
+	if len(raw) > 0 {
+		raw = append(raw, v...)
+	} else {
+		raw = v
+	}
 
 	if b.flushing != nil {
 		v, err := b.flushing.getCollection(key)
@@ -266,7 +288,7 @@ func (b *Bucket) MapList(key []byte) ([]MapPair, error) {
 	}
 	raw = append(raw, v...)
 
-	return newMapDecoder().Do(raw)
+	return newMapDecoder().Do(raw, c.acceptDuplicates)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
