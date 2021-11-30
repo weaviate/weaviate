@@ -78,6 +78,7 @@ type vectorRepo interface {
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
 	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
+	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -181,6 +182,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	go clusterapi.Serve(appState)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
 	err = vectorRepo.WaitForStartup(ctx)

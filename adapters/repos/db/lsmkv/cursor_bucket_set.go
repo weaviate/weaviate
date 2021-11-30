@@ -21,6 +21,7 @@ type CursorSet struct {
 	innerCursors []innerCursorCollection
 	state        []cursorStateCollection
 	unlock       func()
+	keyOnly      bool
 }
 
 type innerCursorCollection interface {
@@ -66,6 +67,18 @@ func (b *Bucket) SetCursor() *CursorSet {
 	}
 }
 
+// SetCursorKeyOnly returns nil for all values. It has no control over the
+// underlying "inner" cursors which may still retrieve a value which is then
+// discarded. It does however, omit any handling of values, such as decoding,
+// making this considerably more efficient if only keys are required.
+//
+// The same locking rules as for SetCursor apply.
+func (b *Bucket) SetCursorKeyOnly() *CursorSet {
+	c := b.SetCursor()
+	c.keyOnly = true
+	return c
+}
+
 func (c *CursorSet) Seek(key []byte) ([]byte, [][]byte) {
 	c.seekAll(key)
 	return c.serveCurrentStateAndAdvance()
@@ -98,7 +111,9 @@ func (c *CursorSet) seekAll(target []byte) {
 		}
 
 		state[i].key = key
-		state[i].value = value
+		if !c.keyOnly {
+			state[i].value = value
+		}
 	}
 
 	c.state = state
@@ -118,7 +133,9 @@ func (c *CursorSet) firstAll() {
 		}
 
 		state[i].key = key
-		state[i].value = value
+		if !c.keyOnly {
+			state[i].value = value
+		}
 	}
 
 	c.state = state
@@ -199,8 +216,12 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		c.advanceInner(id)
 	}
 
-	values := newSetDecoder().Do(raw)
-	return key, values
+	if !c.keyOnly {
+		values := newSetDecoder().Do(raw)
+		return key, values
+	} else {
+		return key, nil
+	}
 }
 
 func (c *CursorSet) advanceInner(id int) {
@@ -208,7 +229,9 @@ func (c *CursorSet) advanceInner(id int) {
 	if err == NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
-		c.state[id].value = nil
+		if !c.keyOnly {
+			c.state[id].value = nil
+		}
 		return
 	}
 
@@ -224,6 +247,8 @@ func (c *CursorSet) advanceInner(id int) {
 	}
 
 	c.state[id].key = k
-	c.state[id].value = v
+	if !c.keyOnly {
+		c.state[id].value = v
+	}
 	c.state[id].err = nil
 }

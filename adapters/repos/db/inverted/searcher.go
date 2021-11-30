@@ -31,10 +31,15 @@ import (
 type Searcher struct {
 	store         *lsmkv.Store
 	schema        schema.Schema
-	rowCache      *RowCacher
+	rowCache      cacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+}
+
+type cacher interface {
+	Store(id []byte, entry *CacheEntry)
+	Load(id []byte) (*CacheEntry, bool)
 }
 
 type DeletedDocIDChecker interface {
@@ -42,7 +47,7 @@ type DeletedDocIDChecker interface {
 }
 
 func NewSearcher(store *lsmkv.Store, schema schema.Schema,
-	rowCache *RowCacher, propIndices propertyspecific.Indices,
+	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
 	return &Searcher{
 		store:         store,
@@ -70,7 +75,7 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs()
+	pointers, err := pv.mergeDocIDs(false)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -142,13 +147,26 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
+	cacheable := pv.cacheable()
+	if !cacheable {
+	} else {
+		if err := pv.fetchHashes(f); err != nil {
+			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
+		}
+
+		res, ok := f.rowCache.Load(pv.docIDs.checksum)
+		if ok && res.Type == CacheTypeAllowList {
+			return res.AllowList, nil
+		}
+	}
+
 	// when building an allow list (which is a set anyway) we can skip the costly
 	// deduplication, as it doesn't matter
 	if err := pv.fetchDocIDs(f, -1, true); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs()
+	pointers, err := pv.mergeDocIDs(true)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -156,6 +174,15 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
+	}
+
+	if cacheable {
+		f.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+			Type:      CacheTypeAllowList,
+			AllowList: out,
+			Partial:   &pv.docIDs,
+			Hash:      pv.docIDs.checksum,
+		})
 	}
 
 	return out, nil

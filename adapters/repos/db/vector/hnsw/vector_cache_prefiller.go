@@ -32,6 +32,7 @@ type cache interface {
 	grow(size uint64)
 	drop()
 	updateMaxSize(size int64)
+	copyMaxSize() int64
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,
@@ -65,12 +66,15 @@ func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 	level, limit int) (bool, error) {
 	// TODO: this makes zero sense, just copy the lists, don't actually block
 	//  !!!!
-	pf.index.Lock()
-	defer pf.index.Unlock()
 
 	before := time.Now()
 	layerCount := 0
-	for i, node := range pf.index.nodes {
+
+	pf.index.Lock()
+	nodesLen := len(pf.index.nodes)
+	pf.index.Unlock()
+
+	for i := 0; i < nodesLen; i++ {
 		if int(pf.cache.len()) >= limit {
 			break
 		}
@@ -78,6 +82,10 @@ func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
+
+		pf.index.Lock()
+		node := pf.index.nodes[i]
+		pf.index.Unlock()
 
 		if node == nil {
 			continue
@@ -89,8 +97,10 @@ func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 
 		// we are not really interested in the result, we just want to populate the
 		// cache
+		pf.index.Lock()
 		pf.cache.get(ctx, uint64(i))
 		layerCount++
+		pf.index.Unlock()
 	}
 
 	pf.logLevel(level, layerCount, before)

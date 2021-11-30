@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"hash/crc64"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -48,7 +49,7 @@ func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
 
 func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
-	rr := NewRowReader(b, pv.value, pv.operator)
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 
 	var pointers docPointers
 	var hashes [][]byte
@@ -67,7 +68,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
 		}
 
-		currHash, err := hashBucket.Get(pv.value)
+		currHash, err := hashBucket.Get(k)
 		if err != nil {
 			return false, errors.Wrap(err, "get hash")
 		}
@@ -82,13 +83,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 		return pointers, errors.Wrap(err, "read row")
 	}
 
-	newChecksum, err := combineChecksums(hashes)
-	if err != nil {
-		return pointers, errors.Wrap(err, "calculate new checksum")
-	}
-
-	pointers.checksum = newChecksum
-
+	pointers.checksum = combineChecksums(hashes, pv.operator)
 	if !tolerateDuplicates {
 		pointers.removeDuplicates()
 	}
@@ -98,22 +93,28 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 
 func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false)
 
 	var pointers docPointers
 	var hashes [][]byte
 
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
 		currentDocIDs := make([]docPointer, len(pairs))
+		// beforePairs := time.Now()
 		for i, pair := range pairs {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
-
-			r := bytes.NewReader(pair.Value)
-			binary.Read(r, binary.LittleEndian, &currentDocIDs[i].frequency)
+			freqBits := binary.LittleEndian.Uint64(pair.Value)
+			freq := math.Float64frombits(freqBits)
+			currentDocIDs[i].frequency = &freq
 		}
+		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 
 		pointers.count += uint64(len(pairs))
-		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+		if len(pointers.docIDs) > 0 {
+			pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
+		} else {
+			pointers.docIDs = currentDocIDs
+		}
 
 		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
 		if b == nil {
@@ -137,15 +138,11 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		return pointers, errors.Wrap(err, "read row")
 	}
 
-	newChecksum, err := combineChecksums(hashes)
-	if err != nil {
-		return pointers, errors.Wrap(err, "calculate new checksum")
-	}
+	pointers.checksum = combineChecksums(hashes, pv.operator)
 
 	if !tolerateDuplicates {
 		pointers.removeDuplicates()
 	}
-	pointers.checksum = newChecksum
 	return pointers, nil
 }
 
@@ -189,24 +186,42 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 // single row in the inverted index, but several (e.g. for greater than 5, we
 // right read the row containing 5, 6, 7 and so on. Since a field contains just
 // one value the docIDs are guaranteed to be unique, we can simply append them.
-// But to be able to recognize this read operation further than the line (e.g.
+// But to be able to recognize this read operation further down the line (e.g.
 // when merging independent filter) we need a new checksum describing exactly
 // this request. Thus we simply treat the existing checksums as an input string
 // (appended) and caculate a new one
-func combineChecksums(checksums [][]byte) ([]byte, error) {
+func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 	if len(checksums) == 1 {
-		return checksums[0], nil
+		return checksums[0]
 	}
 
-	var total []byte
-	for _, chksum := range checksums {
-		total = append(total, chksum...)
+	total := make([]byte, len(checksums)*8+1) // one extra byte for operator encoding
+	for i, chksum := range checksums {
+		copy(total[(i*8):(i+1)*8], chksum)
 	}
+	total[len(total)-1] = uint8(operator)
 
 	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
-	buf := bytes.NewBuffer(make([]byte, 0, 8))
-	err := binary.Write(buf, binary.LittleEndian, &newChecksum)
-	return buf.Bytes(), err
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, newChecksum)
+	return buf
+}
+
+func combineSetChecksums(sets []*docPointers, operator filters.Operator) []byte {
+	if len(sets) == 1 {
+		return sets[0].checksum
+	}
+
+	total := make([]byte, 8*len(sets)+1) // one extra byte for operator encoding
+	for i, set := range sets {
+		copy(total[(i*8):(i+1)*8], set.checksum)
+	}
+	total[len(total)-1] = uint8(operator)
+
+	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, newChecksum)
+	return buf
 }
 
 // docPointerChecksum is a way to generate a checksum from an already "parsed"

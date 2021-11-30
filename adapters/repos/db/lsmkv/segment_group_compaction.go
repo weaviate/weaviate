@@ -22,6 +22,9 @@ import (
 )
 
 func (ig *SegmentGroup) eligbleForCompaction() bool {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
 	// if there are at least two segments of the same level a regular compaction
 	// can be performed
 

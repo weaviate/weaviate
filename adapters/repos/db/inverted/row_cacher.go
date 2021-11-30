@@ -12,9 +12,10 @@
 package inverted
 
 import (
-	"bytes"
 	"sync"
 	"sync/atomic"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
 type RowCacher struct {
@@ -32,8 +33,42 @@ func NewRowCacher(maxSize uint64) *RowCacher {
 	return c
 }
 
-func (rc *RowCacher) Store(id []byte, row *docPointers) {
-	size := uint64(row.count * 4)
+type CacheEntry struct {
+	Type      CacheEntryType
+	Hash      []byte
+	Partial   *docPointers
+	AllowList helpers.AllowList
+}
+
+// Size cannot be determined accurately since a golang map does not have fixed
+// size per elements. However, through experimentation we have found that a
+// map[uint64]struct{} rarely exceeds 25 bytes per entry, so we are using this
+// as an estimate. In addition, we know that the partial content uses an array
+// where we can assume full efficiency, i.e. 8 bytes per entry.
+func (ce *CacheEntry) Size() uint64 {
+	return uint64(25*len(ce.AllowList) + 8*len(ce.Partial.docIDs))
+}
+
+type CacheEntryType uint8
+
+func (t CacheEntryType) String() string {
+	switch t {
+	case CacheTypePartial:
+		return "partial"
+	case CacheTypeAllowList:
+		return "allow list"
+	default:
+		return "unknown"
+	}
+}
+
+const (
+	CacheTypePartial CacheEntryType = iota
+	CacheTypeAllowList
+)
+
+func (rc *RowCacher) Store(id []byte, row *CacheEntry) {
+	size := row.Size()
 	if size > rc.maxSize {
 		return
 	}
@@ -42,14 +77,14 @@ func (rc *RowCacher) Store(id []byte, row *docPointers) {
 		rc.deleteExistingEntries(size)
 	}
 	rc.rowStore.Store(string(id), row)
-	atomic.AddUint64(&rc.currentSize, uint64(row.count*4))
+	atomic.AddUint64(&rc.currentSize, size)
 }
 
 func (rc *RowCacher) deleteExistingEntries(sizeToDelete uint64) {
 	var deleted uint64
 	rc.rowStore.Range(func(key, value interface{}) bool {
-		parsed := value.(*docPointers)
-		size := uint64(parsed.count * 4)
+		parsed := value.(*CacheEntry)
+		size := parsed.Size()
 		rc.rowStore.Delete(key)
 		deleted += size
 		atomic.AddUint64(&rc.currentSize, -size)
@@ -57,18 +92,13 @@ func (rc *RowCacher) deleteExistingEntries(sizeToDelete uint64) {
 	})
 }
 
-func (rc *RowCacher) Load(id []byte,
-	expectedChecksum []byte) (*docPointers, bool) {
+func (rc *RowCacher) Load(id []byte) (*CacheEntry, bool) {
 	retrieved, ok := rc.rowStore.Load(string(id))
 	if !ok {
 		return nil, false
 	}
 
-	parsed := retrieved.(*docPointers)
-	if !bytes.Equal(parsed.checksum, expectedChecksum) {
-		rc.rowStore.Delete(string(id))
-		return nil, false
-	}
+	parsed := retrieved.(*CacheEntry)
 
 	return parsed, true
 }
