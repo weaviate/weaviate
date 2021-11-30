@@ -228,7 +228,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		buildInvalidTests(filters.OperatorEqual, []interface{}{"phone_prop"},
 			schema.DataTypePhoneNumber, allValueTypesExcept(schema.DataTypePhoneNumber), "foo"),
 
-		// valid nested filter
+		// nested filters
 		{
 			{
 				name: "valid nested filter",
@@ -243,6 +243,35 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		},
 		buildInvalidNestedTests(filters.OperatorEqual, []interface{}{"string_prop"},
 			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
+
+		// cross-ref filters
+		{
+			{
+				name: "valid ref filter",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "string_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: nil,
+			},
+		},
+		buildInvalidTests(filters.OperatorEqual, []interface{}{"string_prop", "ClassTwo", "string_prop"},
+			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
+		{
+			{
+				name: "invalid ref filter, due to non-existing class",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassThree", "string_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: errors.Errorf("invalid 'where' filter: class " +
+					"\"ClassThree\" does not exist in schema"),
+			},
+			{
+				name: "invalid ref filter, due to non-existing prop on ref",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop", "ClassTwo", "invalid_prop"},
+					schema.DataTypeString, "foo"),
+				expectedError: errors.Errorf("invalid 'where' filter: no such prop with name 'invalid_prop' " +
+					"found in class 'ClassTwo' " +
+					"in the schema. Check your schema files for which properties in this class are available"),
+			},
+		},
 	}
 
 	for _, outertest := range tests {
