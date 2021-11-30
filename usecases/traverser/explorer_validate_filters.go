@@ -14,8 +14,31 @@ func (e *Explorer) validateFilters(filters *filters.LocalFilter) error {
 	}
 
 	sch := e.schemaGetter.GetSchemaSkipAuth()
-	className := filters.Root.On.GetInnerMost().Class
-	propName := filters.Root.On.GetInnerMost().Property
+	return e.validateClause(sch, filters.Root)
+}
+
+func (e *Explorer) validateClause(sch schema.Schema, clause *filters.Clause) error {
+	// check if nested
+	if clause.Operands != nil {
+		var errs []error
+
+		for i, child := range clause.Operands {
+			if err := e.validateClause(sch, &child); err != nil {
+				errs = append(errs, errors.Wrapf(err, "child operand at position %d", i))
+			}
+		}
+
+		if len(errs) > 0 {
+			return mergeErrs(errs)
+		} else {
+			return nil
+		}
+	}
+
+	// validate current
+
+	className := clause.On.GetInnerMost().Class
+	propName := clause.On.GetInnerMost().Property
 
 	class := sch.FindClassByName(className)
 	if class == nil {
@@ -29,15 +52,15 @@ func (e *Explorer) validateFilters(filters *filters.LocalFilter) error {
 	}
 
 	if baseType, ok := schema.IsArrayType(schema.DataType(prop.DataType[0])); ok {
-		if baseType != filters.Root.Value.Type {
+		if baseType != clause.Value.Type {
 			return errors.Errorf("data type filter cannot use %q on type %q, use %q instead",
-				valueNameFromDataType(filters.Root.Value.Type),
+				valueNameFromDataType(clause.Value.Type),
 				schema.DataType(prop.DataType[0]),
 				valueNameFromDataType(baseType))
 		}
-	} else if prop.DataType[0] != string(filters.Root.Value.Type) {
+	} else if prop.DataType[0] != string(clause.Value.Type) {
 		return errors.Errorf("data type filter cannot use %q on type %q, use %q instead",
-			valueNameFromDataType(filters.Root.Value.Type),
+			valueNameFromDataType(clause.Value.Type),
 			schema.DataType(prop.DataType[0]),
 			valueNameFromDataType(schema.DataType(prop.DataType[0])))
 	}
@@ -47,4 +70,13 @@ func (e *Explorer) validateFilters(filters *filters.LocalFilter) error {
 
 func valueNameFromDataType(dt schema.DataType) string {
 	return "value" + strings.ToUpper(string(dt[0])) + string(dt[1:])
+}
+
+func mergeErrs(errs []error) error {
+	msgs := make([]string, len(errs))
+	for i, err := range errs {
+		msgs[i] = err.Error()
+	}
+
+	return errors.Errorf("%s", strings.Join(msgs, ", "))
 }
