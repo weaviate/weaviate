@@ -11,8 +11,21 @@ exemptLabels:
 staleLabel: autoclosed
 # Comment to post when marking an issue as stale. Set to `false` to disable
 markComment: >
-  This issue has been automatically marked as stale because it has not had
-  recent activity. It will be closed if no further activity occurs. Thank you
-  for your contributions.
+  Thank you for your contribution to Weaviate. This issue has not received any 
+  activity in a while and has therefore been marked as stale. Stale issues will
+  eventually be autoclosed. This does not mean that we are ruling out to work 
+  on this issue, but it most likely has not been prioritized high enough in the
+  last months.
+  
+  If you believe that this issue should remain open, please leave a short reply.
+  This lets us know that the issue is not abandoned and acts as a reminder for our
+  team to consider prioritizing this again.
+
+  Please also consider if you can make a contribution to help with the solution
+  of this issue. If you are willing to contribute, but don't know where to start,
+  please leave a quick message and we'll try to help you.
+
+  Thank you,
+  The Weaviate Team
 # Comment to post when closing a stale issue. Set to `false` to disable
 closeComment: false
