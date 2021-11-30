@@ -48,6 +48,36 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		return out
 	}
 
+	buildInvalidNestedTests := func(op filters.Operator, path []interface{},
+		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
+		out := make([]test, len(dts))
+		for i, dt := range dts {
+			useInstead := correctDt
+			if baseType, ok := schema.IsArrayType(correctDt); ok {
+				useInstead = baseType
+			}
+
+			out[i] = test{
+				name: fmt.Sprintf("invalid %s filter - using %s", correctDt, dt),
+				filters: buildNestedFilter(filters.OperatorAnd,
+					// valid operand
+					buildFilter(op, path, correctDt, value),
+					// invalid operand
+					buildFilter(op, path, dt, value),
+				),
+				expectedError: errors.Errorf("invalid 'where' filter: child operand at "+
+					"position 1: data type filter cannot use"+
+					" \"%s\" on type \"%s\", use \"%s\" instead",
+					valueNameFromDataType(dt),
+					correctDt,
+					valueNameFromDataType(useInstead),
+				),
+			}
+		}
+
+		return out
+	}
+
 	tests := [][]test{
 		{
 			{
@@ -55,6 +85,8 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 				expectedError: nil,
 			},
 		},
+
+		// single level, primitive props + arrays
 		{
 			{
 				name: "valid string search",
@@ -195,6 +227,22 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		},
 		buildInvalidTests(filters.OperatorEqual, []interface{}{"phone_prop"},
 			schema.DataTypePhoneNumber, allValueTypesExcept(schema.DataTypePhoneNumber), "foo"),
+
+		// valid nested filter
+		{
+			{
+				name: "valid nested filter",
+				filters: buildNestedFilter(filters.OperatorAnd,
+					buildFilter(filters.OperatorEqual, []interface{}{"string_prop"},
+						schema.DataTypeString, "foo"),
+					buildFilter(filters.OperatorEqual, []interface{}{"int_prop"},
+						schema.DataTypeInt, "foo"),
+				),
+				expectedError: nil,
+			},
+		},
+		buildInvalidNestedTests(filters.OperatorEqual, []interface{}{"string_prop"},
+			schema.DataTypeString, allValueTypesExcept(schema.DataTypeString), "foo"),
 	}
 
 	for _, outertest := range tests {
@@ -359,6 +407,22 @@ func buildFilter(op filters.Operator, path []interface{}, dataType schema.DataTy
 			},
 		},
 	}
+}
+
+func buildNestedFilter(op filters.Operator,
+	childFilters ...*filters.LocalFilter) *filters.LocalFilter {
+	out := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: op,
+			Operands: make([]filters.Clause, len(childFilters)),
+		},
+	}
+
+	for i, child := range childFilters {
+		out.Root.Operands[i] = *child.Root
+	}
+
+	return out
 }
 
 func allValueTypesExcept(except schema.DataType) []schema.DataType {
