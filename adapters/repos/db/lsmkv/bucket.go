@@ -257,23 +257,18 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	var raw []value
 
-	beforeDiskCollection := time.Now()
 	v, err := b.disk.getCollection(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	fmt.Printf("get disk collection took %s\n", time.Since(beforeDiskCollection))
-	beforeAppend := time.Now()
 
 	if len(raw) > 0 {
 		raw = append(raw, v...)
 	} else {
 		raw = v
 	}
-
-	fmt.Printf("append took %s\n", time.Since(beforeAppend))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getCollection(key)
@@ -293,10 +288,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	}
 	raw = append(raw, v...)
 
-	beforeDecode := time.Now()
-	defer func() {
-		fmt.Printf("decode took %s\n", time.Since(beforeDecode))
-	}()
 	return newMapDecoder().Do(raw, c.acceptDuplicates)
 }
 

@@ -15,10 +15,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"hash/crc64"
 	"math"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -100,11 +98,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 	var pointers docPointers
 	var hashes [][]byte
 
-	insideLoopTook := time.Duration(0)
-
-	beforeLoop := time.Now()
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
-		insideLoop := time.Now()
 		currentDocIDs := make([]docPointer, len(pairs))
 		// beforePairs := time.Now()
 		for i, pair := range pairs {
@@ -139,13 +133,10 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			return false, nil
 		}
 
-		insideLoopTook += time.Since(insideLoop)
 		return true, nil
 	}); err != nil {
 		return pointers, errors.Wrap(err, "read row")
 	}
-	fmt.Printf("inside loop took %s\n", insideLoopTook)
-	fmt.Printf("entire loop took %s\n", time.Since(beforeLoop))
 
 	pointers.checksum = combineChecksums(hashes, pv.operator)
 
