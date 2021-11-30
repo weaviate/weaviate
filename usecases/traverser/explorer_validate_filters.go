@@ -42,13 +42,13 @@ func (e *Explorer) validateClause(sch schema.Schema, clause *filters.Clause) err
 
 	class := sch.FindClassByName(className)
 	if class == nil {
-		return errors.Errorf("where filter: class %q does not exist in schema",
+		return errors.Errorf("class %q does not exist in schema",
 			className)
 	}
 
 	prop, err := sch.GetProperty(className, propName)
 	if err != nil {
-		return errors.Wrap(err, "where filter")
+		return err
 	}
 
 	if baseType, ok := schema.IsArrayType(schema.DataType(prop.DataType[0])); ok {
