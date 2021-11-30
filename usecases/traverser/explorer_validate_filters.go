@@ -40,6 +40,16 @@ func (e *Explorer) validateClause(sch schema.Schema, clause *filters.Clause) err
 	className := clause.On.GetInnerMost().Class
 	propName := clause.On.GetInnerMost().Property
 
+	if propName == "id" {
+		// special case for the uuid search
+		if clause.Value.Type == schema.DataTypeString {
+			return nil
+		}
+
+		return errors.Errorf("using special path [\"id\"] to filter by uuid: " +
+			"must use \"valueString\" to specify the id")
+	}
+
 	class := sch.FindClassByName(className)
 	if class == nil {
 		return errors.Errorf("class %q does not exist in schema",

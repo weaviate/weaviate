@@ -303,6 +303,23 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		// special case, trying to use filters on a ref prop directly
 		buildInvalidRefCountTests(filters.OperatorEqual, []interface{}{"ref_prop"},
 			schema.DataTypeInt, allValueTypesExcept(schema.DataTypeInt), "foo"),
+
+		// id filters
+		{
+			{
+				name: "filter by id",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"id"},
+					schema.DataTypeString, "foo"),
+				expectedError: nil,
+			},
+			{
+				name: "filter by id with wrong type",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"id"},
+					schema.DataTypeInt, "foo"),
+				expectedError: errors.Errorf("invalid 'where' filter: using special path " +
+					"[\"id\"] to filter by uuid: must use \"valueString\" to specify the id"),
+			},
+		},
 	}
 
 	for _, outertest := range tests {
