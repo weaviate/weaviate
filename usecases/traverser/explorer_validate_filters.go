@@ -51,7 +51,20 @@ func (e *Explorer) validateClause(sch schema.Schema, clause *filters.Clause) err
 		return err
 	}
 
-	if baseType, ok := schema.IsArrayType(schema.DataType(prop.DataType[0])); ok {
+	if schema.IsRefDataType(prop.DataType) {
+		// bit of an edge case, directly on refs (i.e. not on a primitive prop of a
+		// ref) we only allow valueInt which is what's used to count references
+		if clause.Value.Type == schema.DataTypeInt {
+			return nil
+		}
+
+		return errors.Errorf("Property %q is a ref prop to the class %q. Only "+
+			"\"valueInt\" can be used on a ref prop directly to count the number of refs. "+
+			"Or did you mean to filter on a primitive prop of the referenced class? "+
+			"In this case make sure your path contains 3 elements in the form of "+
+			"[<propName>, <ClassNameOfReferencedClass>, <primitvePropOnClass>]",
+			propName, prop.DataType[0])
+	} else if baseType, ok := schema.IsArrayType(schema.DataType(prop.DataType[0])); ok {
 		if baseType != clause.Value.Type {
 			return errors.Errorf("data type filter cannot use %q on type %q, use %q instead",
 				valueNameFromDataType(clause.Value.Type),

@@ -23,7 +23,6 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		filters       *filters.LocalFilter
 		expectedError error
 	}
-
 	buildInvalidTests := func(op filters.Operator, path []interface{},
 		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
 		out := make([]test, len(dts))
@@ -42,6 +41,26 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 					correctDt,
 					valueNameFromDataType(useInstead),
 				),
+			}
+		}
+
+		return out
+	}
+
+	buildInvalidRefCountTests := func(op filters.Operator, path []interface{},
+		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
+		out := make([]test, len(dts))
+		for i, dt := range dts {
+			out[i] = test{
+				name:    fmt.Sprintf("invalid %s filter - using %s", correctDt, dt),
+				filters: buildFilter(op, path, dt, value),
+				expectedError: errors.Errorf("invalid 'where' filter: "+
+					"Property %q is a ref prop to the class %q. Only "+
+					"\"valueInt\" can be used on a ref prop directly to count the number of refs. "+
+					"Or did you mean to filter on a primitive prop of the referenced class? "+
+					"In this case make sure your path contains 3 elements in the form of "+
+					"[<propName>, <ClassNameOfReferencedClass>, <primitvePropOnClass>]",
+					path[0], "ClassTwo"),
 			}
 		}
 
@@ -272,6 +291,18 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 					"in the schema. Check your schema files for which properties in this class are available"),
 			},
 		},
+		{
+			{
+				name: "counting ref props",
+				filters: buildFilter(filters.OperatorEqual, []interface{}{"ref_prop"},
+					schema.DataTypeInt, "foo"),
+				expectedError: nil,
+			},
+		},
+
+		// special case, trying to use filters on a ref prop directly
+		buildInvalidRefCountTests(filters.OperatorEqual, []interface{}{"ref_prop"},
+			schema.DataTypeInt, allValueTypesExcept(schema.DataTypeInt), "foo"),
 	}
 
 	for _, outertest := range tests {
