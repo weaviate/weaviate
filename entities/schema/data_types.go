@@ -82,6 +82,26 @@ type propertyDataType struct {
 	classes       []ClassName
 }
 
+func IsArrayType(dt DataType) (DataType, bool) {
+	switch dt {
+	case DataTypeStringArray:
+		return DataTypeString, true
+	case DataTypeTextArray:
+		return DataTypeText, true
+	case DataTypeNumberArray:
+		return DataTypeNumber, true
+	case DataTypeIntArray:
+		return DataTypeInt, true
+	case DataTypeBooleanArray:
+		return DataTypeBoolean, true
+	case DataTypeDateArray:
+		return DataTypeDate, true
+
+	default:
+		return "", false
+	}
+}
+
 func (p *propertyDataType) Kind() PropertyKind {
 	return p.kind
 }
