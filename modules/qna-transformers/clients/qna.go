@@ -65,17 +65,22 @@ func (v *qna) Answer(ctx context.Context,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
+	if res.StatusCode > 399 {
+		// try to unmarshal error res
+		var errBody errResponse
+		if err := json.Unmarshal(bodyBytes, &errBody); err != nil {
+			return nil, errors.Errorf("fail with status %d", res.StatusCode)
+		}
+		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode, errBody.Error)
+	}
+
 	var resBody answersResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d", res.StatusCode)
-	}
-
 	return &ent.AnswerResult{
-		Text:      resBody.Question,
+		Text:      resBody.Text,
 		Question:  resBody.Question,
 		Answer:    resBody.Answer,
 		Certainty: resBody.Certainty,
@@ -95,4 +100,8 @@ type answersResponse struct {
 	answersInput
 	Answer    *string  `json:"answer"`
 	Certainty *float64 `json:"certainty"`
+}
+
+type errResponse struct {
+	Error string `json:"error"`
 }
