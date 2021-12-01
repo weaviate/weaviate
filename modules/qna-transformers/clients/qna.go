@@ -71,11 +71,12 @@ func (v *qna) Answer(ctx context.Context,
 	}
 
 	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d", res.StatusCode)
+		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode,
+			resBody.Error)
 	}
 
 	return &ent.AnswerResult{
-		Text:      resBody.Question,
+		Text:      resBody.Text,
 		Question:  resBody.Question,
 		Answer:    resBody.Answer,
 		Certainty: resBody.Certainty,
@@ -92,7 +93,8 @@ type answersInput struct {
 }
 
 type answersResponse struct {
-	answersInput
-	Answer    *string  `json:"answer"`
-	Certainty *float64 `json:"certainty"`
+	answersInput `json:"answersInput"`
+	Answer       *string  `json:"answer"`
+	Certainty    *float64 `json:"certainty"`
+	Error        string   `json:"error"`
 }

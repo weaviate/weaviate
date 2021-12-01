@@ -44,6 +44,7 @@ type tokenResponse struct {
 }
 
 type nerResponse struct {
+	Error string
 	nerInput
 	Tokens []tokenResponse `json:"tokens"`
 }
@@ -88,7 +89,7 @@ func (v *ner) GetTokens(ctx context.Context, property,
 	}
 
 	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d", res.StatusCode)
+		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode, resBody.Error)
 	}
 
 	out := make([]ent.TokenResult, len(resBody.Tokens))
