@@ -22,7 +22,7 @@ require (
 	github.com/hashicorp/memberlist v0.2.4
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/mitchellh/mapstructure v1.4.2 // indirect
+	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
