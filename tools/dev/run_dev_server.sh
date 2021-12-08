@@ -181,6 +181,22 @@ case $CONFIG in
         --port 8080
     ;;
 
+  local-multi-text)
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      PERSISTENCE_DATA_PATH="./data" \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      TRANSFORMERS_INFERENCE_API=http://localhost:8000 \
+      CLIP_INFERENCE_API=http://localhost:8005 \
+      ENABLE_MODULES=text2vec-contextionary,text2vec-transformers,multi2vec-clip \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1

@@ -172,10 +172,10 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 						name, propertyName, modules))
 			}
 		}
-		if len(modules) > 1 {
-			errorMessages = append(errorMessages,
-				fmt.Sprintf("%s: %s defined in more than one module: %v", name, propertyName, modules))
-		}
+		// if len(modules) > 1 {
+		// 	errorMessages = append(errorMessages,
+		// 		fmt.Sprintf("%s: %s defined in more than one module: %v", name, propertyName, modules))
+		// }
 	}
 	return errorMessages
 }
