@@ -36,10 +36,10 @@ require (
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
 	go.mongodb.org/mongo-driver v1.8.0 // indirect
-	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
+	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e
-	golang.org/x/tools v0.1.7 // indirect
+	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
+	golang.org/x/tools v0.1.8 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
