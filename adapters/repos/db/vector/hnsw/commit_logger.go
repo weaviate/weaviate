@@ -507,6 +507,10 @@ func (l *hnswCommitLogger) combineLogs() error {
 }
 
 func (l *hnswCommitLogger) Drop() error {
+	if err := l.commitLogger.Close(); err != nil {
+		return errors.Wrap(err, "close hnsw commit logger prior to delete")
+	}
+
 	// stop all goroutines
 	l.cancel <- struct{}{}
 	// remove commit log directory if exists
