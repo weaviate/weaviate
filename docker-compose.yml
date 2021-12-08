@@ -46,3 +46,7 @@ services:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
       - "8004:8080"
+  multi2vec-clip:
+    image: semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-multilingual-v1-783f3f9
+    ports:
+      - "8005:8080"
