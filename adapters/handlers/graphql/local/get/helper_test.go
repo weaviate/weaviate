@@ -495,7 +495,7 @@ func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*grap
 	return args
 }
 
-func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearCustomText"]; ok {
 		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))

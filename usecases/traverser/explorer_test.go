@@ -1971,7 +1971,7 @@ func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Contex
 	return vectorForParams(ctx, params, findVectorFn, nil)
 }
 
-func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}) error {
+func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}, className string) error {
 	txt2vec := p.getFakeT2Vec()
 	arg := txt2vec.Arguments()["nearCustomText"]
 	return arg.ValidateFunction(value)
