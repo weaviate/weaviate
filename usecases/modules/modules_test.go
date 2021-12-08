@@ -43,7 +43,7 @@ func TestModulesProvider(t *testing.T) {
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
+		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
 
 		// then
 		mod1 := registered[0]
@@ -145,7 +145,7 @@ func TestModulesProvider(t *testing.T) {
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
+		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
 		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection")
 		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation")
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()

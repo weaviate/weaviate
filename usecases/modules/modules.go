@@ -232,14 +232,20 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 }
 
 // ExtractSearchParams extracts GraphQL arguments
-func (m *Provider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+func (m *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
+	class, err := m.getClass(className)
+	if err != nil {
+		return exractedParams
+	}
 	for _, module := range m.GetAll() {
-		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			for paramName, argument := range args.Arguments() {
-				if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
-					extracted := argument.ExtractFunction(param.(map[string]interface{}))
-					exractedParams[paramName] = extracted
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+				for paramName, argument := range args.Arguments() {
+					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
+						extracted := argument.ExtractFunction(param.(map[string]interface{}))
+						exractedParams[paramName] = extracted
+					}
 				}
 			}
 		}
@@ -248,12 +254,19 @@ func (m *Provider) ExtractSearchParams(arguments map[string]interface{}) map[str
 }
 
 // ValidateSearchParam validates module parameters
-func (m *Provider) ValidateSearchParam(name string, value interface{}) error {
+func (m *Provider) ValidateSearchParam(name string, value interface{}, className string) error {
+	class, err := m.getClass(className)
+	if err != nil {
+		return err
+	}
+
 	for _, module := range m.GetAll() {
-		if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			for paramName, argument := range args.Arguments() {
-				if paramName == name && argument.ValidateFunction != nil {
-					return argument.ValidateFunction(value)
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
+				for paramName, argument := range args.Arguments() {
+					if paramName == name && argument.ValidateFunction != nil {
+						return argument.ValidateFunction(value)
+					}
 				}
 			}
 		}
@@ -429,28 +442,38 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]in
 func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
-	sch := m.schemaGetter.GetSchemaSkipAuth()
-	class := sch.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		return nil, errors.Errorf("class %q not found in schema", className)
+	class, err := m.getClass(className)
+	if err != nil {
+		return nil, err
 	}
 
 	for _, mod := range m.GetAll() {
-		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
-				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewClassBasedModuleConfig(class, mod.Name())
-					vector, err := searchVectorFn(ctx, params, findVectorFn, cfg)
-					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
+		if m.shouldIncludeClassArgument(class, mod.Name()) {
+			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+				if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
+					if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
+						cfg := NewClassBasedModuleConfig(class, mod.Name())
+						vector, err := searchVectorFn(ctx, params, findVectorFn, cfg)
+						if err != nil {
+							return nil, errors.Errorf("vectorize params: %v", err)
+						}
+						return vector, nil
 					}
-					return vector, nil
 				}
 			}
 		}
 	}
 
 	panic("VectorFromParams was called without any known params present")
+}
+
+func (m *Provider) getClass(className string) (*models.Class, error) {
+	sch := m.schemaGetter.GetSchemaSkipAuth()
+	class := sch.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, errors.Errorf("class %q not found in schema", className)
+	}
+	return class, nil
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without

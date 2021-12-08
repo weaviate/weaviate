@@ -172,7 +172,7 @@ func (p *fakeModulesProvider) ExploreArguments(schema *models.Schema) map[string
 	return args
 }
 
-func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearText"]; ok {
 		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))

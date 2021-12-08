@@ -40,7 +40,7 @@ type Explorer struct {
 }
 
 type ModulesProvider interface {
-	ValidateSearchParam(name string, value interface{}) error
+	ValidateSearchParam(name string, value interface{}, className string) error
 	VectorFromSearchParam(ctx context.Context, className string, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
@@ -100,7 +100,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, errors.Errorf("explorer: get class:  %v", err)
 	}
 
 	params.SearchVector = searchVector
@@ -350,7 +350,7 @@ func (e *Explorer) validateExploreParams(params ExploreParams) error {
 
 func (e *Explorer) vectorFromParams(ctx context.Context,
 	params GetParams) ([]float32, error) {
-	err := e.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
+	err := e.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams, params.ClassName)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	params ExploreParams) ([]float32, error) {
-	err := e.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
+	err := e.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams, "")
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 }
 
 func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *NearObjectParams,
-	moduleParams map[string]interface{}) error {
+	moduleParams map[string]interface{}, className string) error {
 	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
 		return errors.Errorf("found 'nearText' and 'nearVector' and 'nearObject' parameters " +
 			"which are conflicting, choose one instead")
@@ -472,7 +472,7 @@ func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *
 		}
 
 		for name, value := range moduleParams {
-			err := e.modulesProvider.ValidateSearchParam(name, value)
+			err := e.modulesProvider.ValidateSearchParam(name, value, className)
 			if err != nil {
 				return err
 			}
