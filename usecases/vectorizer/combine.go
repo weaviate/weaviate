@@ -13,6 +13,10 @@ package vectorizer
 
 // CombineVectors combines all of the vector into sum of their parts
 func CombineVectors(vectors [][]float32) []float32 {
+	return CombineVectorsWithWeights(vectors, nil)
+}
+
+func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32 {
 	maxVectorLength := 0
 	for i := range vectors {
 		if len(vectors[i]) > maxVectorLength {
@@ -21,9 +25,14 @@ func CombineVectors(vectors [][]float32) []float32 {
 	}
 	sums := make([]float32, maxVectorLength)
 	dividers := make([]float32, maxVectorLength)
-	for _, vector := range vectors {
+	for indx, vector := range vectors {
 		for i := 0; i < len(vector); i++ {
-			sums[i] += vector[i]
+			if weights != nil {
+				// apply weight to vector value
+				sums[i] += vector[i] * weights[indx]
+			} else {
+				sums[i] += vector[i]
+			}
 			dividers[i]++
 		}
 	}

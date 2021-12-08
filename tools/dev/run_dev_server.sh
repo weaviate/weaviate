@@ -145,6 +145,22 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-clip)
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=multi2vec-clip \
+      PERSISTENCE_DATA_PATH="./data" \
+      CLIP_INFERENCE_API="http://localhost:8005" \
+      ENABLE_MODULES="multi2vec-clip" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   local-oidc)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
