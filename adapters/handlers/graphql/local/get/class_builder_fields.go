@@ -311,7 +311,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-		properties, additional, err := extractProperties(selectionsOfClass, p.Info.Fragments, r.modulesProvider)
+		properties, additional, err := extractProperties(className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -445,7 +445,7 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet,
+func extractProperties(className string, selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
 ) ([]search.SelectProperty, additional.Properties, error) {
@@ -489,7 +489,7 @@ func extractProperties(selections *ast.SelectionSet,
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(additionalProperty, s.Arguments)
+								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
 								continue
 							}
 						}
@@ -498,7 +498,7 @@ func extractProperties(selections *ast.SelectionSet,
 					}
 
 				case *ast.FragmentSpread:
-					ref, err := extractFragmentSpread(s, fragments, modulesProvider)
+					ref, err := extractFragmentSpread(className, s, fragments, modulesProvider)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -506,7 +506,7 @@ func extractProperties(selections *ast.SelectionSet,
 					property.Refs = append(property.Refs, ref)
 
 				case *ast.InlineFragment:
-					ref, err := extractInlineFragment(s, fragments, modulesProvider)
+					ref, err := extractInlineFragment(className, s, fragments, modulesProvider)
 					if err != nil {
 						return nil, additionalProps, err
 					}
@@ -536,7 +536,7 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 	return moduleParams
 }
 
-func extractInlineFragment(fragment *ast.InlineFragment,
+func extractInlineFragment(class string, fragment *ast.InlineFragment,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
 ) (search.SelectClass, error) {
@@ -559,7 +559,7 @@ func extractInlineFragment(fragment *ast.InlineFragment,
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, err := extractProperties(fragment.SelectionSet, fragments, modulesProvider)
+	subProperties, additionalProperties, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}
@@ -570,7 +570,7 @@ func extractInlineFragment(fragment *ast.InlineFragment,
 	return result, nil
 }
 
-func extractFragmentSpread(spread *ast.FragmentSpread,
+func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
 ) (search.SelectClass, error) {
@@ -587,7 +587,7 @@ func extractFragmentSpread(spread *ast.FragmentSpread,
 		return result, err
 	}
 
-	subProperties, additionalProperties, err := extractProperties(def.GetSelectionSet(), fragments, modulesProvider)
+	subProperties, additionalProperties, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}

@@ -100,7 +100,7 @@ func (c *Classifier) prepareRun(params models.Classification, filters Filters,
 	}
 
 	if c.modulesProvider != nil {
-		classifyItemFn, err := c.modulesProvider.GetClassificationFn(params.Type,
+		classifyItemFn, err := c.modulesProvider.GetClassificationFn(params.Class, params.Type,
 			c.getClassifyParams(params, filters, unclassifiedItems))
 		if err != nil {
 			return nil, errors.Wrapf(err, "cannot classify")

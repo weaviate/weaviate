@@ -279,10 +279,12 @@ func (m *Provider) ValidateSearchParam(name string, value interface{}, className
 func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-			for name, additionalProperty := range arg.AdditionalProperties() {
-				if additionalProperty.GraphQLFieldFunction != nil {
-					additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+				for name, additionalProperty := range arg.AdditionalProperties() {
+					if additionalProperty.GraphQLFieldFunction != nil {
+						additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+					}
 				}
 			}
 		}
@@ -291,13 +293,19 @@ func (m *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 }
 
 // ExtractAdditionalField extracts additional properties from given graphql arguments
-func (m *Provider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+func (m *Provider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
+	class, err := m.getClass(className)
+	if err != nil {
+		return err
+	}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-			if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
-				if additionalProperty, ok := additionalProperties[name]; ok {
-					if additionalProperty.GraphQLExtractFunction != nil {
-						return additionalProperty.GraphQLExtractFunction(params)
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
+					if additionalProperty, ok := additionalProperties[name]; ok {
+						if additionalProperty.GraphQLExtractFunction != nil {
+							return additionalProperty.GraphQLExtractFunction(params)
+						}
 					}
 				}
 			}
@@ -340,12 +348,18 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
 	capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
+	class, err := m.getClassFromSearchResult(toBeExtended)
+	if err != nil {
+		return nil, err
+	}
 	allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-			if arg != nil && arg.AdditionalProperties() != nil {
-				for name, additionalProperty := range arg.AdditionalProperties() {
-					allAdditionalProperties[name] = additionalProperty
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+				if arg != nil && arg.AdditionalProperties() != nil {
+					for name, additionalProperty := range arg.AdditionalProperties() {
+						allAdditionalProperties[name] = additionalProperty
+					}
 				}
 			}
 		}
@@ -373,6 +387,13 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 		}
 	}
 	return toBeExtended, nil
+}
+
+func (m *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
+	if len(in) > 0 {
+		return m.getClass(in[0].ClassName)
+	}
+	return nil, errors.Errorf("unknown class")
 }
 
 func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
@@ -427,7 +448,7 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]in
 		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 			for name, additionalProperty := range arg.AdditionalProperties() {
 				for _, includePropName := range additionalProperty.RestNames {
-					if includePropName == includeProp {
+					if includePropName == includeProp && moduleParams[name] == nil {
 						moduleParams[name] = additionalProperty.DefaultValue
 					}
 				}
@@ -467,15 +488,6 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
-func (m *Provider) getClass(className string) (*models.Class, error) {
-	sch := m.schemaGetter.GetSchemaSkipAuth()
-	class := sch.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		return nil, errors.Errorf("class %q not found in schema", className)
-	}
-	return class, nil
-}
-
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
@@ -502,11 +514,17 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 // ParseClassifierSettings parses and adds classifier specific settings
 func (m *Provider) ParseClassifierSettings(name string,
 	params *models.Classification) error {
+	class, err := m.getClass(params.Class)
+	if err != nil {
+		return err
+	}
 	for _, module := range m.GetAll() {
-		if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
-			for _, classifier := range c.Classifiers() {
-				if classifier != nil && classifier.Name() == name {
-					return classifier.ParseClassifierSettings(params)
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
+				for _, classifier := range c.Classifiers() {
+					if classifier != nil && classifier.Name() == name {
+						return classifier.ParseClassifierSettings(params)
+					}
 				}
 			}
 		}
@@ -515,13 +533,19 @@ func (m *Provider) ParseClassifierSettings(name string,
 }
 
 // GetClassificationFn returns given module's classification
-func (m *Provider) GetClassificationFn(name string,
+func (m *Provider) GetClassificationFn(className, name string,
 	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	class, err := m.getClass(className)
+	if err != nil {
+		return nil, err
+	}
 	for _, module := range m.GetAll() {
-		if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
-			for _, classifier := range c.Classifiers() {
-				if classifier != nil && classifier.Name() == name {
-					return classifier.ClassifyFn(params)
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
+				for _, classifier := range c.Classifiers() {
+					if classifier != nil && classifier.Name() == name {
+						return classifier.ClassifyFn(params)
+					}
 				}
 			}
 		}
@@ -542,4 +566,13 @@ func (m *Provider) GetMeta() (map[string]interface{}, error) {
 		}
 	}
 	return metaInfos, nil
+}
+
+func (m *Provider) getClass(className string) (*models.Class, error) {
+	sch := m.schemaGetter.GetSchemaSkipAuth()
+	class := sch.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, errors.Errorf("class %q not found in schema", className)
+	}
+	return class, nil
 }

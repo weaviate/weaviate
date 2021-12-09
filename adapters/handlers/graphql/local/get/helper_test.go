@@ -513,7 +513,7 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 	return additionalProperties
 }
 
-func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
 	if additionalProperties := p.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {

@@ -304,7 +304,7 @@ func (m *fakeModulesProvider) ParseClassifierSettings(name string,
 	return m.contextualClassifier.ParseClassifierSettings(params)
 }
 
-func (m *fakeModulesProvider) GetClassificationFn(name string,
+func (m *fakeModulesProvider) GetClassificationFn(className, name string,
 	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
 	return m.contextualClassifier.ClassifyFn(params)
 }
