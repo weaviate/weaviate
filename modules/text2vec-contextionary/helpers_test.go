@@ -191,7 +191,7 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 	return additionalProperties
 }
 
-func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
 	txt2vec := &mockText2vecContextionaryModule{}
 	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {

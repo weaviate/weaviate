@@ -100,7 +100,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class:  %v", err)
+		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	params.SearchVector = searchVector

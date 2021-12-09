@@ -399,7 +399,7 @@ func (m *fakeModulesProvider) ParseClassifierSettings(name string,
 	return nil
 }
 
-func (m *fakeModulesProvider) GetClassificationFn(name string,
+func (m *fakeModulesProvider) GetClassificationFn(className, name string,
 	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
 	if name == "text2vec-contextionary-custom-contextual" {
 		return m.fakeModuleClassifyFn.classifyFn, nil
