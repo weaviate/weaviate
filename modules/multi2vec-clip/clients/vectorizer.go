@@ -71,7 +71,8 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 	}
 
 	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d", res.StatusCode)
+		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode,
+			resBody.Error)
 	}
 
 	return &ent.VectorizationResult{
@@ -92,4 +93,5 @@ type vecRequest struct {
 type vecResponse struct {
 	TextVectors  [][]float32 `json:"textVectors"`
 	ImageVectors [][]float32 `json:"imageVectors"`
+	Error        string      `json:"error"`
 }
