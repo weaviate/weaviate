@@ -85,11 +85,3 @@ func (f *testVectorizeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	jsonBytes, _ := json.Marshal(f.res)
 	w.Write(jsonBytes)
 }
-
-func ptFloat(in float64) *float64 {
-	return &in
-}
-
-func ptString(in string) *string {
-	return &in
-}
