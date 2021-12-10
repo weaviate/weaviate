@@ -38,6 +38,11 @@ type ClipModule struct {
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
 	nearTextSearcher         modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
+	metaClient               metaClient
+}
+
+type metaClient interface {
+	MetaInfo() (map[string]interface{}, error)
 }
 
 type imageVectorizer interface {
@@ -105,6 +110,7 @@ func (m *ClipModule) initVectorizer(ctx context.Context,
 
 	m.imageVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
+	m.metaClient = client
 
 	return nil
 }
@@ -121,7 +127,7 @@ func (m *ClipModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{}, nil
+	return m.metaClient.MetaInfo()
 }
 
 // verify we implement the modules.Module interface
