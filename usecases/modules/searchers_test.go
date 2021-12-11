@@ -32,6 +32,11 @@ func TestModulesWithSearchers(t *testing.T) {
 				{
 					Class:      "MyClass",
 					Vectorizer: "mod",
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
 				},
 			},
 		},
