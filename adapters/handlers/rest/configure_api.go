@@ -396,7 +396,7 @@ func initModules(ctx context.Context, appState *state.State) error {
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
 		appState.Logger)
 
-	if err := appState.Modules.Init(ctx, moduleParams); err != nil {
+	if err := appState.Modules.Init(ctx, moduleParams, appState.Logger); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
 

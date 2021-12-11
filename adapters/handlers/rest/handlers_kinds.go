@@ -37,8 +37,9 @@ type kindHandlers struct {
 }
 
 type ModulesProvider interface {
-	RestApiAdditionalProperties(includeProp string) map[string]interface{}
+	RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{}
 	GetMeta() (map[string]interface{}, error)
+	HasMultipleVectorizers() bool
 }
 
 type kindsManager interface {
@@ -52,6 +53,7 @@ type kindsManager interface {
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
 	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
 
 func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
@@ -101,7 +103,13 @@ func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 
 func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
-	additional, err := parseIncludeParam(params.Include, h.modulesProvider)
+	class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
+	if err != nil {
+		return objects.NewObjectsGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider, true, class)
 	if err != nil {
 		return objects.NewObjectsGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -131,7 +139,7 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 
 func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal) middleware.Responder {
-	additional, err := parseIncludeParam(params.Include, h.modulesProvider)
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -351,7 +359,15 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 	return ref
 }
 
-func parseIncludeParam(in *string, modulesProvider ModulesProvider) (additional.Properties, error) {
+func (h *kindHandlers) shouldIncludeGetObjectsModuleParams() bool {
+	if h.modulesProvider == nil || !h.modulesProvider.HasMultipleVectorizers() {
+		return true
+	}
+	return false
+}
+
+func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModuleParams bool,
+	class *models.Class) (additional.Properties, error) {
 	out := additional.Properties{}
 	if in == nil {
 		return out, nil
@@ -369,8 +385,8 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider) (additional.
 			out.Vector = true
 			continue
 		}
-		if modulesProvider != nil {
-			moduleParams := modulesProvider.RestApiAdditionalProperties(prop)
+		if includeModuleParams && modulesProvider != nil {
+			moduleParams := modulesProvider.RestApiAdditionalProperties(prop, class)
 			if len(moduleParams) > 0 {
 				out.ModuleParams = getModuleParams(out.ModuleParams)
 				for param, value := range moduleParams {
