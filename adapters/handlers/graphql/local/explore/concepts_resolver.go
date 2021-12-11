@@ -91,7 +91,7 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 	}
 
 	if r.modulesProvider != nil {
-		extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, "")
+		extractedParams := r.modulesProvider.CrossClassExtractSearchParams(p.Args)
 		if len(extractedParams) > 0 {
 			params.ModuleParams = extractedParams
 		}
