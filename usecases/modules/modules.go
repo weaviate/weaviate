@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -80,7 +81,7 @@ func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 }
 
 func (m *Provider) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams, logger logrus.FieldLogger) error {
 	for i, mod := range m.GetAll() {
 		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
@@ -95,6 +96,10 @@ func (m *Provider) Init(ctx context.Context,
 	}
 	if err := m.validate(); err != nil {
 		return errors.Wrap(err, "validate modules")
+	}
+	if m.HasMultipleVectorizers() {
+		logger.Warn("Multiple vector spaces are present, " +
+			"GraphQL Explore and REST API list objects endpoint module include params has been disabled as a result.")
 	}
 	return nil
 }
@@ -442,14 +447,16 @@ func (m *Provider) GraphQLAdditionalFieldNames() []string {
 
 // RestApiAdditionalProperties get's all rest specific additional properties with their
 // default values
-func (m *Provider) RestApiAdditionalProperties(includeProp string) map[string]interface{} {
+func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{} {
 	moduleParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-			for name, additionalProperty := range arg.AdditionalProperties() {
-				for _, includePropName := range additionalProperty.RestNames {
-					if includePropName == includeProp && moduleParams[name] == nil {
-						moduleParams[name] = additionalProperty.DefaultValue
+		if !m.hasMultipleVectorizers || m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+				for name, additionalProperty := range arg.AdditionalProperties() {
+					for _, includePropName := range additionalProperty.RestNames {
+						if includePropName == includeProp && moduleParams[name] == nil {
+							moduleParams[name] = additionalProperty.DefaultValue
+						}
 					}
 				}
 			}
