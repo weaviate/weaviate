@@ -193,6 +193,13 @@ func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string
 	return class.Vectorizer == module || m.isDefaultModule(module)
 }
 
+func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string) bool {
+	if class == nil {
+		return !m.hasMultipleVectorizers
+	}
+	return m.shouldIncludeClassArgument(class, module)
+}
+
 func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string) bool {
 	for _, c := range schema.Classes {
 		if m.shouldIncludeClassArgument(c, module) {
@@ -256,7 +263,7 @@ func (m *Provider) ExtractSearchParams(arguments map[string]interface{}, classNa
 func (m *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if !m.hasMultipleVectorizers || m.shouldIncludeClassArgument(class, module.Name()) {
+		if m.shouldCrossClassIncludeClassArgument(class, module.Name()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
@@ -270,6 +277,13 @@ func (m *Provider) extractSearchParams(arguments map[string]interface{}, class *
 	return exractedParams
 }
 
+// CrossClassValidateSearchParam validates module parameters without
+// being specific to any one class and it's configuration. This is used in
+// Explore() { } for example
+func (m *Provider) CrossClassValidateSearchParam(name string, value interface{}) error {
+	return m.validateSearchParam(name, value, nil)
+}
+
 // ValidateSearchParam validates module parameters
 func (m *Provider) ValidateSearchParam(name string, value interface{}, className string) error {
 	class, err := m.getClass(className)
@@ -277,8 +291,12 @@ func (m *Provider) ValidateSearchParam(name string, value interface{}, className
 		return err
 	}
 
+	return m.validateSearchParam(name, value, class)
+}
+
+func (m *Provider) validateSearchParam(name string, value interface{}, class *models.Class) error {
 	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name()) {
+		if m.shouldCrossClassIncludeClassArgument(class, module.Name()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if paramName == name && argument.ValidateFunction != nil {
