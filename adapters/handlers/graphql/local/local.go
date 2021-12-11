@@ -34,6 +34,18 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
+
+	if modulesProvider.HasMultipleVectorizers() {
+		logger.Warn("WARNING: Multiple vector spaces are present, Explore has been disabled as a result.")
+
+		localFields := graphql.Fields{
+			"Get":       getField,
+			"Aggregate": aggregateField,
+		}
+
+		return localFields, nil
+	}
+
 	exploreField := explore.Build(dbSchema.Objects, modulesProvider)
 
 	localFields := graphql.Fields{

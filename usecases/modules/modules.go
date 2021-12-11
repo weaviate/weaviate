@@ -31,8 +31,9 @@ var (
 )
 
 type Provider struct {
-	registered   map[string]modulecapabilities.Module
-	schemaGetter schemaGetter
+	registered             map[string]modulecapabilities.Module
+	schemaGetter           schemaGetter
+	hasMultipleVectorizers bool
 }
 
 type schemaGetter interface {
@@ -172,10 +173,9 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 						name, propertyName, modules))
 			}
 		}
-		// if len(modules) > 1 {
-		// 	errorMessages = append(errorMessages,
-		// 		fmt.Sprintf("%s: %s defined in more than one module: %v", name, propertyName, modules))
-		// }
+		if len(modules) > 1 {
+			m.hasMultipleVectorizers = true
+		}
 	}
 	return errorMessages
 }
@@ -575,4 +575,8 @@ func (m *Provider) getClass(className string) (*models.Class, error) {
 		return nil, errors.Errorf("class %q not found in schema", className)
 	}
 	return class, nil
+}
+
+func (m *Provider) HasMultipleVectorizers() bool {
+	return m.hasMultipleVectorizers
 }
