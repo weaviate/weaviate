@@ -670,6 +670,14 @@ func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt
 	return f.getObjectReturn, nil
 }
 
+func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error) {
+	class := &models.Class{
+		Class:      f.getObjectReturn.Class,
+		Vectorizer: "text2vec-contextionary",
+	}
+	return class, nil
+}
+
 func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ additional.Properties) ([]*models.Object, error) {
 	return f.getObjectsReturn, nil
 }

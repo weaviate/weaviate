@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,7 +44,8 @@ func TestModulesProvider(t *testing.T) {
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
@@ -67,7 +69,8 @@ func TestModulesProvider(t *testing.T) {
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
 		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.Nil(t, err)
@@ -88,7 +91,8 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
@@ -115,7 +119,8 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
@@ -152,13 +157,14 @@ func TestModulesProvider(t *testing.T) {
 			withRestApiArg("interpretation", []string{"interpretation"}).
 			withArg("nearArgument"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
 		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
-		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection")
-		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation")
+		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection", class)
+		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation", class)
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()
 
 		// then
@@ -191,7 +197,8 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("featureProjection", []string{"featureProjection"}).
 			withRestApiArg("featureProjection", []string{"featureProjection", "fp", "f-p"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.Nil(t, err)
@@ -218,7 +225,8 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
@@ -267,7 +275,8 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)

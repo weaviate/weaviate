@@ -353,41 +353,43 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
 	capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
-	class, err := m.getClassFromSearchResult(toBeExtended)
-	if err != nil {
-		return nil, err
-	}
-	allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name()) {
-			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-				if arg != nil && arg.AdditionalProperties() != nil {
-					for name, additionalProperty := range arg.AdditionalProperties() {
-						allAdditionalProperties[name] = additionalProperty
+	if len(toBeExtended) > 0 {
+		class, err := m.getClassFromSearchResult(toBeExtended)
+		if err != nil {
+			return nil, err
+		}
+		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
+		for _, module := range m.GetAll() {
+			if m.shouldIncludeClassArgument(class, module.Name()) {
+				if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
+					if arg != nil && arg.AdditionalProperties() != nil {
+						for name, additionalProperty := range arg.AdditionalProperties() {
+							allAdditionalProperties[name] = additionalProperty
+						}
 					}
 				}
 			}
 		}
-	}
-	if len(allAdditionalProperties) > 0 {
-		if err := m.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
-			return nil, err
-		}
-		for name, value := range moduleParams {
-			additionalPropertyFn := m.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
-			if additionalPropertyFn != nil && value != nil {
-				searchValue := value
-				if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-					searchVectorValue.SetSearchVector(searchVector)
-					searchValue = searchVectorValue
+		if len(allAdditionalProperties) > 0 {
+			if err := m.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
+				return nil, err
+			}
+			for name, value := range moduleParams {
+				additionalPropertyFn := m.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
+				if additionalPropertyFn != nil && value != nil {
+					searchValue := value
+					if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
+						searchVectorValue.SetSearchVector(searchVector)
+						searchValue = searchVectorValue
+					}
+					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams)
+					if err != nil {
+						return nil, errors.Errorf("extend %s: %v", name, err)
+					}
+					toBeExtended = resArray
+				} else {
+					return nil, errors.Errorf("unknown capability: %s", name)
 				}
-				resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams)
-				if err != nil {
-					return nil, errors.Errorf("extend %s: %v", name, err)
-				}
-				toBeExtended = resArray
-			} else {
-				return nil, errors.Errorf("unknown capability: %s", name)
 			}
 		}
 	}
