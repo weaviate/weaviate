@@ -236,6 +236,13 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 	return arguments
 }
 
+// CrossClassExtractSearchParams extract search params from modules without
+// being specific to any one class and it's configuration. This is used in
+// Explore() { } for example
+func (m *Provider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+	return m.extractSearchParams(arguments, nil)
+}
+
 // ExtractSearchParams extracts GraphQL arguments
 func (m *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
@@ -243,8 +250,13 @@ func (m *Provider) ExtractSearchParams(arguments map[string]interface{}, classNa
 	if err != nil {
 		return exractedParams
 	}
+	return m.extractSearchParams(arguments, class)
+}
+
+func (m *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
+	exractedParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if m.shouldIncludeClassArgument(class, module.Name()) {
+		if !m.hasMultipleVectorizers || m.shouldIncludeClassArgument(class, module.Name()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
