@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
 [![Coverage Status](https://codecov.io/gh/semi-technologies/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/semi-technologies/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
-[![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
+[![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=revue)](http://weaviate-newsletter.semi.technology/)
 
 ## Description
 
