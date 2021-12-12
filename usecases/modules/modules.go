@@ -186,7 +186,7 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 }
 
 func (m *Provider) isDefaultModule(module string) bool {
-	return module == "qna-transformers" || module == "text-spellcheck"
+	return module == "qna-transformers" || module == "text-spellcheck" || module == "ner-transformers"
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string) bool {
@@ -195,7 +195,7 @@ func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string
 
 func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string) bool {
 	if class == nil {
-		return !m.hasMultipleVectorizers
+		return !m.HasMultipleVectorizers()
 	}
 	return m.shouldIncludeClassArgument(class, module)
 }
@@ -243,7 +243,7 @@ func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 	return arguments
 }
 
-// CrossClassExtractSearchParams extract search params from modules without
+// CrossClassExtractSearchParams extracts GraphQL arguments from modules without
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
 func (m *Provider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
@@ -482,7 +482,7 @@ func (m *Provider) GraphQLAdditionalFieldNames() []string {
 func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{} {
 	moduleParams := map[string]interface{}{}
 	for _, module := range m.GetAll() {
-		if !m.hasMultipleVectorizers || m.shouldIncludeClassArgument(class, module.Name()) {
+		if m.shouldCrossClassIncludeClassArgument(class, module.Name()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					for _, includePropName := range additionalProperty.RestNames {
