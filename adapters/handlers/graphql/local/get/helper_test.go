@@ -495,7 +495,7 @@ func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*grap
 	return args
 }
 
-func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearCustomText"]; ok {
 		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))
@@ -513,7 +513,7 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 	return additionalProperties
 }
 
-func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
 	if additionalProperties := p.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {

@@ -76,6 +76,12 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
 		},
+		testCase{
+			methodName:       "GetObjectsClass",
+			additionalArgs:   []interface{}{strfmt.UUID("foo")},
+			expectedVerb:     "get",
+			expectedResource: "objects/foo",
+		},
 
 		// list kinds
 		testCase{

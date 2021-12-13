@@ -70,7 +70,7 @@ type authorizer interface {
 type ModulesProvider interface {
 	ParseClassifierSettings(name string,
 		params *models.Classification) error
-	GetClassificationFn(name string,
+	GetClassificationFn(className, name string,
 		params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error)
 }
 
