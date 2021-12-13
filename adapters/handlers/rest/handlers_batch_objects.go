@@ -21,11 +21,11 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
-type batchKindHandlers struct {
+type batchObjectHandlers struct {
 	manager *objects.BatchManager
 }
 
-func (h *batchKindHandlers) addObjects(params batch.BatchObjectsCreateParams,
+func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Objects, params.Body.Fields)
@@ -47,7 +47,7 @@ func (h *batchKindHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		WithPayload(h.objectsResponse(objs))
 }
 
-func (h *batchKindHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
+func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
@@ -67,7 +67,7 @@ func (h *batchKindHandlers) objectsResponse(input objects.BatchObjects) []*model
 	return response
 }
 
-func (h *batchKindHandlers) addReferences(params batch.BatchReferencesCreateParams,
+func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
@@ -88,7 +88,7 @@ func (h *batchKindHandlers) addReferences(params batch.BatchReferencesCreatePara
 		WithPayload(h.referencesResponse(references))
 }
 
-func (h *batchKindHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
+func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
@@ -116,7 +116,7 @@ func (h *batchKindHandlers) referencesResponse(input objects.BatchReferences) []
 }
 
 func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
-	h := &batchKindHandlers{manager}
+	h := &batchObjectHandlers{manager}
 
 	api.BatchBatchObjectsCreateHandler = batch.
 		BatchObjectsCreateHandlerFunc(h.addObjects)

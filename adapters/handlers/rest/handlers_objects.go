@@ -29,8 +29,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type kindHandlers struct {
-	manager         kindsManager
+type objectHandlers struct {
+	manager         objectsManager
 	logger          logrus.FieldLogger
 	config          config.Config
 	modulesProvider ModulesProvider
@@ -42,7 +42,7 @@ type ModulesProvider interface {
 	HasMultipleVectorizers() bool
 }
 
-type kindsManager interface {
+type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
 	GetObject(context.Context, *models.Principal, strfmt.UUID, additional.Properties) (*models.Object, error)
@@ -56,7 +56,7 @@ type kindsManager interface {
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
 
-func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
+func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
@@ -81,7 +81,7 @@ func (h *kindHandlers) addObject(params objects.ObjectsCreateParams,
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
 
-func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
+func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
@@ -101,7 +101,7 @@ func (h *kindHandlers) validateObject(params objects.ObjectsValidateParams,
 	return objects.NewObjectsValidateOK()
 }
 
-func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
+func (h *objectHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
 	class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
@@ -137,7 +137,7 @@ func (h *kindHandlers) getObject(params objects.ObjectsGetParams,
 	return objects.NewObjectsGetOK().WithPayload(object)
 }
 
-func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
+func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal) middleware.Responder {
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
@@ -174,7 +174,7 @@ func (h *kindHandlers) getObjects(params objects.ObjectsListParams,
 		})
 }
 
-func (h *kindHandlers) updateObject(params objects.ObjectsUpdateParams,
+func (h *objectHandlers) updateObject(params objects.ObjectsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
@@ -199,7 +199,7 @@ func (h *kindHandlers) updateObject(params objects.ObjectsUpdateParams,
 	return objects.NewObjectsUpdateOK().WithPayload(object)
 }
 
-func (h *kindHandlers) deleteObject(params objects.ObjectsDeleteParams,
+func (h *objectHandlers) deleteObject(params objects.ObjectsDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
@@ -218,7 +218,7 @@ func (h *kindHandlers) deleteObject(params objects.ObjectsDeleteParams,
 	return objects.NewObjectsDeleteNoContent()
 }
 
-func (h *kindHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
+func (h *objectHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	err := h.manager.MergeObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -237,7 +237,7 @@ func (h *kindHandlers) patchObject(params objects.ObjectsPatchParams, principal 
 	return objects.NewObjectsPatchNoContent()
 }
 
-func (h *kindHandlers) addObjectReference(params objects.ObjectsReferencesCreateParams,
+func (h *objectHandlers) addObjectReference(params objects.ObjectsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
@@ -257,7 +257,7 @@ func (h *kindHandlers) addObjectReference(params objects.ObjectsReferencesCreate
 	return objects.NewObjectsReferencesCreateOK()
 }
 
-func (h *kindHandlers) updateObjectReferences(params objects.ObjectsReferencesUpdateParams,
+func (h *objectHandlers) updateObjectReferences(params objects.ObjectsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
@@ -277,7 +277,7 @@ func (h *kindHandlers) updateObjectReferences(params objects.ObjectsReferencesUp
 	return objects.NewObjectsReferencesUpdateOK()
 }
 
-func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
+func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
@@ -300,7 +300,7 @@ func (h *kindHandlers) deleteObjectReference(params objects.ObjectsReferencesDel
 func setupKindHandlers(api *operations.WeaviateAPI,
 	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) {
-	h := &kindHandlers{manager, logger, config, modulesProvider}
+	h := &objectHandlers{manager, logger, config, modulesProvider}
 
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
@@ -324,7 +324,7 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferences)
 }
 
-func (h *kindHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
+func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
 	if schema == nil {
 		return schema
 	}
@@ -340,7 +340,7 @@ func (h *kindHandlers) extendPropertiesWithAPILinks(schema map[string]interface{
 	return schema
 }
 
-func (h *kindHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
+func (h *objectHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
 	for i, ref := range refs {
 		refs[i] = h.extendReferenceWithAPILink(ref)
 	}
@@ -348,7 +348,7 @@ func (h *kindHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) mod
 	return refs
 }
 
-func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
+func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
 	parsed, err := crossref.Parse(ref.Beacon.String())
 	if err != nil {
 		// ignore return unchanged
@@ -359,7 +359,7 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 	return ref
 }
 
-func (h *kindHandlers) shouldIncludeGetObjectsModuleParams() bool {
+func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
 	if h.modulesProvider == nil || !h.modulesProvider.HasMultipleVectorizers() {
 		return true
 	}
