@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -59,6 +60,32 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	defer unlock()
 
 	return m.getObjectsFromRepo(ctx, offset, limit, additional)
+}
+
+func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID) (*models.Class, error) {
+	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
+	if err != nil {
+		return nil, err
+	}
+
+	unlock, err := m.locks.LockConnector()
+	if err != nil {
+		return nil, NewErrInternal("could not acquire lock: %v", err)
+	}
+	defer unlock()
+
+	res, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetClass(schema.ClassName(res.ClassName)), nil
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,

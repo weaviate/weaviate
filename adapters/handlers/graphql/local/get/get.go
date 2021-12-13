@@ -24,9 +24,9 @@ import (
 
 type ModulesProvider interface {
 	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
-	ExtractSearchParams(arguments map[string]interface{}) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
 	GetAdditionalFields(class *models.Class) map[string]*graphql.Field
-	ExtractAdditionalField(name string, params []*ast.Argument) interface{}
+	ExtractAdditionalField(className, name string, params []*ast.Argument) interface{}
 	GraphQLAdditionalFieldNames() []string
 }
 

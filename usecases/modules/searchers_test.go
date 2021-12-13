@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,8 @@ func TestModulesWithSearchers(t *testing.T) {
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
-					Class: "MyClass",
+					Class:      "MyClass",
+					Vectorizer: "mod",
 					ModuleConfig: map[string]interface{}{
 						"mod": map[string]interface{}{
 							"some-config": "some-config-value",
@@ -39,6 +41,7 @@ func TestModulesWithSearchers(t *testing.T) {
 			},
 		},
 	}
+	logger, _ := test.NewNullLogger()
 
 	t.Run("get a vector for a class", func(t *testing.T) {
 		p := NewProvider()
@@ -61,7 +64,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				return append(initial, 4), nil
 			}),
 		)
-		p.Init(context.Background(), nil)
+		p.Init(context.Background(), nil, logger)
 
 		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
 			"nearGrape", nil, fakeFindVector)
@@ -92,7 +95,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				return append(initial, 4), nil
 			}),
 		)
-		p.Init(context.Background(), nil)
+		p.Init(context.Background(), nil, logger)
 
 		res, err := p.CrossClassVectorFromSearchParam(context.Background(),
 			"nearGrape", nil, fakeFindVector)

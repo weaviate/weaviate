@@ -79,7 +79,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					addObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.addObject(objects.ObjectsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -147,7 +147,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					addObjectReturn: test.object,
 				}
 				config := config.Config{Origin: "https://awesomehost.com"}
-				h := &kindHandlers{manager: fakeManager, config: config}
+				h := &objectHandlers{manager: fakeManager, config: config}
 				res := h.addObject(objects.ObjectsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -212,7 +212,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					getObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.getObject(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
 				parsed, ok := res.(*objects.ObjectsGetOK)
 				require.True(t, ok)
@@ -298,7 +298,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					getObjectsReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
 				parsed, ok := res.(*objects.ObjectsListOK)
 				require.True(t, ok)
@@ -360,7 +360,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					updateObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.updateObject(objects.ObjectsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -425,7 +425,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					addObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.addObject(objects.ObjectsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -490,7 +490,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					getObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.getObject(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
 				parsed, ok := res.(*objects.ObjectsGetOK)
 				require.True(t, ok)
@@ -576,7 +576,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					getObjectsReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
 				parsed, ok := res.(*objects.ObjectsListOK)
 				require.True(t, ok)
@@ -638,7 +638,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					updateObjectReturn: test.object,
 				}
-				h := &kindHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager}
 				res := h.updateObject(objects.ObjectsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -668,6 +668,14 @@ func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *
 
 func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ additional.Properties) (*models.Object, error) {
 	return f.getObjectReturn, nil
+}
+
+func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error) {
+	class := &models.Class{
+		Class:      f.getObjectReturn.Class,
+		Vectorizer: "text2vec-contextionary",
+	}
+	return class, nil
 }
 
 func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ additional.Properties) ([]*models.Object, error) {

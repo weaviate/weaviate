@@ -18,6 +18,8 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,11 +28,14 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
 		class := &models.Class{
+			Class:      "ClassOne",
 			Vectorizer: "mod1",
 		}
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
 		params["nearArgumentSomeParam"] = string("doesn't matter here")
@@ -39,11 +44,12 @@ func TestModulesProvider(t *testing.T) {
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
+		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
 
 		// then
 		mod1 := registered[0]
@@ -57,20 +63,24 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register modules providing the same search param", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
 		modulesProvider.Register(newGraphQLModule("mod2").withArg("nearArgument"))
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "nearArgument defined in more than one module")
+		assert.Nil(t, err)
 	})
 
 	t.Run("should not register modules providing internal search param", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
@@ -81,7 +91,8 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
@@ -95,6 +106,8 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register modules providing faulty params", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
@@ -106,11 +119,11 @@ func TestModulesProvider(t *testing.T) {
 			withExtractFn("nearObject").
 			withExtractFn("group"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "nearArgument defined in more than one module")
 		assert.Contains(t, err.Error(), "nearObject conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "nearVector conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "where conflicts with weaviate's internal searcher in modules: [mod3]")
@@ -122,11 +135,14 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
 		class := &models.Class{
+			Class:      "ClassOne",
 			Vectorizer: "mod1",
 		}
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
 		params["nearArgumentSomeParam"] = string("doesn't matter here")
@@ -141,13 +157,14 @@ func TestModulesProvider(t *testing.T) {
 			withRestApiArg("interpretation", []string{"interpretation"}).
 			withArg("nearArgument"),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments)
-		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection")
-		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation")
+		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
+		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection", class)
+		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation", class)
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()
 
 		// then
@@ -166,6 +183,8 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register additional property modules providing the same params", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").
@@ -178,20 +197,18 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("featureProjection", []string{"featureProjection"}).
 			withRestApiArg("featureProjection", []string{"featureProjection", "fp", "f-p"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "searcher: nearArgument defined in more than one module")
-		assert.Contains(t, err.Error(), "graphql additional property: featureProjection defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: featureProjection defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: fp defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: f-p defined in more than one module")
+		assert.Nil(t, err)
 	})
 
 	t.Run("should not register additional property modules providing internal search param", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").withArg("nearArgument"))
@@ -208,7 +225,8 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
@@ -228,6 +246,8 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should not register additional property modules providing faulty params", func(t *testing.T) {
 		// given
 		modulesProvider := NewProvider()
+		schemaGetter := getFakeSchemaGetter()
+		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").
@@ -255,11 +275,11 @@ func TestModulesProvider(t *testing.T) {
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
-		err := modulesProvider.Init(context.Background(), nil)
+		logger, _ := test.NewNullLogger()
+		err := modulesProvider.Init(context.Background(), nil, logger)
 
 		// then
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "searcher: nearArgument defined in more than one module")
 		assert.Contains(t, err.Error(), "searcher: nearObject conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: nearVector conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "searcher: where conflicts with weaviate's internal searcher in modules: [mod3]")
@@ -271,10 +291,6 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "graphql additional property: classification conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod4]")
-		assert.Contains(t, err.Error(), "graphql additional property: semanticPath defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: featureProjection defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: fp defined in more than one module")
-		assert.Contains(t, err.Error(), "rest api additional property: f-p defined in more than one module")
 	})
 }
 
@@ -371,4 +387,41 @@ func (m *dummyAdditionalModule) withRestApiArg(argName string, values []string) 
 
 func (m *dummyAdditionalModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalProperties
+}
+
+func getFakeSchemaGetter() schemaGetter {
+	sch := enitiesSchema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:      "ClassOne",
+					Vectorizer: "mod1",
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
+				},
+				{
+					Class:      "ClassTwo",
+					Vectorizer: "mod2",
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
+				},
+				{
+					Class:      "ClassThree",
+					Vectorizer: "mod3",
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
+				},
+			},
+		},
+	}
+	return &fakeSchemaGetter{schema: sch}
 }

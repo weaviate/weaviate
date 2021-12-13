@@ -172,7 +172,11 @@ func (p *fakeModulesProvider) ExploreArguments(schema *models.Schema) map[string
 	return args
 }
 
-func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+func (p *fakeModulesProvider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
+	return p.ExtractSearchParams(arguments, "")
+}
+
+func (p *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearText"]; ok {
 		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))
@@ -191,7 +195,7 @@ func (p *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[strin
 	return additionalProperties
 }
 
-func (p *fakeModulesProvider) ExtractAdditionalField(name string, params []*ast.Argument) interface{} {
+func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, params []*ast.Argument) interface{} {
 	txt2vec := &mockText2vecContextionaryModule{}
 	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {

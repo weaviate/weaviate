@@ -15,6 +15,9 @@ if [[ "$*" == *--transformers* ]]; then
 else 
   ADDITIONAL_SERVICES+=('contextionary')
 fi
+if [[ "$*" == *--contextionary* ]]; then
+  ADDITIONAL_SERVICES+=('contextionary')
+fi
 if [[ "$*" == *--qna* ]]; then
   ADDITIONAL_SERVICES+=('qna-transformers')
 fi

@@ -34,6 +34,16 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
+
+	if modulesProvider.HasMultipleVectorizers() {
+		localFields := graphql.Fields{
+			"Get":       getField,
+			"Aggregate": aggregateField,
+		}
+
+		return localFields, nil
+	}
+
 	exploreField := explore.Build(dbSchema.Objects, modulesProvider)
 
 	localFields := graphql.Fields{
