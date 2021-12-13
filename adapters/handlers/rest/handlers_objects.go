@@ -103,16 +103,26 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 
 func (h *objectHandlers) getObject(params objects.ObjectsGetParams,
 	principal *models.Principal) middleware.Responder {
-	class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
-	if err != nil {
-		return objects.NewObjectsGetBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
-	}
+	var additional additional.Properties
 
-	additional, err := parseIncludeParam(params.Include, h.modulesProvider, true, class)
-	if err != nil {
-		return objects.NewObjectsGetBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+	// The process to extract additional params depends on knowing the schema
+	// which in turn requires a preflight load of the object. We can save this
+	// second db request if we know that the user did not specify any additional
+	// params. This could potentially be optimized further by checking if only
+	// non-module specific params are contained and decide then, but we do not
+	// know if this path is critical enough for this level of optimization.
+	if params.Include != nil {
+		class, err := h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
+		if err != nil {
+			return objects.NewObjectsGetBadRequest().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+
+		additional, err = parseIncludeParam(params.Include, h.modulesProvider, true, class)
+		if err != nil {
+			return objects.NewObjectsGetBadRequest().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 	}
 
 	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal, params.ID, additional)
