@@ -51,6 +51,11 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	err = s.cleanupInvertedIndexOnDelete(existing, docID)
+	if err != nil {
+		return errors.Wrap(err, "delete object from bucket")
+	}
+
 	// in-mem
 	// TODO: do we still need this?
 	s.deletedDocIDs.Add(docID)
@@ -70,19 +75,21 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	return nil
 }
 
-// func (s *Shard) deleteIndexIDLookup(tx *bolt.Tx, docID uint32) error {
-// 	keyBuf := bytes.NewBuffer(make([]byte, 4))
-// 	binary.Write(keyBuf, binary.LittleEndian, &docID)
-// 	key := keyBuf.Bytes()
+func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
+	previousObject, err := storobj.FromBinary(previous)
+	if err != nil {
+		return errors.Wrap(err, "unmarshal previous object")
+	}
 
-// 	b := tx.Bucket(helpers.IndexIDBucket)
-// 	if b == nil {
-// 		return fmt.Errorf("no index id bucket found")
-// 	}
+	previousInvertProps, err := s.analyzeObject(previousObject)
+	if err != nil {
+		return errors.Wrap(err, "analyze previous object")
+	}
 
-// 	if err := b.Delete(key); err != nil {
-// 		return errors.Wrap(err, "delete uuid for index id")
-// 	}
+	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	if err != nil {
+		return errors.Wrap(err, "put inverted indices props")
+	}
 
-// 	return nil
-// }
+	return nil
+}
