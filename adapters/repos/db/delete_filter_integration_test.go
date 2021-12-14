@@ -154,3 +154,109 @@ func extractIDs(in []search.Result) []strfmt.UUID {
 
 	return out
 }
+
+// This bug aims to prevent a regression on
+// https://github.com/semi-technologies/weaviate/issues/1765
+func TestLimitOneAfterDeletion(t *testing.T) {
+	className := "Test"
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{{
+			Name:     "author",
+			DataType: []string{string(schema.DataTypeText)},
+		}},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		// update schema getter so it's in sync with class
+		schemaGetter.schema = schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+	})
+
+	firstID := strfmt.UUID("114c8f57-f244-4419-b5c1-cb2f635b76d0")
+
+	t.Run("import single object", func(t *testing.T) {
+		err := repo.PutObject(context.Background(), &models.Object{
+			Class: "Test",
+			ID:    firstID,
+			Properties: map[string]interface{}{
+				"author": "Simon",
+			},
+		}, []float32{0, 1})
+
+		require.Nil(t, err)
+	})
+
+	t.Run("delete first object", func(t *testing.T) {
+		err := repo.DeleteObject(context.Background(), "Test", firstID)
+		require.Nil(t, err)
+	})
+
+	t.Run("create another object", func(t *testing.T) {
+		// new object has a different ID, but the same inverted props as the
+		// previously deleted one
+		err := repo.PutObject(context.Background(), &models.Object{
+			Class: "Test",
+			ID:    "74776bbd-2de0-421d-8cef-757e16466dd9",
+			Properties: map[string]interface{}{
+				"author": "Simon",
+			},
+		}, []float32{0, 1})
+
+		require.Nil(t, err)
+	})
+
+	t.Run("query with high limit", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters:   buildFilter("author", "Simon", eq, dtText),
+			ClassName: "Test",
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  100,
+			},
+		})
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, "Simon", res[0].Object().Properties.(map[string]interface{})["author"])
+	})
+
+	t.Run("query with limit 1", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters:   buildFilter("author", "Simon", eq, dtText),
+			ClassName: "Test",
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  1,
+			},
+		})
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, "Simon", res[0].Object().Properties.(map[string]interface{})["author"])
+	})
+}

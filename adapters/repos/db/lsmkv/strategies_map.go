@@ -29,6 +29,7 @@ func (m *mapDecoder) Do(in []value, acceptDuplicates bool) ([]MapPair, error) {
 	if acceptDuplicates {
 		return m.doSimplified(in)
 	}
+
 	seenKeys := map[string]uint{}
 	kvs := make([]MapPair, len(in))
 
