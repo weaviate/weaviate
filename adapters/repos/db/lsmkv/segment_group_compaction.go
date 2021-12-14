@@ -84,47 +84,61 @@ func (ig *SegmentGroup) bestCompactionCandidatePair() []int {
 	return res
 }
 
+// segmentAtPos retrieves the segment for the given position using a read-lock
+func (ig *SegmentGroup) segmentAtPos(pos int) *segment {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	return ig.segments[pos]
+}
+
 func (ig *SegmentGroup) compactOnce() error {
+	// Is it safe to only occasionally lock instead of the entire duration? Yes,
+	// because other than compaction the only change to the segments array could
+	// be an append because of a new flush cycle, so we do not need to guarantee
+	// that the array contents stay stable over the duration of an entire
+	// compaction. We do however need to protect against a read-while-write (race
+	// condition) on the array. Thus any read from ig.segments need to protected
 	pair := ig.bestCompactionCandidatePair()
 	if pair == nil {
 		// nothing to do
 		return nil
 	}
 
-	path := fmt.Sprintf("%s.tmp", ig.segments[pair[1]].path)
+	path := fmt.Sprintf("%s.tmp", ig.segmentAtPos(pair[1]).path)
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
-	scratchSpacePath := ig.segments[pair[1]].path + "compaction.scratch.d"
+	scratchSpacePath := ig.segmentAtPos(pair[1]).path + "compaction.scratch.d"
 
 	// the assumption is that both pairs are of the same level, so we can just
 	// take either value. If we want to support asymmetric compaction, then we
 	// might have to choose this value more intelligently
-	level := ig.segments[pair[0]].level
-	secondaryIndices := ig.segments[pair[0]].secondaryIndexCount
+	level := ig.segmentAtPos(pair[0]).level
+	secondaryIndices := ig.segmentAtPos(pair[0]).secondaryIndexCount
 
-	strategy := ig.segments[pair[0]].strategy
+	strategy := ig.segmentAtPos(pair[0]).strategy
 	switch strategy {
 	case SegmentStrategyReplace:
-		c := newCompactorReplace(f, ig.segments[pair[0]].newCursor(),
-			ig.segments[pair[1]].newCursor(), level, secondaryIndices, scratchSpacePath)
+		c := newCompactorReplace(f, ig.segmentAtPos(pair[0]).newCursor(),
+			ig.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategySetCollection:
-		c := newCompactorSetCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices,
+		c := newCompactorSetCollection(f, ig.segmentAtPos(pair[0]).newCollectionCursor(),
+			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
 
 		if err := c.do(); err != nil {
 			return err
 		}
 	case SegmentStrategyMapCollection:
-		c := newCompactorMapCollection(f, ig.segments[pair[0]].newCollectionCursor(),
-			ig.segments[pair[1]].newCollectionCursor(), level, secondaryIndices,
+		c := newCompactorMapCollection(f, ig.segmentAtPos(pair[0]).newCollectionCursor(),
+			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
 
 		if err := c.do(); err != nil {
