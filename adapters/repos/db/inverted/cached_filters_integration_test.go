@@ -221,6 +221,69 @@ func Test_CachedFilters_String(t *testing.T) {
 				return allowList(14)
 			},
 		},
+		{
+			// This test prevents a regression on
+			// https://github.com/semi-technologies/weaviate/issues/1770
+			name: "combined and/or filter, see gh-1770",
+			filter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+
+						// This part will produce results
+						filters.Clause{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								{
+									Operator: filters.OperatorEqual,
+									On: &filters.Path{
+										Class:    "foo",
+										Property: schema.PropertyName(propName),
+									},
+									Value: &filters.Value{
+										Value: "modulo-7",
+										Type:  schema.DataTypeString,
+									},
+								},
+								{
+									Operator: filters.OperatorEqual,
+									On: &filters.Path{
+										Class:    "foo",
+										Property: schema.PropertyName(propName),
+									},
+									Value: &filters.Value{
+										Value: "modulo-8",
+										Type:  schema.DataTypeString,
+									},
+								},
+							},
+						},
+
+						// This part will produce no results
+						filters.Clause{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "foo",
+								Property: schema.PropertyName(propName),
+							},
+							Value: &filters.Value{
+								Value: "modulo-7000000",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			// prior to the fix of gh-1770 the second AND operand was ignored due to
+			// a  missing hash in the merge and we would get results here, when we
+			// shouldn't
+			expectedListBeforeUpdate: func() helpers.AllowList {
+				return allowList()
+			},
+			expectedListAfterUpdate: func() helpers.AllowList {
+				return allowList()
+			},
+		},
 	}
 
 	for _, test := range tests {
