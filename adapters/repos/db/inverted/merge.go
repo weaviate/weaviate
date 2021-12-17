@@ -93,6 +93,15 @@ func intersectAnd(smaller, larger *docPointers) *docPointers {
 	for i := range larger.docIDs {
 		if _, ok := lookup[larger.docIDs[i].id]; ok {
 			eligibile.docIDs[matches] = docPointer{id: larger.docIDs[i].id}
+
+			// remove the current match from the lookup list. Otherwise, if the
+			// larger of the two lists contains duplicates for a doc id the total
+			// length is no longer that of the smaller list. E.g. compare list_a=[1]
+			// and list_b=[1,1]. Without eliminating duplicates we would suddenly
+			// find two matches. After deleting [1] from list_a after it was first
+			// found on list_b, we will no longer create a match for the second
+			// entry.
+			delete(lookup, larger.docIDs[i].id)
 			matches++
 		}
 	}
