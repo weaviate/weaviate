@@ -110,7 +110,8 @@ func mergeOrAcceptDuplicates(in []*docPointers) (*docPointers, error) {
 	}
 
 	out := docPointers{
-		docIDs: make([]docPointer, size),
+		docIDs:   make([]docPointer, size),
+		checksum: combineSetChecksums(in, filters.OperatorOr),
 	}
 
 	index := 0
