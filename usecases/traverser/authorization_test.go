@@ -20,6 +20,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "Explore",
-			additionalArgs:   []interface{}{ExploreParams{}},
+			additionalArgs:   []interface{}{near.ExploreParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
@@ -82,7 +83,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 			schemaGetter := &fakeSchemaGetter{}
 
 			manager := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-				vectorRepo, explorer, schemaGetter)
+				vectorRepo, explorer, schemaGetter, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

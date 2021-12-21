@@ -14,9 +14,12 @@ package traverser
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema"
@@ -34,39 +37,44 @@ type authorizer interface {
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
-	config         *config.WeaviateConfig
-	locks          locks
-	logger         logrus.FieldLogger
-	authorizer     authorizer
-	vectorSearcher VectorSearcher
-	explorer       explorer
-	schemaGetter   schema.SchemaGetter
+	config           *config.WeaviateConfig
+	locks            locks
+	logger           logrus.FieldLogger
+	authorizer       authorizer
+	vectorSearcher   VectorSearcher
+	explorer         explorer
+	schemaGetter     schema.SchemaGetter
+	nearParamsVector *nearParamsVector
 }
 
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
 		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
+	ObjectByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 }
 
 type explorer interface {
 	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
+	Concepts(ctx context.Context, params near.ExploreParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(config *config.WeaviateConfig, locks locks,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorSearcher VectorSearcher,
-	explorer explorer, schemaGetter schema.SchemaGetter) *Traverser {
+	explorer explorer, schemaGetter schema.SchemaGetter,
+	modulesProvider ModulesProvider) *Traverser {
 	return &Traverser{
-		config:         config,
-		locks:          locks,
-		logger:         logger,
-		authorizer:     authorizer,
-		vectorSearcher: vectorSearcher,
-		explorer:       explorer,
-		schemaGetter:   schemaGetter,
+		config:           config,
+		locks:            locks,
+		logger:           logger,
+		authorizer:       authorizer,
+		vectorSearcher:   vectorSearcher,
+		explorer:         explorer,
+		schemaGetter:     schemaGetter,
+		nearParamsVector: newNewParamsVector(modulesProvider, vectorSearcher),
 	}
 }
 

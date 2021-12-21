@@ -18,8 +18,8 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Resolver is a local interface that can be composed with other interfaces to
@@ -27,7 +27,7 @@ import (
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
 	Explore(ctx context.Context, principal *models.Principal,
-		params traverser.ExploreParams) ([]search.Result, error)
+		params near.ExploreParams) ([]search.Result, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -70,7 +70,7 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, err
 	}
 
-	params := traverser.ExploreParams{}
+	params := near.ExploreParams{}
 
 	if param, ok := p.Args["nearVector"]; ok {
 		extracted := common_filters.ExtractNearVector(param.(map[string]interface{}))

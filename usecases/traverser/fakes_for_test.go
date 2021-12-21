@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -125,6 +126,11 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	return nil, nil
+}
+
 func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
 	concept *models.Object, vector []float32) error {
 	return nil
@@ -154,7 +160,7 @@ func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}
 	return nil, nil
 }
 
-func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
+func (f *fakeExplorer) Concepts(ctx context.Context, p near.ExploreParams) ([]search.Result, error) {
 	return nil, nil
 }
 

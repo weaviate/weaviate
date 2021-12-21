@@ -35,7 +35,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
 
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorRepo, explorer, schemaGetter)
+			vectorRepo, explorer, schemaGetter, nil)
 
 		params := aggregation.Params{
 			ClassName: "MyClass",
@@ -118,7 +118,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
 
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorRepo, explorer, schemaGetter)
+			vectorRepo, explorer, schemaGetter, nil)
 
 		params := aggregation.Params{
 			ClassName: "MyClass",

@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -321,13 +322,13 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		var nearVectorParams *traverser.NearVectorParams
+		var nearVectorParams *near.NearVectorParams
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			nearVectorParams = &p
 		}
 
-		var nearObjectParams *traverser.NearObjectParams
+		var nearObjectParams *near.NearObjectParams
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			nearObjectParams = &p

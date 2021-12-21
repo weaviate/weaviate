@@ -4,12 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
 
-package get
+package aggregate
 
 import (
 	"github.com/graphql-go/graphql"
@@ -17,9 +17,9 @@ import (
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearVectorArgument("GetObjects", className)
+	return common_filters.NearVectorArgument("AggregateObjects", className)
 }
 
 func nearObjectArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearObjectArgument("GetObjects", className)
+	return common_filters.NearObjectArgument("AggregateObjects", className)
 }

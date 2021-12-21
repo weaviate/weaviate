@@ -22,8 +22,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
@@ -108,7 +108,7 @@ func newMockResolverEmptySchema() *mockResolver {
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
-	principal *models.Principal, params traverser.ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params near.ExploreParams) ([]search.Result, error) {
 	args := m.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }

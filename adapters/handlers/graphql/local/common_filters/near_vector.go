@@ -11,13 +11,11 @@
 
 package common_filters
 
-import (
-	"github.com/semi-technologies/weaviate/usecases/traverser"
-)
+import "github.com/semi-technologies/weaviate/entities/near"
 
 // ExtractNearVector arguments, such as "vector" and "certainty"
-func ExtractNearVector(source map[string]interface{}) traverser.NearVectorParams {
-	var args traverser.NearVectorParams
+func ExtractNearVector(source map[string]interface{}) near.NearVectorParams {
+	var args near.NearVectorParams
 
 	// vector is a required argument, so we don't need to check for its existing
 	vector := source["vector"].([]interface{})

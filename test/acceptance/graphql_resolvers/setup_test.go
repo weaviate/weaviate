@@ -44,6 +44,9 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
 	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
 	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
+	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
+	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
+	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -221,7 +224,12 @@ func addTestSchema(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class:      "CustomVectorClass",
 		Vectorizer: "none",
-		Properties: []*models.Property{},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
 	})
 
 	createObjectClass(t, &models.Class{
@@ -529,6 +537,9 @@ func addTestDataCVC(t *testing.T) {
 		Class:  "CustomVectorClass",
 		ID:     cvc1,
 		Vector: []float32{1.1, 1.1, 1.1},
+		Properties: map[string]interface{}{
+			"name": "Ford",
+		},
 	})
 
 	assertGetObjectEventually(t, cvc1)
@@ -538,11 +549,17 @@ func addTestDataCVC(t *testing.T) {
 			Class:  "CustomVectorClass",
 			ID:     cvc2,
 			Vector: []float32{1.1, 1.1, 0.1},
+			Properties: map[string]interface{}{
+				"name": "Tesla",
+			},
 		},
 		{
 			Class:  "CustomVectorClass",
 			ID:     cvc3,
 			Vector: []float32{1.1, 0, 0},
+			Properties: map[string]interface{}{
+				"name": "Mercedes",
+			},
 		},
 	})
 	assertGetObjectEventually(t, cvc3)

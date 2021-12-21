@@ -14,6 +14,7 @@ package traverser
 import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -22,8 +23,8 @@ type GetParams struct {
 	ClassName            string
 	Pagination           *filters.Pagination
 	Properties           search.SelectProperties
-	NearVector           *NearVectorParams
-	NearObject           *NearObjectParams
+	NearVector           *near.NearVectorParams
+	NearObject           *near.NearObjectParams
 	SearchVector         []float32
 	Group                *GroupParams
 	ModuleParams         map[string]interface{}

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -33,8 +34,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{}
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{}
 
 		_, err := traverser.Explore(context.Background(), nil, params)
 		assert.Contains(t, err.Error(), "received no search params")
@@ -49,9 +50,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
-			NearVector: &NearVectorParams{},
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
+			NearVector: &near.NearVectorParams{},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": nil,
 			},
@@ -69,8 +70,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"a search term", "another"},
@@ -119,9 +120,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
-			NearVector: &NearVectorParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
+			NearVector: &near.NearVectorParams{
 				Vector: []float32{7.8, 9},
 			},
 		}
@@ -167,9 +168,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
-			NearObject: &NearObjectParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
+			NearObject: &near.NearObjectParams{
 				ID: "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 			},
 		}
@@ -221,9 +222,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
-			NearObject: &NearObjectParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
+			NearObject: &near.NearObjectParams{
 				Beacon: "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 			},
 		}
@@ -275,10 +276,10 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
 			Limit: 100,
-			NearVector: &NearVectorParams{
+			NearVector: &near.NearVectorParams{
 				Vector:    []float32{7.8, 9},
 				Certainty: 0.8,
 			},
@@ -312,8 +313,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"a search term", "another"},
@@ -349,8 +350,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
-		params := ExploreParams{
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := near.ExploreParams{
 			Limit: 100,
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -410,9 +411,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorSearcher, explorer, schemaGetter)
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
 
-		params := ExploreParams{
+		params := near.ExploreParams{
 			Limit: 100,
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{

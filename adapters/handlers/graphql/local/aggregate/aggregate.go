@@ -23,8 +23,14 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
+type ModulesProvider interface {
+	AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig
+	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
+}
+
 // Build the Aggreate Kinds schema
-func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, config config.Config,
+	modulesProvider ModulesProvider) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
@@ -32,7 +38,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config)
+		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -49,11 +55,11 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 }
 
 func classFields(databaseSchema []*models.Class,
-	config config.Config) (*graphql.Object, error) {
+	config config.Config, modulesProvider ModulesProvider) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
-		field, err := classField(class, class.Description, config)
+		field, err := classField(class, class.Description, config, modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +75,7 @@ func classFields(databaseSchema []*models.Class,
 }
 
 func classField(class *models.Class, description string,
-	config config.Config) (*graphql.Field, error) {
+	config config.Config, modulesProvider ModulesProvider) (*graphql.Field, error) {
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
 		// as it would not have any fields. So we have to return (without an
@@ -116,8 +122,16 @@ func classField(class *models.Class, description string,
 				Description: descriptions.GroupBy,
 				Type:        graphql.NewList(graphql.String),
 			},
+			"nearVector": nearVectorArgument(class.Class),
+			"nearObject": nearObjectArgument(class.Class),
 		},
-		Resolve: makeResolveClass(),
+		Resolve: makeResolveClass(modulesProvider, class),
+	}
+
+	if modulesProvider != nil {
+		for name, argument := range modulesProvider.AggregateArguments(class) {
+			fieldsField.Args[name] = argument
+		}
 	}
 
 	return fieldsField, nil

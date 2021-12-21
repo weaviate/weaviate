@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
@@ -25,6 +26,11 @@ type Params struct {
 	GroupBy          *filters.Path        `json:"groupBy"`
 	IncludeMetaCount bool                 `json:"includeMetaCount"`
 	Limit            *int                 `json:"limit"`
+	SearchVector     []float32
+	Certainty        float64
+	NearVector       *near.NearVectorParams
+	NearObject       *near.NearObjectParams
+	ModuleParams     map[string]interface{}
 }
 
 type ParamProperty struct {

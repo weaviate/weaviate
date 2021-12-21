@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
@@ -38,10 +39,11 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	// without grouping there is always exactly one group
 	out.Groups = make([]aggregation.Group, 1)
 
+	filter := fa.getFilterOrDefault(fa.params.Filters)
 	s := fa.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
 		fa.Aggregator.classSearcher, fa.deletedDocIDs).
-		DocIDs(ctx, fa.params.Filters, additional.Properties{},
+		DocIDs(ctx, filter, additional.Properties{},
 			fa.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
@@ -51,7 +53,16 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 		out.Groups[0].Count = len(ids)
 	}
 
-	idsList := flattenAllowList(ids)
+	var idsList []uint64
+	if len(fa.params.SearchVector) > 0 {
+		idsList, err = fa.searchByVector(fa.params.SearchVector, fa.params.Limit, ids)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		idsList = flattenAllowList(ids)
+	}
+
 	props, err := fa.properties(ctx, idsList)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
@@ -60,6 +71,58 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups[0].Properties = props
 
 	return &out, nil
+}
+
+func (fa *filteredAggregator) getFilterOrDefault(filter *filters.LocalFilter) *filters.LocalFilter {
+	if filter != nil {
+		return filter
+	}
+	return fa.getDefaultFilter()
+}
+
+func (fa *filteredAggregator) getDefaultFilter() *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			On: &filters.Path{
+				Class:    fa.params.ClassName,
+				Property: schema.PropertyName(helpers.PropertyNameID),
+			},
+			Value: &filters.Value{
+				Type:  schema.DataType("string"),
+				Value: "",
+			},
+			Operator: filters.OperatorNotEqual,
+		},
+	}
+}
+
+func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int,
+	ids helpers.AllowList) ([]uint64, error) {
+	idsFound, resDists, err := fa.vectorIndex.SearchByVector(
+		searchVector, fa.getParamsLimit(limit, ids), ids)
+	if err != nil {
+		return nil, errors.Wrap(err, "aggregate search by vector")
+	}
+	if fa.params.Certainty > 0 {
+		var idsList []uint64
+		for i := range idsFound {
+			// Dist is between 0..2, we need to reduce to the user space of 0..1
+			normalizedDist := resDists[i] / 2
+			if 1-(normalizedDist) < float32(fa.params.Certainty) {
+				continue
+			}
+			idsList = append(idsList, idsFound[i])
+		}
+		return idsList, nil
+	}
+	return idsFound, nil
+}
+
+func (fa *filteredAggregator) getParamsLimit(limit *int, ids helpers.AllowList) int {
+	if limit != nil {
+		return *(limit)
+	}
+	return len(ids)
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,

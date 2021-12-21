@@ -115,7 +115,7 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 	return response
 }
 
-func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
+func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
 	h := &batchObjectHandlers{manager}
 
 	api.BatchBatchObjectsCreateHandler = batch.
