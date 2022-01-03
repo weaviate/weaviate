@@ -63,4 +63,3 @@ golang.org/x/oauth2,Unknown,BSD-3-Clause
 golang.org/x/crypto,Unknown,BSD-3-Clause
 github.com/hashicorp/go-multierror,https://github.com/hashicorp/go-multierror/blob/master/LICENSE,MPL-2.0
 github.com/hashicorp/go-sockaddr,https://github.com/hashicorp/go-sockaddr/blob/master/LICENSE,MPL-2.0
-,Unknown,BSD-3-Clause
