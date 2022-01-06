@@ -453,8 +453,10 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, true, answerAdditional.HasAnswer)
 		answer, answerOK = in[1].AdditionalProperties["answer"]
 		assert.False(t, answerOK)
+		assert.Nil(t, answer)
 		answer, answerOK = in[2].AdditionalProperties["answer"]
 		assert.False(t, answerOK)
+		assert.Nil(t, answer)
 	})
 }
 
