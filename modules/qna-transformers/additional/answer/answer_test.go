@@ -317,6 +317,145 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
 	})
+
+	t.Run("should answer with certainty set above ask certainty and the results should not be reranked", func(t *testing.T) {
+		// given
+		qnaClient := &fakeQnAClient{}
+		fakeHelper := &fakeParamsHelper{}
+		answerProvider := New(qnaClient, fakeHelper)
+		in := []search.Result{
+			{
+				ID: "uuid1",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.5",
+				},
+			},
+			{
+				ID: "uuid2",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.2",
+				},
+			},
+			{
+				ID: "uuid3",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.9",
+				},
+			},
+		}
+		fakeParams := &Params{}
+		limit := 1
+		argumentModuleParams := map[string]interface{}{
+			"ask": map[string]interface{}{
+				"question":   "question",
+				"properties": []string{"content"},
+				"rerank":     false,
+			},
+		}
+
+		// when
+		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+
+		// then
+		require.Nil(t, err)
+		require.NotEmpty(t, out)
+		assert.Equal(t, 3, len(in))
+		answer, answerOK := in[0].AdditionalProperties["answer"]
+		assert.True(t, answerOK)
+		assert.NotNil(t, answer)
+		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
+		assert.True(t, answerAdditionalOK)
+		assert.Equal(t, "rerank 0.5", *answerAdditional.Result)
+		assert.Equal(t, "content", *answerAdditional.Property)
+		assert.Equal(t, 0.5, *answerAdditional.Certainty)
+		assert.Equal(t, 0, answerAdditional.StartPosition)
+		assert.Equal(t, 10, answerAdditional.EndPosition)
+		assert.Equal(t, true, answerAdditional.HasAnswer)
+
+		answer, answerOK = in[1].AdditionalProperties["answer"]
+		assert.True(t, answerOK)
+		assert.NotNil(t, answer)
+		answerAdditional, answerAdditionalOK = answer.(*qnamodels.Answer)
+		assert.True(t, answerAdditionalOK)
+		assert.Equal(t, "rerank 0.2", *answerAdditional.Result)
+		assert.Equal(t, "content", *answerAdditional.Property)
+		assert.Equal(t, 0.2, *answerAdditional.Certainty)
+		assert.Equal(t, 0, answerAdditional.StartPosition)
+		assert.Equal(t, 10, answerAdditional.EndPosition)
+		assert.Equal(t, true, answerAdditional.HasAnswer)
+
+		answer, answerOK = in[2].AdditionalProperties["answer"]
+		assert.True(t, answerOK)
+		assert.NotNil(t, answer)
+		answerAdditional, answerAdditionalOK = answer.(*qnamodels.Answer)
+		assert.True(t, answerAdditionalOK)
+		assert.Equal(t, "rerank 0.9", *answerAdditional.Result)
+		assert.Equal(t, "content", *answerAdditional.Property)
+		assert.Equal(t, 0.9, *answerAdditional.Certainty)
+		assert.Equal(t, 0, answerAdditional.StartPosition)
+		assert.Equal(t, 10, answerAdditional.EndPosition)
+		assert.Equal(t, true, answerAdditional.HasAnswer)
+	})
+
+	t.Run("should answer with certainty set above ask certainty and the results should be limited only to first result", func(t *testing.T) {
+		// given
+		qnaClient := &fakeQnAClient{}
+		fakeHelper := &fakeParamsHelper{}
+		answerProvider := New(qnaClient, fakeHelper)
+		in := []search.Result{
+			{
+				ID: "uuid1",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.5",
+				},
+			},
+			{
+				ID: "uuid2",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.2",
+				},
+			},
+			{
+				ID: "uuid3",
+				Schema: map[string]interface{}{
+					"content": "rerank 0.9",
+				},
+			},
+		}
+		fakeParams := &Params{}
+		limit := 1
+		argumentModuleParams := map[string]interface{}{
+			"ask": map[string]interface{}{
+				"question":     "question",
+				"properties":   []string{"content"},
+				"rerank":       false,
+				"limitToFirst": true,
+			},
+		}
+
+		// when
+		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+
+		// then
+		require.Nil(t, err)
+		require.NotEmpty(t, out)
+		assert.Equal(t, 3, len(in))
+		answer, answerOK := in[0].AdditionalProperties["answer"]
+		assert.True(t, answerOK)
+		assert.NotNil(t, answer)
+		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
+		assert.True(t, answerAdditionalOK)
+		assert.Equal(t, "rerank 0.5", *answerAdditional.Result)
+		assert.Equal(t, "content", *answerAdditional.Property)
+		assert.Equal(t, 0.5, *answerAdditional.Certainty)
+		assert.Equal(t, 0, answerAdditional.StartPosition)
+		assert.Equal(t, 10, answerAdditional.EndPosition)
+		assert.Equal(t, true, answerAdditional.HasAnswer)
+		answer, answerOK = in[1].AdditionalProperties["answer"]
+		assert.False(t, answerOK)
+		answer, answerOK = in[2].AdditionalProperties["answer"]
+		assert.False(t, answerOK)
+	})
 }
 
 type fakeQnAClient struct{}
