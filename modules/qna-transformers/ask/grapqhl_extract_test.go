@@ -86,6 +86,42 @@ func Test_extractAskFn(t *testing.T) {
 				Properties: []string{"prop1", "prop2"},
 			},
 		},
+		{
+			name: "should parse properly with question and certainty and properties and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":   "some question",
+					"certainty":  0.8,
+					"properties": []interface{}{"prop1", "prop2"},
+					"rerank":     true,
+				},
+			},
+			want: &AskParams{
+				Question:   "some question",
+				Certainty:  0.8,
+				Properties: []string{"prop1", "prop2"},
+				Rerank:     true,
+			},
+		},
+		{
+			name: "should parse properly with question and certainty and properties and rerank and limitToFirst",
+			args: args{
+				source: map[string]interface{}{
+					"question":     "some question",
+					"certainty":    0.8,
+					"properties":   []interface{}{"prop1", "prop2"},
+					"rerank":       true,
+					"limitToFirst": true,
+				},
+			},
+			want: &AskParams{
+				Question:     "some question",
+				Certainty:    0.8,
+				Properties:   []string{"prop1", "prop2"},
+				Rerank:       true,
+				LimitToFirst: true,
+			},
+		},
 	}
 
 	testsWithAutocorrect := []struct {
@@ -147,6 +183,46 @@ func Test_extractAskFn(t *testing.T) {
 				Certainty:   0.8,
 				Properties:  []string{"prop1", "prop2"},
 				Autocorrect: true,
+			},
+		},
+		{
+			name: "should parse properly with question and certainty and properties and autocorrect and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":    "transform this",
+					"certainty":   0.8,
+					"properties":  []interface{}{"prop1", "prop2"},
+					"autocorrect": true,
+					"rerank":      true,
+				},
+			},
+			want: &AskParams{
+				Question:    "transformed text",
+				Certainty:   0.8,
+				Properties:  []string{"prop1", "prop2"},
+				Autocorrect: true,
+				Rerank:      true,
+			},
+		},
+		{
+			name: "should parse properly with question and certainty and properties and autocorrect and rerank and limitToFirst",
+			args: args{
+				source: map[string]interface{}{
+					"question":     "transform this",
+					"certainty":    0.8,
+					"properties":   []interface{}{"prop1", "prop2"},
+					"autocorrect":  true,
+					"rerank":       true,
+					"limitToFirst": true,
+				},
+			},
+			want: &AskParams{
+				Question:     "transformed text",
+				Certainty:    0.8,
+				Properties:   []string{"prop1", "prop2"},
+				Autocorrect:  true,
+				Rerank:       true,
+				LimitToFirst: true,
 			},
 		},
 	}

@@ -16,10 +16,12 @@ import (
 )
 
 type AskParams struct {
-	Question    string
-	Certainty   float64
-	Properties  []string
-	Autocorrect bool
+	Question     string
+	Certainty    float64
+	Properties   []string
+	Autocorrect  bool
+	Rerank       bool
+	LimitToFirst bool
 }
 
 func (n AskParams) GetCertainty() float64 {

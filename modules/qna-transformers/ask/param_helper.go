@@ -37,3 +37,17 @@ func (p *ParamsHelper) GetCertainty(params interface{}) float64 {
 	}
 	return 0
 }
+
+func (p *ParamsHelper) GetRerank(params interface{}) bool {
+	if parameters, ok := params.(*AskParams); ok {
+		return parameters.Rerank
+	}
+	return false
+}
+
+func (p *ParamsHelper) GetLimitToFirst(params interface{}) bool {
+	if parameters, ok := params.(*AskParams); ok {
+		return parameters.LimitToFirst
+	}
+	return false
+}
