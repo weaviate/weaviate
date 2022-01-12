@@ -305,6 +305,10 @@ func startupRoutine(ctx context.Context) *state.State {
 
 	appState.Cluster = clusterState
 
+	appState.Logger.
+		WithField("action", "startup").
+		Debug("startup routine complete")
+
 	return appState
 }
 
@@ -343,6 +347,10 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
+	appState.Logger.
+		WithField("action", "startup").
+		Debug("start registering modules")
+
 	appState.Modules = modules.NewProvider()
 
 	enabledModules := map[string]bool{}
@@ -355,31 +363,63 @@ func registerModules(appState *state.State) error {
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "text2vec-contextionary").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["text2vec-transformers"]; ok {
 		appState.Modules.Register(modtransformers.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "text2vec-transformers").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["qna-transformers"]; ok {
 		appState.Modules.Register(modqna.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "qna-transformers").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["img2vec-neural"]; ok {
 		appState.Modules.Register(modimage.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "img2vec-neural").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["ner-transformers"]; ok {
 		appState.Modules.Register(modner.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "ner-transformers").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["text-spellcheck"]; ok {
 		appState.Modules.Register(modspellcheck.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "text-spellcheck").
+			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules["multi2vec-clip"]; ok {
 		appState.Modules.Register(modclip.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "multi2vec-clip").
+			Debug("enabled module")
 	}
+
+	appState.Logger.
+		WithField("action", "startup").
+		Debug("completed registering modules")
 
 	return nil
 }
@@ -396,9 +436,16 @@ func initModules(ctx context.Context, appState *state.State) error {
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
 		appState.Logger)
 
+	appState.Logger.
+		WithField("action", "startup").
+		Debug("start initializing modules")
 	if err := appState.Modules.Init(ctx, moduleParams, appState.Logger); err != nil {
 		return errors.Wrap(err, "init modules")
 	}
+
+	appState.Logger.
+		WithField("action", "startup").
+		Debug("finished initializing modules")
 
 	return nil
 }

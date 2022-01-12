@@ -85,12 +85,20 @@ func (m *Provider) Init(ctx context.Context,
 	for i, mod := range m.GetAll() {
 		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
+		} else {
+			logger.WithField("action", "startup").
+				WithField("module", mod.Name()).
+				Debug("initialized module")
 		}
 	}
 	for i, mod := range m.GetAll() {
 		if modDependency, ok := mod.(modulecapabilities.ModuleDependency); ok {
 			if err := modDependency.InitDependency(m.GetAllExclude(mod.Name())); err != nil {
 				return errors.Wrapf(err, "init module dependency %d (%q)", i, mod.Name())
+			} else {
+				logger.WithField("action", "startup").
+					WithField("module", mod.Name()).
+					Debug("initialized module dependency")
 			}
 		}
 	}
