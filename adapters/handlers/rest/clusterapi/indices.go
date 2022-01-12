@@ -64,6 +64,8 @@ type shards interface {
 		additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
+	DeleteObject(ctx context.Context, indexName, shardName string,
+		id strfmt.UUID) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
@@ -105,12 +107,16 @@ func (i *indices) Indices() http.Handler {
 			i.postAggregateObjects().ServeHTTP(w, r)
 			return
 		case i.regexpObject.MatchString(path):
-			if r.Method != http.MethodGet {
-				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			if r.Method == http.MethodGet {
+				i.getObject().ServeHTTP(w, r)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				i.deleteObject().ServeHTTP(w, r)
 				return
 			}
 
-			i.getObject().ServeHTTP(w, r)
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
 
 		case i.regexpObjects.MatchString(path):
@@ -313,6 +319,27 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+
+func (i *indices) deleteObject() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObject.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, id := args[1], args[2], args[3]
+
+		defer r.Body.Close()
+
+		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
 }
 
 func (i *indices) getObjectsMulti() http.Handler {

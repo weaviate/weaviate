@@ -630,8 +630,32 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	shard := i.Shards[shardName]
-	if err := shard.deleteObject(ctx, id); err != nil {
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
+
+	if local {
+		shard := i.Shards[shardName]
+		err = shard.deleteObject(ctx, id)
+	} else {
+		err = i.remote.DeleteObject(ctx, shardName, id)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "shard %s", shardName)
+	}
+
+	return nil
+}
+
+func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
+	id strfmt.UUID) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	err := shard.deleteObject(ctx, id)
+	if err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
