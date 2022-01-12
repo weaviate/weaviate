@@ -179,7 +179,8 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
-			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
+			res, err := node.repo.ObjectByID(context.Background(), obj.ID,
+				search.SelectProperties{}, additional.Properties{})
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			assert.Equal(t, obj.Properties, res.Object().Properties)
@@ -288,6 +289,36 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 
 		assert.Equal(t, expectedResult, res)
+	})
+
+	t.Run("modify an object using patch", func(t *testing.T) {
+		obj := data[0]
+
+		node := nodes[rand.Intn(len(nodes))]
+		err := node.repo.Merge(context.Background(), objects.MergeDocument{
+			Class: "Distributed",
+			ID:    obj.ID,
+			PrimitiveSchema: map[string]interface{}{
+				"other_property": "a-value-inserted-through-merge",
+			},
+		})
+
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the patched object contains the additions and orig", func(t *testing.T) {
+		obj := data[0]
+
+		node := nodes[rand.Intn(len(nodes))]
+		res, err := node.repo.ObjectByID(context.Background(), obj.ID,
+			search.SelectProperties{}, additional.Properties{})
+
+		require.Nil(t, err)
+		previousMap := obj.Properties.(map[string]interface{})
+		assert.Equal(t, map[string]interface{}{
+			"other_property": "a-value-inserted-through-merge",
+			"description":    previousMap["description"],
+		}, res.Object().Properties)
 	})
 
 	t.Run("delete a third of the data from random nodes", func(t *testing.T) {
@@ -513,6 +544,10 @@ func class() *models.Class {
 		Properties: []*models.Property{
 			{
 				Name:     "description",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+			{
+				Name:     "other_property",
 				DataType: []string{string(schema.DataTypeText)},
 			},
 		},

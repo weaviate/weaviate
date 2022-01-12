@@ -64,6 +64,8 @@ type RemoteIndexClient interface {
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID) error
+	MergeObject(ctx context.Context, hostname, indexName, shardName string,
+		mergeDoc objects.MergeDocument) error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
@@ -160,6 +162,21 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 	}
 
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
+}
+
+func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
+	mergeDoc objects.MergeDocument) error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
