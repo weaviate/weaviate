@@ -41,6 +41,8 @@ type RemoteIndexIncomingRepo interface {
 		additional additional.Properties) (*storobj.Object, error)
 	IncomingExists(ctx context.Context, shardName string,
 		id strfmt.UUID) (bool, error)
+	IncomingDeleteObject(ctx context.Context, shardName string,
+		id strfmt.UUID) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
@@ -111,6 +113,16 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 	}
 
 	return index.IncomingExists(ctx, shardName, id)
+}
+
+func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
+	shardName string, id strfmt.UUID) error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingDeleteObject(ctx, shardName, id)
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
