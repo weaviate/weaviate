@@ -302,6 +302,20 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			require.Nil(t, err)
 		}
 	})
+
+	t.Run("make sure 2/3 exist, 1/3 no longer exists", func(t *testing.T) {
+		for i, obj := range data {
+			expected := true
+			if i%3 == 0 {
+				expected = false
+			}
+
+			node := nodes[rand.Intn(len(nodes))]
+			actual, err := node.repo.Exists(context.Background(), obj.ID)
+			require.Nil(t, err)
+			assert.Equal(t, expected, actual)
+		}
+	})
 }
 
 func setupDirectory() (string, func()) {
