@@ -113,6 +113,11 @@ func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName
 	return nil
 }
 
+func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
+	shardName string, mergeDoc objects.MergeDocument) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
 	return nil, nil

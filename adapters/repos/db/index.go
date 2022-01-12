@@ -668,8 +668,32 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	shard := i.Shards[shardName]
-	if err := shard.mergeObject(ctx, merge); err != nil {
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
+
+	if local {
+		shard := i.Shards[shardName]
+		err = shard.mergeObject(ctx, merge)
+	} else {
+		err = i.remote.MergeObject(ctx, shardName, merge)
+	}
+	if err != nil {
+		return errors.Wrapf(err, "shard %s", shardName)
+	}
+
+	return nil
+}
+
+func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
+	mergeDoc objects.MergeDocument) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	err := shard.mergeObject(ctx, mergeDoc)
+	if err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
 

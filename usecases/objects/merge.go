@@ -24,13 +24,13 @@ import (
 )
 
 type MergeDocument struct {
-	Class                string
-	ID                   strfmt.UUID
-	PrimitiveSchema      map[string]interface{}
-	References           BatchReferences
-	Vector               []float32
-	UpdateTime           int64
-	AdditionalProperties models.AdditionalProperties
+	Class                string                      `json:"class"`
+	ID                   strfmt.UUID                 `json:"id"`
+	PrimitiveSchema      map[string]interface{}      `json:"primitiveSchema"`
+	References           BatchReferences             `json:"references"`
+	Vector               []float32                   `json:"vector"`
+	UpdateTime           int64                       `json:"updateTime"`
+	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
