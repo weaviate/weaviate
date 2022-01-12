@@ -289,6 +289,33 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		assert.Equal(t, expectedResult, res)
 	})
+
+	t.Run("delete a third of the data from random nodes", func(t *testing.T) {
+		for i, obj := range data {
+			if i%3 != 0 {
+				// keep this item
+				continue
+			}
+
+			node := nodes[rand.Intn(len(nodes))]
+			err := node.repo.DeleteObject(context.Background(), "Distributed", obj.ID)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("make sure 2/3 exist, 1/3 no longer exists", func(t *testing.T) {
+		for i, obj := range data {
+			expected := true
+			if i%3 == 0 {
+				expected = false
+			}
+
+			node := nodes[rand.Intn(len(nodes))]
+			actual, err := node.repo.Exists(context.Background(), obj.ID)
+			require.Nil(t, err)
+			assert.Equal(t, expected, actual)
+		}
+	})
 }
 
 func setupDirectory() (string, func()) {
