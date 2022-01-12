@@ -108,6 +108,11 @@ func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	return false, nil
 }
 
+func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
 	return nil, nil
