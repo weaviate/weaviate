@@ -66,6 +66,8 @@ type shards interface {
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) error
+	MergeObject(ctx context.Context, indexName, shardName string,
+		mergeDoc objects.MergeDocument) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
@@ -115,6 +117,10 @@ func (i *indices) Indices() http.Handler {
 				i.deleteObject().ServeHTTP(w, r)
 				return
 			}
+			if r.Method == http.MethodPatch {
+				i.mergeObject().ServeHTTP(w, r)
+				return
+			}
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
@@ -162,7 +168,7 @@ func (i *indices) postObject() http.Handler {
 		ct := r.Header.Get("content-type")
 
 		switch ct {
-		case "application/vnd.weaviate.storobj.list+octet-stream":
+		case IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard)
 			return
 
@@ -336,6 +342,45 @@ func (i *indices) deleteObject() http.Handler {
 		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (i *indices) mergeObject() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObject.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, _ := args[1], args[2], args[3]
+
+		defer r.Body.Close()
+		ct, ok := IndicesPayloads.MergeDoc.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if err := i.shards.MergeObject(r.Context(), index, shard, mergeDoc); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)

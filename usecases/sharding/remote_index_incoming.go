@@ -43,6 +43,8 @@ type RemoteIndexIncomingRepo interface {
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID) error
+	IncomingMergeObject(ctx context.Context, shardName string,
+		mergeDoc objects.MergeDocument) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
@@ -123,6 +125,16 @@ func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 	}
 
 	return index.IncomingDeleteObject(ctx, shardName, id)
+}
+
+func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
+	shardName string, mergeDoc objects.MergeDocument) error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingMergeObject(ctx, shardName, mergeDoc)
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
