@@ -183,7 +183,11 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				search.SelectProperties{}, additional.Properties{})
 			require.Nil(t, err)
 			require.NotNil(t, res)
-			assert.Equal(t, obj.Properties, res.Object().Properties)
+
+			// only compare string prop to avoid having to deal with parsing time
+			// props
+			assert.Equal(t, obj.Properties.(map[string]interface{})["description"],
+				res.Object().Properties.(map[string]interface{})["description"])
 		}
 	})
 
@@ -221,7 +225,11 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			res, err := node.repo.ObjectByID(context.Background(), obj.ID, search.SelectProperties{}, additional.Properties{})
 			require.Nil(t, err)
 			require.NotNil(t, res)
-			assert.Equal(t, obj.Properties, res.Object().Properties)
+
+			// only compare string prop to avoid having to deal with parsing time
+			// props
+			assert.Equal(t, obj.Properties.(map[string]interface{})["description"],
+				res.Object().Properties.(map[string]interface{})["description"])
 		}
 	})
 
@@ -318,7 +326,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		assert.Equal(t, map[string]interface{}{
 			"other_property": "a-value-inserted-through-merge",
 			"description":    previousMap["description"],
-			"date_property":  previousMap["date_property"],
+			"date_property":  previousMap["date_property"].(time.Time).Format(time.RFC3339),
 		}, res.Object().Properties)
 	})
 
@@ -326,8 +334,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	// https://github.com/semi-technologies/weaviate/issues/1775
 	t.Run("query items by date filter", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
-		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour).
-			Format(time.RFC3339)
+		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
 		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
 			Filters: &filters.LocalFilter{
@@ -350,7 +357,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		})
 
 		require.Nil(t, err)
-		assert.Len(t, res, count)
+		assert.Equal(t, count, len(res))
 	})
 
 	t.Run("delete a third of the data from random nodes", func(t *testing.T) {
@@ -625,7 +632,7 @@ func exampleData(size int) []*models.Object {
 			vec[i] = rand.Float32()
 		}
 
-		timestamp := time.Unix(0, 0).Add(time.Duration(i) * time.Hour).Format(time.RFC3339)
+		timestamp := time.Unix(0, 0).Add(time.Duration(i) * time.Hour)
 
 		out[i] = &models.Object{
 			Class: "Distributed",
