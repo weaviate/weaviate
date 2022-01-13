@@ -210,6 +210,9 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	return nil
 }
 
+// parseDateFieldsInProps checks the schema for the current class for which
+// fields are date fields, then - if they are set - parses them accordingly.
+// Works for both date and date[].
 func (i *Index) parseDateFieldsInProps(props interface{}) error {
 	if props == nil {
 		return nil
@@ -235,22 +238,58 @@ func (i *Index) parseDateFieldsInProps(props interface{}) error {
 				continue
 			}
 
-			asString, ok := raw.(string)
-			if !ok {
-				return errors.Errorf("parse prop %q as time, expected string got %T",
-					prop.Name, raw)
-			}
-
-			parsed, err := time.Parse(time.RFC3339, asString)
+			parsed, err := parseAsStringToTime(raw)
 			if err != nil {
-				return errors.Wrapf(err, "parse time prop %q", prop.Name)
+				return errors.Wrapf(err, "time prop %q", prop.Name)
 			}
 
 			propMap[prop.Name] = parsed
 		}
+
+		if prop.DataType[0] == string(schema.DataTypeDateArray) {
+			raw, ok := propMap[prop.Name]
+			if !ok {
+				// prop is not set, nothing to do
+				continue
+			}
+
+			asSlice, ok := raw.([]string)
+			if !ok {
+				return errors.Errorf("parse as time array, expected []interface{} got %T",
+					raw)
+			}
+			parsedSlice := make([]interface{}, len(asSlice))
+			for j := range asSlice {
+				parsed, err := parseAsStringToTime(interface{}(asSlice[j]))
+				if err != nil {
+					return errors.Wrapf(err, "time array prop %q at pos %d", prop.Name, j)
+				}
+
+				parsedSlice[j] = parsed
+			}
+			propMap[prop.Name] = parsedSlice
+
+		}
 	}
 
 	return nil
+}
+
+func parseAsStringToTime(in interface{}) (time.Time, error) {
+	var parsed time.Time
+	var err error
+
+	asString, ok := in.(string)
+	if !ok {
+		return parsed, errors.Errorf("parse as time, expected string got %T", in)
+	}
+
+	parsed, err = time.Parse(time.RFC3339, asString)
+	if err != nil {
+		return parsed, err
+	}
+
+	return parsed, nil
 }
 
 // return value []error gives the error for the index with the positions

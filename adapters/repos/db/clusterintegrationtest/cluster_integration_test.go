@@ -323,16 +323,13 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		require.Nil(t, err)
 		previousMap := obj.Properties.(map[string]interface{})
-		assert.Equal(t, map[string]interface{}{
-			"other_property": "a-value-inserted-through-merge",
-			"description":    previousMap["description"],
-			"date_property":  previousMap["date_property"].(time.Time).Format(time.RFC3339),
-		}, res.Object().Properties)
+		assert.Equal(t, "a-value-inserted-through-merge", res.Object().Properties.(map[string]interface{})["other_property"])
+		assert.Equal(t, previousMap["description"], res.Object().Properties.(map[string]interface{})["description"])
 	})
 
 	// This test prevents a regression on
 	// https://github.com/semi-technologies/weaviate/issues/1775
-	t.Run("query items by date filter", func(t *testing.T) {
+	t.Run("query items by date filter with regular field", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
@@ -343,6 +340,36 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 					On: &filters.Path{
 						Class:    "Distributed",
 						Property: schema.PropertyName("date_property"),
+					},
+					Value: &filters.Value{
+						Value: cutoff,
+						Type:  schema.DataTypeDate,
+					},
+				},
+			},
+			ClassName: "Distributed",
+			Pagination: &filters.Pagination{
+				Limit: len(data),
+			},
+		})
+
+		require.Nil(t, err)
+		assert.Equal(t, count, len(res))
+	})
+
+	// This test prevents a regression on
+	// https://github.com/semi-technologies/weaviate/issues/1775
+	t.Run("query items by date filter with array field", func(t *testing.T) {
+		count := len(data) / 2 // try to match half the data objects present
+		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
+		node := nodes[rand.Intn(len(nodes))]
+		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorLessThan,
+					On: &filters.Path{
+						Class:    "Distributed",
+						Property: schema.PropertyName("date_array_property"),
 					},
 					Value: &filters.Value{
 						Value: cutoff,
@@ -593,6 +620,10 @@ func class() *models.Class {
 				Name:     "date_property",
 				DataType: []string{string(schema.DataTypeDate)},
 			},
+			{
+				Name:     "date_array_property",
+				DataType: []string{string(schema.DataTypeDateArray)},
+			},
 		},
 	}
 }
@@ -638,8 +669,9 @@ func exampleData(size int) []*models.Object {
 			Class: "Distributed",
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"description":   fmt.Sprintf("object-%d", i),
-				"date_property": timestamp,
+				"description":         fmt.Sprintf("object-%d", i),
+				"date_property":       timestamp,
+				"date_array_property": []interface{}{timestamp},
 			},
 			Vector: vec,
 		}
