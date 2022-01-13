@@ -337,6 +337,11 @@ func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName
 	return nil
 }
 
+func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
+	shardName string, mergeDoc objects.MergeDocument) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
