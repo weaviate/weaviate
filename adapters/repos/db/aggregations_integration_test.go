@@ -778,6 +778,139 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				actualProps["price"].NumericalAggregations, epsilon*100)
 		})
 
+		t.Run("no filters,  grouped by ref prop", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("makesProduct"),
+				},
+				Properties: []aggregation.ParamProperty{
+					aggregation.ParamProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator,
+						},
+					},
+					aggregation.ParamProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator, // ignore as there is no most common value
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+						},
+					},
+					aggregation.ParamProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.PercentageTrueAggregator,
+							aggregation.PercentageFalseAggregator,
+							aggregation.TotalTrueAggregator,
+							aggregation.TotalFalseAggregator,
+						},
+					},
+					aggregation.ParamProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.TypeAggregator,
+							aggregation.NewTopOccurrencesAggregator(ptInt(5)),
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 10,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"makesProduct"},
+							Value: strfmt.URI("weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"),
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    8.0,
+									"maximum": 8.0,
+									"minimum": 8.0,
+									"sum":     80.0,
+									"median":  8.0,
+									"count":   10,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    10,
+									"maximum": 10,
+									"minimum": 10,
+									"sum":     100,
+									"median":  10,
+									"count":   10,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       10,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           10,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 10,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 10,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// there is now way to use InEpsilon or InDelta on nested structs with
+			// testify, so unfortunately we have to do a manual deep equal:
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
+			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
+			expectedProps := expectedResult.Groups[0].Properties
+			actualProps := res.Groups[0].Properties
+			assert.Equal(t, expectedProps["location"].TextAggregation.Count,
+				actualProps["location"].TextAggregation.Count)
+			assert.ElementsMatch(t, expectedProps["location"].TextAggregation.Items,
+				actualProps["location"].TextAggregation.Items)
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, epsilon*100)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, epsilon*100)
+		})
+
 		t.Run("with ref filter, grouped by string", func(t *testing.T) {
 			params := aggregation.Params{
 				ClassName: schema.ClassName(companyClass.Class),
