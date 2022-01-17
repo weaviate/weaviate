@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	bolt "go.etcd.io/bbolt"
 )
@@ -110,6 +111,10 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 	case []bool:
 		for i := range val {
 			g.addItem(val[i], obj.DocID())
+		}
+	case models.MultipleRef:
+		for i := range val {
+			g.addItem(val[i].Beacon, obj.DocID())
 		}
 	default:
 		g.addItem(val, obj.DocID())
