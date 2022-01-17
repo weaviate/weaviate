@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -191,11 +192,104 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 		return errors.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	// This is a bit hacky, the problem here is that storobj.Parse() currently
+	// misses date fields as it has no way of knowing that a date-formatted
+	// string was actually a date type. However, adding this functionality to
+	// Parse() would break a lot of code, because it currently
+	// schema-independent. To find out if a field is a date or date[], we need to
+	// involve the schema, thus why we are doing it here. This was discovered as
+	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
+		return errors.Wrapf(err, "shard %s", localShard.ID())
+	}
+
 	if err := localShard.putObject(ctx, object); err != nil {
 		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
 
 	return nil
+}
+
+// parseDateFieldsInProps checks the schema for the current class for which
+// fields are date fields, then - if they are set - parses them accordingly.
+// Works for both date and date[].
+func (i *Index) parseDateFieldsInProps(props interface{}) error {
+	if props == nil {
+		return nil
+	}
+
+	propMap, ok := props.(map[string]interface{})
+	if !ok {
+		// don't know what to do with this
+		return nil
+	}
+
+	schemaModel := i.getSchema.GetSchemaSkipAuth().Objects
+	c, err := schema.GetClassByName(schemaModel, i.Config.ClassName.String())
+	if err != nil {
+		return err
+	}
+
+	for _, prop := range c.Properties {
+		if prop.DataType[0] == string(schema.DataTypeDate) {
+			raw, ok := propMap[prop.Name]
+			if !ok {
+				// prop is not set, nothing to do
+				continue
+			}
+
+			parsed, err := parseAsStringToTime(raw)
+			if err != nil {
+				return errors.Wrapf(err, "time prop %q", prop.Name)
+			}
+
+			propMap[prop.Name] = parsed
+		}
+
+		if prop.DataType[0] == string(schema.DataTypeDateArray) {
+			raw, ok := propMap[prop.Name]
+			if !ok {
+				// prop is not set, nothing to do
+				continue
+			}
+
+			asSlice, ok := raw.([]string)
+			if !ok {
+				return errors.Errorf("parse as time array, expected []interface{} got %T",
+					raw)
+			}
+			parsedSlice := make([]interface{}, len(asSlice))
+			for j := range asSlice {
+				parsed, err := parseAsStringToTime(interface{}(asSlice[j]))
+				if err != nil {
+					return errors.Wrapf(err, "time array prop %q at pos %d", prop.Name, j)
+				}
+
+				parsedSlice[j] = parsed
+			}
+			propMap[prop.Name] = parsedSlice
+
+		}
+	}
+
+	return nil
+}
+
+func parseAsStringToTime(in interface{}) (time.Time, error) {
+	var parsed time.Time
+	var err error
+
+	asString, ok := in.(string)
+	if !ok {
+		return parsed, errors.Errorf("parse as time, expected string got %T", in)
+	}
+
+	parsed, err = time.Parse(time.RFC3339, asString)
+	if err != nil {
+		return parsed, err
+	}
+
+	return parsed, nil
 }
 
 // return value []error gives the error for the index with the positions
@@ -268,6 +362,20 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	if !ok {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
 			shardName), len(objects))
+	}
+
+	// This is a bit hacky, the problem here is that storobj.Parse() currently
+	// misses date fields as it has no way of knowing that a date-formatted
+	// string was actually a date type. However, adding this functionality to
+	// Parse() would break a lot of code, because it currently
+	// schema-independent. To find out if a field is a date or date[], we need to
+	// involve the schema, thus why we are doing it here. This was discovered as
+	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	for j := range objects {
+		if err := i.parseDateFieldsInProps(objects[j].Object.Properties); err != nil {
+			return duplicateErr(errors.Wrapf(err, "shard %s", localShard.ID()),
+				len(objects))
+		}
 	}
 
 	return localShard.putObjectBatch(ctx, objects)

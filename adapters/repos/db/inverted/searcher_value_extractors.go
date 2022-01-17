@@ -107,12 +107,27 @@ func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// assumes a time.Time date and stores as string-formatted int64
+// assumes a time.Time date and stores as string-formatted int64, if it
+// encounters a string it tries to parse it as a time.Time
 func (fs Searcher) extractDateValue(in interface{}) ([]byte, error) {
-	value, ok := in.(time.Time)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be time.Time, got %T", in)
+	var asInt64 int64
+
+	switch t := in.(type) {
+	case string:
+		parsed, err := time.Parse(time.RFC3339, t)
+		if err != nil {
+			return nil, errors.Wrap(err, "try parsing time as RFC3339 string")
+		}
+
+		asInt64 = parsed.UnixNano()
+
+	case time.Time:
+		asInt64 = t.UnixNano()
+
+	default:
+		return nil, fmt.Errorf("expected value to be time.Time (or parseable string)"+
+			", got %T", in)
 	}
 
-	return LexicographicallySortableInt64(value.UnixNano())
+	return LexicographicallySortableInt64(asInt64)
 }
