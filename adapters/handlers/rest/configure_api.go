@@ -139,8 +139,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var schemaRepo schemaUC.Repo
 	// var classifierRepo classification.Repo
 
-	promMetrics := monitoring.NewPrometheusMetrics()
-	appState.Metrics = promMetrics
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		promMetrics := monitoring.NewPrometheusMetrics()
+		appState.Metrics = promMetrics
+	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
@@ -148,7 +150,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		RootPath:            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults: appState.ServerConfig.Config.QueryMaximumResults,
-	}, remoteIndexClient, appState.Cluster, promMetrics) // TODO client
+	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator

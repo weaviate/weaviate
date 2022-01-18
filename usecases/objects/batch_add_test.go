@@ -70,7 +70,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewBatchManager(vectorRepo, vecProvider, locks,
-			schemaManager, config, logger, authorizer)
+			schemaManager, config, logger, authorizer, nil)
 	}
 
 	reset := func() {
@@ -265,7 +265,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewBatchManager(vectorRepo, vecProvider, locks,
-			schemaManager, config, logger, authorizer)
+			schemaManager, config, logger, authorizer, nil)
 	}
 
 	ctx := context.Background()

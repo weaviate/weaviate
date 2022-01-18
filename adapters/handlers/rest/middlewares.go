@@ -91,7 +91,9 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = handleCORS(handler)
 		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
 		handler = makeAddLogging(appState.Logger)(handler)
-		handler = makeAddMonitoring(appState.Metrics)(handler)
+		if appState.ServerConfig.Config.Monitoring.Enabled {
+			handler = makeAddMonitoring(appState.Metrics)(handler)
+		}
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)

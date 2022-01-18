@@ -43,15 +43,17 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
-	before := time.Now()
-	defer func() {
-		tookMs := time.Since(before) / time.Millisecond
-		b.metrics.BatchTime.With(prometheus.Labels{
-			"operation":  "total_uc_level",
-			"class_name": "n/a",
-			"shard_name": "n/a",
-		}).Observe(float64(tookMs))
-	}()
+	if b.metrics != nil {
+		before := time.Now()
+		defer func() {
+			tookMs := time.Since(before) / time.Millisecond
+			b.metrics.BatchTime.With(prometheus.Labels{
+				"operation":  "total_uc_level",
+				"class_name": "n/a",
+				"shard_name": "n/a",
+			}).Observe(float64(tookMs))
+		}()
+	}
 	return b.addObjects(ctx, principal, objects, fields)
 }
 
@@ -64,27 +66,31 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
 
-	b.metrics.BatchTime.With(prometheus.Labels{
-		"operation":  "total_preprocessing",
-		"class_name": "n/a",
-		"shard_name": "n/a",
-	}).
-		Observe(float64(time.Since(beforePreProcessing) / time.Millisecond))
+	if b.metrics != nil {
+		b.metrics.BatchTime.With(prometheus.Labels{
+			"operation":  "total_preprocessing",
+			"class_name": "n/a",
+			"shard_name": "n/a",
+		}).
+			Observe(float64(time.Since(beforePreProcessing) / time.Millisecond))
+	}
 
 	var (
 		res BatchObjects
 		err error
 	)
 
-	beforePersistence := time.Now()
-	defer func() {
-		b.metrics.BatchTime.With(prometheus.Labels{
-			"operation":  "total_persistence_level",
-			"class_name": "n/a",
-			"shard_name": "n/a",
-		}).
-			Observe(float64(time.Since(beforePersistence) / time.Millisecond))
-	}()
+	if b.metrics != nil {
+		beforePersistence := time.Now()
+		defer func() {
+			b.metrics.BatchTime.With(prometheus.Labels{
+				"operation":  "total_persistence_level",
+				"class_name": "n/a",
+				"shard_name": "n/a",
+			}).
+				Observe(float64(time.Since(beforePersistence) / time.Millisecond))
+		}()
+	}
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}

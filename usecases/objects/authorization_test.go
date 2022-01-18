@@ -204,7 +204,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			vectorRepo := &fakeVectorRepo{}
 			vectorizer := &fakeVectorizer{}
 			vecProvider := &fakeVectorizerProvider{vectorizer}
-			manager := NewBatchManager(vectorRepo, vecProvider, locks, schemaManager, cfg, logger, authorizer)
+			manager := NewBatchManager(vectorRepo, vecProvider, locks, schemaManager, cfg, logger, authorizer, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
