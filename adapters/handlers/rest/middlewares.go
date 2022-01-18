@@ -14,11 +14,15 @@ package rest
 import (
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/semi-technologies/weaviate/usecases/modules"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -87,6 +91,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = handleCORS(handler)
 		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
 		handler = makeAddLogging(appState.Logger)(handler)
+		handler = makeAddMonitoring(appState.Metrics)(handler)
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
@@ -105,6 +110,26 @@ func makeAddLogging(logger logrus.FieldLogger) func(http.Handler) http.Handler {
 				WithField("url", r.URL).
 				Debug("received HTTP request")
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			before := time.Now()
+			method := r.Method
+			path := r.URL.Path
+			next.ServeHTTP(w, r)
+
+			if strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost {
+				metrics.BatchTime.With(prometheus.Labels{
+					"operation":  "total_api_level",
+					"class_name": "n/a",
+					"shard_name": "n/a",
+				}).
+					Observe(float64(time.Since(before) / time.Millisecond))
+			}
 		})
 	}
 }

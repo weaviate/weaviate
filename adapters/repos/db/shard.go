@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,13 +50,15 @@ type Shard struct {
 	cleanupCancel    chan struct{}
 }
 
-func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+	shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
-		metrics:          NewMetrics(index.logger),
-		deletedDocIDs:    docid.NewInMemDeletedTracker(),
+		metrics: NewMetrics(index.logger, promMetrics,
+			string(index.Config.ClassName), shardName),
+		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(index.invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),

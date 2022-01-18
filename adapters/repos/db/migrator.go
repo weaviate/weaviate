@@ -39,7 +39,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// always have the field set
 		class.InvertedIndexConfig,
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
-		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient)
+		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient,
+		m.db.promMetrics)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}

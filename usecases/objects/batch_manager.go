@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,6 +30,7 @@ type BatchManager struct {
 	vectorRepo         BatchVectorRepo
 	vectorizerProvider VectorizerProvider
 	autoSchemaManager  *autoSchemaManager
+	metrics            *monitoring.PrometheusMetrics
 }
 
 type BatchVectorRepo interface {
@@ -44,7 +46,8 @@ type batchRepoNew interface {
 // NewBatchManager creates a new manager
 func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 	locks locks, schemaManager schemaManager, config *config.WeaviateConfig,
-	logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
+	logger logrus.FieldLogger, authorizer authorizer,
+	metrics *monitoring.PrometheusMetrics) *BatchManager {
 	return &BatchManager{
 		config:             config,
 		locks:              locks,
@@ -54,5 +57,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 		vectorizerProvider: vectorizer,
 		authorizer:         authorizer,
 		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:            metrics,
 	}
 }

@@ -26,6 +26,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
+	github.com/prometheus/client_golang v1.11.0 // indirect
 	github.com/rs/cors v1.5.0
 	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
 	github.com/sirupsen/logrus v1.6.0
