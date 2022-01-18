@@ -33,6 +33,10 @@ fi
 if [[ "$*" == *--clip* ]]; then
   ADDITIONAL_SERVICES+=('multi2vec-clip')
 fi
+if [[ "$*" == *--prometheus* ]]; then
+  ADDITIONAL_SERVICES+=('prometheus')
+  ADDITIONAL_SERVICES+=('grafana')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
