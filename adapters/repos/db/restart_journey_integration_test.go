@@ -57,7 +57,7 @@ func TestRestartJourney(t *testing.T) {
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
+		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -172,7 +172,7 @@ func TestRestartJourney(t *testing.T) {
 		repo = nil
 
 		newRepo = New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-			&fakeNodeResolver{})
+			&fakeNodeResolver{}, nil)
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)

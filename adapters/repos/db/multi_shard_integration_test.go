@@ -55,7 +55,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
+		&fakeNodeResolver{}, nil)
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
 
 	data := multiShardTestData()
@@ -94,7 +94,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
+		&fakeNodeResolver{}, nil)
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
 
 	data := multiShardTestData()

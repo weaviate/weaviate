@@ -505,7 +505,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
-	n.repo = db.New(logger, db.Config{RootPath: localDir, QueryMaximumResults: 10000}, client, nodeResolver)
+	n.repo = db.New(logger, db.Config{RootPath: localDir, QueryMaximumResults: 10000}, client, nodeResolver, nil)
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},
