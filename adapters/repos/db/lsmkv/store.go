@@ -26,13 +26,16 @@ type Store struct {
 	rootDir       string
 	bucketsByName map[string]*Bucket
 	logger        logrus.FieldLogger
+	metrics       *Metrics
 }
 
-func New(rootDir string, logger logrus.FieldLogger) (*Store, error) {
+func New(rootDir string, logger logrus.FieldLogger,
+	metrics *Metrics) (*Store, error) {
 	s := &Store{
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
 		logger:        logger,
+		metrics:       metrics,
 	}
 
 	return s, s.init()
@@ -60,7 +63,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, s.metrics, opts...)
 	if err != nil {
 		return err
 	}

@@ -87,6 +87,7 @@
         "y": 0
       },
       "id": 2,
+      "interval": "3",
       "options": {
         "legend": {
           "calcs": [],
@@ -176,6 +177,7 @@
         "y": 9
       },
       "id": 5,
+      "interval": "3",
       "options": {
         "legend": {
           "calcs": [],
@@ -212,6 +214,123 @@
         }
       ],
       "title": "Persistence Tasks (Object, Vector)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Count of active segments across all classes and shards, shown by type.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 9,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "id": 7,
+      "interval": "1",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(lsm_active_segments{strategy=\"replace\"})",
+          "interval": "",
+          "legendFormat": "Total \"Replace\" (Object Storage)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(lsm_active_segments{strategy=\"mapcollection\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Total \"Map\" (Inverted storage with term frequency)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(lsm_active_segments{strategy=\"setcollection\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Total \"Set\" (Inverted storage without frequency)",
+          "refId": "C"
+        }
+      ],
+      "title": "Active LSM Segments (summed by type)",
       "type": "timeseries"
     },
     {
@@ -274,7 +393,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "id": 4,
       "options": {
@@ -304,7 +423,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "10s",
+  "refresh": false,
   "schemaVersion": 34,
   "style": "dark",
   "tags": [],
@@ -312,8 +431,8 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
-    "to": "now"
+    "from": "2022-01-18T14:52:33.183Z",
+    "to": "2022-01-18T16:31:04.762Z"
   },
   "timepicker": {},
   "timezone": "",
