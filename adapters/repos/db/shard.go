@@ -44,6 +44,7 @@ type Shard struct {
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
 	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
@@ -56,6 +57,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
+		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		deletedDocIDs: docid.NewInMemDeletedTracker(),
@@ -125,7 +127,12 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		"index": s.index.ID(),
 		"class": s.index.Config.ClassName,
 	})
-	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger)
+	var metrics *lsmkv.Metrics
+	if s.promMetrics != nil {
+		lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+	}
+
+	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}

@@ -34,13 +34,21 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
+	strategy string
+
 	stopCompactionCycle chan struct{}
 
-	logger logrus.FieldLogger
+	logger  logrus.FieldLogger
+	metrics *Metrics
+}
+
+func (ig *SegmentGroup) setStrategy(strategy string) {
+	ig.strategy = strategy
 }
 
 func newSegmentGroup(dir string,
-	compactionCycle time.Duration, logger logrus.FieldLogger) (*SegmentGroup, error) {
+	compactionCycle time.Duration, logger logrus.FieldLogger,
+	metrics *Metrics) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -50,6 +58,7 @@ func newSegmentGroup(dir string,
 		segments:            make([]*segment, len(list)),
 		dir:                 dir,
 		logger:              logger,
+		metrics:             metrics,
 		stopCompactionCycle: make(chan struct{}),
 	}
 
