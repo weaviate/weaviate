@@ -24,7 +24,7 @@ var (
 )
 
 func init() {
-	validateClassNameRegex = regexp.MustCompile(`^([A-Z][a-z]+)+$`)
+	validateClassNameRegex = regexp.MustCompile(`^[A-Z][_0-9A-Za-z]*$`)
 	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 	reservedPropertyNames = []string{"_additional", "_id", "id"}
