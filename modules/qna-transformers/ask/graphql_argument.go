@@ -57,10 +57,6 @@ func (g *GraphQLArgumentsProvider) askFields(prefix string) graphql.InputObjectC
 			Description: "Arranges the results by certainty",
 			Type:        graphql.Boolean,
 		},
-		"limitToFirst": &graphql.InputObjectFieldConfig{
-			Description: "Limits the answer to only first result",
-			Type:        graphql.Boolean,
-		},
 	}
 	if g.askTransformer != nil {
 		askFields["autocorrect"] = &graphql.InputObjectFieldConfig{

@@ -33,7 +33,6 @@ type paramsHelper interface {
 	GetProperties(params interface{}) []string
 	GetCertainty(params interface{}) float64
 	GetRerank(params interface{}) bool
-	GetLimitToFirst(params interface{}) bool
 }
 
 type AnswerProvider struct {

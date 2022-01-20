@@ -52,11 +52,5 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 		args.Rerank = rerank.(bool)
 	}
 
-	// limitToFirst is an optional arg, so it could be nil
-	limitToFirst, ok := source["limitToFirst"]
-	if ok {
-		args.LimitToFirst = limitToFirst.(bool)
-	}
-
 	return &args
 }

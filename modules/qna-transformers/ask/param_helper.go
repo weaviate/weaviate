@@ -44,10 +44,3 @@ func (p *ParamsHelper) GetRerank(params interface{}) bool {
 	}
 	return false
 }
-
-func (p *ParamsHelper) GetLimitToFirst(params interface{}) bool {
-	if parameters, ok := params.(*AskParams); ok {
-		return parameters.LimitToFirst
-	}
-	return false
-}
