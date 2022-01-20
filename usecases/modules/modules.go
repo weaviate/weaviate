@@ -234,7 +234,7 @@ func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 	return arguments
 }
 
-// AggregateArguments provides GraphQL Get arguments
+// AggregateArguments provides GraphQL Aggregate arguments
 func (m *Provider) AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
 	for _, module := range m.GetAll() {

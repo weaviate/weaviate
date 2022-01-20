@@ -26,6 +26,10 @@ func (g *GraphQLArgumentsProvider) exploreAskArgumentFn() *graphql.ArgumentConfi
 	return g.askArgument("Explore", "")
 }
 
+func (g *GraphQLArgumentsProvider) aggregateAskArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.askArgument("Aggregate", classname)
+}
+
 func (g *GraphQLArgumentsProvider) askArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("QnATransformers%s%s", prefix, className)
 	return &graphql.ArgumentConfig{

@@ -36,13 +36,14 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	inspector := newTypeInspector(t.schemaGetter)
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
+		className := params.ClassName.String()
 		err = t.nearParamsVector.validateNearParams(params.NearVector,
-			params.NearObject, params.ModuleParams)
+			params.NearObject, params.ModuleParams, className)
 		if err != nil {
 			return nil, err
 		}
 		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
-			params.NearVector, params.NearObject, params.ModuleParams, params.ClassName.String())
+			params.NearVector, params.NearObject, params.ModuleParams, className)
 		if err != nil {
 			return nil, err
 		}
