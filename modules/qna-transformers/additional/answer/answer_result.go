@@ -26,14 +26,13 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 	in []search.Result, params *Params, limit *int,
 	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	if len(in) > 0 {
-		limitToFirst := p.paramsHelper.GetLimitToFirst(argumentModuleParams["ask"])
 		question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
 		if question == "" {
 			return in, errors.New("empty question")
 		}
 		properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
 
-		for i := range p.getResults(in, limitToFirst) {
+		for i := range in {
 			textProperties := map[string]string{}
 			schema := in[i].Object().Properties.(map[string]interface{})
 			for property, value := range schema {
@@ -111,13 +110,6 @@ func (p *AnswerProvider) getAnswerCertainty(result search.Result) float64 {
 		}
 	}
 	return 0
-}
-
-func (p *AnswerProvider) getResults(in []search.Result, limitToFirst bool) []search.Result {
-	if limitToFirst {
-		return in[:1]
-	}
-	return in
 }
 
 func (p *AnswerProvider) containsProperty(property string, properties []string) bool {

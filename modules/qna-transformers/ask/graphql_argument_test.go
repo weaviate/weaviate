@@ -33,14 +33,13 @@ func TestAskGraphQLArgument(t *testing.T) {
 		//   certainty: 0.9
 		//   properties: ["prop1", "prop2"]
 		//   rerank: true
-		//   limitToFirst: true
 		// }
 		assert.NotNil(t, ask)
 		assert.Equal(t, "QnATransformersPrefixClassAskInpObj", ask.Type.Name())
 		askFields, ok := ask.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, askFields)
-		assert.Equal(t, 5, len(askFields.Fields()))
+		assert.Equal(t, 4, len(askFields.Fields()))
 		fields := askFields.Fields()
 		question := fields["question"]
 		questionNonNull, questionNonNullOK := question.Type.(*graphql.NonNull)
@@ -53,7 +52,6 @@ func TestAskGraphQLArgument(t *testing.T) {
 		assert.True(t, propertiesListOK)
 		assert.Equal(t, "String", propertiesList.OfType.Name())
 		assert.NotNil(t, fields["rerank"])
-		assert.NotNil(t, fields["limitToFirst"])
 	})
 }
 
@@ -73,14 +71,13 @@ func TestAskGraphQLArgumentWithAutocorrect(t *testing.T) {
 		//   properties: ["prop1", "prop2"]
 		//   autocorrect: true
 		//   rerank: true
-		//   limitToFirst: true
 		// }
 		assert.NotNil(t, ask)
 		assert.Equal(t, "QnATransformersPrefixClassAskInpObj", ask.Type.Name())
 		askFields, ok := ask.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, askFields)
-		assert.Equal(t, 6, len(askFields.Fields()))
+		assert.Equal(t, 5, len(askFields.Fields()))
 		fields := askFields.Fields()
 		question := fields["question"]
 		questionNonNull, questionNonNullOK := question.Type.(*graphql.NonNull)
@@ -94,6 +91,5 @@ func TestAskGraphQLArgumentWithAutocorrect(t *testing.T) {
 		assert.Equal(t, "String", propertiesList.OfType.Name())
 		assert.NotNil(t, fields["autocorrect"])
 		assert.NotNil(t, fields["rerank"])
-		assert.NotNil(t, fields["limitToFirst"])
 	})
 }
