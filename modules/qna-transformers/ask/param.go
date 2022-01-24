@@ -20,6 +20,7 @@ type AskParams struct {
 	Certainty   float64
 	Properties  []string
 	Autocorrect bool
+	Rerank      bool
 }
 
 func (n AskParams) GetCertainty() float64 {
