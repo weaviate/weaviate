@@ -46,5 +46,11 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 		}
 	}
 
+	// rerank is an optional arg, so it could be nil
+	rerank, ok := source["rerank"]
+	if ok {
+		args.Rerank = rerank.(bool)
+	}
+
 	return &args
 }

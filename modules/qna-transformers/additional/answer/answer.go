@@ -32,6 +32,7 @@ type paramsHelper interface {
 	GetQuestion(params interface{}) string
 	GetProperties(params interface{}) []string
 	GetCertainty(params interface{}) float64
+	GetRerank(params interface{}) bool
 }
 
 type AnswerProvider struct {

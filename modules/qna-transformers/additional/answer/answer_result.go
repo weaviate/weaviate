@@ -14,6 +14,7 @@ package answer
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -25,61 +26,90 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 	in []search.Result, params *Params, limit *int,
 	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	if len(in) > 0 {
-		properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
-		textProperties := map[string]string{}
-		schema := in[0].Object().Properties.(map[string]interface{})
-		for property, value := range schema {
-			if p.containsProperty(property, properties) {
-				if valueString, ok := value.(string); ok && len(valueString) > 0 {
-					textProperties[property] = valueString
-				}
-			}
-		}
-
-		texts := []string{}
-		for _, value := range textProperties {
-			texts = append(texts, value)
-		}
-		text := strings.Join(texts, " ")
-		if len(text) == 0 {
-			return in, errors.New("empty content")
-		}
 		question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
 		if question == "" {
 			return in, errors.New("empty question")
 		}
+		properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
 
-		answer, err := p.qna.Answer(ctx, text, question)
-		if err != nil {
-			return in, err
-		}
-
-		ap := in[0].AdditionalProperties
-		if ap == nil {
-			ap = models.AdditionalProperties{}
-		}
-
-		certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
-		if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
-			ap["answer"] = &qnamodels.Answer{
-				HasAnswer: false,
+		for i := range in {
+			textProperties := map[string]string{}
+			schema := in[i].Object().Properties.(map[string]interface{})
+			for property, value := range schema {
+				if p.containsProperty(property, properties) {
+					if valueString, ok := value.(string); ok && len(valueString) > 0 {
+						textProperties[property] = valueString
+					}
+				}
 			}
-		} else {
-			propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-			ap["answer"] = &qnamodels.Answer{
-				Result:        answer.Answer,
-				Property:      propertyName,
-				StartPosition: startPos,
-				EndPosition:   endPos,
-				Certainty:     answer.Certainty,
-				HasAnswer:     answer.Answer != nil,
-			}
-		}
 
-		in[0].AdditionalProperties = ap
+			texts := []string{}
+			for _, value := range textProperties {
+				texts = append(texts, value)
+			}
+			text := strings.Join(texts, " ")
+			if len(text) == 0 {
+				return in, errors.New("empty content")
+			}
+
+			answer, err := p.qna.Answer(ctx, text, question)
+			if err != nil {
+				return in, err
+			}
+
+			ap := in[i].AdditionalProperties
+			if ap == nil {
+				ap = models.AdditionalProperties{}
+			}
+
+			certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
+			if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
+				ap["answer"] = &qnamodels.Answer{
+					HasAnswer: false,
+				}
+			} else {
+				propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
+				ap["answer"] = &qnamodels.Answer{
+					Result:        answer.Answer,
+					Property:      propertyName,
+					StartPosition: startPos,
+					EndPosition:   endPos,
+					Certainty:     answer.Certainty,
+					HasAnswer:     answer.Answer != nil,
+				}
+			}
+
+			in[i].AdditionalProperties = ap
+		}
 	}
 
+	rerank := p.paramsHelper.GetRerank(argumentModuleParams["ask"])
+	if rerank {
+		return p.rerank(in), nil
+	}
 	return in, nil
+}
+
+func (p *AnswerProvider) rerank(in []search.Result) []search.Result {
+	if len(in) > 0 {
+		sort.SliceStable(in, func(i, j int) bool {
+			return p.getAnswerCertainty(in[i]) > p.getAnswerCertainty(in[j])
+		})
+	}
+	return in
+}
+
+func (p *AnswerProvider) getAnswerCertainty(result search.Result) float64 {
+	answerObj, ok := result.AdditionalProperties["answer"]
+	if ok {
+		answer, ok := answerObj.(*qnamodels.Answer)
+		if ok {
+			if answer.HasAnswer {
+				return *answer.Certainty
+			}
+		}
+	}
+	return 0
 }
 
 func (p *AnswerProvider) containsProperty(property string, properties []string) bool {
