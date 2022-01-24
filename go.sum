@@ -73,6 +73,8 @@ github.com/go-openapi/errors v0.19.8/go.mod h1:cM//ZKUKyO06HSwqAelJ5NsEMMcpa6VpX
 github.com/go-openapi/errors v0.19.9/go.mod h1:cM//ZKUKyO06HSwqAelJ5NsEMMcpa6VpXe8DOa1Mi1M=
 github.com/go-openapi/errors v0.20.1 h1:j23mMDtRxMwIobkpId7sWh7Ddcx4ivaoqUbfXx5P+a8=
 github.com/go-openapi/errors v0.20.1/go.mod h1:cM//ZKUKyO06HSwqAelJ5NsEMMcpa6VpXe8DOa1Mi1M=
+github.com/go-openapi/errors v0.20.2 h1:dxy7PGTqEh94zj2E3h1cUmQQWiM1+aeCROfAr02EmK8=
+github.com/go-openapi/errors v0.20.2/go.mod h1:cM//ZKUKyO06HSwqAelJ5NsEMMcpa6VpXe8DOa1Mi1M=
 github.com/go-openapi/jsonpointer v0.17.0/go.mod h1:cOnomiV+CVVwFLk0A/MExoFMjwdsUdVpsRhURCKh+3M=
 github.com/go-openapi/jsonpointer v0.18.0/go.mod h1:cOnomiV+CVVwFLk0A/MExoFMjwdsUdVpsRhURCKh+3M=
 github.com/go-openapi/jsonpointer v0.19.2/go.mod h1:3akKfEdA7DF1sugOqz1dVQHBcuDBPKZGEoHC/NkiQRg=
@@ -106,6 +108,8 @@ github.com/go-openapi/runtime v0.19.16/go.mod h1:5P9104EJgYcizotuXhEuUrzVc+j1RiS
 github.com/go-openapi/runtime v0.19.24/go.mod h1:Lm9YGCeecBnUUkFTxPC4s1+lwrkJ0pthx8YvyjCfkgk=
 github.com/go-openapi/runtime v0.21.0 h1:giZ8eT26R+/rx6RX2MkYjZPY8vPYVKDhP/mOazrQHzM=
 github.com/go-openapi/runtime v0.21.0/go.mod h1:aQg+kaIQEn+A2CRSY1TxbM8+sT9g2V3aLc1FbIAnbbs=
+github.com/go-openapi/runtime v0.21.1 h1:/KIG00BzA2x2HRStX2tnhbqbQdPcFlkgsYCiNY20FZs=
+github.com/go-openapi/runtime v0.21.1/go.mod h1:aQg+kaIQEn+A2CRSY1TxbM8+sT9g2V3aLc1FbIAnbbs=
 github.com/go-openapi/spec v0.17.0/go.mod h1:XkF/MOi14NmjsfZ8VtAKf8pIlbZzyoTvZsdfssdxcBI=
 github.com/go-openapi/spec v0.18.0/go.mod h1:XkF/MOi14NmjsfZ8VtAKf8pIlbZzyoTvZsdfssdxcBI=
 github.com/go-openapi/spec v0.19.2/go.mod h1:sCxk3jxKgioEJikev4fgkNmwS+3kuYdJtcsZsD5zxMY=
