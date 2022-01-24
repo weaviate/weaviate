@@ -20,6 +20,36 @@ func TestValidateOKClassName(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
+
+	_, err = ValidateClassName("FooBar2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("Foo_______bar__with_numbers___1234567890_and_2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("C_123456___foo_bar_2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("NormalClassNameWithNumber1")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("Normal__Class__Name__With__Number__1")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("CClassName")
+	if err != nil {
+		t.Fail()
+	}
 }
 
 func TestFailValidateBadClassName(t *testing.T) {
@@ -34,6 +64,11 @@ func TestFailValidateBadClassName(t *testing.T) {
 	}
 
 	_, err = ValidateClassName("fooBar")
+	if err == nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("_foo")
 	if err == nil {
 		t.Fail()
 	}
