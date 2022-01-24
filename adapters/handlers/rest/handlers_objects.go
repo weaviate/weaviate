@@ -50,6 +50,7 @@ type objectsManager interface {
 	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
+	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
 	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
@@ -228,6 +229,28 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsDeleteParams,
 	return objects.NewObjectsDeleteNoContent()
 }
 
+func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
+	principal *models.Principal) middleware.Responder {
+	exists, err := h.manager.HeadObject(params.HTTPRequest.Context(), principal, params.ID)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return objects.NewObjectsHeadForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case usecasesObjects.ErrNotFound:
+			return objects.NewObjectsHeadNotFound()
+		default:
+			return objects.NewObjectsHeadInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	if exists {
+		return objects.NewObjectsHeadNoContent()
+	}
+	return objects.NewObjectsHeadNotFound()
+}
+
 func (h *objectHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	err := h.manager.MergeObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
@@ -320,6 +343,8 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ObjectsGetHandlerFunc(h.getObject)
 	api.ObjectsObjectsDeleteHandler = objects.
 		ObjectsDeleteHandlerFunc(h.deleteObject)
+	api.ObjectsObjectsHeadHandler = objects.
+		ObjectsHeadHandlerFunc(h.headObject)
 	api.ObjectsObjectsListHandler = objects.
 		ObjectsListHandlerFunc(h.getObjects)
 	api.ObjectsObjectsUpdateHandler = objects.
