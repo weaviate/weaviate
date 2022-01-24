@@ -96,6 +96,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsGetHandler: objects.ObjectsGetHandlerFunc(func(params objects.ObjectsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsGet has not yet been implemented")
 		}),
+		ObjectsObjectsHeadHandler: objects.ObjectsHeadHandlerFunc(func(params objects.ObjectsHeadParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsHead has not yet been implemented")
+		}),
 		ObjectsObjectsListHandler: objects.ObjectsListHandlerFunc(func(params objects.ObjectsListParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsList has not yet been implemented")
 		}),
@@ -215,6 +218,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsDeleteHandler objects.ObjectsDeleteHandler
 	// ObjectsObjectsGetHandler sets the operation handler for the objects get operation
 	ObjectsObjectsGetHandler objects.ObjectsGetHandler
+	// ObjectsObjectsHeadHandler sets the operation handler for the objects head operation
+	ObjectsObjectsHeadHandler objects.ObjectsHeadHandler
 	// ObjectsObjectsListHandler sets the operation handler for the objects list operation
 	ObjectsObjectsListHandler objects.ObjectsListHandler
 	// ObjectsObjectsPatchHandler sets the operation handler for the objects patch operation
@@ -352,6 +357,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsGetHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsGetHandler")
+	}
+	if o.ObjectsObjectsHeadHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsHeadHandler")
 	}
 	if o.ObjectsObjectsListHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsListHandler")
@@ -545,6 +553,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/objects/{id}"] = objects.NewObjectsGet(o.context, o.ObjectsObjectsGetHandler)
+	if o.handlers["HEAD"] == nil {
+		o.handlers["HEAD"] = make(map[string]http.Handler)
+	}
+	o.handlers["HEAD"]["/objects/{id}"] = objects.NewObjectsHead(o.context, o.ObjectsObjectsHeadHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

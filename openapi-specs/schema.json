@@ -1506,6 +1506,48 @@
         "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      },
+      "head": {
+        "description": "Checks if an Object exists in the system.",
+        "operationId": "objects.head",
+        "x-serviceIds": ["weaviate.local.manipulate"],
+        "parameters": [
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Checks Object's existence based on its UUID.",
+        "tags": ["objects"],
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       }
     },
     "/objects/{id}/references/{propertyName}": {
