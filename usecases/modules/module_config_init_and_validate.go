@@ -20,6 +20,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
+// SetClassDefaults sets the module-specific defaults for the class itself, but
+// also for each prop
 func (p *Provider) SetClassDefaults(class *models.Class) {
 	if class.Vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
@@ -37,6 +39,27 @@ func (p *Provider) SetClassDefaults(class *models.Class) {
 
 	p.setPerClassConfigDefaults(class, cfg, cc)
 	p.setPerPropertyConfigDefaults(class, cfg, cc)
+}
+
+// SetSinglePropertyDefaults can be used when a property is added later, e.g.
+// as part of merging in a ref prop after a class has already been created
+func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
+	prop *models.Property) {
+	if class.Vectorizer == "none" {
+		// the class does not use a vectorizer, nothing to do for us
+		return
+	}
+
+	mod := p.GetByName(class.Vectorizer)
+	cc, ok := mod.(modulecapabilities.ClassConfigurator)
+	if !ok {
+		// the module exists, but is not a class configurator, nothing to do for us
+		return
+	}
+
+	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
+
+	p.setSinglePropertyConfigDefaults(class, prop, cfg, cc)
 }
 
 func (p *Provider) setPerClassConfigDefaults(class *models.Class,
@@ -62,24 +85,30 @@ func (p *Provider) setPerClassConfigDefaults(class *models.Class,
 func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator) {
 	for _, prop := range class.Properties {
-		dt, _ := schema.GetPropertyDataType(class, prop.Name)
-		modDefaults := cc.PropertyConfigDefaults(dt)
-		userSpecified := cfg.Property(prop.Name)
-		mergedConfig := map[string]interface{}{}
-
-		for key, value := range modDefaults {
-			mergedConfig[key] = value
-		}
-		for key, value := range userSpecified {
-			mergedConfig[key] = value
-		}
-
-		if prop.ModuleConfig == nil {
-			prop.ModuleConfig = map[string]interface{}{}
-		}
-
-		prop.ModuleConfig.(map[string]interface{})[class.Vectorizer] = mergedConfig
+		p.setSinglePropertyConfigDefaults(class, prop, cfg, cc)
 	}
+}
+
+func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
+	prop *models.Property, cfg *ClassBasedModuleConfig,
+	cc modulecapabilities.ClassConfigurator) {
+	dt, _ := schema.GetPropertyDataType(class, prop.Name)
+	modDefaults := cc.PropertyConfigDefaults(dt)
+	userSpecified := cfg.Property(prop.Name)
+	mergedConfig := map[string]interface{}{}
+
+	for key, value := range modDefaults {
+		mergedConfig[key] = value
+	}
+	for key, value := range userSpecified {
+		mergedConfig[key] = value
+	}
+
+	if prop.ModuleConfig == nil {
+		prop.ModuleConfig = map[string]interface{}{}
+	}
+
+	prop.ModuleConfig.(map[string]interface{})[class.Vectorizer] = mergedConfig
 }
 
 func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error {
