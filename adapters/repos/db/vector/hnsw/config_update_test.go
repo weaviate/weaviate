@@ -54,6 +54,38 @@ func TestUserConfigUpdates(t *testing.T) {
 					"cleanupIntervalSeconds is immutable: " +
 						"attempted change from \"60\" to \"90\""),
 			},
+			{
+				name:          "changing ef",
+				initial:       UserConfig{EF: 100},
+				update:        UserConfig{EF: -1},
+				expectedError: nil,
+			},
+			{
+				name: "changing other mutable settings",
+				initial: UserConfig{
+					VectorCacheMaxObjects: 700,
+					FlatSearchCutoff:      800,
+				},
+				update: UserConfig{
+					VectorCacheMaxObjects: 730,
+					FlatSearchCutoff:      830,
+				},
+				expectedError: nil,
+			},
+			{
+				name: "attempting to change dynamic ef settings",
+				initial: UserConfig{
+					DynamicEFMin:    100,
+					DynamicEFMax:    200,
+					DynamicEFFactor: 5,
+				},
+				update: UserConfig{
+					DynamicEFMin:    101,
+					DynamicEFMax:    201,
+					DynamicEFFactor: 6,
+				},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {

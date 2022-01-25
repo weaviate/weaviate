@@ -65,6 +65,11 @@ type hnsw struct {
 	// ef at search time
 	ef int64
 
+	// only used if ef=-1
+	efMin    int64
+	efMax    int64
+	efFactor int64
+
 	// on filtered searches with less than n elements, perform flat search
 	flatSearchCutoff int64
 

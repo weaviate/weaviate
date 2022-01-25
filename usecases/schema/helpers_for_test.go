@@ -103,6 +103,10 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 	}
 }
 
+func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
+	prop *models.Property) {
+}
+
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }
