@@ -658,6 +658,10 @@ type fakeManager struct {
 	updateObjectReturn *models.Object
 }
 
+func (f *fakeManager) HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error) {
+	panic("not implemented") // TODO: Implement
+}
+
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal, object *models.Object) (*models.Object, error) {
 	return object, nil
 }

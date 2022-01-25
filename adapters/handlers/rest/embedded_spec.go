@@ -860,6 +860,52 @@ func init() {
           "weaviate.local.manipulate"
         ]
       },
+      "head": {
+        "description": "Checks if an Object exists in the system.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks Object's existence based on its UUID.",
+        "operationId": "objects.head",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
       "patch": {
         "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
@@ -3405,6 +3451,52 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "head": {
+        "description": "Checks if an Object exists in the system.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks Object's existence based on its UUID.",
+        "operationId": "objects.head",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

@@ -9,6 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package inverted
