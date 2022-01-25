@@ -21,6 +21,7 @@ require (
 	github.com/graphql-go/graphql v0.7.9
 	github.com/hashicorp/memberlist v0.2.4
 	github.com/jessevdk/go-flags v1.4.0
+	github.com/kr/pretty v0.3.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
