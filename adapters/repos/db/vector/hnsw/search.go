@@ -31,7 +31,7 @@ func (h *hnsw) searchTimeEF(k int) int {
 	// can be so common that it would cause considerable overhead
 	ef := int(atomic.LoadInt64(&h.ef))
 	if ef < 1 {
-		return autoEfFromK(k)
+		return h.autoEfFromK(k)
 	}
 
 	if ef < k {
@@ -41,10 +41,16 @@ func (h *hnsw) searchTimeEF(k int) int {
 	return ef
 }
 
-func autoEfFromK(k int) int {
-	ef := k * 8
-	if ef > 100 {
-		ef = 100
+func (h *hnsw) autoEfFromK(k int) int {
+	factor := int(atomic.LoadInt64(&h.efFactor))
+	min := int(atomic.LoadInt64(&h.efMin))
+	max := int(atomic.LoadInt64(&h.efMax))
+
+	ef := k * factor
+	if ef > max {
+		ef = max
+	} else if ef < min {
+		ef = min
 	}
 	if k > ef {
 		ef = k // otherwise results will get cut off early
