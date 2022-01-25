@@ -76,6 +76,7 @@ func Test_Objects(t *testing.T) {
 
 	t.Run("custom vector journey", customVectors)
 	t.Run("auto schema", autoSchemaObjects)
+	t.Run("checking object's existence", checkObjects)
 	// tear down
 	deleteObjectClass(t, "TestObject")
 	deleteObjectClass(t, "TestObjectCustomVector")
