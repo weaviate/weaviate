@@ -170,6 +170,9 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 
 	t.Run("without a vector", func(t *testing.T) {
+		// Note that this was an invalid case before v1.10 which added this
+		// functionality, as part of
+		// https://github.com/semi-technologies/weaviate/issues/1800
 		reset()
 
 		ctx := context.Background()
@@ -178,9 +181,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObject(ctx, nil, class)
-		_, ok := err.(ErrInvalidUserInput)
-		assert.True(t, ok)
-		assert.Contains(t, err.Error(), "vector must be present")
+		assert.Nil(t, err)
 	})
 
 	t.Run("without a vector, but indexing skipped", func(t *testing.T) {

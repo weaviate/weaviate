@@ -37,8 +37,12 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "store object in LSM store")
 	}
 
-	if err := s.updateVectorIndex(object.Vector, status); err != nil {
-		return errors.Wrap(err, "update vector index")
+	// vector is now optional as of
+	// https://github.com/semi-technologies/weaviate/issues/1800
+	if object.Vector != nil {
+		if err := s.updateVectorIndex(object.Vector, status); err != nil {
+			return errors.Wrap(err, "update vector index")
+		}
 	}
 
 	if err := s.updatePropertySpecificIndices(object, status); err != nil {
