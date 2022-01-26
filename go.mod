@@ -40,7 +40,7 @@ require (
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654
-	golang.org/x/tools v0.1.8 // indirect
+	golang.org/x/tools v0.1.9 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
