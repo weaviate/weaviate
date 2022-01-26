@@ -11,104 +11,146 @@
 
 package clients
 
-// import (
-// 	"context"
-// 	"encoding/json"
-// 	"fmt"
-// 	"io/ioutil"
-// 	"net/http"
-// 	"net/http/httptest"
-// 	"testing"
-// 	"time"
+import (
+	"context"
+	"encoding/json"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 
-// 	"github.com/pkg/errors"
-// 	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/stretchr/testify/require"
-// )
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
-// func TestClient(t *testing.T) {
-// 	t.Run("when all is fine", func(t *testing.T) {
-// 		server := httptest.NewServer(&fakeHandler{t: t})
-// 		defer server.Close()
-// 		c := New(server.URL, nullLogger())
-// 		expected := &ent.VectorizationResult{
-// 			Text:       "This is my text",
-// 			Vector:     []float32{0.1, 0.2, 0.3},
-// 			Dimensions: 3,
-// 		}
-// 		res, err := c.Vectorize(context.Background(), "This is my text",
-// 			ent.VectorizationConfig{
-// 				PoolingStrategy: "masked_mean",
-// 			})
+func TestClient(t *testing.T) {
+	t.Run("when all is fine", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		expected := &ent.VectorizationResult{
+			Text:       "This is my text",
+			Vector:     []float32{0.1, 0.2, 0.3},
+			Dimensions: 3,
+		}
+		res, err := c.Vectorize(context.Background(), "This is my text",
+			ent.VectorizationConfig{
+				Type:  "text",
+				Model: "ada",
+			})
 
-// 		assert.Nil(t, err)
-// 		assert.Equal(t, expected, res)
-// 	})
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
 
-// 	t.Run("when the context is expired", func(t *testing.T) {
-// 		server := httptest.NewServer(&fakeHandler{t: t})
-// 		defer server.Close()
-// 		c := New(server.URL, nullLogger())
-// 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-// 		defer cancel()
+	t.Run("when the context is expired", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
+		defer cancel()
 
-// 		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
 
-// 		require.NotNil(t, err)
-// 		assert.Contains(t, err.Error(), "context deadline exceeded")
-// 	})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "context deadline exceeded")
+	})
 
-// 	t.Run("when the server returns an error", func(t *testing.T) {
-// 		server := httptest.NewServer(&fakeHandler{
-// 			t:           t,
-// 			serverError: errors.Errorf("nope, not gonna happen"),
-// 		})
-// 		defer server.Close()
-// 		c := New(server.URL, nullLogger())
-// 		_, err := c.Vectorize(context.Background(), "This is my text",
-// 			ent.VectorizationConfig{})
+	t.Run("when the server returns an error", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{
+			t:           t,
+			serverError: errors.Errorf("nope, not gonna happen"),
+		})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		_, err := c.Vectorize(context.Background(), "This is my text",
+			ent.VectorizationConfig{})
 
-// 		require.NotNil(t, err)
-// 		assert.Contains(t, err.Error(), "nope, not gonna happen")
-// 	})
-// }
+		require.NotNil(t, err)
+		assert.Equal(t, err.Error(), "failed with status: 500 error: nope, not gonna happen")
+	})
+}
 
-// type fakeHandler struct {
-// 	t           *testing.T
-// 	serverError error
-// }
+type fakeHandler struct {
+	t           *testing.T
+	serverError error
+}
 
-// func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-// 	assert.Equal(f.t, "/vectors", r.URL.String())
-// 	assert.Equal(f.t, http.MethodPost, r.Method)
+func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	assert.Equal(f.t, http.MethodPost, r.Method)
 
-// 	if f.serverError != nil {
-// 		w.WriteHeader(http.StatusInternalServerError)
-// 		w.Write([]byte(fmt.Sprintf(`{"error":"%s"}`, f.serverError.Error())))
-// 		return
-// 	}
+	if f.serverError != nil {
+		embeddingError := map[string]interface{}{
+			"message": f.serverError.Error(),
+			"type":    "invalid_request_error",
+		}
+		embedding := map[string]interface{}{
+			"error": embeddingError,
+		}
+		outBytes, err := json.Marshal(embedding)
+		require.Nil(f.t, err)
 
-// 	bodyBytes, err := ioutil.ReadAll(r.Body)
-// 	require.Nil(f.t, err)
-// 	defer r.Body.Close()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(outBytes)
+		return
+	}
 
-// 	var b map[string]interface{}
-// 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
+	bodyBytes, err := ioutil.ReadAll(r.Body)
+	require.Nil(f.t, err)
+	defer r.Body.Close()
 
-// 	textInput := b["text"].(string)
-// 	assert.Greater(f.t, len(textInput), 0)
+	var b map[string]interface{}
+	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-// 	pooling := b["config"].(map[string]interface{})["pooling_strategy"].(string)
-// 	assert.Equal(f.t, "masked_mean", pooling)
+	textInput := b["input"].(string)
+	assert.Greater(f.t, len(textInput), 0)
 
-// 	out := map[string]interface{}{
-// 		"text":   textInput,
-// 		"dims":   3,
-// 		"vector": []float32{0.1, 0.2, 0.3},
-// 	}
-// 	outBytes, err := json.Marshal(out)
-// 	require.Nil(f.t, err)
+	embeddingData := map[string]interface{}{
+		"object":    "embedding",
+		"index":     0,
+		"embedding": []float32{0.1, 0.2, 0.3},
+	}
+	embedding := map[string]interface{}{
+		"object": "list",
+		"data":   []interface{}{embeddingData},
+	}
 
-// 	w.Write(outBytes)
-// }
+	outBytes, err := json.Marshal(embedding)
+	require.Nil(f.t, err)
+
+	w.Write(outBytes)
+}
+
+func nullLogger() logrus.FieldLogger {
+	l, _ := test.NewNullLogger()
+	return l
+}

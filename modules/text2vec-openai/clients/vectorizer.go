@@ -24,9 +24,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type embeddingsRequest struct {
+	Input string `json:"input"`
+}
+
+type embedding struct {
+	Object string          `json:"object"`
+	Data   []embeddingData `json:"data,omitempty"`
+	Error  *openAIApiError `json:"error,omitempty"`
+}
+
+type embeddingData struct {
+	Object    string    `json:"object"`
+	Index     int       `json:"index"`
+	Embedding []float32 `json:"embedding"`
+}
+
+type openAIApiError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Param   string `json:"param"`
+	Code    string `json:"code"`
+}
+
 type vectorizer struct {
 	apiKey     string
 	httpClient *http.Client
+	urlBuilder *openAIUrlBuilder
 	logger     logrus.FieldLogger
 }
 
@@ -34,6 +58,7 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		urlBuilder: newOpenAIUrlBuilder(),
 		logger:     logger,
 	}
 }
@@ -82,7 +107,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 	}
 
 	if res.StatusCode > 399 {
-		return nil, errors.Errorf("failed with status %d", res.StatusCode)
+		if resBody.Error != nil {
+			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+		}
+		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
 	}
 
 	if len(resBody.Data) != 1 {
@@ -97,24 +125,9 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 }
 
 func (v *vectorizer) docUrl(docType, model string) string {
-	return newDocumentVectorizerUrl(docType, model).url()
+	return v.urlBuilder.documentUrl(docType, model)
 }
 
 func (v *vectorizer) queryUrl(docType, model string) string {
-	return newQueryVectorizerUrl(docType, model).url()
-}
-
-type embeddingsRequest struct {
-	Input string `json:"input"`
-}
-
-type embedding struct {
-	Object string          `json:"object"`
-	Data   []embeddingData `json:"data"`
-}
-
-type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
+	return v.urlBuilder.queryUrl(docType, model)
 }
