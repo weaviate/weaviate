@@ -196,8 +196,6 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 }
 
-// TODO: This currently always assumes the text2vec-vectorizer, but this could
-// be any module. Needs to be actually made modular
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo *fakeVectorRepo
@@ -298,5 +296,56 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
+	})
+}
+
+func Test_Add_Object_OverrideVectorizer(t *testing.T) {
+	var (
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
+	)
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "FooOverride",
+					Vectorizer:        config.VectorizerModuleText2VecContextionary,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+			},
+		},
+	}
+
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+	}
+
+	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		object := &models.Object{
+			Class:  "FooOverride",
+			Vector: []float32{9, 9, 9},
+		}
+
+		_, err := manager.AddObject(ctx, nil, object)
+		require.Nil(t, err)
+
+		vec := vectorRepo.Mock.Calls[0].Arguments.Get(1).([]float32)
+
+		assert.Equal(t, []float32{9, 9, 9}, vec, "check that vector was overridden")
 	})
 }
