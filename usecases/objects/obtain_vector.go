@@ -107,12 +107,6 @@ func (vo *vectorObtainer) getVectorizerOfClass(className string,
 
 func (vo *vectorObtainer) validateVectorPresent(obj *models.Object,
 	hnswConfig hnsw.UserConfig) error {
-	if !hnswConfig.Skip && len(obj.Vector) == 0 {
-		return errors.Errorf("this class is configured to use vectorizer 'none' " +
-			"thus a vector must be present when importing, got: field 'vector' is empty " +
-			"or contains a zero-length vector")
-	}
-
 	if hnswConfig.Skip && len(obj.Vector) > 0 {
 		vo.logger.WithField("className", obj.Class).
 			Warningf("this class is configured to skip vector indexing, " +
