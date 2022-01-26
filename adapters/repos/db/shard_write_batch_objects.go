@@ -198,9 +198,13 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 		return
 	}
 
-	if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
-		b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-		return
+	if object.Vector != nil {
+		// vector is now optional as of
+		// https://github.com/semi-technologies/weaviate/issues/1800
+		if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
+			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+			return
+		}
 	}
 
 	if err := b.shard.updatePropertySpecificIndices(object, status); err != nil {

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -31,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -884,6 +886,163 @@ func TestCRUD(t *testing.T) {
 	})
 }
 
+func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
+	total := 100
+	individual := total / 4
+	className := "DeferredVector"
+	var data []*models.Object
+	var class *models.Class
+
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	logger, _ := test.NewNullLogger()
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("prepare data for test", func(t *testing.T) {
+		data = make([]*models.Object, total)
+		for i := range data {
+			data[i] = &models.Object{
+				ID:    strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+				Class: className,
+				Properties: map[string]interface{}{
+					"int_prop": int64(i),
+				},
+				Vector: nil,
+			}
+		}
+	})
+
+	t.Run("create required schema", func(t *testing.T) {
+		class = &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					DataType: []string{string(schema.DataTypeInt)},
+					Name:     "int_prop",
+				},
+			},
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	t.Run("import individual objects without vector", func(t *testing.T) {
+		for i := 0; i < individual; i++ {
+			err := repo.PutObject(context.Background(), data[i], nil) // nil vector !
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("import batch objects without vector", func(t *testing.T) {
+		batch := make(objects.BatchObjects, total-individual)
+
+		for i := range batch {
+			batch[i] = objects.BatchObject{
+				OriginalIndex: i,
+				Err:           nil,
+				Vector:        nil,
+				Object:        data[i+individual],
+				UUID:          data[i+individual].ID,
+			}
+		}
+
+		res, err := repo.BatchPutObjects(context.Background(), batch)
+		require.Nil(t, err)
+
+		for _, obj := range res {
+			require.Nil(t, obj.Err)
+		}
+	})
+
+	t.Run("verify inverted index works correctly", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
+			ClassName: className,
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  total,
+			},
+		})
+		require.Nil(t, err)
+		assert.Len(t, res, total)
+	})
+
+	t.Run("perform unfiltered vector search and verify there are no matches", func(t *testing.T) {
+		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			Filters:   nil,
+			ClassName: className,
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  total,
+			},
+			SearchVector: randomVector(7),
+		})
+		require.Nil(t, err)
+		assert.Len(t, res, 0) // we skipped the vector on half the elements, so we should now match half
+	})
+
+	t.Run("update some of the objects to add vectors", func(t *testing.T) {
+		for i := range data {
+			if i%2 == 1 {
+				continue
+			}
+
+			data[i].Vector = randomVector(7)
+			err := repo.PutObject(context.Background(), data[i], data[i].Vector)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("perform unfiltered vector search and verify correct matches", func(t *testing.T) {
+		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			Filters:   nil,
+			ClassName: className,
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  total,
+			},
+			SearchVector: randomVector(7),
+		})
+		require.Nil(t, err)
+		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
+	})
+
+	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
+		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			Filters:   buildFilter("int_prop", 50, lt, dtInt),
+			ClassName: className,
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  total,
+			},
+			// SearchVector: randomVector(7),
+		})
+		require.Nil(t, err)
+		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
+	})
+}
+
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {
@@ -900,4 +1059,13 @@ func ptFloat32(in float32) *float32 {
 
 func ptFloat64(in float64) *float64 {
 	return &in
+}
+
+func randomVector(dim int) []float32 {
+	out := make([]float32, dim)
+	for i := range out {
+		out[i] = rand.Float32()
+	}
+
+	return out
 }
