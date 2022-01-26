@@ -1036,10 +1036,12 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			// SearchVector: randomVector(7),
+			SearchVector: randomVector(7),
 		})
 		require.Nil(t, err)
-		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
+		// we skipped the vector on half the elements, and cut the list in half with
+		// the filter, so we're only expected a quarter of the total size now
+		assert.Len(t, res, total/4)
 	})
 }
 
