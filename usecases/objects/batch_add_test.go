@@ -211,8 +211,13 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	})
 
 	t.Run("without any vectors", func(t *testing.T) {
+		// prior to v1.10 this was the desired behavior:
 		// note that this should fail on class Foo, but be accepted on class
 		// FooSkipped
+		//
+		// However, since v1.10, it is acceptable to exclude a vector, even if
+		// indexing is not skipped. In this case only the individual element is
+		// skipped. See https://github.com/semi-technologies/weaviate/issues/1800
 		reset()
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{
@@ -229,7 +234,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
-		assert.Contains(t, repoCalledWithObjects[0].Err.Error(), "vector must be present")
+		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
 	})
 }
