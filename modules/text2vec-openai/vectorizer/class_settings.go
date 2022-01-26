@@ -71,11 +71,11 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 }
 
 func (ic *classSettings) Model() string {
-	return ic.getProperty("model")
+	return ic.getProperty("model", DefaultOpenAIModel)
 }
 
 func (ic *classSettings) Type() string {
-	return ic.getProperty("type")
+	return ic.getProperty("type", DefaultOpenAIDocumentType)
 }
 
 func (ic *classSettings) VectorizeClassName() bool {
@@ -103,7 +103,7 @@ func (ic *classSettings) Validate() error {
 		return errors.New("empty config")
 	}
 
-	// TODO: validation
+	// TODO: implement validation
 	// _, err := ic.Model()
 	// if err != nil {
 	// 	return err
@@ -116,10 +116,10 @@ func (ic *classSettings) Validate() error {
 	return nil
 }
 
-func (ic *classSettings) getProperty(name string) string {
+func (ic *classSettings) getProperty(name, defaultValue string) string {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return ""
+		return defaultValue
 	}
 
 	model, ok := ic.cfg.Class()[name]
@@ -130,5 +130,5 @@ func (ic *classSettings) getProperty(name string) string {
 		}
 	}
 
-	return ""
+	return defaultValue
 }

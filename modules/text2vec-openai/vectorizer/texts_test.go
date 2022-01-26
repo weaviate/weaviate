@@ -11,85 +11,109 @@
 
 package vectorizer
 
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
 // as used in the nearText searcher
-// func TestVectorizingTexts(t *testing.T) {
-// 	type testCase struct {
-// 		name                    string
-// 		input                   []string
-// 		expectedClientCall      string
-// 		expectedPoolingStrategy string
-// 		poolingStrategy         string
-// 	}
+func TestVectorizingTexts(t *testing.T) {
+	type testCase struct {
+		name                string
+		input               []string
+		expectedClientCall  string
+		expectedOpenAIType  string
+		openAIType          string
+		expectedOpenAIModel string
+		openAIModel         string
+	}
 
-// 	tests := []testCase{
-// 		testCase{
-// 			name:                    "single word",
-// 			input:                   []string{"hello"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "hello",
-// 		},
-// 		testCase{
-// 			name:                    "multiple words",
-// 			input:                   []string{"hello world, this is me!"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "hello world, this is me!",
-// 		},
+	tests := []testCase{
+		{
+			name:                "single word",
+			input:               []string{"hello"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "hello",
+		},
+		{
+			name:                "multiple words",
+			input:               []string{"hello world, this is me!"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "hello world, this is me!",
+		},
+		{
+			name:                "multiple sentences (joined with a dot)",
+			input:               []string{"this is sentence 1", "and here's number 2"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "this is sentence 1. and here's number 2",
+		},
+		{
+			name:                "multiple sentences already containing a dot",
+			input:               []string{"this is sentence 1.", "and here's number 2"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "this is sentence 1. and here's number 2",
+		},
+		{
+			name:                "multiple sentences already containing a question mark",
+			input:               []string{"this is sentence 1?", "and here's number 2"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "this is sentence 1? and here's number 2",
+		},
+		{
+			name:                "multiple sentences already containing an exclamation mark",
+			input:               []string{"this is sentence 1!", "and here's number 2"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "this is sentence 1! and here's number 2",
+		},
+		{
+			name:                "multiple sentences already containing comma",
+			input:               []string{"this is sentence 1,", "and here's number 2"},
+			openAIType:          "text",
+			expectedOpenAIType:  "text",
+			openAIModel:         "ada",
+			expectedOpenAIModel: "ada",
+			expectedClientCall:  "this is sentence 1, and here's number 2",
+		},
+	}
 
-// 		testCase{
-// 			name:                    "multiple sentences (joined with a dot)",
-// 			input:                   []string{"this is sentence 1", "and here's number 2"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "this is sentence 1. and here's number 2",
-// 		},
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{}
 
-// 		testCase{
-// 			name:                    "multiple sentences already containing a dot",
-// 			input:                   []string{"this is sentence 1.", "and here's number 2"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "this is sentence 1. and here's number 2",
-// 		},
-// 		testCase{
-// 			name:                    "multiple sentences already containing a question mark",
-// 			input:                   []string{"this is sentence 1?", "and here's number 2"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "this is sentence 1? and here's number 2",
-// 		},
-// 		testCase{
-// 			name:                    "multiple sentences already containing an exclamation mark",
-// 			input:                   []string{"this is sentence 1!", "and here's number 2"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "this is sentence 1! and here's number 2",
-// 		},
-// 		testCase{
-// 			name:                    "multiple sentences already containing comma",
-// 			input:                   []string{"this is sentence 1,", "and here's number 2"},
-// 			poolingStrategy:         "cls",
-// 			expectedPoolingStrategy: "cls",
-// 			expectedClientCall:      "this is sentence 1, and here's number 2",
-// 		},
-// 	}
+			v := New(client)
 
-// 	for _, test := range tests {
-// 		t.Run(test.name, func(t *testing.T) {
-// 			client := &fakeClient{}
+			settings := &fakeSettings{
+				openAIType:  test.openAIType,
+				openAIModel: test.openAIModel,
+			}
+			vec, err := v.Texts(context.Background(), test.input, settings)
 
-// 			v := New(client)
-
-// 			settings := &fakeSettings{
-// 				poolingStrategy: test.poolingStrategy,
-// 			}
-// 			vec, err := v.Texts(context.Background(), test.input, settings)
-
-// 			require.Nil(t, err)
-// 			assert.Equal(t, []float32{0, 1, 2, 3}, vec)
-// 			assert.Equal(t, test.expectedClientCall, client.lastInput)
-// 			assert.Equal(t, client.lastConfig.PoolingStrategy, test.expectedPoolingStrategy)
-// 		})
-// 	}
-// }
+			require.Nil(t, err)
+			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
+			assert.Equal(t, test.expectedClientCall, client.lastInput)
+			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
+			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
+		})
+	}
+}

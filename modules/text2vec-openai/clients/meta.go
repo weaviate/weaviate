@@ -13,6 +13,7 @@ package clients
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"documentation_href": "https://beta.openai.com/docs/guides/embeddings/what-are-embeddings",
+		"name":              "OpenAI Module",
+		"documentationHref": "https://beta.openai.com/docs/guides/embeddings/what-are-embeddings",
 	}, nil
 }
