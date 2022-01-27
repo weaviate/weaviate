@@ -40,7 +40,7 @@ func (m *OpenAIModule) PropertyConfigDefaults(
 func (m *OpenAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig) error {
 	settings := vectorizer.NewClassSettings(cfg)
-	return settings.Validate()
+	return settings.Validate(class)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())
