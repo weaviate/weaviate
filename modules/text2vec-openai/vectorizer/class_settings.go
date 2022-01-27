@@ -31,6 +31,7 @@ const (
 )
 
 var availableOpenAITypes = []string{"text", "code"}
+
 var availableOpenAIModels = []string{"ada", "babbage", "curie", "davinci"}
 
 type classSettings struct {
