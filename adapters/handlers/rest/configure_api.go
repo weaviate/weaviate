@@ -43,6 +43,7 @@ import (
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
@@ -414,6 +415,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "multi2vec-clip").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules["text2vec-openai"]; ok {
+		appState.Modules.Register(modopenai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "text2vec-openai").
 			Debug("enabled module")
 	}
 
