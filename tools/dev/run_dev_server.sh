@@ -197,6 +197,22 @@ case $CONFIG in
         --port 8080
     ;;
 
+  local-openai)
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-openai \
+      PERSISTENCE_DATA_PATH="./data" \
+      ENABLE_MODULES="text2vec-openai" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1
