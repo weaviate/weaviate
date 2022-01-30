@@ -42,11 +42,11 @@ func Test_UnindexedProperty(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:          "hiddenName",
 					DataType:      []string{"string"},
 					IndexInverted: referenceToFalse(),

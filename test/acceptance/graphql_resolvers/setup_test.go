@@ -494,10 +494,10 @@ func addTestDataPersons(t *testing.T) {
 	}
 
 	companies := []personTemplate{
-		personTemplate{id: alice, name: "Alice", livesIn: []strfmt.UUID{}},
-		personTemplate{id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}},
-		personTemplate{id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}},
-		personTemplate{id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}},
+		{id: alice, name: "Alice", livesIn: []strfmt.UUID{}},
+		{id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}},
+		{id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}},
+		{id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}},
 	}
 
 	// companies
