@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
@@ -48,10 +49,20 @@ func (g group) flattenMerge() (search.Result, error) {
 		return search.Result{}, fmt.Errorf("merge vectors: %v", err)
 	}
 
+	className := g.mergeGetClassName()
+
 	return search.Result{
-		Schema: merged,
-		Vector: vector,
+		ClassName: className,
+		Schema:    merged,
+		Vector:    vector,
 	}, nil
+}
+
+func (g group) mergeGetClassName() string {
+	if len(g.Elements) > 0 {
+		return g.Elements[0].ClassName
+	}
+	return ""
 }
 
 func (g group) makeValueGroups() map[string]valueGroup {
@@ -273,15 +284,29 @@ func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
 				return nil, fmt.Errorf("found a search.LocalRef, but 'id' field is missing: %#v", asRef)
 			}
 
-			if _, ok := seenID[id.(string)]; ok {
+			idString, err := getIDString(id)
+			if err != nil {
+				return nil, err
+			}
+
+			if _, ok := seenID[idString]; ok {
 				// duplicate
 				continue
 			}
 
 			out = append(out, asRef)
-			seenID[id.(string)] = struct{}{} // make sure we skip this next time
+			seenID[idString] = struct{}{} // make sure we skip this next time
 		}
 	}
 
 	return out, nil
+}
+
+func getIDString(id interface{}) (string, error) {
+	switch v := id.(type) {
+	case strfmt.UUID:
+		return v.String(), nil
+	default:
+		return "", fmt.Errorf("found a search.LocalRef, 'id' field type expected to be strfmt.UUID but got %T", v)
+	}
 }

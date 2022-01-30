@@ -12,10 +12,12 @@
 package test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func gettingObjectsWithGrouping(t *testing.T) {
@@ -47,22 +49,110 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		assert.ElementsMatch(t, expected, companies)
 	})
 
+	t.Run("grouping mode set to merge and force to 1.0", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company(group: {type: merge, force:1.0}) {
+					name
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		require.Len(t, companies, 1)
+
+		companyNames := companies[0].(map[string]interface{})["name"].(string)
+		assert.True(t, len(companyNames) > 0)
+
+		mustContain := []string{"Apple", "Google", "Microsoft"}
+		for _, companyName := range mustContain {
+			if !strings.Contains(companyNames, companyName) {
+				t.Errorf("%s not contained in %v", companyName, companyNames)
+			}
+		}
+	})
+
+	t.Run("grouping mode set to merge and force to 0.0", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company(group: {type: merge, force:0.0}) {
+					name
+					inCity {
+						... on City {
+							name
+						}
+					}
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		require.Len(t, companies, 9)
+
+		getName := func(value map[string]interface{}) string {
+			return value["name"].(string)
+		}
+
+		getCities := func(value map[string]interface{}) []string {
+			inCity := value["inCity"].([]interface{})
+			cities := make([]string, len(inCity))
+			for i := range inCity {
+				cityVal := inCity[i].(map[string]interface{})
+				cities[i] = getName(cityVal)
+			}
+			return cities
+		}
+
+		for _, current := range companies {
+			currentMap := current.(map[string]interface{})
+			if getName(currentMap) == "Microsoft Incorporated" {
+				assert.Len(t, getCities(currentMap), 2)
+			}
+			if getName(currentMap) == "Microsoft Inc." {
+				assert.Len(t, getCities(currentMap), 1)
+			}
+			if getName(currentMap) == "Microsoft" {
+				assert.Len(t, getCities(currentMap), 1)
+			}
+		}
+	})
+
+	t.Run("grouping mode set to closest and force to 0.1", func(t *testing.T) {
+		query := `
+			{
+				Get {
+					Company(group: {type: closest, force:0.1}) {
+						name
+					}
+				}
+			}
+			`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		assert.True(t, len(companies) > 0)
+	})
+
 	// temporarily removed due to
 	// https://github.com/semi-technologies/weaviate/issues/1302
 	// t.Run("grouping mode set to closest", func(t *testing.T) {
 	// 	query := `
 	// 	{
-	// 			Get {
-	// 				Things {
-	// 					Company(group: {type: closest, force:0.10}) {
-	// 						name
-	// 					}
-	// 				}
+	// 		Get {
+	// 			Company(group: {type: closest, force:0.10}) {
+	// 				name
 	// 			}
+	// 		}
 	// 	}
 	// 	`
 	// 	result := AssertGraphQL(t, helper.RootAuth, query)
-	// 	companies := result.Get("Get", "Things", "Company").AsSlice()
+	// 	companies := result.Get("Get", "Company").AsSlice()
 
 	// 	assert.Len(t, companies, 3)
 	// 	mustContain := []string{"Apple", "Microsoft", "Google"}
@@ -82,22 +172,20 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	// t.Run("grouping mode set to merge", func(t *testing.T) {
 	// 	query := `
 	// 	{
-	// 			Get {
-	// 				Things {
-	// 					Company(group: {type: merge, force:0.1}) {
-	// 						name
-	// 						InCity {
-	// 						  ... on City {
-	// 							  name
-	// 							}
+	// 		Get {
+	// 				Company(group: {type: merge, force:0.1}) {
+	// 					name
+	// 					inCity {
+	// 					  ... on City {
+	// 						  name
 	// 						}
 	// 					}
 	// 				}
-	// 			}
+	// 		}
 	// 	}
 	// 	`
 	// 	result := AssertGraphQL(t, helper.RootAuth, query)
-	// 	companies := result.Get("Get", "Things", "Company").AsSlice()
+	// 	companies := result.Get("Get", "Company").AsSlice()
 
 	// 	assert.Len(t, companies, 3)
 	// 	mustContain := [][]string{
