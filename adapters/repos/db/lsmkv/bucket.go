@@ -353,13 +353,40 @@ func (b *Bucket) setNewActiveMemtable() error {
 }
 
 func (b *Bucket) Count() int {
-	memtable := b.active.countStats()
-	// TODO respect previously seen keys for updates and deletes from memtable
-	memtableCount := len(memtable.upsertKeys) - len(memtable.tombstonedKeys)
+	if b.strategy != StrategyReplace {
+		panic("Count() called on strategy other than 'replace'")
+	}
 
+	memtableCount := b.memtableNetCount()
 	diskCount := b.disk.count()
 
 	return memtableCount + diskCount
+}
+
+func (b *Bucket) memtableNetCount() int {
+	netCount := 0
+	stats := b.active.countStats()
+
+	// TODO: this uses regular get, given that this may be called quite commonly,
+	// we might consider building a pure Exists(), which skips reading the value
+	// and only checks for tombstones, etc.
+	for _, key := range stats.upsertKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v == nil {
+			// this key didn't exist before
+			netCount++
+		}
+	}
+
+	for _, key := range stats.tombstonedKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v != nil {
+			// this key existed before
+			netCount--
+		}
+	}
+
+	return netCount
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {

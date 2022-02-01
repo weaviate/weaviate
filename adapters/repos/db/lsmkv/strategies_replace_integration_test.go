@@ -151,8 +151,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
 
-			// TODO: support count with updates
-			// assert.Equal(t, 3, b.Count())
+			// make sure that the updates aren't counted as additions
+			assert.Equal(t, 3, b.Count())
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
