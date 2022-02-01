@@ -222,6 +222,10 @@ func (l *Memtable) Size() uint64 {
 	return l.size
 }
 
+func (l *Memtable) countStats() *countStats {
+	return l.key.countStats()
+}
+
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
 // this function explicitly called. This allows to safge unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write

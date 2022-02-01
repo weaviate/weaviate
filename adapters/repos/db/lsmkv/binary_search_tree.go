@@ -64,6 +64,21 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	return t.root.flattenInOrder()
 }
 
+type countStats struct {
+	upsertKeys     [][]byte
+	tombstonedKeys [][]byte
+}
+
+func (t *binarySearchTree) countStats() *countStats {
+	stats := &countStats{}
+	if t.root == nil {
+		return stats
+	}
+
+	t.root.countStats(stats)
+	return stats
+}
+
 type binarySearchNode struct {
 	key           []byte
 	value         []byte
@@ -185,4 +200,24 @@ func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
 
 	right = append([]*binarySearchNode{n}, right...)
 	return append(left, right...)
+}
+
+// This is not very allocation friendly, since we basically need to allocate
+// once for each element in the memtable. However, these results can
+// potentially be cached, as we don't care about the intermediary results, just
+// the net additions.
+func (n *binarySearchNode) countStats(stats *countStats) {
+	if n.tombstone {
+		stats.tombstonedKeys = append(stats.tombstonedKeys, n.key)
+	} else {
+		stats.upsertKeys = append(stats.upsertKeys, n.key)
+	}
+
+	if n.left != nil {
+		n.left.countStats(stats)
+	}
+
+	if n.right != nil {
+		n.right.countStats(stats)
+	}
 }

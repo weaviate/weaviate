@@ -352,6 +352,13 @@ func (b *Bucket) setNewActiveMemtable() error {
 	return nil
 }
 
+func (b *Bucket) Count() int {
+	memtable := b.active.countStats()
+	// TODO respect other segments
+	// TODO respect previously seen keys for updates and deletes
+	return len(memtable.upsertKeys)
+}
+
 func (b *Bucket) Shutdown(ctx context.Context) error {
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err

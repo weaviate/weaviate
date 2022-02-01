@@ -57,6 +57,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			err = b.Put(key3, orig3)
 			require.Nil(t, err)
 
+			assert.Equal(t, 3, b.Count())
+
 			res, err := b.Get(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
@@ -80,6 +82,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
+
+			assert.Equal(t, 3, b.Count())
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
