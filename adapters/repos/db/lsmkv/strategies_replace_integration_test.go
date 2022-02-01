@@ -134,6 +134,10 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, b.FlushAndSwitch())
 		})
 
+		t.Run("count only objects on disk segment", func(t *testing.T) {
+			assert.Equal(t, 3, b.Count())
+		})
+
 		t.Run("replace some, keep one", func(t *testing.T) {
 			key1 := []byte("key-1")
 			key2 := []byte("key-2")
@@ -146,6 +150,9 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
+
+			// TODO: support count with updates
+			// assert.Equal(t, 3, b.Count())
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)

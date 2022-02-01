@@ -199,6 +199,18 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
+func (ig *SegmentGroup) count() int {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	count := 0
+	for _, seg := range ig.segments {
+		count += seg.countNetAdditions
+	}
+
+	return count
+}
+
 func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 	ig.maintenanceLock.Lock()
 	defer ig.maintenanceLock.Unlock()

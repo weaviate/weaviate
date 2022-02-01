@@ -44,6 +44,9 @@ type segment struct {
 	index                 diskIndex
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
+
+	// the net addition this segment adds with respect to all previous segments
+	countNetAdditions int
 }
 
 type diskIndex interface {
@@ -127,6 +130,25 @@ func newSegment(path string, logger logrus.FieldLogger) (*segment, error) {
 
 	if err := ind.initBloomFilter(); err != nil {
 		return nil, err
+	}
+
+	if ind.strategy == SegmentStrategyReplace {
+		netCount := 0
+		cb := func(key []byte, tombstone bool) {
+			// TODO: this primitive callback does not check previous segments at all!!
+			if tombstone {
+				netCount--
+			} else {
+				netCount++
+			}
+		}
+
+		extr := newBufferedKeyAndTombstoneExtractor(ind.contents, ind.dataStartPos,
+			ind.dataEndPos, 128_000, ind.secondaryIndexCount, cb)
+
+		extr.do()
+
+		ind.countNetAdditions = netCount
 	}
 
 	return ind, nil
