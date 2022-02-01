@@ -354,9 +354,12 @@ func (b *Bucket) setNewActiveMemtable() error {
 
 func (b *Bucket) Count() int {
 	memtable := b.active.countStats()
-	// TODO respect other segments
-	// TODO respect previously seen keys for updates and deletes
-	return len(memtable.upsertKeys)
+	// TODO respect previously seen keys for updates and deletes from memtable
+	memtableCount := len(memtable.upsertKeys) - len(memtable.tombstonedKeys)
+
+	diskCount := b.disk.count()
+
+	return memtableCount + diskCount
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
