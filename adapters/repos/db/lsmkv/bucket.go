@@ -358,6 +358,7 @@ func (b *Bucket) Count() int {
 	}
 
 	memtableCount := b.memtableNetCount()
+	fmt.Printf("memtable count is %d\n", memtableCount)
 	diskCount := b.disk.count()
 
 	return memtableCount + diskCount

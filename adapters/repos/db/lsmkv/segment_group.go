@@ -88,7 +88,8 @@ func newSegmentGroup(dir string,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger)
+		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger,
+			out.makeExistsOnLower(segmentIndex))
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
@@ -103,11 +104,30 @@ func newSegmentGroup(dir string,
 	return out, nil
 }
 
+func (ig *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
+	return func(key []byte) (bool, error) {
+		if nextSegmentIndex == 0 {
+			// this is already the lowest possible segment, we can guarantee that
+			// any key in this segment is previously unseen.
+			return false, nil
+		}
+
+		v, err := ig.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
+		if err != nil {
+			return false, errors.Wrapf(err, "check exists on segments lower than %d",
+				nextSegmentIndex)
+		}
+
+		return v != nil, nil
+	}
+}
+
 func (ig *SegmentGroup) add(path string) error {
 	ig.maintenanceLock.Lock()
 	defer ig.maintenanceLock.Unlock()
 
-	segment, err := newSegment(path, ig.logger)
+	newSegmentIndex := len(ig.segments)
+	segment, err := newSegment(path, ig.logger, ig.makeExistsOnLower(newSegmentIndex))
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
@@ -120,11 +140,17 @@ func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
 
+	return ig.getWithUpperSegmentBoundary(key, len(ig.segments)-1)
+}
+
+// not thread-safe on its own, as the assumption is that this is called from a
+// lockholder, e.g. within .get()
+func (ig *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment int) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(ig.segments) - 1; i >= 0; i-- {
+	for i := topMostSegment; i >= 0; i-- {
 		v, err := ig.segments[i].get(key)
 		if err != nil {
 			if err == NotFound {

@@ -229,6 +229,10 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
+
+		t.Run("count objects over several segments", func(t *testing.T) {
+			assert.Equal(t, 3, b.Count())
+		})
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
