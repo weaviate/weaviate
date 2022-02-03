@@ -192,7 +192,9 @@ func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "strip .tmp extension of new segment")
 	}
 
-	seg, err := newSegment(newPath, ig.logger)
+	// TODO: improve compactions by using a real fn
+	exists := existsOnLowerSegmentsFn(nil)
+	seg, err := newSegment(newPath, ig.logger, exists)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}
