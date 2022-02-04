@@ -353,20 +353,24 @@ func (b *Bucket) setNewActiveMemtable() error {
 }
 
 func (b *Bucket) Count() int {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
 	if b.strategy != StrategyReplace {
 		panic("Count() called on strategy other than 'replace'")
 	}
 
-	memtableCount := b.memtableNetCount()
-	fmt.Printf("memtable count is %d\n", memtableCount)
+	memtableCount := b.memtableNetCount(b.active.countStats())
+	if b.flushing != nil {
+		memtableCount += b.memtableNetCount(b.flushing.countStats())
+	}
 	diskCount := b.disk.count()
 
 	return memtableCount + diskCount
 }
 
-func (b *Bucket) memtableNetCount() int {
+func (b *Bucket) memtableNetCount(stats *countStats) int {
 	netCount := 0
-	stats := b.active.countStats()
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
