@@ -128,13 +128,19 @@ func addPreflight(next http.Handler) http.Handler {
 func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		changed := false
 		for k, v := range r.Header {
 			if strings.HasPrefix(k, "X-") {
 				ctx = context.WithValue(ctx, k, v)
+				changed = true
 			}
 		}
 
-		next.ServeHTTP(w, r.Clone(ctx))
+		if changed {
+			next.ServeHTTP(w, r.Clone(ctx))
+		} else {
+			next.ServeHTTP(w, r)
+		}
 	})
 }
 
