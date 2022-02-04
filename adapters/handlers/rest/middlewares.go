@@ -12,8 +12,10 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
@@ -91,6 +93,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
+		handler = addInjectHeadersIntoContext(handler)
 
 		return handler
 	}
@@ -119,6 +122,19 @@ func addPreflight(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+func addInjectHeadersIntoContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		for k, v := range r.Header {
+			if strings.HasPrefix(k, "X-") {
+				ctx = context.WithValue(ctx, k, v)
+			}
+		}
+
+		next.ServeHTTP(w, r.Clone(ctx))
 	})
 }
 
