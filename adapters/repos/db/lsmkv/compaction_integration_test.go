@@ -198,6 +198,10 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
+	t.Run("verify count control before compaction", func(*testing.T) {
+		assert.Equal(t, len(expected), bucket.Count())
+	})
+
 	t.Run("check if eligble for compaction", func(t *testing.T) {
 		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
 	})
@@ -224,6 +228,10 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, retrieved)
+	})
+
+	t.Run("verify count after compaction", func(*testing.T) {
+		assert.Equal(t, len(expected), bucket.Count())
 	})
 }
 

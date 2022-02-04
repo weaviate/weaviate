@@ -152,27 +152,24 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 		return nil
 	}
 
+	// before := time.Now()
+	// defer func() {
+	// 	fmt.Printf("init count net additions took %s\n", time.Since(before))
+	// }()
+
 	var lastErr error
 	netCount := 0
 	cb := func(key []byte, tombstone bool) {
-		var existedOnPrior bool
-
-		if exists == nil {
-			// TODO: this is currently the case on compactions
-			// we just hardcode false to avoid errors, but this leads to the wrong
-			// count and needs to be fixed
-			existedOnPrior = false
-		} else {
-			ok, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-			existedOnPrior = ok
+		existedOnPrior, err := exists(key)
+		if err != nil {
+			lastErr = err
 		}
 
 		if tombstone && existedOnPrior {
 			netCount--
-		} else if !existedOnPrior {
+		}
+
+		if !tombstone && !existedOnPrior {
 			netCount++
 		}
 	}
