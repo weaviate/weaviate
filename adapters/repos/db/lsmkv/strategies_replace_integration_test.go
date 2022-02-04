@@ -306,6 +306,9 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			res, err = b2.Get(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
+
+			// count objects over several segments after disk read
+			assert.Equal(t, 3, b2.Count())
 		})
 	})
 }
@@ -665,6 +668,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			require.Nil(t, err)
 			assert.Nil(t, res)
 		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
+		})
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
@@ -714,6 +721,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			res, err = b.Get(key3)
 			require.Nil(t, err)
 			assert.Nil(t, res)
+		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
 		})
 	})
 
@@ -767,6 +778,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			res, err = b.Get(key3)
 			require.Nil(t, err)
 			assert.Nil(t, res)
+		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
 		})
 	})
 }
