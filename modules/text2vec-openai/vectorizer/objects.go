@@ -59,8 +59,6 @@ func sortStringKeys(schema_map map[string]interface{}) []string {
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	settings ClassSettings) error {
-	fmt.Println(ctx.Value("X-Openai-Api-Key"))
-
 	vec, err := v.object(ctx, object.Class, object.Properties, settings)
 	if err != nil {
 		return err

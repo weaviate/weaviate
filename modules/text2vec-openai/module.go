@@ -98,10 +98,6 @@ func (m *OpenAIModule) InitDependency(modules []modulecapabilities.Module) error
 func (m *OpenAIModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
-	if apiKey == "" {
-		return errors.Errorf("required variable OPENAI_APIKEY is not set")
-	}
-
 	client := clients.New(apiKey, logger)
 
 	m.vectorizer = vectorizer.New(client)
