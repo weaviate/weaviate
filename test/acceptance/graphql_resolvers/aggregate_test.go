@@ -453,7 +453,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("2")
+		expected := json.Number("1")
 		assert.Equal(t, expected, count)
 	})
 
@@ -563,7 +563,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("2")
+		expected := json.Number("1")
 		assert.Equal(t, expected, count)
 	})
 
@@ -649,7 +649,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "CustomVectorClass").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("3")
+		expected := json.Number("1")
 		assert.Equal(t, expected, count)
 	})
 

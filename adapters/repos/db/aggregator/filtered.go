@@ -49,10 +49,6 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
 	}
 
-	if fa.params.IncludeMetaCount {
-		out.Groups[0].Count = len(ids)
-	}
-
 	var idsList []uint64
 	if len(fa.params.SearchVector) > 0 {
 		idsList, err = fa.searchByVector(fa.params.SearchVector, fa.params.Limit, ids)
@@ -61,6 +57,10 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 		}
 	} else {
 		idsList = flattenAllowList(ids)
+	}
+
+	if fa.params.IncludeMetaCount {
+		out.Groups[0].Count = len(idsList)
 	}
 
 	props, err := fa.properties(ctx, idsList)
