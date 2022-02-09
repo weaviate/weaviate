@@ -24,7 +24,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
-		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	if !ok {
