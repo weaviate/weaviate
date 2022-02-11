@@ -59,7 +59,7 @@ func (db *DB) ClassSearch(ctx context.Context,
 	}
 
 	res, err := idx.objectSearch(ctx, totalLimit,
-		params.Filters, params.AdditionalProperties)
+		params.Filters, params.KeywordRanking, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -168,7 +168,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	// painfully slow on large schemas
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, err := index.objectSearch(ctx, totalLimit, filters, additional)
+		res, err := index.objectSearch(ctx, totalLimit, filters, nil, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}

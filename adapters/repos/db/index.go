@@ -34,6 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -606,7 +607,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -622,7 +623,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 
 		if local {
 			shard := i.Shards[shardName]
-			res, err = shard.objectSearch(ctx, limit, filters, additional)
+			res, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
@@ -714,8 +715,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	// TODO: support BM25 on sharded search
 	if searchVector == nil {
-		res, err := shard.objectSearch(ctx, limit, filters, additional)
+		res, err := shard.objectSearch(ctx, limit, filters, nil, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}

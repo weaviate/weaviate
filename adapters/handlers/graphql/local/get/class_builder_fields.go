@@ -212,6 +212,7 @@ func buildGetClassField(classObject *graphql.Object,
 
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),
+			"bm25":       bm25Argument(class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 		},
@@ -333,6 +334,12 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			nearObjectParams = &p
 		}
 
+		var keywordRankingParams *traverser.KeywordRankingParams
+		if bm25, ok := p.Args["bm25"]; ok {
+			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
+			keywordRankingParams = &p
+		}
+
 		var moduleParams map[string]interface{}
 		if r.modulesProvider != nil {
 			extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
@@ -353,6 +360,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			Group:                group,
 			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
+			KeywordRanking:       keywordRankingParams,
 		}
 
 		return func() (interface{}, error) {
