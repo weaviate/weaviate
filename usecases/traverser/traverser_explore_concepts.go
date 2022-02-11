@@ -38,6 +38,12 @@ type NearVectorParams struct {
 	Certainty float64
 }
 
+type KeywordRankingParams struct {
+	Type       string   `json:"type"`
+	Properties []string `json:"properties"`
+	Query      string   `json:"query"`
+}
+
 type NearObjectParams struct {
 	ID        string
 	Beacon    string

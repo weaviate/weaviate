@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -156,11 +157,18 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, error) {
+	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
+	additional additional.Properties) ([]*storobj.Object, error) {
+	if keywordRanking != nil {
+		return inverted.NewBM25Searcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
+			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
+			s.deletedDocIDs).
+			Object(ctx, limit, keywordRanking, filters, additional, s.index.Config.ClassName)
+	}
+
 	if filters == nil {
 		return s.objectList(ctx, limit, additional)
 	}
-
 	return inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs).
