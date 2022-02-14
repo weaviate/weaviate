@@ -87,7 +87,11 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", v.apiKey))
+	apiKey, err := v.getApiKey(ctx)
+	if err != nil {
+		return nil, errors.Wrapf(err, "OpenAI API Key")
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -122,6 +126,20 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     resBody.Data[0].Embedding,
 	}, nil
+}
+
+func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+	if len(v.apiKey) > 0 {
+		return v.apiKey, nil
+	}
+	apiKey := ctx.Value("X-Openai-Api-Key")
+	if apiKeyHeader, ok := apiKey.([]string); ok &&
+		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
+		return apiKeyHeader[0], nil
+	}
+	return "", errors.New("no api key found " +
+		"neither in request header: X-OpenAI-Api-Key " +
+		"nor in environment variable under OPENAI_APIKEY")
 }
 
 func (v *vectorizer) docUrl(docType, model string) string {

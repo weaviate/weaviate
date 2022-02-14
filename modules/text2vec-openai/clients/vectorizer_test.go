@@ -98,6 +98,86 @@ func TestClient(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "failed with status: 500 error: nope, not gonna happen")
 	})
+
+	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Openai-Api-Key", []string{"some-key"})
+
+		expected := &ent.VectorizationResult{
+			Text:       "This is my text",
+			Vector:     []float32{0.1, 0.2, 0.3},
+			Dimensions: 3,
+		}
+		res, err := c.Vectorize(ctxWithValue, "This is my text",
+			ent.VectorizationConfig{
+				Type:  "text",
+				Model: "ada",
+			})
+
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when OpenAI key is empty", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
+		defer cancel()
+
+		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+
+		require.NotNil(t, err)
+		assert.Equal(t, err.Error(), "OpenAI API Key: no api key found "+
+			"neither in request header: X-OpenAI-Api-Key "+
+			"nor in environment variable under OPENAI_APIKEY")
+	})
+
+	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &openAIUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
+			},
+			logger: nullLogger(),
+		}
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Openai-Api-Key", []string{""})
+
+		_, err := c.Vectorize(ctxWithValue, "This is my text",
+			ent.VectorizationConfig{
+				Type:  "text",
+				Model: "ada",
+			})
+
+		require.NotNil(t, err)
+		assert.Equal(t, err.Error(), "OpenAI API Key: no api key found "+
+			"neither in request header: X-OpenAI-Api-Key "+
+			"nor in environment variable under OPENAI_APIKEY")
+	})
 }
 
 type fakeHandler struct {
