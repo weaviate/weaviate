@@ -56,27 +56,22 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		}
 	}()
 
-	// TODO: more complex pre-processing
+	// TODO: more complex pre-processing with proper split function
 	terms := strings.Split(keywordRanking.Query, " ")
 
-	if len(terms) != 1 {
-		return nil, errors.Errorf("only single term supported so far")
+	idLists := make([]docPointersWithScore, len(terms))
+
+	for i, term := range terms {
+		ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
+			keywordRanking.Properties[0], term)
+		if err != nil {
+			return nil, err
+		}
+
+		idLists[i] = ids
 	}
 
-	// TODO: support multi term queries
-	term := terms[0]
-
-	ids, err := b.getIdsWithFrequenciesForTerm(ctx, keywordRanking.Properties[0], term)
-	if err != nil {
-		return nil, errors.Wrap(err, "read doc ids and their frequencies from inverted index")
-	}
-
-	b.score(ids)
-
-	// TODO we only need to pick the top k, not sort the entire list
-	sort.Slice(ids.docIDs, func(a, b int) bool {
-		return ids.docIDs[a].score > ids.docIDs[b].score
-	})
+	ids := newScoreMerger(idLists).do()
 
 	res, err := b.objectsByDocID(ids.IDs(), additional)
 	if err != nil {
@@ -84,6 +79,23 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	}
 
 	return res, nil
+}
+
+func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
+	property, term string) (docPointersWithScore, error) {
+	ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
+	if err != nil {
+		return docPointersWithScore{}, errors.Wrap(err,
+			"read doc ids and their frequencies from inverted index")
+	}
+
+	b.score(ids)
+
+	sort.Slice(ids.docIDs, func(a, b int) bool {
+		return ids.docIDs[a].score > ids.docIDs[b].score
+	})
+
+	return ids, nil
 }
 
 func (bm *BM25Searcher) score(ids docPointersWithScore) {
