@@ -14,6 +14,7 @@ package db
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -72,7 +73,8 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 
 	buf := make([]byte, 16) // 8 bytes for doc id, 8 bytes for frequency
 	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint64(buf[8:], uint64(item.TermFrequency))
+
+	binary.LittleEndian.PutUint64(buf[8:], math.Float64bits(item.TermFrequency))
 
 	pair := lsmkv.MapPair{
 		Key:   buf[:8],

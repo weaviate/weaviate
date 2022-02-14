@@ -104,8 +104,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		for i, pair := range pairs {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
 			freqBits := binary.LittleEndian.Uint64(pair.Value)
-			freq := math.Float64frombits(freqBits)
-			currentDocIDs[i].frequency = &freq
+			currentDocIDs[i].frequency = math.Float64frombits(freqBits)
 		}
 		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 

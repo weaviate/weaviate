@@ -442,12 +442,32 @@ type docPointers struct {
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
+type docPointersWithScore struct {
+	count    uint64
+	docIDs   []docPointerWithScore
+	checksum []byte // helps us judge if a cached read is still fresh
+}
+
 type docPointer struct {
 	id        uint64
-	frequency *float64
+	frequency float64
+}
+
+type docPointerWithScore struct {
+	id        uint64
+	frequency float64
+	score     float64
 }
 
 func (d docPointers) IDs() []uint64 {
+	out := make([]uint64, len(d.docIDs))
+	for i, elem := range d.docIDs {
+		out[i] = elem.id
+	}
+	return out
+}
+
+func (d docPointersWithScore) IDs() []uint64 {
 	out := make([]uint64, len(d.docIDs))
 	for i, elem := range d.docIDs {
 		out[i] = elem.id
