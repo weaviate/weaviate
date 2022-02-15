@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -73,6 +74,10 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 
 	ids := newScoreMerger(idLists).do()
 
+	sort.Slice(ids.docIDs, func(a, b int) bool {
+		return ids.docIDs[a].score > ids.docIDs[b].score
+	})
+
 	res, err := b.objectsByDocID(ids.IDs(), additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
@@ -91,9 +96,16 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 
 	b.score(ids)
 
+	before := time.Now()
+	// TODO: this runtime sorting is only because the storage is not implemented
+	// in an always sorted manner. Once we have that implemented, we can skip
+	// this expensive runtime-sort
 	sort.Slice(ids.docIDs, func(a, b int) bool {
-		return ids.docIDs[a].score > ids.docIDs[b].score
+		return ids.docIDs[a].id < ids.docIDs[b].id
 	})
+
+	// TODO: structured logging
+	fmt.Printf("TEMP DEBUG: sorting by doc ids took %s\n", time.Since(before))
 
 	return ids, nil
 }
