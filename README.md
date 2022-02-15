@@ -16,24 +16,24 @@
 
 ## Weaviate helps ...
 
-1. **Software Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
+1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
     * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
     * Easy to integrate in your current architecture, with full CRUD support like you're used to from other OSS databases.
     * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
-2. **Data Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
+2. **Data Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
     * Weaviate has a modular setup that allows to use your own ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
     * Weaviate takes care of the scalability, so that you don't have to.
     * Deploy and maintain ML models in production reliably and efficiently.
 
-3. **Data Scientists** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
+3. **Data Scientists** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
     * Deploy and maintain your ML models in production reliably and efficiently.
     * Weaviate's modular design allows you to easily package any custom trained model you want.
     * Smooth and accelerated handover of your Machine Learning models to engineers.
 
 ## GraphQL interface demo
 
-<a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://weaviate.io/developers/weaviate/current/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
 
 <sup>Weaviate GraphQL demo on news article dataset containing: Transformers module, GraphQL usage, semantic search, _additional{} features, Q&A, and Aggregate{} function. You can the demo on this dataset in the GUI here: <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%20%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20nearText%3A%20%7B%0A%20%20%20%20%20%20%20%20concepts%3A%20%5B%22Housing%20prices%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20where%3A%20%7B%0A%20%20%20%20%20%20%20%20operator%3A%20Equal%0A%20%20%20%20%20%20%20%20path%3A%20%5B%22inPublication%22%2C%20%22Publication%22%2C%20%22name%22%5D%0A%20%20%20%20%20%20%20%20valueString%3A%20%22The%20Economist%22%0A%20%20%20%20%20%20%7D%0A%20%20%20%20)%20%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20certainty%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">semantic search</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20ask%3A%20%7B%0A%20%20%20%20%20%20%20%20question%3A%20%22What%20did%20Jemina%20Packington%20predict%3F%22%0A%20%20%20%20%20%20%20%20properties%3A%20%5B%22summary%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20limit%3A%201%0A%20%20%20%20)%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20answer%20%7B%0A%20%20%20%20%20%20%20%20%20%20endPosition%0A%20%20%20%20%20%20%20%20%20%20property%0A%20%20%20%20%20%20%20%20%20%20result%0A%20%20%20%20%20%20%20%20%20%20startPosition%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Q&A</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Aggregate%20%7B%0A%20%20%20%20Article%20%7B%0A%20%20%20%20%20%20meta%20%7B%0A%20%20%20%20%20%20%20%20count%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Aggregate</a>.</sup>
 
@@ -93,4 +93,4 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 
 ## Contributing
 
-- [How to Contribute](https://www.semi.technology/developers/contributor-guide/current/)
+- [How to Contribute](https://weaviate.io/developers/contributor-guide/current/)
