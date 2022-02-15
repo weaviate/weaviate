@@ -89,7 +89,7 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 - [Stackoverflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
 - [Github for issues](https://github.com/semi-technologies/weaviate/issues)
 - [Slack channel to connect](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
-- [Newsletter to stay in the know](https://www.semi.technology/newsletter/)
+- [Newsletter to stay in the know](http://weaviate-newsletter.semi.technology/)
 
 ## Contributing
 
