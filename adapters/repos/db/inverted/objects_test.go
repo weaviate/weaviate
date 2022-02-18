@@ -47,22 +47,22 @@ func TestAnalyzeObject(t *testing.T) {
 		expectedDescription := []Countable{
 			{
 				Data:          []byte("i"),
-				TermFrequency: float64(1) / 3,
+				TermFrequency: float64(1),
 			},
 			{
 				Data:          []byte("am"),
-				TermFrequency: float64(1) / 3,
+				TermFrequency: float64(1),
 			},
 			{
 				Data:          []byte("great"),
-				TermFrequency: float64(1) / 3,
+				TermFrequency: float64(1),
 			},
 		}
 
 		expectedEmail := []Countable{
 			{
 				Data:          []byte("john@doe.com"),
-				TermFrequency: float64(1) / 1,
+				TermFrequency: float64(1),
 			},
 		}
 
@@ -289,30 +289,30 @@ func TestAnalyzeObject(t *testing.T) {
 			expectedDescriptions := []Countable{
 				{
 					Data:          []byte("i"),
-					TermFrequency: float64(2) / 7,
+					TermFrequency: float64(2),
 				},
 				{
 					Data:          []byte("am"),
-					TermFrequency: float64(2) / 7,
+					TermFrequency: float64(2),
 				},
 				{
 					Data:          []byte("great"),
-					TermFrequency: float64(2) / 7,
+					TermFrequency: float64(2),
 				},
 				{
 					Data:          []byte("also"),
-					TermFrequency: float64(1) / 7,
+					TermFrequency: float64(1),
 				},
 			}
 
 			expectedEmails := []Countable{
 				{
 					Data:          []byte("john@doe.com"),
-					TermFrequency: float64(1) / 2,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("john2@doe.com"),
-					TermFrequency: float64(1) / 2,
+					TermFrequency: float64(1),
 				},
 			}
 
