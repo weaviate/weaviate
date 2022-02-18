@@ -78,6 +78,10 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		return ids.docIDs[a].score > ids.docIDs[b].score
 	})
 
+	if len(ids.docIDs) > limit {
+		ids.docIDs = ids.docIDs[:limit]
+	}
+
 	res, err := b.objectsByDocID(ids.IDs(), additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
