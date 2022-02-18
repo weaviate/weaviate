@@ -31,27 +31,27 @@ func TestAnalyzer(t *testing.T) {
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("hello"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("my"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("name"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("is"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("john"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("doe"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float64(1),
 				},
 			})
 		})
@@ -61,19 +61,19 @@ func TestAnalyzer(t *testing.T) {
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("du"),
-					TermFrequency: float64(4) / 9,
+					TermFrequency: float64(4),
 				},
 				{
 					Data:          []byte("hast"),
-					TermFrequency: float64(3) / 9,
+					TermFrequency: float64(3),
 				},
 				{
 					Data:          []byte("mich"),
-					TermFrequency: float64(1) / 9,
+					TermFrequency: float64(1),
 				},
 				{
 					Data:          []byte("gefragt"),
-					TermFrequency: float64(1) / 9,
+					TermFrequency: float64(1),
 				},
 			})
 		})
@@ -84,19 +84,19 @@ func TestAnalyzer(t *testing.T) {
 		assert.ElementsMatch(t, res, []Countable{
 			{
 				Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
-				TermFrequency: float64(1) / 4,
+				TermFrequency: float64(1),
 			},
 			{
 				Data:          []byte("My"),
-				TermFrequency: float64(1) / 4,
+				TermFrequency: float64(1),
 			},
 			{
 				Data:          []byte("email"),
-				TermFrequency: float64(1) / 4,
+				TermFrequency: float64(1),
 			},
 			{
 				Data:          []byte("is"),
-				TermFrequency: float64(1) / 4,
+				TermFrequency: float64(1),
 			},
 		})
 	})
