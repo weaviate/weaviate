@@ -93,7 +93,9 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
 	lastBucketOffset := uint16(4096)
 	offset := binary.LittleEndian.Uint16(t.pages[0:2])
 	if offset != 2 {
-		panic("don't know how to calculate last bucket offset yet")
+		// offset is other than 2, so there are also props in. This means we can
+		// take the value of offset-2 to read the bucket offset
+		lastBucketOffset = binary.LittleEndian.Uint16(t.pages[offset-2 : offset])
 	}
 
 	propNameLength := uint16(len(propNameBytes))
