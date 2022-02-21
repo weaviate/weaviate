@@ -118,19 +118,23 @@ func (t *PropertyLengthTracker) canPageFit(propName []byte) bool {
 }
 
 func (t *PropertyLengthTracker) bucketFromValue(value float32) uint16 {
-	switch true {
-	case value <= 1.00:
-		return 0
-	case value <= 2.00:
-		return 1
-	case value <= 3.00:
-		return 2
-	case value <= 4.00:
-		return 3
-	// TODO
-	default:
-		return 63
+	if value <= 5.00 {
+		return uint16(value) - 1
 	}
+
+	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
+	if bucket > 63 {
+		return 64
+	}
+	return uint16(bucket)
+}
+
+func (t *PropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
+	if bucket <= 5 {
+		return float32(bucket + 1)
+	}
+
+	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
 }
 
 func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
@@ -144,11 +148,11 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	_ = page
 	sum := float32(0)
 	totalCount := float32(0)
-	bucket := 0
+	bucket := uint16(0)
 	for o := offset; o < offset+256; o += 4 {
 		v := binary.LittleEndian.Uint32(t.pages[o : o+4])
 		count := math.Float32frombits(v)
-		sum += float32(bucket+1) * count
+		sum += float32(t.valueFromBucket(bucket)) * count
 		totalCount += count
 
 		bucket++
