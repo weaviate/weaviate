@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"time"
 
 	"github.com/pkg/errors"
@@ -47,6 +48,7 @@ type Shard struct {
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
 	cleanupCancel    chan struct{}
+	propLengths      *inverted.PropertyLengthTracker
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
@@ -98,8 +100,14 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
-
 	s.counter = counter
+
+	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
+	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+	}
+	s.propLengths = propLengths
 
 	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -239,5 +247,9 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
+	if err := s.propLengths.Close(); err != nil {
+		return errors.Wrap(err, "close prop length tracker")
+	}
+
 	return s.store.Shutdown(ctx)
 }

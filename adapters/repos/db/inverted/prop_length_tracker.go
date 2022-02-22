@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/pkg/errors"
 )
@@ -33,6 +34,7 @@ import (
 type PropertyLengthTracker struct {
 	file  *os.File
 	pages []byte
+	sync.Mutex
 }
 
 func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
@@ -79,6 +81,9 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 
 func (t *PropertyLengthTracker) TrackProperty(propName string,
 	value float32) {
+	t.Lock()
+	defer t.Unlock()
+
 	var page uint16
 	var relBucketOffset uint16
 	if p, o, ok := t.propExists(propName); ok {
@@ -203,6 +208,9 @@ func (t *PropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
 }
 
 func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
+	t.Lock()
+	defer t.Unlock()
+
 	page, offset, ok := t.propExists(propName)
 	if !ok {
 		return 0, nil
@@ -238,6 +246,9 @@ func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 }
 
 func (t *PropertyLengthTracker) Flush() error {
+	t.Lock()
+	defer t.Unlock()
+
 	if err := t.file.Truncate(int64(len(t.pages))); err != nil {
 		return errors.Wrap(err, "truncate prop tracker file to correct length")
 	}
@@ -257,6 +268,9 @@ func (t *PropertyLengthTracker) Close() error {
 	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
+
+	t.Lock()
+	defer t.Unlock()
 
 	if err := t.file.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker file")

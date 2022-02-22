@@ -53,6 +53,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
+	if err := s.propLengths.Flush(); err != nil {
+		return errors.Wrap(err, "flush prop length tracker to disk")
+	}
+
 	if err := s.vectorIndex.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
@@ -210,6 +214,10 @@ func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "put inverted indices props")
 	}
 	s.metrics.InvertedExtend(before, len(props))
+
+	if err := s.addPropLengths(props); err != nil {
+		return errors.Wrap(err, "store field length values for props")
+	}
 
 	return nil
 }
