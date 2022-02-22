@@ -140,3 +140,15 @@ func generateRowHash() ([]byte, error) {
 	_, err := rand.Read(out)
 	return out, err
 }
+
+func (s *Shard) addPropLengths(props []inverted.Property) error {
+	for _, prop := range props {
+		if !prop.HasFrequency {
+			continue
+		}
+
+		s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items)))
+	}
+
+	return nil
+}
