@@ -2,7 +2,11 @@ package inverted
 
 import (
 	"encoding/binary"
+	"io"
 	"math"
+	"os"
+
+	"github.com/pkg/errors"
 )
 
 // Page Design
@@ -27,21 +31,51 @@ import (
 //   (first byte) of the buckets
 //
 type PropertyLengthTracker struct {
-	path string
-	// file *os.File
+	path  string
+	file  *os.File
 	pages []byte
 }
 
-func NewPropertyLengthTracker(path string) *PropertyLengthTracker {
-	// os.Open(path)
+func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 
 	t := &PropertyLengthTracker{
-		pages: make([]byte, 4096),
+		pages: nil,
+		file:  f,
+	}
+
+	if stat.Size() > 0 {
+		// the file has existed before, we need to initialize with its content, we
+		// can read the entire contents into memory
+		existingPages, err := io.ReadAll(f)
+		if err != nil {
+			return nil, errors.Wrap(err, "read initial count from file")
+		}
+
+		if len(existingPages)%4096 != 0 {
+			return nil, errors.Errorf(
+				"failed sanity check, prop len tracker file %s has length %d", path,
+				len(existingPages))
+		}
+
+		t.pages = existingPages
+	} else {
+		// this is the first time this is being created, initialize with an empty
+		// page
+		t.pages = make([]byte, 4096)
 	}
 
 	// set initial end-of-index offset to 2
 	binary.LittleEndian.PutUint16(t.pages[0:2], 2)
-	return t
+	return t, nil
 }
 
 func (t *PropertyLengthTracker) TrackProperty(propName string,
@@ -202,4 +236,34 @@ func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 		binary.LittleEndian.PutUint16(newPages[page*4096:page*4096+2], 2)
 		t.pages = newPages
 	}
+}
+
+func (t *PropertyLengthTracker) Flush() error {
+	if err := t.file.Truncate(int64(len(t.pages))); err != nil {
+		return errors.Wrap(err, "truncate prop tracker file to correct length")
+	}
+
+	if _, err := t.file.Seek(0, io.SeekStart); err != nil {
+		return errors.Wrap(err, "seek to beginning of prop tracker file")
+	}
+
+	if _, err := t.file.Write(t.pages); err != nil {
+		return errors.Wrap(err, "flush page content to disk")
+	}
+
+	return nil
+}
+
+func (t *PropertyLengthTracker) Close() error {
+	if err := t.Flush(); err != nil {
+		return errors.Wrap(err, "flush before closing")
+	}
+
+	if err := t.file.Close(); err != nil {
+		return errors.Wrap(err, "close prop length tracker file")
+	}
+
+	t.pages = nil
+
+	return nil
 }
