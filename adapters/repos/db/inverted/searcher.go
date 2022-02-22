@@ -173,7 +173,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
-		out.Insert(p.id)
+		out.Insert(p)
 	}
 
 	if cacheable {
@@ -438,7 +438,7 @@ func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
 
 type docPointers struct {
 	count    uint64
-	docIDs   []docPointer
+	docIDs   []uint64
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
@@ -448,23 +448,15 @@ type docPointersWithScore struct {
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
-type docPointer struct {
-	id        uint64
-	frequency float64
-}
-
 type docPointerWithScore struct {
-	id        uint64
-	frequency float64
-	score     float64
+	id         uint64
+	frequency  float64
+	propLength float64
+	score      float64
 }
 
 func (d docPointers) IDs() []uint64 {
-	out := make([]uint64, len(d.docIDs))
-	for i, elem := range d.docIDs {
-		out[i] = elem.id
-	}
-	return out
+	return d.docIDs
 }
 
 func (d docPointersWithScore) IDs() []uint64 {
@@ -478,18 +470,18 @@ func (d docPointersWithScore) IDs() []uint64 {
 func (d *docPointers) removeDuplicates() {
 	counts := make(map[uint64]uint16, len(d.docIDs))
 	for _, id := range d.docIDs {
-		counts[id.id]++
+		counts[id]++
 	}
 
-	updated := make([]docPointer, len(d.docIDs))
+	updated := make([]uint64, len(d.docIDs))
 	i := 0
 	for _, id := range d.docIDs {
-		if counts[id.id] == 1 {
+		if counts[id] == 1 {
 			updated[i] = id
 			i++
 		}
 
-		counts[id.id]--
+		counts[id]--
 	}
 
 	d.docIDs = updated[:i]

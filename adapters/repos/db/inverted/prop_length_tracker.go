@@ -72,10 +72,10 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 		// this is the first time this is being created, initialize with an empty
 		// page
 		t.pages = make([]byte, 4096)
+		// set initial end-of-index offset to 2
+		binary.LittleEndian.PutUint16(t.pages[0:2], 2)
 	}
 
-	// set initial end-of-index offset to 2
-	binary.LittleEndian.PutUint16(t.pages[0:2], 2)
 	return t, nil
 }
 
