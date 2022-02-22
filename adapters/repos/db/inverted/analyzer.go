@@ -22,7 +22,7 @@ import (
 
 type Countable struct {
 	Data          []byte
-	TermFrequency float64
+	TermFrequency float32
 }
 
 type Property struct {
@@ -54,7 +54,7 @@ func (a *Analyzer) Text(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float64(count),
+			TermFrequency: float32(count),
 		}
 		i++
 	}
@@ -82,7 +82,7 @@ func (a *Analyzer) String(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float64(count),
+			TermFrequency: float32(count),
 		}
 		i++
 	}

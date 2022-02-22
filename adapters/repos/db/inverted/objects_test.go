@@ -47,22 +47,22 @@ func TestAnalyzeObject(t *testing.T) {
 		expectedDescription := []Countable{
 			{
 				Data:          []byte("i"),
-				TermFrequency: float64(1),
+				TermFrequency: float32(1),
 			},
 			{
 				Data:          []byte("am"),
-				TermFrequency: float64(1),
+				TermFrequency: float32(1),
 			},
 			{
 				Data:          []byte("great"),
-				TermFrequency: float64(1),
+				TermFrequency: float32(1),
 			},
 		}
 
 		expectedEmail := []Countable{
 			{
 				Data:          []byte("john@doe.com"),
-				TermFrequency: float64(1),
+				TermFrequency: float32(1),
 			},
 		}
 
@@ -289,30 +289,30 @@ func TestAnalyzeObject(t *testing.T) {
 			expectedDescriptions := []Countable{
 				{
 					Data:          []byte("i"),
-					TermFrequency: float64(2),
+					TermFrequency: float32(2),
 				},
 				{
 					Data:          []byte("am"),
-					TermFrequency: float64(2),
+					TermFrequency: float32(2),
 				},
 				{
 					Data:          []byte("great"),
-					TermFrequency: float64(2),
+					TermFrequency: float32(2),
 				},
 				{
 					Data:          []byte("also"),
-					TermFrequency: float64(1),
+					TermFrequency: float32(1),
 				},
 			}
 
 			expectedEmails := []Countable{
 				{
 					Data:          []byte("john@doe.com"),
-					TermFrequency: float64(1),
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("john2@doe.com"),
-					TermFrequency: float64(1),
+					TermFrequency: float32(1),
 				},
 			}
 
@@ -353,7 +353,7 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
-			require.Len(t, res, 5)
+			assert.Len(t, res, 5)
 			var actualDescriptions []Countable
 			var actualEmails []Countable
 			var actualIntegers []Countable

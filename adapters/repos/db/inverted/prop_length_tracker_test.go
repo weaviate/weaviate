@@ -221,10 +221,16 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 
 	t.Run("verify data is correct after read from disk", func(t *testing.T) {
-		actualMeanForProp20 := float32(1+4+3+17+25) / 5.0
-		res, err := secondTracker.PropertyMean("prop_19")
+		// root page
+		actualMeanForProp0 := float32(1+4+3+17) / 4.0
+		res, err := secondTracker.PropertyMean("prop_0")
 		require.Nil(t, err)
+		assert.InEpsilon(t, actualMeanForProp0, res, 0.1)
 
+		// later page
+		actualMeanForProp20 := float32(1+4+3+17+25) / 5.0
+		res, err = secondTracker.PropertyMean("prop_19")
+		require.Nil(t, err)
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 	})
 }

@@ -29,11 +29,17 @@ type BM25Searcher struct {
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+	propLengths   propLengthRetriever
+}
+
+type propLengthRetriever interface {
+	PropertyMean(prop string) (float32, error)
 }
 
 func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *BM25Searcher {
+	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
+	propLengths propLengthRetriever) *BM25Searcher {
 	return &BM25Searcher{
 		store:         store,
 		schema:        schema,
@@ -41,6 +47,7 @@ func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
+		propLengths:   propLengths,
 	}
 }
 
@@ -98,7 +105,9 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 			"read doc ids and their frequencies from inverted index")
 	}
 
-	b.score(ids)
+	if err := b.score(ids, property); err != nil {
+		return docPointersWithScore{}, err
+	}
 
 	before := time.Now()
 	// TODO: this runtime sorting is only because the storage is not implemented
@@ -114,18 +123,25 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	return ids, nil
 }
 
-func (bm *BM25Searcher) score(ids docPointersWithScore) {
-	averageDocLen := float64(1) // TODO: use real value
-	docLen := float64(1)        // TODO: use real value
-	k1 := 1.2                   // TODO: make configurable
-	b := 0.75                   // TODO: make configurable
+func (bm *BM25Searcher) score(ids docPointersWithScore, propName string) error {
+	m, err := bm.propLengths.PropertyMean(propName)
+	if err != nil {
+		return err
+	}
+
+	averageDocLen := float64(m)
+	k1 := 1.2 // TODO: make configurable
+	b := 0.75 // TODO: make configurable
 	N := float64(bm.store.Bucket(helpers.ObjectsBucketLSM).Count())
 	n := float64(len(ids.docIDs))
 	idf := math.Log(float64(1) + (N-n+0.5)/(n+0.5))
 	for i, id := range ids.docIDs {
+		docLen := id.propLength
 		tf := id.frequency / (id.frequency + k1*(1-b+b*docLen/averageDocLen))
 		ids.docIDs[i].score = tf * idf
 	}
+
+	return nil
 }
 
 func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
@@ -149,13 +165,13 @@ func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.B
 
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
 		currentDocIDs := make([]docPointerWithScore, len(pairs))
-		// beforePairs := time.Now()
 		for i, pair := range pairs {
 			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
-			freqBits := binary.LittleEndian.Uint64(pair.Value)
-			currentDocIDs[i].frequency = math.Float64frombits(freqBits)
+			freqBits := binary.LittleEndian.Uint32(pair.Value[0:4])
+			currentDocIDs[i].frequency = float64(math.Float32frombits(freqBits))
+			propLenBits := binary.LittleEndian.Uint32(pair.Value[4:8])
+			currentDocIDs[i].propLength = float64(math.Float32frombits(propLenBits))
 		}
-		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 
 		pointers.count += uint64(len(pairs))
 		if len(pointers.docIDs) > 0 {

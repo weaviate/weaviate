@@ -38,7 +38,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 		if prop.HasFrequency {
 			for _, item := range prop.Items {
 				if err := s.extendInvertedIndexItemWithFrequencyLSM(b, hashBucket, item,
-					docID, item.TermFrequency); err != nil {
+					docID, item.TermFrequency, float32(len(prop.Items))); err != nil {
 					return errors.Wrapf(err, "extend index with item '%s'",
 						string(item.Data))
 				}
@@ -57,7 +57,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 }
 
 func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64, frequency float64) error {
+	item inverted.Countable, docID uint64, frequency float32, propLen float32) error {
 	if b.Strategy() != lsmkv.StrategyMapCollection {
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
@@ -71,10 +71,11 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		return err
 	}
 
-	buf := make([]byte, 16) // 8 bytes for doc id, 8 bytes for frequency
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-
-	binary.LittleEndian.PutUint64(buf[8:], math.Float64bits(item.TermFrequency))
+	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
+	buf := make([]byte, 16)
+	binary.LittleEndian.PutUint64(buf[0:8], docID)
+	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(item.TermFrequency))
+	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
 	pair := lsmkv.MapPair{
 		Key:   buf[:8],

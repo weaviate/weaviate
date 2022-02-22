@@ -162,7 +162,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	if keywordRanking != nil {
 		return inverted.NewBM25Searcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs).
+			s.deletedDocIDs, s.propLengths).
 			Object(ctx, limit, keywordRanking, filters, additional, s.index.Config.ClassName)
 	}
 
