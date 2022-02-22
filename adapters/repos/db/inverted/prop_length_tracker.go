@@ -31,7 +31,6 @@ import (
 //   (first byte) of the buckets
 //
 type PropertyLengthTracker struct {
-	path  string
 	file  *os.File
 	pages []byte
 }
