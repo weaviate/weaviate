@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -51,6 +52,7 @@ type Index struct {
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
+	stopwords             *stopwords.Detector
 }
 
 func (i Index) ID() string {
@@ -61,12 +63,15 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 
-// NewIndex - for now - always creates a single-shard index
+// NewIndex creates an index with the specified amount of shards, using only
+// the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
 	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
+	// TODO: can't error with hard-coded preset, needs checking once configurable
+	sd, _ := stopwords.NewDetectorFromPreset("")
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -75,6 +80,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+		stopwords:             sd, // TODO: take preset from config, reflect additions and removals
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 	}
