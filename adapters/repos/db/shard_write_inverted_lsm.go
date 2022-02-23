@@ -12,7 +12,6 @@
 package db
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"math"
 
@@ -62,7 +61,7 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -91,7 +90,7 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -112,7 +111,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -136,10 +135,8 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 // if it should read the row again from cache. So changing the "hash" (by
 // replacing it with other random bytes) is essentially just a signal to the
 // read-time cacher to invalidate its entry
-func generateRowHash() ([]byte, error) {
-	out := make([]byte, 8)
-	_, err := rand.Read(out)
-	return out, err
+func (s *Shard) generateRowHash() ([]byte, error) {
+	return s.randomSource.Make(8)
 }
 
 func (s *Shard) addPropLengths(props []inverted.Property) error {

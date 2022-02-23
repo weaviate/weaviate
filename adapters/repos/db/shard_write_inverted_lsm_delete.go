@@ -61,7 +61,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
