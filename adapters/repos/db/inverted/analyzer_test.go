@@ -23,7 +23,7 @@ import (
 )
 
 func TestAnalyzer(t *testing.T) {
-	a := NewAnalyzer()
+	a := NewAnalyzer(fakeStopwordDetector{})
 
 	t.Run("with text", func(t *testing.T) {
 		t.Run("only unique words", func(t *testing.T) {
@@ -204,4 +204,10 @@ func TestAnalyzer(t *testing.T) {
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
 	})
+}
+
+type fakeStopwordDetector struct{}
+
+func (fsd fakeStopwordDetector) IsStopword(word string) bool {
+	return false
 }

@@ -22,7 +22,7 @@ import (
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer()
+	a := NewAnalyzer(fakeStopwordDetector{})
 
 	t.Run("with multiple properties", func(t *testing.T) {
 		schema := map[string]interface{}{
