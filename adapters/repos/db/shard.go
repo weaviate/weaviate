@@ -49,9 +49,15 @@ type Shard struct {
 	cleanupInterval  time.Duration
 	cleanupCancel    chan struct{}
 	propLengths      *inverted.PropertyLengthTracker
+	randomSource     *bufferedRandomGen
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
+	rand, err := newBufferedRandomGen(64 * 1024)
+	if err != nil {
+		return nil, errors.Wrap(err, "init bufferend random generator")
+	}
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -61,6 +67,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		cleanupInterval: time.Duration(index.invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),
+		randomSource:  rand,
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -91,7 +98,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		defer vi.PostStartup()
 	}
 
-	err := s.initDBFile(ctx)
+	err = s.initDBFile(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
