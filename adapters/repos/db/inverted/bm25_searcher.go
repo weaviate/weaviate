@@ -173,7 +173,8 @@ func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.B
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
 		currentDocIDs := make([]docPointerWithScore, len(pairs))
 		for i, pair := range pairs {
-			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
+			// TODO: gh-1833 check version before deciding which endianness to use
+			currentDocIDs[i].id = binary.BigEndian.Uint64(pair.Key)
 			freqBits := binary.LittleEndian.Uint32(pair.Value[0:4])
 			currentDocIDs[i].frequency = float64(math.Float32frombits(freqBits))
 			propLenBits := binary.LittleEndian.Uint32(pair.Value[4:8])
@@ -211,10 +212,6 @@ func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.B
 
 	pointers.checksum = combineChecksums(hashes, pv.operator)
 
-	// TODO
-	// if !tolerateDuplicates {
-	// 	pointers.removeDuplicates()
-	// }
 	return pointers, nil
 }
 
