@@ -71,7 +71,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
 	// TODO: can't error with hard-coded preset, needs checking once configurable
-	sd, _ := stopwords.NewDetectorFromPreset("")
+	sd, _ := stopwords.NewDetectorFromPreset("en")
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
