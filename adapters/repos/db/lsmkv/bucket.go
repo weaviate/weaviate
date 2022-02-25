@@ -292,7 +292,13 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	before = time.Now()
 	for i := range segments {
 		sort.Slice(segments[i], func(a, b int) bool {
-			return bytes.Compare(segments[i][a].value, segments[i][b].value) == -1
+			pairA := MapPair{}
+			pairB := MapPair{}
+
+			pairA.FromBytes(segments[i][a].value, true)
+			pairB.FromBytes(segments[i][a].value, true)
+
+			return bytes.Compare(pairA.Key, pairB.Key) == -1
 		})
 	}
 	fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
@@ -302,8 +308,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
 	}()
 
-	return nil, nil
-	// return newMapDecoder().Do(raw, c.acceptDuplicates)
+	return newSortedMapDecoder().do(segments)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
