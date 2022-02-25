@@ -21,6 +21,7 @@ type Memtable struct {
 	sync.RWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
+	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
 	commitlog          *commitLogger
 	size               uint64
@@ -40,6 +41,7 @@ func newMemtable(path string, strategy string,
 	m := &Memtable{
 		key:              &binarySearchTree{},
 		keyMulti:         &binarySearchTreeMulti{},
+		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
 		commitlog:        cl,
 		path:             path,
@@ -191,6 +193,23 @@ func (l *Memtable) getCollection(key []byte) ([]value, error) {
 	return v, nil
 }
 
+func (l *Memtable) getMap(key []byte) ([]MapPair, error) {
+	if l.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("getCollection only possible with strategy %q",
+			StrategyMapCollection)
+	}
+
+	l.RLock()
+	defer l.RUnlock()
+
+	v, err := l.keyMap.get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
 func (l *Memtable) append(key []byte, values []value) error {
 	if l.strategy != StrategySetCollection && l.strategy != StrategyMapCollection {
 		return errors.Errorf("append only possible with strategies %q, %q",
@@ -211,6 +230,39 @@ func (l *Memtable) append(key []byte, values []value) error {
 	for _, value := range values {
 		l.size += uint64(len(value.value))
 	}
+
+	return nil
+}
+
+func (l *Memtable) appendMapSorted(key []byte, pair MapPair) error {
+	if l.strategy != StrategyMapCollection {
+		return errors.Errorf("append only possible with strategy %q",
+			StrategyMapCollection)
+	}
+
+	l.Lock()
+	defer l.Unlock()
+
+	valuesForCommitLog, err := pair.Bytes()
+	if err != nil {
+		return err
+	}
+
+	if err := l.commitlog.append(segmentCollectionNode{
+		primaryKey: key,
+		values: []value{
+			value{
+				value: valuesForCommitLog,
+			},
+		},
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
+	l.keyMap.insert(key, pair)
+
+	// TODO: actual size diff
+	l.size += uint64(len(key) + len(valuesForCommitLog))
 
 	return nil
 }
