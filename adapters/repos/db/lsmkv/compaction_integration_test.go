@@ -15,10 +15,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -1041,7 +1043,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 }
 
 func Test_CompactionMapStrategy(t *testing.T) {
-	size := 999
+	size := 100
 
 	type kv struct {
 		key    []byte
@@ -1362,6 +1364,14 @@ func Test_CompactionMapStrategy(t *testing.T) {
 
 	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("within control make sure map keys are sorted", func(t *testing.T) {
+		for i := range expected {
+			sort.Slice(expected[i].values, func(a, b int) bool {
+				return bytes.Compare(expected[i].values[a].Key, expected[i].values[b].Key) < 0
+			})
+		}
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {

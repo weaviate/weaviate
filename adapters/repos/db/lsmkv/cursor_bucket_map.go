@@ -13,16 +13,31 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
+	"sort"
+	"time"
 
 	"github.com/pkg/errors"
 )
 
 type CursorMap struct {
-	innerCursors []innerCursorCollection
-	state        []cursorStateCollection
+	innerCursors []innerCursorMap
+	state        []cursorStateMap
 	unlock       func()
 	listCfg      MapListOptionConfig
 	keyOnly      bool
+}
+
+type cursorStateMap struct {
+	key   []byte
+	value []MapPair
+	err   error
+}
+
+type innerCursorMap interface {
+	first() ([]byte, []MapPair, error)
+	next() ([]byte, []MapPair, error)
+	seek([]byte) ([]byte, []MapPair, error)
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
@@ -33,16 +48,16 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		cfg(&c)
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
+	innerCursors, unlockSegmentGroup := b.disk.newMapCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
 	// states: either a flushing memtable currently exists - or it doesn't
 	if b.flushing != nil {
-		innerCursors = append(innerCursors, b.flushing.newCollectionCursor())
+		innerCursors = append(innerCursors, b.flushing.newMapCursor())
 	}
 
-	innerCursors = append(innerCursors, b.active.newCollectionCursor())
+	innerCursors = append(innerCursors, b.active.newMapCursor())
 
 	return &CursorMap{
 		unlock: func() {
@@ -85,7 +100,7 @@ func (c *CursorMap) Close() {
 }
 
 func (c *CursorMap) seekAll(target []byte) {
-	state := make([]cursorStateCollection, len(c.innerCursors))
+	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
 		if err == NotFound {
@@ -107,7 +122,7 @@ func (c *CursorMap) seekAll(target []byte) {
 }
 
 func (c *CursorMap) firstAll() {
-	state := make([]cursorStateCollection, len(c.innerCursors))
+	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
 		if err == NotFound {
@@ -200,11 +215,33 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// appending := time.Duration(0)
 	// advancing := time.Duration(0)
 
-	var raw []value
+	// TODO: remove unnecessary re-encoding
+	var perSegmentResults [][]value
+
 	for _, id := range ids {
-		// before := time.Now()
-		raw = append(raw, c.state[id].value...)
-		// appending += time.Since(before)
+		candidates := c.state[id].value
+		before := time.Now()
+		sort.Slice(candidates, func(a, b int) bool {
+			return bytes.Compare(candidates[a].Key, candidates[b].Key) < 0
+		})
+
+		encoded := make([]value, len(candidates))
+		for i, pv := range candidates {
+			enc, err := pv.Bytes()
+			if err != nil {
+				panic(errors.Wrap(err, "unexpected error encoding map values"))
+			}
+
+			encoded[i] = value{
+				value:     enc,
+				tombstone: pv.Tombstone,
+			}
+		}
+
+		fmt.Printf("TODO: temp sorting and re-encoding because disk state is not currently sorted took %s\n",
+			time.Since(before))
+
+		perSegmentResults = append(perSegmentResults, encoded)
 
 		// before = time.Now()
 		c.advanceInner(id)
@@ -214,14 +251,12 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
 
 	if !c.keyOnly {
-		// before := time.Now()
-		values, err := newMapDecoder().Do(raw, c.listCfg.acceptDuplicates)
+		merged, err := newSortedMapDecoder().do(perSegmentResults)
 		if err != nil {
 			panic(errors.Wrap(err, "unexpected error decoding map values"))
 		}
-		// fmt.Printf("--- decode values took %s\n", time.Since(before))
 
-		return key, values
+		return key, merged
 	} else {
 		return key, nil
 	}
