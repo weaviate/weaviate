@@ -13,9 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"fmt"
-	"sort"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -219,14 +216,6 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 	for _, id := range ids {
 		candidates := c.state[id].value
-		before := time.Now()
-		sort.Slice(candidates, func(a, b int) bool {
-			return bytes.Compare(candidates[a].Key, candidates[b].Key) < 0
-		})
-
-		fmt.Printf("TODO: temp sorting and re-encoding because disk state is not currently sorted took %s\n",
-			time.Since(before))
-
 		perSegmentResults = append(perSegmentResults, candidates)
 
 		// before = time.Now()
