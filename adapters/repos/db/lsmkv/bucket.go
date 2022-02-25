@@ -270,23 +270,46 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
 
 	if b.flushing != nil {
-		v, err := b.flushing.getCollection(key)
+		v, err := b.flushing.getMap(key)
 		if err != nil {
 			if err != nil && err != NotFound {
 				return nil, err
 			}
 		}
-		segments = append(segments, v)
+
+		// TODO: encoding here makes no sense, it would be way better to stay
+		// decoded and change the mapMerger to only use decoded values
+		vEncoded := make([]value, len(v))
+		for i, pair := range v {
+			enc, err := pair.Bytes()
+			if err != nil {
+				return nil, err
+			}
+
+			vEncoded[i] = value{value: enc, tombstone: pair.Tombstone}
+		}
+		segments = append(segments, vEncoded)
 	}
 
 	before = time.Now()
-	v, err := b.active.getCollection(key)
+	v, err := b.active.getMap(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	segments = append(segments, v)
+	// TODO: encoding here makes no sense, it would be way better to stay
+	// decoded and change the mapMerger to only use decoded values
+	vEncoded := make([]value, len(v))
+	for i, pair := range v {
+		enc, err := pair.Bytes()
+		if err != nil {
+			return nil, err
+		}
+
+		vEncoded[i] = value{value: enc, tombstone: pair.Tombstone}
+	}
+	segments = append(segments, vEncoded)
 	fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
 	before = time.Now()
@@ -315,41 +338,32 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, kv)
 }
 
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().DoMulti(kvs)
-	if err != nil {
-		return err
+	for _, kv := range kvs {
+		if err := b.active.appendMapSorted(rowKey, kv); err != nil {
+			return err
+		}
 	}
 
-	return b.active.append(rowKey, v)
+	return nil
 }
 
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	kv := MapPair{
+	pair := MapPair{
 		Key:       mapKey,
 		Tombstone: true,
 	}
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, pair)
 }
 
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
