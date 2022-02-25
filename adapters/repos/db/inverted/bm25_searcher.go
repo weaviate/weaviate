@@ -116,17 +116,6 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	}
 	fmt.Printf("term %q: score ids took %s\n", term, time.Since(before))
 
-	before = time.Now()
-	// TODO: this runtime sorting is only because the storage is not implemented
-	// in an always sorted manner. Once we have that implemented, we can skip
-	// this expensive runtime-sort
-	sort.Slice(ids.docIDs, func(a, b int) bool {
-		return ids.docIDs[a].id < ids.docIDs[b].id
-	})
-
-	// TODO: structured logging
-	fmt.Printf("term %q: sorting by doc ids took %s\n", term, time.Since(before))
-
 	return ids, nil
 }
 
