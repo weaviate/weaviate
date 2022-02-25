@@ -103,7 +103,9 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		for i, pair := range pairs {
 			// this entry has a frequency, but that's only used for bm25, not for
 			// pure filtering, so we can ignore it here
-			currentDocIDs[i] = binary.LittleEndian.Uint64(pair.Key)
+			currentDocIDs[i] = binary.BigEndian.Uint64(pair.Key)
+
+			// TODO: gh-1833 check version before deciding which endianness to use
 		}
 		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 

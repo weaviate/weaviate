@@ -71,7 +71,8 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 	}
 
 	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	// TODO: gh-1833: check versioning for big vs little endian decision
+	binary.BigEndian.PutUint64(docIDBytes, docID)
 
 	return b.MapDeleteKey(item.Data, docIDBytes)
 }

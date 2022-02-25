@@ -758,7 +758,7 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 			Key:   make([]byte, 8),
 			Value: make([]byte, 8),
 		}
-		binary.LittleEndian.PutUint64(out[i].Key, id)
+		binary.BigEndian.PutUint64(out[i].Key, id)
 		// leave frequency empty for now
 	}
 
