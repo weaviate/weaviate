@@ -100,17 +100,37 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	var kis []keyIndex
 
 	for {
+		// TODO: each iteration makes a massive amount of allocations, this could
+		// probably be made more efficiently if all the [][]MapPair, etc would be
+		// reused
+
 		if key1 == nil && key2 == nil {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			values := append(value1, value2...)
-			valuesMerged, err := newMapDecoder().DoPartial(values)
+			pairs1 := make([]MapPair, len(value1))
+			for i, v := range value1 {
+				if err := pairs1[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs1[i].Tombstone = v.tombstone
+			}
+
+			pairs2 := make([]MapPair, len(value2))
+			for i, v := range value2 {
+				if err := pairs2[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs2[i].Tombstone = v.tombstone
+			}
+
+			mergedPairs, err := newSortedMapMerger().
+				doKeepTombstones([][]MapPair{pairs1, pairs2})
 			if err != nil {
 				return nil, err
 			}
 
-			mergedEncoded, err := newMapEncoder().DoMulti(valuesMerged)
+			mergedEncoded, err := newMapEncoder().DoMulti(mergedPairs)
 			if err != nil {
 				return nil, err
 			}
