@@ -6,47 +6,17 @@ import (
 	"github.com/pkg/errors"
 )
 
-type sortedMapDecoder struct {
+type sortedMapMerger struct {
 	input   [][]MapPair
 	output  []MapPair
 	offsets []int
 }
 
-func newSortedMapDecoder() *sortedMapDecoder {
-	return &sortedMapDecoder{}
+func newSortedMapMerger() *sortedMapMerger {
+	return &sortedMapMerger{}
 }
 
-func (s *sortedMapDecoder) do(segments [][]value) ([]MapPair, error) {
-	if len(segments) == 1 {
-		return s.parseSingleSegment(segments[0])
-	}
-
-	return s.mergeSegments(segments)
-}
-
-func (s *sortedMapDecoder) parseSingleSegment(seg []value) ([]MapPair, error) {
-	out := make([]MapPair, len(seg))
-
-	i := 0
-	for _, segVal := range seg {
-		if segVal.tombstone {
-			// in a single segment a tombstone doesn't have a meaning as there is no
-			// previous segment that it could remove something from. However, we
-			// still don't want to to serve the tombstoned key to the user as an
-			// actual value, so we still need to skip it
-			continue
-		}
-
-		if err := out[i].FromBytes(segVal.value, false); err != nil {
-			return nil, err
-		}
-		i++
-	}
-
-	return out[:i], nil
-}
-
-func (s *sortedMapDecoder) mergeSegments(segments [][]value) ([]MapPair, error) {
+func (s *sortedMapMerger) do(segments [][]MapPair) ([]MapPair, error) {
 	if err := s.init(segments); err != nil {
 		return nil, errors.Wrap(err, "init sorted map decoder")
 	}
@@ -70,21 +40,8 @@ func (s *sortedMapDecoder) mergeSegments(segments [][]value) ([]MapPair, error) 
 	return s.output[:i], nil
 }
 
-func (s *sortedMapDecoder) init(segments [][]value) error {
-	// first parse all the inputs, i.e. split them from pure byte slices into
-	// map-key byte slices and map-value byte slices, this will make it much
-	// simpler to determine which segment to work on and we will make sure that
-	// every map pair was parsed exactly once
-	s.input = make([][]MapPair, len(segments))
-	for segID, seg := range segments {
-		s.input[segID] = make([]MapPair, len(seg))
-		for valID, val := range seg {
-			if err := s.input[segID][valID].FromBytes(val.value, false); err != nil {
-				return err
-			}
-			s.input[segID][valID].Tombstone = val.tombstone
-		}
-	}
+func (s *sortedMapMerger) init(segments [][]MapPair) error {
+	s.input = segments
 
 	// all offset pointers initialized at 0 which is where we want to start
 	s.offsets = make([]int, len(segments))
@@ -103,7 +60,7 @@ func (s *sortedMapDecoder) init(segments [][]value) error {
 	return nil
 }
 
-func (s *sortedMapDecoder) findSegmentWithLowestKey() (MapPair, bool) {
+func (s *sortedMapMerger) findSegmentWithLowestKey() (MapPair, bool) {
 	bestSeg := -1
 	bestKey := []byte(nil)
 

@@ -257,13 +257,26 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		cfg(&c)
 	}
 
+	segments := [][]MapPair{}
 	// before := time.Now()
-	segments, err := b.disk.getCollectionBySegments(key)
+	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
+
+	for i := range disk {
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+				return nil, err
+			}
+			segmentDecoded[j].Tombstone = v.tombstone
+		}
+		segments = append(segments, segmentDecoded)
+	}
+
 	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
 
 	// before = time.Now()
@@ -277,18 +290,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			}
 		}
 
-		// TODO: encoding here makes no sense, it would be way better to stay
-		// decoded and change the mapMerger to only use decoded values
-		vEncoded := make([]value, len(v))
-		for i, pair := range v {
-			enc, err := pair.Bytes()
-			if err != nil {
-				return nil, err
-			}
-
-			vEncoded[i] = value{value: enc, tombstone: pair.Tombstone}
-		}
-		segments = append(segments, vEncoded)
+		segments = append(segments, v)
 	}
 
 	// before = time.Now()
@@ -298,30 +300,13 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			return nil, err
 		}
 	}
-	// TODO: encoding here makes no sense, it would be way better to stay
-	// decoded and change the mapMerger to only use decoded values
-	vEncoded := make([]value, len(v))
-	for i, pair := range v {
-		enc, err := pair.Bytes()
-		if err != nil {
-			return nil, err
-		}
-
-		vEncoded[i] = value{value: enc, tombstone: pair.Tombstone}
-	}
-	segments = append(segments, vEncoded)
+	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
 	// before = time.Now()
 	for i := range segments {
 		sort.Slice(segments[i], func(a, b int) bool {
-			pairA := MapPair{}
-			pairB := MapPair{}
-
-			pairA.FromBytes(segments[i][a].value, true)
-			pairB.FromBytes(segments[i][a].value, true)
-
-			return bytes.Compare(pairA.Key, pairB.Key) == -1
+			return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
 		})
 	}
 	// fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
@@ -331,7 +316,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
 	// }()
 
-	return newSortedMapDecoder().do(segments)
+	return newSortedMapMerger().do(segments)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {

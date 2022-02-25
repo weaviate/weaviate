@@ -215,8 +215,7 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// appending := time.Duration(0)
 	// advancing := time.Duration(0)
 
-	// TODO: remove unnecessary re-encoding
-	var perSegmentResults [][]value
+	var perSegmentResults [][]MapPair
 
 	for _, id := range ids {
 		candidates := c.state[id].value
@@ -225,23 +224,10 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 			return bytes.Compare(candidates[a].Key, candidates[b].Key) < 0
 		})
 
-		encoded := make([]value, len(candidates))
-		for i, pv := range candidates {
-			enc, err := pv.Bytes()
-			if err != nil {
-				panic(errors.Wrap(err, "unexpected error encoding map values"))
-			}
-
-			encoded[i] = value{
-				value:     enc,
-				tombstone: pv.Tombstone,
-			}
-		}
-
 		fmt.Printf("TODO: temp sorting and re-encoding because disk state is not currently sorted took %s\n",
 			time.Since(before))
 
-		perSegmentResults = append(perSegmentResults, encoded)
+		perSegmentResults = append(perSegmentResults, candidates)
 
 		// before = time.Now()
 		c.advanceInner(id)
@@ -251,7 +237,7 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
 
 	if !c.keyOnly {
-		merged, err := newSortedMapDecoder().do(perSegmentResults)
+		merged, err := newSortedMapMerger().do(perSegmentResults)
 		if err != nil {
 			panic(errors.Wrap(err, "unexpected error decoding map values"))
 		}
