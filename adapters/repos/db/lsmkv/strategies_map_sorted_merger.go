@@ -40,6 +40,27 @@ func (s *sortedMapMerger) do(segments [][]MapPair) ([]MapPair, error) {
 	return s.output[:i], nil
 }
 
+// same as .do() but does not remove the tombstone if the most latest version
+// of a key is a tombstone. It can thus also be used in compactions
+func (s *sortedMapMerger) doKeepTombstones(segments [][]MapPair) ([]MapPair, error) {
+	if err := s.init(segments); err != nil {
+		return nil, errors.Wrap(err, "init sorted map decoder")
+	}
+
+	i := 0
+	for {
+		match, ok := s.findSegmentWithLowestKey()
+		if !ok {
+			break
+		}
+
+		s.output[i] = match
+		i++
+	}
+
+	return s.output[:i], nil
+}
+
 func (s *sortedMapMerger) init(segments [][]MapPair) error {
 	s.input = segments
 

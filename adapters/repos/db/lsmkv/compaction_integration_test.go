@@ -1043,7 +1043,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 }
 
 func Test_CompactionMapStrategy(t *testing.T) {
-	size := 100
+	size := 10
 
 	type kv struct {
 		key    []byte
