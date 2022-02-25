@@ -57,7 +57,7 @@ func (b *referencesBatcher) References(ctx context.Context,
 
 func (b *referencesBatcher) init(refs objects.BatchReferences) {
 	b.refs = refs
-	b.errs = []error{}
+	b.errs = make([]error, len(refs))
 }
 
 func (b *referencesBatcher) storeInObjectStore(
