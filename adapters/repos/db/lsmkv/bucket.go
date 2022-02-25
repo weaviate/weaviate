@@ -12,12 +12,10 @@
 package lsmkv
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
@@ -302,14 +300,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	}
 	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	for i := range segments {
-		sort.Slice(segments[i], func(a, b int) bool {
-			return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
-		})
-	}
-	// fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
 
 	// before = time.Now()
 	// defer func() {
