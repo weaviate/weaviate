@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -255,20 +257,17 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		cfg(&c)
 	}
 
-	var raw []value
-
-	v, err := b.disk.getCollection(key)
+	before := time.Now()
+	segments, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
+	fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
 
-	if len(raw) > 0 {
-		raw = append(raw, v...)
-	} else {
-		raw = v
-	}
+	before = time.Now()
+	fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getCollection(key)
@@ -277,18 +276,34 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 				return nil, err
 			}
 		}
-		raw = append(raw, v...)
+		segments = append(segments, v)
 	}
 
-	v, err = b.active.getCollection(key)
+	before = time.Now()
+	v, err := b.active.getCollection(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	raw = append(raw, v...)
+	segments = append(segments, v)
+	fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
-	return newMapDecoder().Do(raw, c.acceptDuplicates)
+	before = time.Now()
+	for i := range segments {
+		sort.Slice(segments[i], func(a, b int) bool {
+			return bytes.Compare(segments[i][a].value, segments[i][b].value) == -1
+		})
+	}
+	fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
+
+	before = time.Now()
+	defer func() {
+		fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	}()
+
+	return nil, nil
+	// return newMapDecoder().Do(raw, c.acceptDuplicates)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {

@@ -225,6 +225,31 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
+func (ig *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	out := make([][]value, len(ig.segments))
+
+	i := 0
+	// start with first and do not exit
+	for _, segment := range ig.segments {
+		v, err := segment.getCollection(key)
+		if err != nil {
+			if err == NotFound {
+				continue
+			}
+
+			return nil, err
+		}
+
+		out[i] = v
+		i++
+	}
+
+	return out[:i], nil
+}
+
 func (ig *SegmentGroup) count() int {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()

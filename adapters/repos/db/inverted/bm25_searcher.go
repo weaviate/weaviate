@@ -79,7 +79,9 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		idLists[i] = ids
 	}
 
+	before := time.Now()
 	ids := newScoreMerger(idLists).do()
+	fmt.Printf("merge scores took %s\n", time.Since(before))
 
 	sort.Slice(ids.docIDs, func(a, b int) bool {
 		return ids.docIDs[a].score > ids.docIDs[b].score
@@ -99,17 +101,22 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 
 func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	property, term string) (docPointersWithScore, error) {
+	before := time.Now()
 	ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
 	if err != nil {
 		return docPointersWithScore{}, errors.Wrap(err,
 			"read doc ids and their frequencies from inverted index")
 	}
+	fmt.Printf("term %q: get ids took %s\n", term, time.Since(before))
+	fmt.Printf("term %q: %d ids\n", term, len(ids.docIDs))
 
+	before = time.Now()
 	if err := b.score(ids, property); err != nil {
 		return docPointersWithScore{}, err
 	}
+	fmt.Printf("term %q: score ids took %s\n", term, time.Since(before))
 
-	before := time.Now()
+	before = time.Now()
 	// TODO: this runtime sorting is only because the storage is not implemented
 	// in an always sorted manner. Once we have that implemented, we can skip
 	// this expensive runtime-sort
@@ -118,7 +125,7 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	})
 
 	// TODO: structured logging
-	fmt.Printf("TEMP DEBUG: sorting by doc ids took %s\n", time.Since(before))
+	fmt.Printf("term %q: sorting by doc ids took %s\n", term, time.Since(before))
 
 	return ids, nil
 }
