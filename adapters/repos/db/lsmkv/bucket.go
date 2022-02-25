@@ -257,17 +257,17 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		cfg(&c)
 	}
 
-	before := time.Now()
+	// before := time.Now()
 	segments, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
 
-	before = time.Now()
-	fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+	// before = time.Now()
+	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
@@ -291,7 +291,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		segments = append(segments, vEncoded)
 	}
 
-	before = time.Now()
+	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
 		if err != nil && err != NotFound {
@@ -310,9 +310,9 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		vEncoded[i] = value{value: enc, tombstone: pair.Tombstone}
 	}
 	segments = append(segments, vEncoded)
-	fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
-	before = time.Now()
+	// before = time.Now()
 	for i := range segments {
 		sort.Slice(segments[i], func(a, b int) bool {
 			pairA := MapPair{}
@@ -324,12 +324,12 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			return bytes.Compare(pairA.Key, pairB.Key) == -1
 		})
 	}
-	fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
+	// fmt.Printf("--map-list: sort all segments took %s\n", time.Since(before))
 
-	before = time.Now()
-	defer func() {
-		fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
-	}()
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
 
 	return newSortedMapDecoder().do(segments)
 }
