@@ -30,12 +30,13 @@ type Aggregator struct {
 	invertedRowCache *inverted.RowCacher
 	classSearcher    inverted.ClassSearcher // to support ref-filters
 	deletedDocIDs    inverted.DeletedDocIDChecker
+	shardVersion     uint16
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
-	deletedDocIDs inverted.DeletedDocIDChecker) *Aggregator {
+	deletedDocIDs inverted.DeletedDocIDChecker, shardVersion uint16) *Aggregator {
 	return &Aggregator{
 		store:            store,
 		params:           params,
@@ -43,6 +44,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		invertedRowCache: cache,
 		classSearcher:    classSearcher,
 		deletedDocIDs:    deletedDocIDs,
+		shardVersion:     shardVersion,
 	}
 }
 

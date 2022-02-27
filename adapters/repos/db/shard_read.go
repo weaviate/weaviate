@@ -160,9 +160,13 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	if keywordRanking != nil {
+		if v := s.versioner.Version(); v < 2 {
+			return nil, errors.Errorf("shard was built with an older version of " +
+				"Weaviate which does not yet support BM25 search")
+		}
 		return inverted.NewBM25Searcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs, s.propLengths).
+			s.deletedDocIDs, s.propLengths, s.index.logger).
 			Object(ctx, limit, keywordRanking, filters, additional, s.index.Config.ClassName)
 	}
 
@@ -171,7 +175,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	}
 	return inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-		s.deletedDocIDs).
+		s.deletedDocIDs, s.versioner.Version()).
 		Object(ctx, limit, filters, additional, s.index.Config.ClassName)
 }
 
@@ -182,7 +186,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs).
+			s.deletedDocIDs, s.versioner.Version()).
 			DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "build inverted filter allow list")

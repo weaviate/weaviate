@@ -73,10 +73,13 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
-	// TODO: gh-1833: use versioning to check how to write it, for now hard-coded to the
-	// new way (big endian) to be able to test it out on a large dataset
-
-	binary.BigEndian.PutUint64(buf[0:8], docID)
+	// Shard Index version 2 requires BigEndian for sorting, if the shard was
+	// built prior assume it uses LittleEndian
+	if s.versioner.Version() < 2 {
+		binary.LittleEndian.PutUint64(buf[0:8], docID)
+	} else {
+		binary.BigEndian.PutUint64(buf[0:8], docID)
+	}
 	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(item.TermFrequency))
 	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
