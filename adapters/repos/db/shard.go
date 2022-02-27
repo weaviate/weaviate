@@ -50,6 +50,7 @@ type Shard struct {
 	cleanupCancel    chan struct{}
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
+	versioner        *shardVersioner
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
@@ -108,6 +109,14 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
+
+	dataPresent := s.counter.PreviewNext() != 0
+	versionPath := path.Join(index.Config.RootPath, s.ID()+".version")
+	versioner, err := newShardVersioner(versionPath, dataPresent)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: check versions", s.ID())
+	}
+	s.versioner = versioner
 
 	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
 	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
