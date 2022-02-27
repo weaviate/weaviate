@@ -28,7 +28,6 @@ const (
 
 type shardVersioner struct {
 	version uint16
-	file    *os.File
 }
 
 func newShardVersioner(baseDir string, dataPresent bool) (*shardVersioner, error) {
