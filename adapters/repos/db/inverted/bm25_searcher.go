@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 type BM25Searcher struct {
@@ -30,6 +31,7 @@ type BM25Searcher struct {
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
 	propLengths   propLengthRetriever
+	logger        logrus.FieldLogger
 }
 
 type propLengthRetriever interface {
@@ -39,7 +41,7 @@ type propLengthRetriever interface {
 func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	propLengths propLengthRetriever) *BM25Searcher {
+	propLengths propLengthRetriever, logger logrus.FieldLogger) *BM25Searcher {
 	return &BM25Searcher{
 		store:         store,
 		schema:        schema,
@@ -48,6 +50,7 @@ func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
 		propLengths:   propLengths,
+		logger:        logger.WithField("action", "bm25_search"),
 	}
 }
 
@@ -81,8 +84,13 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 
 	before := time.Now()
 	ids := newScoreMerger(idLists).do()
-	fmt.Printf("merge scores took %s\n", time.Since(before))
+	took := time.Since(before)
+	b.logger.WithField("took", took).
+		WithField("event", "merge_scores_of_terms").
+		Debugf("merge score of all terms took %s", took)
 
+	// TODO: we can probably do this way smarter in a way that we immediately
+	// skip anything worse the the current worst candidate
 	sort.Slice(ids.docIDs, func(a, b int) bool {
 		return ids.docIDs[a].score > ids.docIDs[b].score
 	})
@@ -107,14 +115,25 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 		return docPointersWithScore{}, errors.Wrap(err,
 			"read doc ids and their frequencies from inverted index")
 	}
-	fmt.Printf("term %q: get ids took %s\n", term, time.Since(before))
-	fmt.Printf("term %q: %d ids\n", term, len(ids.docIDs))
+	took := time.Since(before)
+	b.logger.WithField("took", took).
+		WithField("event", "retrieve_doc_ids").
+		WithField("count", len(ids.docIDs)).
+		WithField("term", term).
+		Debugf("retrieve %d doc ids for term %q took %s", len(ids.docIDs),
+			term, took)
 
 	before = time.Now()
 	if err := b.score(ids, property); err != nil {
 		return docPointersWithScore{}, err
 	}
-	fmt.Printf("term %q: score ids took %s\n", term, time.Since(before))
+	took = time.Since(before)
+	b.logger.WithField("took", took).
+		WithField("event", "score_doc_ids").
+		WithField("count", len(ids.docIDs)).
+		WithField("term", term).
+		Debugf("score %d doc ids for term %q took %s", len(ids.docIDs),
+			term, took)
 
 	return ids, nil
 }
