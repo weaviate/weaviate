@@ -32,6 +32,7 @@ type BM25Searcher struct {
 	deletedDocIDs DeletedDocIDChecker
 	propLengths   propLengthRetriever
 	logger        logrus.FieldLogger
+	shardVersion  uint16
 }
 
 type propLengthRetriever interface {
@@ -41,7 +42,8 @@ type propLengthRetriever interface {
 func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	propLengths propLengthRetriever, logger logrus.FieldLogger) *BM25Searcher {
+	propLengths propLengthRetriever, logger logrus.FieldLogger,
+	shardVersion uint16) *BM25Searcher {
 	return &BM25Searcher{
 		store:         store,
 		schema:        schema,
@@ -51,6 +53,7 @@ func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
 		deletedDocIDs: deletedDocIDs,
 		propLengths:   propLengths,
 		logger:        logger.WithField("action", "bm25_search"),
+		shardVersion:  shardVersion,
 	}
 }
 
@@ -173,7 +176,7 @@ func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
 
 func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.Bucket,
 	limit int, pv *propValuePair, tolerateDuplicates bool) (docPointersWithScore, error) {
-	rr := NewRowReaderFrequency(bucket, pv.value, pv.operator, false)
+	rr := NewRowReaderFrequency(bucket, pv.value, pv.operator, false, b.shardVersion)
 
 	var pointers docPointersWithScore
 	var hashes [][]byte

@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -235,7 +237,8 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 }
 
 type MapListOptionConfig struct {
-	acceptDuplicates bool
+	acceptDuplicates           bool
+	legacyRequireManualSorting bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -243,6 +246,12 @@ type MapListOption func(c *MapListOptionConfig)
 func MapListAcceptDuplicates() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.acceptDuplicates = true
+	}
+}
+
+func MapListLegacySortingRequired() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.legacyRequireManualSorting = true
 	}
 }
 
@@ -305,6 +314,15 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// defer func() {
 	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
 	// }()
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+			})
+		}
+	}
 
 	return newSortedMapMerger().do(segments)
 }

@@ -24,19 +24,21 @@ import (
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-	value    []byte
-	bucket   *lsmkv.Bucket
-	operator filters.Operator
-	keyOnly  bool
+	value        []byte
+	bucket       *lsmkv.Bucket
+	operator     filters.Operator
+	keyOnly      bool
+	shardVersion uint16
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool) *RowReaderFrequency {
+	operator filters.Operator, keyOnly bool, shardVersion uint16) *RowReaderFrequency {
 	return &RowReaderFrequency{
-		bucket:   bucket,
-		value:    value,
-		operator: operator,
-		keyOnly:  keyOnly,
+		bucket:       bucket,
+		value:        value,
+		operator:     operator,
+		keyOnly:      keyOnly,
+		shardVersion: shardVersion,
 	}
 }
 
@@ -85,12 +87,22 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 		return err
 	}
 
+	var v []lsmkv.MapPair
+	var err error
+	if rr.shardVersion < 2 {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
+			lsmkv.MapListLegacySortingRequired())
+		if err != nil {
+			return err
+		}
+	} else {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
+		if err != nil {
+			return err
+		}
+	}
 	// TODO: don't we need to check here if this is a doc id vs a object search?
 	// Or is this not a problem because the latter removes duplicates anyway?
-	v, err := rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
-	if err != nil {
-		return err
-	}
 
 	_, err = readFn(rr.value, v)
 	return err
@@ -244,6 +256,10 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
 	opts ...lsmkv.MapListOption) *lsmkv.CursorMap {
+	if rr.shardVersion < 2 {
+		opts = append(opts, lsmkv.MapListLegacySortingRequired())
+	}
+
 	if rr.keyOnly {
 		return rr.bucket.MapCursorKeyOnly(opts...)
 	}
