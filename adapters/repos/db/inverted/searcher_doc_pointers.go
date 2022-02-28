@@ -92,7 +92,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 
 func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, fs.shardVersion)
 
 	var pointers docPointers
 	var hashes [][]byte

@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"sort"
 
 	"github.com/pkg/errors"
 )
@@ -224,6 +225,15 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 	}
 	// fmt.Printf("--- extract values [appending] took %s\n", appending)
 	// fmt.Printf("--- extract values [advancing] took %s\n", advancing)
+
+	if c.listCfg.legacyRequireManualSorting {
+		for i := range perSegmentResults {
+			sort.Slice(perSegmentResults[i], func(a, b int) bool {
+				return bytes.Compare(perSegmentResults[i][a].Key,
+					perSegmentResults[i][b].Key) == -1
+			})
+		}
+	}
 
 	if !c.keyOnly {
 		merged, err := newSortedMapMerger().do(perSegmentResults)
