@@ -40,6 +40,9 @@ type Bucket struct {
 	strategy          string
 	secondaryIndices  uint16
 
+	// for backward compatibility
+	legacyMapSortingBeforeCompaction bool
+
 	stopFlushCycle chan struct{}
 }
 
@@ -52,14 +55,8 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger)
-	if err != nil {
-		return nil, errors.Wrap(err, "init disk segments")
-	}
-
 	b := &Bucket{
 		dir:               dir,
-		disk:              sg,
 		memTableThreshold: defaultThreshold,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
@@ -71,6 +68,14 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 			return nil, err
 		}
 	}
+
+	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+		b.legacyMapSortingBeforeCompaction)
+	if err != nil {
+		return nil, errors.Wrap(err, "init disk segments")
+	}
+
+	b.disk = sg
 
 	if err := b.setNewActiveMemtable(); err != nil {
 		return nil, err

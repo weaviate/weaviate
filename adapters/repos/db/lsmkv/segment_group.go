@@ -37,10 +37,15 @@ type SegmentGroup struct {
 	stopCompactionCycle chan struct{}
 
 	logger logrus.FieldLogger
+
+	// for backward-compatibility with states where the disk state for maps was
+	// not guaranteed to be sorted yet
+	mapRequiresSorting bool
 }
 
 func newSegmentGroup(dir string,
-	compactionCycle time.Duration, logger logrus.FieldLogger) (*SegmentGroup, error) {
+	compactionCycle time.Duration, logger logrus.FieldLogger,
+	mapRequiresSorting bool) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -51,6 +56,7 @@ func newSegmentGroup(dir string,
 		dir:                 dir,
 		logger:              logger,
 		stopCompactionCycle: make(chan struct{}),
+		mapRequiresSorting:  mapRequiresSorting,
 	}
 
 	segmentIndex := 0

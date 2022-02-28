@@ -139,7 +139,7 @@ func (ig *SegmentGroup) compactOnce() error {
 	case SegmentStrategyMapCollection:
 		c := newCompactorMapCollection(f, ig.segmentAtPos(pair[0]).newCollectionCursor(),
 			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+			scratchSpacePath, ig.mapRequiresSorting)
 
 		if err := c.do(); err != nil {
 			return err

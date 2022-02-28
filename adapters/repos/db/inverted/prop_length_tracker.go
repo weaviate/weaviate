@@ -33,6 +33,7 @@ import (
 //
 type PropertyLengthTracker struct {
 	file  *os.File
+	path  string
 	pages []byte
 	sync.Mutex
 }
@@ -51,6 +52,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 	t := &PropertyLengthTracker{
 		pages: nil,
 		file:  f,
+		path:  path,
 	}
 
 	if stat.Size() > 0 {
@@ -277,6 +279,24 @@ func (t *PropertyLengthTracker) Close() error {
 	}
 
 	t.pages = nil
+
+	return nil
+}
+
+func (t *PropertyLengthTracker) Drop() error {
+	t.Lock()
+	defer t.Unlock()
+
+	if err := t.file.Close(); err != nil {
+		_ = err
+		// explicitly ignore error
+	}
+
+	t.pages = nil
+
+	if err := os.Remove(t.path); err != nil {
+		return errors.Wrap(err, "remove prop length tracker state from disk")
+	}
 
 	return nil
 }
