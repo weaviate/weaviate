@@ -14,6 +14,7 @@ package get
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -212,11 +213,15 @@ func buildGetClassField(classObject *graphql.Object,
 
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),
-			"bm25":       bm25Argument(class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 		},
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
+	}
+
+	// hacky way to temporarily check feature flag
+	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
+		field.Args["bm25"] = bm25Argument(class.Class)
 	}
 
 	if modulesProvider != nil {
