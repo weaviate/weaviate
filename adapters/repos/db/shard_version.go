@@ -28,6 +28,10 @@ const (
 
 type shardVersioner struct {
 	version uint16
+
+	// we don't need the file after initialization, but still need to track it's
+	// path so we can delete it on .Drop()
+	path string
 }
 
 func newShardVersioner(baseDir string, dataPresent bool) (*shardVersioner, error) {
@@ -37,6 +41,8 @@ func newShardVersioner(baseDir string, dataPresent bool) (*shardVersioner, error
 }
 
 func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
+	sv.path = fileName
+
 	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
@@ -84,6 +90,14 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 
 	sv.version = version
 
+	return nil
+}
+
+func (sv *shardVersioner) Drop() error {
+	err := os.Remove(sv.path)
+	if err != nil {
+		return errors.Wrap(err, "drop versioner file")
+	}
 	return nil
 }
 

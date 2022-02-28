@@ -182,11 +182,24 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.versioner.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+	}
 	// remove vector index
 	err = s.vectorIndex.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.propLengths.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
@@ -237,13 +250,18 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	strategy := lsmkv.StrategySetCollection
+	var mapOpts []lsmkv.BucketOption
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		strategy = lsmkv.StrategyMapCollection
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+		}
+	} else {
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(strategy))
+		mapOpts...)
 	if err != nil {
 		return err
 	}

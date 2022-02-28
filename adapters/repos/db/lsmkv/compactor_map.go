@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sort"
 
 	"github.com/pkg/errors"
 )
@@ -33,11 +34,15 @@ type compactorMap struct {
 	bufw *bufio.Writer
 
 	scratchSpacePath string
+
+	// for backward-compatibility with states where the disk state for maps was
+	// not guaranteed to be sorted yet
+	requiresSorting bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string) *compactorMap {
+	scratchSpacePath string, requiresSorting bool) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
 		c2:                  c2,
@@ -46,6 +51,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
+		requiresSorting:     requiresSorting,
 	}
 }
 
@@ -122,6 +128,15 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 					return nil, err
 				}
 				pairs2[i].Tombstone = v.tombstone
+			}
+
+			if c.requiresSorting {
+				sort.Slice(pairs1, func(a, b int) bool {
+					return bytes.Compare(pairs1[a].Key, pairs1[b].Key) < 0
+				})
+				sort.Slice(pairs2, func(a, b int) bool {
+					return bytes.Compare(pairs2[a].Key, pairs2[b].Key) < 0
+				})
 			}
 
 			mergedPairs, err := newSortedMapMerger().
