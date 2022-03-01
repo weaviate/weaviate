@@ -499,6 +499,13 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	h.Lock()
 	defer h.Unlock()
 
+	if id >= uint64(len(h.nodes)) {
+		// See https://github.com/semi-technologies/weaviate/issues/1838 for details.
+		// This could be after a crash recovery when the object store is "further
+		// ahead" than the hnsw index and we receive a delete request
+		return nil
+	}
+
 	return h.nodes[id]
 }
 
