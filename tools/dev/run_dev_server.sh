@@ -9,6 +9,7 @@ export GO111MODULE=on
 export DEVELOPMENT_UI=on
 export LOG_LEVEL=debug
 export LOG_FORMAT=text
+export ENABLE_EXPERIMENTAL_BM25=true
 
 case $CONFIG in
   debug)

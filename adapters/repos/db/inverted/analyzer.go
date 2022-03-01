@@ -22,7 +22,7 @@ import (
 
 type Countable struct {
 	Data          []byte
-	TermFrequency float64
+	TermFrequency float32
 }
 
 type Property struct {
@@ -31,7 +31,9 @@ type Property struct {
 	HasFrequency bool
 }
 
-type Analyzer struct{}
+type Analyzer struct {
+	stopwords stopwordDetector
+}
 
 // Text removes non alpha-numeric and splits into words, then aggregates
 // duplicates
@@ -40,6 +42,10 @@ func (a *Analyzer) Text(in string) []Countable {
 	terms := map[string]uint64{}
 	total := 0
 	for _, word := range parts {
+		if a.stopwords.IsStopword(word) {
+			continue
+		}
+
 		word = strings.ToLower(word)
 		count, ok := terms[word]
 		if !ok {
@@ -54,7 +60,7 @@ func (a *Analyzer) Text(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float64(count) / float64(total),
+			TermFrequency: float32(count),
 		}
 		i++
 	}
@@ -69,6 +75,10 @@ func (a *Analyzer) String(in string) []Countable {
 	terms := map[string]uint64{}
 	total := 0
 	for _, word := range parts {
+		if a.stopwords.IsStopword(word) {
+			continue
+		}
+
 		count, ok := terms[word]
 		if !ok {
 			terms[word] = 0
@@ -82,7 +92,7 @@ func (a *Analyzer) String(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float64(count) / float64(total),
+			TermFrequency: float32(count),
 		}
 		i++
 	}
@@ -211,6 +221,10 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-func NewAnalyzer() *Analyzer {
-	return &Analyzer{}
+type stopwordDetector interface {
+	IsStopword(string) bool
+}
+
+func NewAnalyzer(stopwordDetector stopwordDetector) *Analyzer {
+	return &Analyzer{stopwords: stopwordDetector}
 }

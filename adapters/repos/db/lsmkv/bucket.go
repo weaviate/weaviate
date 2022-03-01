@@ -12,10 +12,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -38,6 +40,9 @@ type Bucket struct {
 	strategy          string
 	secondaryIndices  uint16
 
+	// for backward compatibility
+	legacyMapSortingBeforeCompaction bool
+
 	stopFlushCycle chan struct{}
 }
 
@@ -50,14 +55,8 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger)
-	if err != nil {
-		return nil, errors.Wrap(err, "init disk segments")
-	}
-
 	b := &Bucket{
 		dir:               dir,
-		disk:              sg,
 		memTableThreshold: defaultThreshold,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
@@ -69,6 +68,14 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 			return nil, err
 		}
 	}
+
+	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+		b.legacyMapSortingBeforeCompaction)
+	if err != nil {
+		return nil, errors.Wrap(err, "init disk segments")
+	}
+
+	b.disk = sg
 
 	if err := b.setNewActiveMemtable(); err != nil {
 		return nil, err
@@ -235,7 +242,8 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 }
 
 type MapListOptionConfig struct {
-	acceptDuplicates bool
+	acceptDuplicates           bool
+	legacyRequireManualSorting bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -243,6 +251,12 @@ type MapListOption func(c *MapListOptionConfig)
 func MapListAcceptDuplicates() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.acceptDuplicates = true
+	}
+}
+
+func MapListLegacySortingRequired() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.legacyRequireManualSorting = true
 	}
 }
 
@@ -255,81 +269,99 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		cfg(&c)
 	}
 
-	var raw []value
-
-	v, err := b.disk.getCollection(key)
+	segments := [][]MapPair{}
+	// before := time.Now()
+	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
 
-	if len(raw) > 0 {
-		raw = append(raw, v...)
-	} else {
-		raw = v
+	for i := range disk {
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+				return nil, err
+			}
+			segmentDecoded[j].Tombstone = v.tombstone
+		}
+		segments = append(segments, segmentDecoded)
 	}
 
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+
 	if b.flushing != nil {
-		v, err := b.flushing.getCollection(key)
+		v, err := b.flushing.getMap(key)
 		if err != nil {
 			if err != nil && err != NotFound {
 				return nil, err
 			}
 		}
-		raw = append(raw, v...)
+
+		segments = append(segments, v)
 	}
 
-	v, err = b.active.getCollection(key)
+	// before = time.Now()
+	v, err := b.active.getMap(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	raw = append(raw, v...)
+	segments = append(segments, v)
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
-	return newMapDecoder().Do(raw, c.acceptDuplicates)
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+			})
+		}
+	}
+
+	return newSortedMapMerger().do(segments)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, kv)
 }
 
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().DoMulti(kvs)
-	if err != nil {
-		return err
+	for _, kv := range kvs {
+		if err := b.active.appendMapSorted(rowKey, kv); err != nil {
+			return err
+		}
 	}
 
-	return b.active.append(rowKey, v)
+	return nil
 }
 
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	kv := MapPair{
+	pair := MapPair{
 		Key:       mapKey,
 		Tombstone: true,
 	}
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, pair)
 }
 
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
@@ -350,6 +382,48 @@ func (b *Bucket) setNewActiveMemtable() error {
 
 	b.active = mt
 	return nil
+}
+
+func (b *Bucket) Count() int {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if b.strategy != StrategyReplace {
+		panic("Count() called on strategy other than 'replace'")
+	}
+
+	memtableCount := b.memtableNetCount(b.active.countStats())
+	if b.flushing != nil {
+		memtableCount += b.memtableNetCount(b.flushing.countStats())
+	}
+	diskCount := b.disk.count()
+
+	return memtableCount + diskCount
+}
+
+func (b *Bucket) memtableNetCount(stats *countStats) int {
+	netCount := 0
+
+	// TODO: this uses regular get, given that this may be called quite commonly,
+	// we might consider building a pure Exists(), which skips reading the value
+	// and only checks for tombstones, etc.
+	for _, key := range stats.upsertKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v == nil {
+			// this key didn't exist before
+			netCount++
+		}
+	}
+
+	for _, key := range stats.tombstonedKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v != nil {
+			// this key existed before
+			netCount--
+		}
+	}
+
+	return netCount
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {

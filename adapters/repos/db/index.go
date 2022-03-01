@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -34,6 +35,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -50,6 +52,7 @@ type Index struct {
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
+	stopwords             *stopwords.Detector
 }
 
 func (i Index) ID() string {
@@ -60,12 +63,15 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 
-// NewIndex - for now - always creates a single-shard index
+// NewIndex creates an index with the specified amount of shards, using only
+// the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
 	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
+	// TODO: can't error with hard-coded preset, needs checking once configurable
+	sd, _ := stopwords.NewDetectorFromPreset("")
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -74,6 +80,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+		stopwords:             sd, // TODO: take preset from config, reflect additions and removals
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 	}
@@ -606,7 +613,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -622,7 +629,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 
 		if local {
 			shard := i.Shards[shardName]
-			res, err = shard.objectSearch(ctx, limit, filters, additional)
+			res, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
@@ -714,8 +721,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	// TODO: support BM25 on sharded search
 	if searchVector == nil {
-		res, err := shard.objectSearch(ctx, limit, filters, additional)
+		res, err := shard.objectSearch(ctx, limit, filters, nil, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}

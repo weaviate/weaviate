@@ -92,7 +92,7 @@ func Test_CachedFilters_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string
@@ -443,7 +443,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string
@@ -758,7 +758,7 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 			Key:   make([]byte, 8),
 			Value: make([]byte, 8),
 		}
-		binary.LittleEndian.PutUint64(out[i].Key, id)
+		binary.BigEndian.PutUint64(out[i].Key, id)
 		// leave frequency empty for now
 	}
 
@@ -857,7 +857,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string

@@ -139,7 +139,7 @@ func (ig *SegmentGroup) compactOnce() error {
 	case SegmentStrategyMapCollection:
 		c := newCompactorMapCollection(f, ig.segmentAtPos(pair[0]).newCollectionCursor(),
 			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+			scratchSpacePath, ig.mapRequiresSorting)
 
 		if err := c.do(); err != nil {
 			return err
@@ -192,7 +192,8 @@ func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "strip .tmp extension of new segment")
 	}
 
-	seg, err := newSegment(newPath, ig.logger)
+	exists := ig.makeExistsOnLower(old1)
+	seg, err := newSegment(newPath, ig.logger, exists)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

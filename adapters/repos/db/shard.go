@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"time"
 
 	"github.com/pkg/errors"
@@ -47,9 +48,17 @@ type Shard struct {
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
 	cleanupCancel    chan struct{}
+	propLengths      *inverted.PropertyLengthTracker
+	randomSource     *bufferedRandomGen
+	versioner        *shardVersioner
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
+	rand, err := newBufferedRandomGen(64 * 1024)
+	if err != nil {
+		return nil, errors.Wrap(err, "init bufferend random generator")
+	}
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -59,6 +68,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		cleanupInterval: time.Duration(index.invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),
+		randomSource:  rand,
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -89,7 +99,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		defer vi.PostStartup()
 	}
 
-	err := s.initDBFile(ctx)
+	err = s.initDBFile(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -98,8 +108,22 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
-
 	s.counter = counter
+
+	dataPresent := s.counter.PreviewNext() != 0
+	versionPath := path.Join(index.Config.RootPath, s.ID()+".version")
+	versioner, err := newShardVersioner(versionPath, dataPresent)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: check versions", s.ID())
+	}
+	s.versioner = versioner
+
+	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
+	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+	}
+	s.propLengths = propLengths
 
 	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -158,11 +182,24 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.versioner.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+	}
 	// remove vector index
 	err = s.vectorIndex.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.propLengths.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
@@ -213,13 +250,18 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	strategy := lsmkv.StrategySetCollection
+	var mapOpts []lsmkv.BucketOption
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		strategy = lsmkv.StrategyMapCollection
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+		}
+	} else {
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(strategy))
+		mapOpts...)
 	if err != nil {
 		return err
 	}
@@ -239,5 +281,9 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
+	if err := s.propLengths.Close(); err != nil {
+		return errors.Wrap(err, "close prop length tracker")
+	}
+
 	return s.store.Shutdown(ctx)
 }

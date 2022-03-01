@@ -90,11 +90,69 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
+	if params.KeywordRanking != nil {
+		return e.getClassKeywordBased(ctx, params)
+	}
+
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return e.getClassExploration(ctx, params)
 	}
 
 	return e.getClassList(ctx, params)
+}
+
+func (e *Explorer) getClassKeywordBased(ctx context.Context,
+	params GetParams) ([]interface{}, error) {
+	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
+		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
+	}
+
+	if params.Filters != nil {
+		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
+	}
+
+	if len(params.KeywordRanking.Properties) == 0 {
+		return nil, errors.Errorf("keyword search (bm25) requires exactly one property")
+	}
+
+	if len(params.KeywordRanking.Properties) > 1 {
+		return nil, errors.Errorf("multi-property keyword search (BM25F) not supported yet")
+	}
+
+	if len(params.KeywordRanking.Query) == 0 {
+		return nil, errors.Errorf("keyword search (bm25) must have query set")
+	}
+
+	if len(params.AdditionalProperties.ModuleParams) > 0 {
+		// if a module-specific additional prop is set, assume it needs the vector
+		// present for backward-compatibility. This could be improved by actually
+		// asking the module based on specific conditions
+		params.AdditionalProperties.Vector = true
+	}
+
+	res, err := e.search.ClassSearch(ctx, params)
+	if err != nil {
+		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+	}
+
+	if params.Group != nil {
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
+		if err != nil {
+			return nil, errors.Errorf("grouper: %v", err)
+		}
+
+		res = grouped
+	}
+
+	if e.modulesProvider != nil {
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
+			params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
+		if err != nil {
+			return nil, errors.Errorf("explorer: get class: extend: %v", err)
+		}
+	}
+
+	return e.searchResultsToGetResponse(ctx, res, nil, params)
 }
 
 func (e *Explorer) getClassExploration(ctx context.Context,

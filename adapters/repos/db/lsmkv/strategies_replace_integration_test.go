@@ -57,6 +57,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			err = b.Put(key3, orig3)
 			require.Nil(t, err)
 
+			assert.Equal(t, 3, b.Count())
+
 			res, err := b.Get(key1)
 			require.Nil(t, err)
 			assert.Equal(t, res, orig1)
@@ -80,6 +82,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
+
+			assert.Equal(t, 3, b.Count())
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
@@ -130,6 +134,10 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, b.FlushAndSwitch())
 		})
 
+		t.Run("count only objects on disk segment", func(t *testing.T) {
+			assert.Equal(t, 3, b.Count())
+		})
+
 		t.Run("replace some, keep one", func(t *testing.T) {
 			key1 := []byte("key-1")
 			key2 := []byte("key-2")
@@ -142,6 +150,9 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			err = b.Put(key3, replaced3)
 			require.Nil(t, err)
+
+			// make sure that the updates aren't counted as additions
+			assert.Equal(t, 3, b.Count())
 
 			res, err := b.Get(key1)
 			require.Nil(t, err)
@@ -218,6 +229,10 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
 		})
+
+		t.Run("count objects over several segments", func(t *testing.T) {
+			assert.Equal(t, 3, b.Count())
+		})
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
@@ -291,6 +306,9 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 			res, err = b2.Get(key3)
 			require.Nil(t, err)
 			assert.Equal(t, res, replaced3)
+
+			// count objects over several segments after disk read
+			assert.Equal(t, 3, b2.Count())
 		})
 	})
 }
@@ -650,6 +668,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			require.Nil(t, err)
 			assert.Nil(t, res)
 		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
+		})
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
@@ -699,6 +721,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			res, err = b.Get(key3)
 			require.Nil(t, err)
 			assert.Nil(t, res)
+		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
 		})
 	})
 
@@ -752,6 +778,10 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 			res, err = b.Get(key3)
 			require.Nil(t, err)
 			assert.Nil(t, res)
+		})
+
+		t.Run("count objects", func(t *testing.T) {
+			assert.Equal(t, 1, b.Count())
 		})
 	})
 }
