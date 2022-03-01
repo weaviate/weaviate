@@ -59,7 +59,7 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 				return err
 			}
 		} else {
-			hash, err = pv.hashForNonEqualOp(s.store, b)
+			hash, err = pv.hashForNonEqualOp(s.store, b, s.shardVersion)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 }
 
 func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
-	hashBucket *lsmkv.Bucket) ([]byte, error) {
+	hashBucket *lsmkv.Bucket, shardVersion uint16) ([]byte, error) {
 	bucketName := helpers.BucketFromPropNameLSM(pv.prop)
 	propBucket := store.Bucket(bucketName)
 	if propBucket == nil && pv.operator != filters.OperatorWithinGeoRange {
@@ -92,7 +92,7 @@ func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	}
 
 	if pv.hasFrequency {
-		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket)
+		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket, shardVersion)
 	}
 	return pv.hashForNonEqualOpWithoutFrequency(propBucket, hashBucket)
 }
@@ -122,8 +122,8 @@ func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
 }
 
 func (pv *propValuePair) hashForNonEqualOpWithFrequency(propBucket,
-	hashBucket *lsmkv.Bucket) ([]byte, error) {
-	rr := NewRowReaderFrequency(propBucket, pv.value, pv.operator, true)
+	hashBucket *lsmkv.Bucket, shardVersion uint16) ([]byte, error) {
+	rr := NewRowReaderFrequency(propBucket, pv.value, pv.operator, true, shardVersion)
 
 	var keys [][]byte
 	if err := rr.Read(context.TODO(), func(k []byte, ids []lsmkv.MapPair) (bool, error) {

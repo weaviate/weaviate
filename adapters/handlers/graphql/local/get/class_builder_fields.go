@@ -14,6 +14,7 @@ package get
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -218,6 +219,11 @@ func buildGetClassField(classObject *graphql.Object,
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
+	// hacky way to temporarily check feature flag
+	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
+		field.Args["bm25"] = bm25Argument(class.Class)
+	}
+
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
 			field.Args[name] = argument
@@ -333,6 +339,12 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			nearObjectParams = &p
 		}
 
+		var keywordRankingParams *traverser.KeywordRankingParams
+		if bm25, ok := p.Args["bm25"]; ok {
+			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
+			keywordRankingParams = &p
+		}
+
 		var moduleParams map[string]interface{}
 		if r.modulesProvider != nil {
 			extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
@@ -353,6 +365,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			Group:                group,
 			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
+			KeywordRanking:       keywordRankingParams,
 		}
 
 		return func() (interface{}, error) {

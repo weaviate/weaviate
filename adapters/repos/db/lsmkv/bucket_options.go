@@ -42,6 +42,13 @@ func WithSecondaryIndicies(count uint16) BucketOption {
 	}
 }
 
+func WithLegacyMapSorting() BucketOption {
+	return func(b *Bucket) error {
+		b.legacyMapSortingBeforeCompaction = true
+		return nil
+	}
+}
+
 type secondaryIndexKeys [][]byte
 
 type SecondaryKeyOption func(s secondaryIndexKeys) error

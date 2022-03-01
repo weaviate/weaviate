@@ -35,5 +35,5 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
 	}
 
-	return inverted.NewAnalyzer().Object(schemaMap, c.Properties, object.ID())
+	return inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())
 }

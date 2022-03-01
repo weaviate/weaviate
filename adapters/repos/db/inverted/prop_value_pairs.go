@@ -119,9 +119,9 @@ func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, e
 	found := map[uint64]uint64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count := found[pointer.id]
+			count := found[pointer]
 			count++
-			found[pointer.id] = count
+			found[pointer] = count
 		}
 	}
 
@@ -135,9 +135,7 @@ func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, e
 		// TODO: optimize to use fixed length slice and cut off (should be
 		// considerably cheaper on very long lists, such as we encounter during
 		// large classification cases
-		out.docIDs = append(out.docIDs, docPointer{
-			id: id,
-		})
+		out.docIDs = append(out.docIDs, id)
 		idsForChecksum = append(idsForChecksum, id)
 	}
 
@@ -178,20 +176,16 @@ func mergeOr(children []*propValuePair, acceptDuplicates bool) (*docPointers, er
 	found := map[uint64]uint64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count := found[pointer.id]
+			count := found[pointer]
 			count++
-			found[pointer.id] = count
+			found[pointer] = count
 		}
 		checksums = append(checksums, set.checksum)
 	}
 
 	var out docPointers
 	for id := range found {
-		// TODO: improve score if item was contained more often
-
-		out.docIDs = append(out.docIDs, docPointer{
-			id: id,
-		})
+		out.docIDs = append(out.docIDs, id)
 	}
 
 	out.checksum = combineChecksums(checksums, filters.OperatorOr)

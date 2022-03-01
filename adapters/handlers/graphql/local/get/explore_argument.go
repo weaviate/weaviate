@@ -72,3 +72,28 @@ func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
 		},
 	}
 }
+
+func bm25Argument(className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", className)
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:   fmt.Sprintf("%sBm25InpObj", prefix),
+				Fields: bm25Fields(prefix),
+			},
+		),
+	}
+}
+
+func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"query": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.ID,
+			Type: graphql.String,
+		},
+		"properties": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Beacon,
+			Type: graphql.NewList(graphql.String),
+		},
+	}
+}
