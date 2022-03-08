@@ -66,6 +66,27 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
+
+		createObjectClass(t, &models.Class{
+			Class:      "TestDeleteClassOne",
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: []string{"text"},
+				},
+			},
+		})
+		createObjectClass(t, &models.Class{
+			Class:      "TestDeleteClassTwo",
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: []string{"text"},
+				},
+			},
+		})
 	})
 
 	// tests
@@ -77,10 +98,13 @@ func Test_Objects(t *testing.T) {
 	t.Run("custom vector journey", customVectors)
 	t.Run("auto schema", autoSchemaObjects)
 	t.Run("checking object's existence", checkObjects)
+	t.Run("delete request deletes all objects with a given ID", deleteAllObjectsFromAllClasses)
 	// tear down
 	deleteObjectClass(t, "TestObject")
 	deleteObjectClass(t, "TestObjectCustomVector")
 	deleteObjectClass(t, "NonExistingClass")
+	deleteObjectClass(t, "TestDeleteClassOne")
+	deleteObjectClass(t, "TestDeleteClassTwo")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
