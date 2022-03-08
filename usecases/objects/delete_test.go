@@ -34,6 +34,7 @@ func Test_Delete_Action(t *testing.T) {
 		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyAction",
 		}, nil).Once()
+		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
 		schemaManager := &fakeSchemaManager{}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
@@ -70,6 +71,7 @@ func Test_Delete_Thing(t *testing.T) {
 		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyThing",
 		}, nil).Once()
+		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
 		schemaManager := &fakeSchemaManager{}
 		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}

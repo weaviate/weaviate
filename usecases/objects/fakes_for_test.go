@@ -145,7 +145,10 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id, props, additional)
-	return args.Get(0).(*search.Result), args.Error(1)
+	if args.Get(0) != nil {
+		return args.Get(0).(*search.Result), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int,
