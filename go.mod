@@ -12,7 +12,7 @@ require (
 	github.com/globalsign/mgo v0.0.0-20181015135952-eeefdecb41b8 // indirect
 	github.com/go-openapi/errors v0.20.2
 	github.com/go-openapi/loads v0.21.1
-	github.com/go-openapi/runtime v0.23.1
+	github.com/go-openapi/runtime v0.23.2
 	github.com/go-openapi/spec v0.20.4
 	github.com/go-openapi/strfmt v0.21.2
 	github.com/go-openapi/swag v0.21.1
@@ -45,7 +45,7 @@ require (
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c // indirect
 	github.com/xdg/stringprep v0.0.0-20180714160509-73f8eece6fdc // indirect
 	go.etcd.io/bbolt v1.3.5
-	go.mongodb.org/mongo-driver v1.8.3 // indirect
+	go.mongodb.org/mongo-driver v1.8.4 // indirect
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
