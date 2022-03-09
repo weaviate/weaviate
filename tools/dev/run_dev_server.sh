@@ -215,6 +215,20 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-no-modules)
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=none \
+      PERSISTENCE_DATA_PATH="./data" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=3600s \
+        --write-timeout=3600s
+    ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1
