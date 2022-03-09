@@ -14,7 +14,9 @@
 package get
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql/language/ast"
@@ -292,6 +294,9 @@ func TestExtractAdditionalFields(t *testing.T) {
 		expectedResult interface{}
 	}
 
+	// To facilitate testing timestamps
+	nowString := fmt.Sprint(time.Now().UnixNano() / int64(time.Millisecond))
+
 	tests := []test{
 		test{
 			name:  "with _additional certainty",
@@ -334,6 +339,50 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedResult: map[string]interface{}{
 				"_additional": map[string]interface{}{
 					"vector": []interface{}{float32(0.1), float32(-0.3)},
+				},
+			},
+		},
+		test{
+			name:  "with _additional creationTimeUnix",
+			query: "{ Get { SomeAction { _additional { creationTimeUnix } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					CreationTimeUnix: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"creationTimeUnix": nowString,
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"creationTimeUnix": nowString,
+				},
+			},
+		},
+		test{
+			name:  "with _additional lastUpdateTimeUnix",
+			query: "{ Get { SomeAction { _additional { lastUpdateTimeUnix } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					LastUpdateTimeUnix: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"lastUpdateTimeUnix": nowString,
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"lastUpdateTimeUnix": nowString,
 				},
 			},
 		},
