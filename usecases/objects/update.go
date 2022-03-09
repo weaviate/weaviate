@@ -62,6 +62,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
+	// Set the original creation timestamp before call to put,
+	// otherwise it is lost. This is because `class` is unmarshaled
+	// directly from the request body, therefore `CreationTimeUnix`
+	// inherits the zero value.
+	class.CreationTimeUnix = originalObject.Created
 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorizeAndPutObject(ctx, class, principal)

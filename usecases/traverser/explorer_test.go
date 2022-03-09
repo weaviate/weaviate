@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -593,6 +594,106 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Foo",
 					"_additional": map[string]interface{}{
 						"vector": []float32{0.1, -0.3},
+					},
+				}, res[0])
+		})
+	})
+
+	t.Run("when the creationTimeUnix _additional prop is set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: additional.Properties{
+				CreationTimeUnix: true,
+			},
+		}
+
+		now := time.Now().UnixNano() / int64(time.Millisecond)
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				Created: now,
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		search.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain creationTimeUnix", func(t *testing.T) {
+			require.Len(t, res, 1)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"creationTimeUnix": now,
+					},
+				}, res[0])
+		})
+	})
+
+	t.Run("when the lastUpdateTimeUnix _additional prop is set", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			AdditionalProperties: additional.Properties{
+				LastUpdateTimeUnix: true,
+			},
+		}
+
+		now := time.Now().UnixNano() / int64(time.Millisecond)
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				Updated: now,
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		search.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain lastUpdateTimeUnix", func(t *testing.T) {
+			require.Len(t, res, 1)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"lastUpdateTimeUnix": now,
 					},
 				}, res[0])
 		})
