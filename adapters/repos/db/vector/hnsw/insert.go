@@ -55,6 +55,11 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		return err
 	}
 
+	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	if err != nil {
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+	}
+
 	h.nodes[node.id] = node
 
 	// go h.insertHook(node.id, 0, node.connections)
