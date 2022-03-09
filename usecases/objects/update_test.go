@@ -19,7 +19,7 @@ import (
 
 func Test_UpdateAction(t *testing.T) {
 	var (
-		vectorRepo    *fakeVectorRepo
+		db            *fakeVectorRepo
 		vectorizer    *fakeVectorizer
 		manager       *Manager
 		extender      *fakeExtender
@@ -44,7 +44,7 @@ func Test_UpdateAction(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		db = &fakeVectorRepo{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -59,7 +59,7 @@ func Test_UpdateAction(t *testing.T) {
 		vectorizer = &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
+			vecProvider, db, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
@@ -76,16 +76,16 @@ func Test_UpdateAction(t *testing.T) {
 			Created:   beforeUpdate,
 			Updated:   beforeUpdate,
 		}
-		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil)
-		vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil)
+		db.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil).Once()
+		db.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 
 		payload := &models.Object{
 			Class:      "ActionClass",
 			ID:         id,
 			Properties: map[string]interface{}{"foo": "baz"},
 		}
-		res, err := manager.updateObjectToConnectorAndSchema(context.Background(), &models.Principal{}, id, payload)
+		res, err := manager.UpdateObject(context.Background(), &models.Principal{}, id, payload)
 		require.Nil(t, err)
 		expected := &models.Object{
 			Class:            "ActionClass",
