@@ -100,7 +100,7 @@ func Test_UpdateAction(t *testing.T) {
 		assert.Equal(t, expected.ID, res.ID)
 		assert.Equal(t, expected.Properties, res.Properties)
 		assert.Equal(t, expected.CreationTimeUnix, res.CreationTimeUnix)
-		assert.Greater(t, res.LastUpdateTimeUnix, beforeUpdate)
+		assert.GreaterOrEqual(t, res.LastUpdateTimeUnix, beforeUpdate)
 		assert.LessOrEqual(t, res.LastUpdateTimeUnix, afterUpdate)
 	})
 }
