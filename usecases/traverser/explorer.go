@@ -260,6 +260,14 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["vector"] = res.Vector
 		}
 
+		if params.AdditionalProperties.CreationTimeUnix {
+			additionalProperties["creationTimeUnix"] = res.Created
+		}
+
+		if params.AdditionalProperties.LastUpdateTimeUnix {
+			additionalProperties["lastUpdateTimeUnix"] = res.Updated
+		}
+
 		if len(additionalProperties) > 0 {
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
