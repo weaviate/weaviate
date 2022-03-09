@@ -126,6 +126,8 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
+	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
+	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	// module specific additional properties
 	if b.modulesProvider != nil {
 		for name, field := range b.modulesProvider.GetAdditionalFields(class) {
@@ -171,5 +173,17 @@ func (b *classBuilder) additionalCertaintyField(class *models.Class) *graphql.Fi
 func (b *classBuilder) additionalVectorField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewList(graphql.Float),
+	}
+}
+
+func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
+	}
+}
+
+func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
 	}
 }
