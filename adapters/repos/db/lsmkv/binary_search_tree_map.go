@@ -57,7 +57,6 @@ type binarySearchNodeMap struct {
 
 func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) {
 	if bytes.Equal(key, n.key) {
-		// n.values = insertSorted(n.values, pair)
 		n.values = append(n.values, pair)
 		return
 	}
