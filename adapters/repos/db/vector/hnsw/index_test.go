@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -20,22 +21,7 @@ import (
 )
 
 func TestHnswIndex(t *testing.T) {
-	// mock out commit logger before adding data so we don't leave a disk
-	// footprint. Commit logging and deserializing from a (condensed) commit log
-	// is tested in a separate integration test that takes care of providing and
-	// cleaning up the correct place on disk to write test files
-	makeCL := MakeNoopCommitLogger
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "unittest",
-		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
-		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 60,
-	})
-	require.Nil(t, err)
+	index := createEmptyHnswIndexForTests(t, testVectorForID)
 
 	for i, vec := range testVectors {
 		err := index.Add(uint64(i), vec)
@@ -73,4 +59,42 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
+}
+
+func TestHnswIndexGrow(t *testing.T) {
+	vector := []float32{0.1, 0.2}
+	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		return vector, nil
+	}
+	index := createEmptyHnswIndexForTests(t, vecForIDFn)
+
+	t.Run("should grow initial empty index", func(t *testing.T) {
+		// when we invoke Add method suggesting a size bigger then the default
+		// initial size, then if we don't grow an index at initial state
+		// we get: panic: runtime error: index out of range [25001] with length 25000
+		// in order to avoid this, insertInitialElement method is now able
+		// to grow it's size at initial state
+		err := index.Add(uint64(initialSize+1), vector)
+		require.Nil(t, err)
+	})
+}
+
+func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
+	// mock out commit logger before adding data so we don't leave a disk
+	// footprint. Commit logging and deserializing from a (condensed) commit log
+	// is tested in a separate integration test that takes care of providing and
+	// cleaning up the correct place on disk to write test files
+	makeCL := MakeNoopCommitLogger
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: makeCL,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      vecForIDFn,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+	})
+	require.Nil(t, err)
+	return index
 }
