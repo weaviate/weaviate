@@ -37,6 +37,7 @@ type Bucket struct {
 	flushLock sync.RWMutex
 
 	memTableThreshold uint64
+	walThreshold      uint64
 	strategy          string
 	secondaryIndices  uint16
 
@@ -48,7 +49,8 @@ type Bucket struct {
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	opts ...BucketOption) (*Bucket, error) {
-	defaultThreshold := uint64(10 * 1024 * 1024)
+	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
+	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -57,7 +59,8 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 
 	b := &Bucket{
 		dir:               dir,
-		memTableThreshold: defaultThreshold,
+		memTableThreshold: defaultMemTableThreshold,
+		walThreshold:      defaultWalThreshold,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
@@ -468,7 +471,20 @@ func (b *Bucket) initFlushCycle() {
 				return
 			case <-t:
 				b.flushLock.Lock()
-				shouldSwitch := b.active.Size() >= b.memTableThreshold
+
+				// to check the current size of the WAL to
+				// see if the threshold has been reached
+				stat, err := b.active.commitlog.file.Stat()
+				if err != nil {
+					b.logger.WithField("action", "lsm_wal_stat").
+						WithField("path", b.dir).
+						WithError(err).
+						Fatal("flush and switch failed")
+				}
+
+				shouldSwitch := b.active.Size() >= b.memTableThreshold ||
+					uint64(stat.Size()) >= b.walThreshold
+
 				b.flushLock.Unlock()
 				if shouldSwitch {
 					if err := b.FlushAndSwitch(); err != nil {
