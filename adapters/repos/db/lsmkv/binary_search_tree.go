@@ -17,17 +17,18 @@ type binarySearchTree struct {
 	root *binarySearchNode
 }
 
-func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) {
+// returns net additions of insert in bytes
+func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int {
 	if t.root == nil {
 		t.root = &binarySearchNode{
 			key:           key,
 			value:         value,
 			secondaryKeys: secondaryKeys,
 		}
-		return
+		return len(key) + len(value)
 	}
 
-	t.root.insert(key, value, secondaryKeys)
+	return t.root.insert(key, value, secondaryKeys)
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -88,20 +89,30 @@ type binarySearchNode struct {
 	tombstone     bool
 }
 
+// returns net additions of insert in bytes
 func (n *binarySearchNode) insert(key, value []byte,
-	secondaryKeys [][]byte) {
+	secondaryKeys [][]byte) (netAdditions int) {
 	if bytes.Equal(key, n.key) {
+		// since the key already exists, we only need to take the difference
+		// between the existing value and the new one to determine net change
+		netAdditions = len(n.value) - len(value)
+		if netAdditions < 0 {
+			netAdditions *= -1
+		}
+
+		// assign new value to node
 		n.value = value
-		n.secondaryKeys = secondaryKeys
 
 		// reset tombstone in case it had one
 		n.tombstone = false
+		n.secondaryKeys = secondaryKeys
+
 		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, value, secondaryKeys)
+			netAdditions = n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
@@ -109,11 +120,12 @@ func (n *binarySearchNode) insert(key, value []byte,
 				value:         value,
 				secondaryKeys: secondaryKeys,
 			}
+			netAdditions = len(key) + len(value)
 			return
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, value, secondaryKeys)
+			netAdditions = n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{
@@ -121,6 +133,7 @@ func (n *binarySearchNode) insert(key, value []byte,
 				value:         value,
 				secondaryKeys: secondaryKeys,
 			}
+			netAdditions = len(key) + len(value)
 			return
 		}
 	}
