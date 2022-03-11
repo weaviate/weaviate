@@ -164,9 +164,9 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 		// give the bucket time to fill up beyond threshold
 		time.Sleep(time.Millisecond)
 
-		if !isSizeWithinTolerance(t, bucket.active.size, memtableThreshold, tolerance) {
+		if !isSizeWithinTolerance(t, bucket.active.Size(), memtableThreshold, tolerance) {
 			t.Fatalf("memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
-				bucket.active.size, memtableThreshold, tolerance)
+				bucket.active.Size(), memtableThreshold, tolerance)
 		} else {
 			done <- true
 		}
