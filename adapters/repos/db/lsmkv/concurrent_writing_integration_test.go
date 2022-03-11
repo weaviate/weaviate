@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This test continiuously writes into a bucket with a small memtable threshold,
+// This test continuously writes into a bucket with a small memtable threshold,
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Replace(t *testing.T) {
@@ -126,7 +126,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 	require.Nil(t, bucket.Shutdown(ctx))
 }
 
-// This test continiuously writes into a bucket with a small memtable threshold,
+// This test continuously writes into a bucket with a small memtable threshold,
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Set(t *testing.T) {
@@ -220,7 +220,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 	require.Nil(t, bucket.Shutdown(ctx))
 }
 
-// This test continiuously writes into a bucket with a small memtable threshold,
+// This test continuously writes into a bucket with a small memtable threshold,
 // so that a lot of flushing is happening while writing. This is to ensure that
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Map(t *testing.T) {
