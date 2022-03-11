@@ -120,7 +120,7 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 
 	// the values are sorted on read for performance reasons, the assumption is
 	// that while a memtable is open writes a much more common, thus we write map
-	// KVs unosrted and only sort/dedup them on read.
+	// KVs unsorted and only sort/dedup them on read.
 	n.values = sortAndDedupValues(n.values)
 
 	right = append([]*binarySearchNodeMap{n}, right...)
@@ -128,7 +128,7 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 }
 
 // takes a list of MapPair and sorts it while keeping the original order. Then
-// removes redundnancies (from updates or deletes after previous inserts) using
+// removes redundancies (from updates or deletes after previous inserts) using
 // a simple deduplication process.
 func sortAndDedupValues(in []MapPair) []MapPair {
 	// use SliceStable so that we keep the insert order on duplicates. This is
