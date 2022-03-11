@@ -131,9 +131,8 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	l.key.insert(key, value, secondaryKeys)
-	l.size += uint64(len(key))
-	l.size += uint64(len(value))
+	netAdditions := l.key.insert(key, value, secondaryKeys)
+	l.size += uint64(netAdditions)
 
 	for i, sec := range secondaryKeys {
 		l.secondaryToPrimary[i][string(sec)] = key
