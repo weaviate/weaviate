@@ -29,9 +29,9 @@ func (s *segment) newCursor() *segmentCursorReplace {
 }
 
 func (s *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
+	s.maintenanceLock.RLock()
 	out := make([]innerCursorReplace, len(s.segments))
 
-	s.maintenanceLock.RLock()
 	for i, segment := range s.segments {
 		out[i] = segment.newCursor()
 	}
