@@ -84,7 +84,6 @@ func (m *Manager) ShardingState(className string) *sharding.State {
 
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
 	className string) (models.ShardStatusList, error) {
-
 	err := m.authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err

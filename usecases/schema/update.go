@@ -158,7 +158,6 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 
 func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
 	className, shardName, targetStatus string) error {
-
 	err := m.authorizer.Authorize(principal, "update",
 		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
 	if err != nil {

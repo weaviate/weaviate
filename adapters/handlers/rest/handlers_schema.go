@@ -135,7 +135,6 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal) middleware.Responder {
-
 	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
@@ -155,7 +154,6 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 
 func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
 	principal *models.Principal) middleware.Responder {
-
 	err := s.manager.UpdateShardStatus(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
 	if err != nil {
