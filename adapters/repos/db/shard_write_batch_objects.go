@@ -25,6 +25,10 @@ import (
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context,
 	objects []*storobj.Object) []error {
+	if s.isReadOnly() {
+		return []error{ErrShardReadOnly}
+	}
+
 	return newObjectsBatcher(s).Objects(ctx, objects)
 }
 

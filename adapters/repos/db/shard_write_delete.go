@@ -22,6 +22,10 @@ import (
 )
 
 func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
