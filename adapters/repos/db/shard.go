@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -51,6 +52,9 @@ type Shard struct {
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
+
+	status     string
+	statusLock *sync.Mutex
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
@@ -69,6 +73,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),
 		randomSource:  rand,
+		statusLock:    &sync.Mutex{},
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -128,6 +133,9 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
+
+	// Set the newly created shard to "READY"
+	s.initStatus()
 
 	return s, nil
 }

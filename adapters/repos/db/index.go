@@ -867,7 +867,7 @@ func (i *Index) drop() error {
 		AllPhysicalShards() {
 		shard, ok := i.Shards[name]
 		if !ok {
-			// skip non-local, but do delete evertying that exists - even if it
+			// skip non-local, but do delete everything that exists - even if it
 			// shouldn't
 			continue
 		}
@@ -888,4 +888,23 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (i *Index) getShardsStatus() map[string]string {
+	shardsStatus := make(map[string]string)
+
+	for _, shard := range i.Shards {
+		shardsStatus[shard.name] = shard.getStatus()
+	}
+
+	return shardsStatus
+}
+
+func (i *Index) updateShardStatus(shardName, targetStatus string) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %s does not exist locally", shardName)
+	}
+
+	return shard.updateStatus(targetStatus)
 }
