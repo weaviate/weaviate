@@ -35,6 +35,6 @@ func SegmentStrategyFromString(in string) SegmentStrategy {
 	case StrategyMapCollection:
 		return SegmentStrategyMapCollection
 	default:
-		panic("unsupport strategy")
+		panic("unsupported strategy")
 	}
 }

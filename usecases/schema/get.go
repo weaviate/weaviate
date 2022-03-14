@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -79,4 +80,29 @@ func (m *Manager) getClassByName(name string) *models.Class {
 
 func (m *Manager) ShardingState(className string) *sharding.State {
 	return m.state.ShardingState[className]
+}
+
+func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
+	className string) (models.ShardStatusList, error) {
+
+	err := m.authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
+	if err != nil {
+		return nil, err
+	}
+
+	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := models.ShardStatusList{}
+
+	for name, status := range shardsStatus {
+		resp = append(resp, &models.ShardStatusGetResponse{
+			Name:   name,
+			Status: status,
+		})
+	}
+
+	return resp, nil
 }
