@@ -12,6 +12,7 @@
 package db
 
 import (
+	"strings"
 	"sync"
 	"testing"
 
@@ -57,11 +58,22 @@ func TestShardsStatus_Get_Update(t *testing.T) {
 	})
 
 	t.Run("update status success", func(t *testing.T) {
-		err := s.updateStatus(ShardStatusReadOnly)
-		require.Nil(t, err)
+		status := []string{
+			"ReadOnly",
+			"readonly",
+			"READy",
+			"ready",
+			ShardStatusReady,
+			ShardStatusReadOnly,
+		}
 
-		status := s.getStatus()
-		require.Equal(t, ShardStatusReadOnly, status)
+		for _, st := range status {
+			err := s.updateStatus(st)
+			require.Nil(t, err)
+
+			status := s.getStatus()
+			require.Equal(t, strings.ToUpper(st), status)
+		}
 	})
 
 	t.Run("update status failure", func(t *testing.T) {

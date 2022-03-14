@@ -11,11 +11,19 @@
 
 package db
 
-import "github.com/pkg/errors"
+import (
+	"strings"
+
+	"github.com/pkg/errors"
+)
 
 const (
 	ShardStatusReadOnly = "READONLY"
 	ShardStatusReady    = "READY"
+)
+
+var (
+	ErrShardReadOnly = errors.New("shard is read-only")
 )
 
 func (s *Shard) initStatus() {
@@ -32,12 +40,18 @@ func (s *Shard) getStatus() string {
 	return s.status
 }
 
-func (s *Shard) updateStatus(targetStatus string) error {
+func (s *Shard) isReadOnly() bool {
+	return s.getStatus() == ShardStatusReadOnly
+}
+
+func (s *Shard) updateStatus(in string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	targetStatus := strings.ToUpper(in)
+
 	if !isValidShardStatus(targetStatus) {
-		return errors.Errorf("'%s' is not a valid shard status", targetStatus)
+		return errors.Errorf("'%s' is not a valid shard status", in)
 	}
 
 	s.status = targetStatus

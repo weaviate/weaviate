@@ -25,6 +25,10 @@ import (
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err

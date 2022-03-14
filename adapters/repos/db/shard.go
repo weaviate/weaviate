@@ -172,6 +172,10 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 }
 
 func (s *Shard) drop() error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
@@ -220,6 +224,10 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
@@ -238,6 +246,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
@@ -285,6 +297,10 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
+	if s.isReadOnly() {
+		return ErrShardReadOnly
+	}
+
 	return s.vectorIndex.UpdateUserConfig(updated)
 }
 

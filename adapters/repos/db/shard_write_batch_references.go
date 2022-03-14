@@ -28,6 +28,10 @@ import (
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) addReferencesBatch(ctx context.Context,
 	refs objects.BatchReferences) []error {
+	if s.isReadOnly() {
+		return []error{errors.Errorf("shard is read-only")}
+	}
+
 	return newReferencesBatcher(s).References(ctx, refs)
 }
 
