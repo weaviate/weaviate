@@ -77,7 +77,7 @@ func NewSchemaObjectsGetOK() *SchemaObjectsGetOK {
 
 /*SchemaObjectsGetOK handles this case with default header values.
 
-Class was updated successfully
+Found the Class, returned as body
 */
 type SchemaObjectsGetOK struct {
 	Payload *models.Class
