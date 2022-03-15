@@ -266,7 +266,7 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 	h.addTombstone(docID)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
-		Info("found a deleted node (%d) without a tombstone, "+
+		Infof("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
 }
 

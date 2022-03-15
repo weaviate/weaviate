@@ -55,7 +55,7 @@ type Shard struct {
 	versioner        *shardVersioner
 
 	status     storagestate.Status
-	statusLock *sync.Mutex
+	statusLock sync.Mutex
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
@@ -74,7 +74,6 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),
 		randomSource:  rand,
-		statusLock:    &sync.Mutex{},
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)

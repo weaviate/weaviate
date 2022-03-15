@@ -51,6 +51,6 @@ func (s *Shard) updateStatus(in string) error {
 	return nil
 }
 
-func (s Shard) updateStoreStatus(targetStatus storagestate.Status) {
+func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) {
 	s.store.UpdateBucketsStatus(targetStatus)
 }

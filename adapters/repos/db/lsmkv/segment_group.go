@@ -44,7 +44,7 @@ type SegmentGroup struct {
 	mapRequiresSorting bool
 
 	status     storagestate.Status
-	statusLock *sync.Mutex
+	statusLock sync.Mutex
 }
 
 func newSegmentGroup(dir string,
@@ -61,7 +61,6 @@ func newSegmentGroup(dir string,
 		logger:              logger,
 		stopCompactionCycle: make(chan struct{}),
 		mapRequiresSorting:  mapRequiresSorting,
-		statusLock:          &sync.Mutex{},
 	}
 
 	segmentIndex := 0
