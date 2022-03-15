@@ -87,7 +87,7 @@ before_script:
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
 script: 
-  - ./test/run.sh || travis_terminate 1
+  - travis_wait 15 ./test/run.sh || travis_terminate 1
 services: 
   - docker
 sudo: required
