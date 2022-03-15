@@ -94,6 +94,10 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
+		// give the status time to propagate
+		// before grabbing the baseline below
+		time.Sleep(time.Second)
+
 		// once shard status is set to readonly,
 		// the number of segment files should
 		// not change
@@ -101,6 +105,10 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 		require.Nil(t, err)
 		numSegments := len(entries)
 
+		// if the number of segments remain the
+		// same for 30 seconds, we can be
+		// reasonably sure that the compaction
+		// process was halted
 		for i := 0; i < 30; i++ {
 			entries, err := os.ReadDir(dirName)
 			require.Nil(t, err)
