@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShardStatusValidation(t *testing.T) {
+func TestStatusValidation(t *testing.T) {
 	t.Run("with invalid status", func(t *testing.T) {
 		tests := []string{
 			"READ_ONLY",
@@ -28,9 +28,7 @@ func TestShardStatusValidation(t *testing.T) {
 			expected Status
 		}{
 			{"READONLY", StatusReadOnly},
-			{"readonly", StatusReadOnly},
 			{"READY", StatusReady},
-			{"ready", StatusReady},
 		}
 
 		for _, test := range tests {
