@@ -15,25 +15,17 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-)
-
-const (
-	ShardStatusReadOnly = "READONLY"
-	ShardStatusReady    = "READY"
-)
-
-var (
-	ErrShardReadOnly = errors.New("shard is read-only")
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
 
 func (s *Shard) initStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	s.status = ShardStatusReady
+	s.status = storagestate.StatusReady
 }
 
-func (s *Shard) getStatus() string {
+func (s *Shard) getStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
@@ -41,28 +33,24 @@ func (s *Shard) getStatus() string {
 }
 
 func (s *Shard) isReadOnly() bool {
-	return s.getStatus() == ShardStatusReadOnly
+	return s.getStatus() == storagestate.StatusReadOnly
 }
 
 func (s *Shard) updateStatus(in string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	targetStatus := strings.ToUpper(in)
-
-	if !isValidShardStatus(targetStatus) {
-		return errors.Errorf("'%s' is not a valid shard status", in)
+	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
+	if err != nil {
+		return errors.Wrap(err, in)
 	}
 
 	s.status = targetStatus
+	s.updateStoreStatus(targetStatus)
+
 	return nil
 }
 
-func isValidShardStatus(in string) bool {
-	switch in {
-	case ShardStatusReadOnly, ShardStatusReady:
-		return true
-	default:
-		return false
-	}
+func (s Shard) updateStoreStatus(targetStatus storagestate.Status) {
+	s.store.UpdateBucketsStatus(targetStatus)
 }

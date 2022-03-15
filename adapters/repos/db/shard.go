@@ -31,10 +31,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
-// Shard is the smallest completely-contained index unit. A shard mananages
+// Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
@@ -53,7 +54,7 @@ type Shard struct {
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
 
-	status     string
+	status     storagestate.Status
 	statusLock *sync.Mutex
 }
 
@@ -173,7 +174,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 
 func (s *Shard) drop() error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
@@ -225,7 +226,7 @@ func (s *Shard) drop() error {
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx,
@@ -247,7 +248,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	if schema.IsRefDataType(prop.DataType) {
@@ -298,7 +299,7 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	return s.vectorIndex.UpdateUserConfig(updated)

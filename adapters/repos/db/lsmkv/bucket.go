@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,6 +46,9 @@ type Bucket struct {
 	legacyMapSortingBeforeCompaction bool
 
 	stopFlushCycle chan struct{}
+
+	status     storagestate.Status
+	statusLock *sync.Mutex
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
@@ -64,6 +68,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
+		statusLock:        &sync.Mutex{},
 	}
 
 	for _, opt := range opts {
@@ -487,6 +492,19 @@ func (b *Bucket) initFlushCycle() {
 
 				b.flushLock.Unlock()
 				if shouldSwitch {
+					// If true, the parent shard has indicated that it has
+					// entered an immutable state. During this time, the
+					// bucket should refrain from flushing until its shard
+					// indicates otherwise
+					if b.isReadOnly() {
+						b.logger.WithField("action", "lsm_memtable_flush").
+							WithField("path", b.dir).
+							Warn("flush halted due to shard READONLY status")
+
+						time.Sleep(time.Second)
+						continue
+					}
+
 					if err := b.FlushAndSwitch(); err != nil {
 						b.logger.WithField("action", "lsm_memtable_flush").
 							WithField("path", b.dir).
@@ -497,6 +515,24 @@ func (b *Bucket) initFlushCycle() {
 			}
 		}
 	}()
+}
+
+// UpdateStatus is used by the parent shard to communicate to the bucket
+// when the shard has been set to readonly, or when it is ready for
+// writes.
+func (b *Bucket) UpdateStatus(status storagestate.Status) {
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	b.status = status
+	b.disk.updateStatus(status)
+}
+
+func (b *Bucket) isReadOnly() bool {
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	return b.status == storagestate.StatusReadOnly
 }
 
 // FlushAndSwitch is typically called periodically and does not require manual
