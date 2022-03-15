@@ -489,21 +489,21 @@ func (b *Bucket) initFlushCycle() {
 				shouldSwitch := b.active.Size() >= b.memTableThreshold ||
 					uint64(stat.Size()) >= b.walThreshold
 
+				// If true, the parent shard has indicated that it has
+				// entered an immutable state. During this time, the
+				// bucket should refrain from flushing until its shard
+				// indicates otherwise
+				if shouldSwitch && b.isReadOnly() {
+					b.logger.WithField("action", "lsm_memtable_flush").
+						WithField("path", b.dir).
+						Warn("flush halted due to shard READONLY status")
+
+					time.Sleep(time.Second)
+					continue
+				}
+
 				b.flushLock.Unlock()
 				if shouldSwitch {
-					// If true, the parent shard has indicated that it has
-					// entered an immutable state. During this time, the
-					// bucket should refrain from flushing until its shard
-					// indicates otherwise
-					if b.isReadOnly() {
-						b.logger.WithField("action", "lsm_memtable_flush").
-							WithField("path", b.dir).
-							Warn("flush halted due to shard READONLY status")
-
-						time.Sleep(time.Second)
-						continue
-					}
-
 					if err := b.FlushAndSwitch(); err != nil {
 						b.logger.WithField("action", "lsm_memtable_flush").
 							WithField("path", b.dir).
