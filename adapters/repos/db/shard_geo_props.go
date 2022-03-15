@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/geo"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
@@ -79,7 +80,7 @@ func geoPropID(shardID string, propName string) string {
 func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	status objectInsertStatus) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	for propName, propIndex := range s.propertyIndices {
@@ -106,7 +107,7 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	if status.docIDChanged {
@@ -121,7 +122,7 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	if obj.Properties() == nil {
@@ -151,7 +152,7 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint64) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	if err := index.GeoIndex.Delete(docID); err != nil {

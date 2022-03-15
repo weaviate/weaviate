@@ -18,13 +18,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
-		return ErrShardReadOnly
+		return storagestate.ErrStatusReadOnly
 	}
 
 	idBytes, err := uuid.MustParse(merge.ID.String()).MarshalBinary()

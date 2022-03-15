@@ -235,6 +235,19 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 				return
 			case <-t:
 				if ig.eligbleForCompaction() {
+					// If true, the parent shard has indicated that it has
+					// entered an immutable state. During this time, the
+					// SegmentGroup should refrain from flushing until its
+					// shard indicates otherwise
+					if ig.isReadyOnly() {
+						ig.logger.WithField("action", "lsm_compaction").
+							WithField("path", ig.dir).
+							Warn("compaction halted due to shard READONLY status")
+
+						time.Sleep(time.Second)
+						continue
+					}
+
 					if err := ig.compactOnce(); err != nil {
 						ig.logger.WithField("action", "lsm_compaction").
 							WithField("path", ig.dir).

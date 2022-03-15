@@ -894,7 +894,7 @@ func (i *Index) getShardsStatus() map[string]string {
 	shardsStatus := make(map[string]string)
 
 	for _, shard := range i.Shards {
-		shardsStatus[shard.name] = shard.getStatus()
+		shardsStatus[shard.name] = shard.getStatus().String()
 	}
 
 	return shardsStatus
