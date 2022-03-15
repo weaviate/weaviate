@@ -48,7 +48,7 @@ type Bucket struct {
 	stopFlushCycle chan struct{}
 
 	status     storagestate.Status
-	statusLock sync.Mutex
+	statusLock sync.RWMutex
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
