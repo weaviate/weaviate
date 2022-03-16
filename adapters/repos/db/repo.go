@@ -35,7 +35,16 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 }
 
 func (d *DB) WaitForStartup(ctx context.Context) error {
-	return d.init(ctx)
+	err := d.init(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, idx := range d.indices {
+		idx.notifyReady()
+	}
+
+	return nil
 }
 
 func New(logger logrus.FieldLogger, config Config,
@@ -50,9 +59,11 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath            string
-	QueryLimit          int64
-	QueryMaximumResults int64
+	RootPath                  string
+	QueryLimit                int64
+	QueryMaximumResults       int64
+	DiskUseWarningPercentage  uint64
+	DiskUseReadOnlyPercentage uint64
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

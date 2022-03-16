@@ -311,3 +311,12 @@ func (s *Shard) shutdown(ctx context.Context) error {
 
 	return s.store.Shutdown(ctx)
 }
+
+func (s *Shard) notifyReady() {
+	s.initStatus()
+	s.index.logger.
+		WithField("action", "startup").
+		Debugf("shard=%s is ready", s.name)
+
+	go s.scanDiskUse()
+}

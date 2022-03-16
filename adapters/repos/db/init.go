@@ -46,8 +46,10 @@ func (d *DB) init(ctx context.Context) error {
 			}
 
 			idx, err := NewIndex(ctx, IndexConfig{
-				ClassName: schema.ClassName(class.Class),
-				RootPath:  d.config.RootPath,
+				ClassName:                 schema.ClassName(class.Class),
+				RootPath:                  d.config.RootPath,
+				DiskUseWarningPercentage:  d.config.DiskUseWarningPercentage,
+				DiskUseReadOnlyPercentage: d.config.DiskUseReadOnlyPercentage,
 			}, d.schemaGetter.ShardingState(class.Class), invertedConfig,
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient)
