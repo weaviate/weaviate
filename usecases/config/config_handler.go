@@ -52,6 +52,7 @@ type Config struct {
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
+	DiskUse                 DiskUse        `json:"disk_use" yaml:"disk_use"`
 }
 
 type moduleProvider interface {
@@ -113,6 +114,25 @@ type Persistence struct {
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
 		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	return nil
+}
+
+// TODO: Note the mix of camelCase and snake_case
+type DiskUse struct {
+	WarningPercentage  uint64 `json:"warning_percentage" yaml:"warning_percentage"`
+	ReadOnlyPercentage uint64 `json:"readonly_percentage" yaml:"readonly_percentage"`
+}
+
+// TODO: Does it make sense to allow for setting up to 100%?
+func (d DiskUse) Validate() error {
+	if d.WarningPercentage > 100 {
+		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
+	}
+
+	if d.ReadOnlyPercentage > 100 {
+		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
 	}
 
 	return nil
@@ -184,6 +204,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.AutoSchema.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
+
+	if err := f.Config.DiskUse.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
 	}
 
