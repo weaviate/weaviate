@@ -46,7 +46,7 @@ Weaviate makes it easy to use state-of-the-art ML models while giving you the sc
    <br><sub></sub>
 
 * **Any media type with Weaviate Modules**<br>
-  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your vectors.
+  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for you - or import your own vectors.
 
 * **Combine vector and scalar search**<br>
   Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for third party object storage.
