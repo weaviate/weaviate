@@ -17,7 +17,9 @@ package lsmkv
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -91,7 +93,11 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 
 			for _, entry := range entries {
 				info, err := entry.Info()
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
 				require.Nil(t, err)
+
 				entrySize := info.Size()
 				entryName := info.Name()
 

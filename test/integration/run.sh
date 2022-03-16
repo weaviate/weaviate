@@ -2,6 +2,11 @@
 
 set -e 
 
+echo 'BEGIN TEMP DEBUG ON CI'
+echo 'run stalling test in isolation'
+(cd adapters/repos/db && go test -tags integrationTest -run Halt)
+
+echo 'END TEMP DEBUG ON CI'
 norestart=false
 includeslow=false
 
@@ -25,5 +30,5 @@ else
   echo "Found no --include-slow flag, skipping the slow ones"
 fi
 
-go test -v -count 1 -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
-go test -v -count 1 -race -tags=$tags "$@" ./usecases/classification/...
+go test -count 1 -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
+go test -count 1 -race -tags=$tags "$@" ./usecases/classification/...
