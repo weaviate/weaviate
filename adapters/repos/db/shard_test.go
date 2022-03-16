@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"os"
 	"path"
@@ -64,6 +65,14 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 	values := make([][]byte, amount)
 
 	shd := testShard(context.Background())
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.index.Config.RootPath)
+
 	shd.store.CreateOrLoadBucket(context.Background(), bucketName,
 		lsmkv.WithMemtableThreshold(1024))
 
@@ -114,7 +123,18 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Equal(t, numSegments, len(entries))
+			fmt.Printf("iteration %d, sleeping\n", i)
 			time.Sleep(time.Second)
 		}
 	})
+
+	fmt.Printf("test completed, shutting down bucket\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.Nil(t, bucket.Shutdown(ctx))
+
+	fmt.Printf("shutdown shard\n")
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.Nil(t, shd.shutdown(ctx))
 }
