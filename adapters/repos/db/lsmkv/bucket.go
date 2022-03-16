@@ -498,6 +498,7 @@ func (b *Bucket) initFlushCycle() {
 						WithField("path", b.dir).
 						Warn("flush halted due to shard READONLY status")
 
+					b.flushLock.Unlock()
 					time.Sleep(time.Second)
 					continue
 				}
