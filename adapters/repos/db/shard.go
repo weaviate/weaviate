@@ -134,9 +134,6 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	// Set the newly created shard to "READY"
-	s.initStatus()
-
 	return s, nil
 }
 
