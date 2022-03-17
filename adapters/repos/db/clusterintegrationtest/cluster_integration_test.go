@@ -246,7 +246,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 						Name:        "toFirst",
 						IsPrimitive: false,
 						Refs: []search.SelectClass{
-							search.SelectClass{
+							{
 								ClassName: "Distributed",
 								RefProperties: search.SelectProperties{
 									search.SelectProperty{
@@ -290,7 +290,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		expectedResult := &aggregation.Result{
 			Groups: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: numberOfObjects,
 				},
 			},

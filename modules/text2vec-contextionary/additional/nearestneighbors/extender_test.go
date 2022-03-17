@@ -56,15 +56,15 @@ func TestExtender(t *testing.T) {
 				},
 				"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
 					Neighbors: []*txt2vecmodels.NearestNeighbor{
-						&txt2vecmodels.NearestNeighbor{
+						{
 							Concept:  "word1",
 							Distance: 1,
 						},
-						&txt2vecmodels.NearestNeighbor{
+						{
 							Concept:  "word2",
 							Distance: 2,
 						},
-						&txt2vecmodels.NearestNeighbor{
+						{
 							Concept:  "word3",
 							Distance: 3,
 						},
@@ -80,21 +80,21 @@ func TestExtender(t *testing.T) {
 
 	t.Run("with multiple results", func(t *testing.T) {
 		vectors := [][]float32{
-			[]float32{0.1, 0.2, 0.3},
-			[]float32{0.11, 0.22, 0.33},
-			[]float32{0.111, 0.222, 0.333},
+			{0.1, 0.2, 0.3},
+			{0.11, 0.22, 0.33},
+			{0.111, 0.222, 0.333},
 		}
 
 		testData := []search.Result{
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item1"},
 				Vector: vectors[0],
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item2"},
 				Vector: vectors[1],
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
 				AdditionalProperties: map[string]interface{}{
@@ -106,21 +106,21 @@ func TestExtender(t *testing.T) {
 		}
 
 		expectedResults := []search.Result{
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item1"},
 				Vector: vectors[0],
 				AdditionalProperties: map[string]interface{}{
 					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
 						Neighbors: []*txt2vecmodels.NearestNeighbor{
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word1",
 								Distance: 1,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word2",
 								Distance: 2,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word3",
 								Distance: 3,
 							},
@@ -128,21 +128,21 @@ func TestExtender(t *testing.T) {
 					},
 				},
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item2"},
 				Vector: vectors[1],
 				AdditionalProperties: map[string]interface{}{
 					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
 						Neighbors: []*txt2vecmodels.NearestNeighbor{
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word4",
 								Distance: 0.1,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word5",
 								Distance: 0.2,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word6",
 								Distance: 0.3,
 							},
@@ -150,7 +150,7 @@ func TestExtender(t *testing.T) {
 					},
 				},
 			},
-			search.Result{
+			{
 				Schema: map[string]interface{}{"name": "item3"},
 				Vector: vectors[2],
 				AdditionalProperties: map[string]interface{}{
@@ -159,15 +159,15 @@ func TestExtender(t *testing.T) {
 					},
 					"nearestNeighbors": &txt2vecmodels.NearestNeighbors{
 						Neighbors: []*txt2vecmodels.NearestNeighbor{
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word7",
 								Distance: 1.1,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word8",
 								Distance: 2.2,
 							},
-							&txt2vecmodels.NearestNeighbor{
+							{
 								Concept:  "word9",
 								Distance: 3.3,
 							},
@@ -191,24 +191,24 @@ type fakeContextionary struct {
 func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*txt2vecmodels.NearestNeighbors, error) {
 	f.calledWithVectors = vectors
 	out := []*txt2vecmodels.NearestNeighbors{
-		&txt2vecmodels.NearestNeighbors{
+		{
 			Neighbors: []*txt2vecmodels.NearestNeighbor{
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word1",
 					Distance: 1.0,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word2",
 					Distance: 2.0,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "$THING[abc]",
 					Distance: 9.99,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word3",
 					Distance: 3.0,
 					Vector:   nil,
@@ -216,19 +216,19 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 			},
 		},
 
-		&txt2vecmodels.NearestNeighbors{
+		{
 			Neighbors: []*txt2vecmodels.NearestNeighbor{
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word4",
 					Distance: 0.1,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word5",
 					Distance: 0.2,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word6",
 					Distance: 0.3,
 					Vector:   nil,
@@ -236,19 +236,19 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 			},
 		},
 
-		&txt2vecmodels.NearestNeighbors{
+		{
 			Neighbors: []*txt2vecmodels.NearestNeighbor{
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word7",
 					Distance: 1.1,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word8",
 					Distance: 2.2,
 					Vector:   nil,
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept:  "word9",
 					Distance: 3.3,
 					Vector:   nil,

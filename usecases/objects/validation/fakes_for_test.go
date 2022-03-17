@@ -23,14 +23,14 @@ func testSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class: "Person",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "phone",
 							DataType: []string{"phoneNumber"},
 						},

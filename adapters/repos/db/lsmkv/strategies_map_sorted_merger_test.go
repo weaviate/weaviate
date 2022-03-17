@@ -72,13 +72,13 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 	t.Run("single entry with tombstone over two segments", func(t *testing.T) {
 		m := newSortedMapMerger()
 		input := [][]MapPair{
-			[]MapPair{
+			{
 				{
 					Key:   []byte("hello"),
 					Value: []byte("world"),
 				},
 			},
-			[]MapPair{
+			{
 				{
 					Key:       []byte("hello"),
 					Tombstone: true,
@@ -96,7 +96,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 	t.Run("multiple segments including updates", func(t *testing.T) {
 		m := newSortedMapMerger()
 		input := [][]MapPair{
-			[]MapPair{
+			{
 				{
 					Key:   []byte("a"),
 					Value: []byte("a1"),
@@ -110,7 +110,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 					Value: []byte("e1"),
 				},
 			},
-			[]MapPair{
+			{
 				{
 					Key:   []byte("a"),
 					Value: []byte("a2"),
@@ -124,7 +124,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 					Value: []byte("c2"),
 				},
 			},
-			[]MapPair{
+			{
 				{
 					Key:   []byte("b"),
 					Value: []byte("b3"),
@@ -159,7 +159,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 	t.Run("multiple segments including deletes and re-adds", func(t *testing.T) {
 		m := newSortedMapMerger()
 		input := [][]MapPair{
-			[]MapPair{
+			{
 				{
 					Key:   []byte("a"),
 					Value: []byte("a1"),
@@ -173,7 +173,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 					Value: []byte("e1"),
 				},
 			},
-			[]MapPair{
+			{
 				{
 					Key:   []byte("a"),
 					Value: []byte("a2"),
@@ -187,7 +187,7 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 					Value: []byte("c2"),
 				},
 			},
-			[]MapPair{
+			{
 				{
 					Key:   []byte("b"),
 					Value: []byte("b3"),

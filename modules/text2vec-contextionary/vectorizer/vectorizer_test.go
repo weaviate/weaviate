@@ -32,14 +32,14 @@ func TestVectorizingObjects(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			name: "empty object",
 			input: &models.Object{
 				Class: "Car",
 			},
 			expectedClientCall: []string{"car"},
 		},
-		testCase{
+		{
 			name: "object with one string prop",
 			input: &models.Object{
 				Class: "Car",
@@ -50,7 +50,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"car brand mercedes"},
 		},
 
-		testCase{
+		{
 			name: "object with one non-string prop",
 			input: &models.Object{
 				Class: "Car",
@@ -61,7 +61,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"car"},
 		},
 
-		testCase{
+		{
 			name: "object with a mix of props",
 			input: &models.Object{
 				Class: "Car",
@@ -73,7 +73,7 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			expectedClientCall: []string{"car brand best brand review a very great car"},
 		},
-		testCase{
+		{
 			name:    "with a noindexed property",
 			noindex: "review",
 			input: &models.Object{
@@ -87,7 +87,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"car brand best brand"},
 		},
 
-		testCase{
+		{
 			name:          "with the class name not vectorized",
 			excludedClass: "Car",
 			input: &models.Object{
@@ -101,7 +101,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"brand best brand review a very great car"},
 		},
 
-		testCase{
+		{
 			name:             "with a property name not vectorized",
 			excludedProperty: "review",
 			input: &models.Object{
@@ -115,7 +115,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"car brand best brand a very great car"},
 		},
 
-		testCase{
+		{
 			name:             "with no schema labels vectorized",
 			excludedProperty: "review",
 			excludedClass:    "Car",
@@ -128,7 +128,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"a very great car"},
 		},
 
-		testCase{
+		{
 			name:             "with string/text arrays without propname or classname",
 			excludedProperty: "reviews",
 			excludedClass:    "Car",
@@ -144,7 +144,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"a very great car you should consider buying one"},
 		},
 
-		testCase{
+		{
 			name: "with string/text arrays with propname and classname",
 			input: &models.Object{
 				Class: "Car",
@@ -158,7 +158,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: []string{"car reviews a very great car reviews you should consider buying one"},
 		},
 
-		testCase{
+		{
 			name: "with compound class and prop names",
 			input: &models.Object{
 				Class: "SuperCar",
@@ -205,14 +205,14 @@ func TestVectorizingActions(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			name: "empty object",
 			input: &models.Object{
 				Class: "Flight",
 			},
 			expectedClientCall: []string{"flight"},
 		},
-		testCase{
+		{
 			name: "object with one string prop",
 			input: &models.Object{
 				Class: "Flight",
@@ -223,7 +223,7 @@ func TestVectorizingActions(t *testing.T) {
 			expectedClientCall: []string{"flight brand mercedes"},
 		},
 
-		testCase{
+		{
 			name: "object with one non-string prop",
 			input: &models.Object{
 				Class: "Flight",
@@ -234,7 +234,7 @@ func TestVectorizingActions(t *testing.T) {
 			expectedClientCall: []string{"flight"},
 		},
 
-		testCase{
+		{
 			name: "object with a mix of props",
 			input: &models.Object{
 				Class: "Flight",
@@ -277,22 +277,22 @@ func TestVectorizingSearchTerms(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			name:               "single word",
 			input:              []string{"car"},
 			expectedClientCall: []string{"car"},
 		},
-		testCase{
+		{
 			name:               "multiple entries with multiple words",
 			input:              []string{"car", "car brand"},
 			expectedClientCall: []string{"car", "car brand"},
 		},
-		testCase{
+		{
 			name:               "multiple entries with upper casing",
 			input:              []string{"Car", "Car Brand"},
 			expectedClientCall: []string{"car", "car brand"},
 		},
-		testCase{
+		{
 			name:               "with camel cased words",
 			input:              []string{"Car", "CarBrand"},
 			expectedClientCall: []string{"car", "car brand"},

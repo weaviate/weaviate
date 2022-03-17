@@ -29,27 +29,27 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "testString",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:     "testWholeNumber",
 					DataType: []string{"int"},
 				},
-				&models.Property{
+				{
 					Name:     "testNumber",
 					DataType: []string{"number"},
 				},
-				&models.Property{
+				{
 					Name:     "testDateTime",
 					DataType: []string{"date"},
 				},
-				&models.Property{
+				{
 					Name:     "testTrueFalse",
 					DataType: []string{"boolean"},
 				},
-				&models.Property{
+				{
 					Name:     "testPhoneNumber",
 					DataType: []string{"phoneNumber"},
 				},
@@ -60,7 +60,7 @@ func Test_Objects(t *testing.T) {
 			Class:      "TestObjectCustomVector",
 			Vectorizer: "none",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "description",
 					DataType: []string{"text"},
 				},

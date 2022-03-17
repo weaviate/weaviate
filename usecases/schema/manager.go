@@ -78,9 +78,7 @@ type clusterState interface {
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
-
 	LocalName() string
-
 	NodeCount() int
 }
 
