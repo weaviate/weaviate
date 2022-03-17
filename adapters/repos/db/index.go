@@ -871,7 +871,7 @@ func (i *Index) drop() error {
 			// shouldn't
 			continue
 		}
-		err := shard.drop()
+		err := shard.drop(false)
 		if err != nil {
 			return errors.Wrapf(err, "delete shard %s", shard.ID())
 		}
