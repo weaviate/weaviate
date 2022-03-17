@@ -39,7 +39,7 @@ func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 	placeClass := &models.Class{
 		Class: "ReferenceWaitingTestPlace",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -53,11 +53,11 @@ func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 	cityClass := &models.Class{
 		Class: "ReferenceWaitingTestCity",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.Property{
+			{
 				DataType: []string{"ReferenceWaitingTestPlace"},
 				Name:     "HasPlace",
 			},

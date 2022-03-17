@@ -42,7 +42,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -56,11 +56,11 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.Property{
+			{
 				DataType: []string{"ReferenceTestPlace"},
 				Name:     "HasPlaces",
 			},
@@ -174,7 +174,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -188,11 +188,11 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.Property{
+			{
 				DataType: []string{"ReferenceTestPlace"},
 				Name:     "HasPlaces",
 			},

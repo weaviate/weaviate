@@ -37,60 +37,60 @@ func Test_Schema_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			methodName:       "GetSchema",
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
-		testCase{
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{"classname"},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
-		testCase{
+		{
 			methodName:       "GetShardsStatus",
 			additionalArgs:   []interface{}{"className"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},
-		testCase{
+		{
 			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "UpdateClass",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "DeleteClass",
 			additionalArgs:   []interface{}{"somename"},
 			expectedVerb:     "delete",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "AddClassProperty",
 			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "UpdateShardStatus",
 			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
 			expectedVerb:     "update",

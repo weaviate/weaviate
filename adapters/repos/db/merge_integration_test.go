@@ -55,7 +55,7 @@ func Test_MergingObjects(t *testing.T) {
 	schema := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class:               "MergeTestTarget",
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
@@ -66,7 +66,7 @@ func Test_MergingObjects(t *testing.T) {
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:               "MergeTestSource",
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),

@@ -34,7 +34,7 @@ func TestSkipVectorIndex(t *testing.T) {
 			},
 			Vectorizer: "none",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"text"},
 				},

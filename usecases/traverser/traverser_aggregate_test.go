@@ -40,19 +40,19 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		params := aggregation.Params{
 			ClassName: "MyClass",
 			Properties: []aggregation.ParamProperty{
-				aggregation.ParamProperty{
+				{
 					Name:        "label",
 					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
 				},
-				aggregation.ParamProperty{
+				{
 					Name:        "number",
 					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
 				},
-				aggregation.ParamProperty{
+				{
 					Name:        "int",
 					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
 				},
-				aggregation.ParamProperty{
+				{
 					Name:        "date",
 					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
 				},
@@ -61,12 +61,12 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		agg := aggregation.Result{
 			Groups: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"label": aggregation.Property{
+						"label": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Foo",
 										Occurs: 200,
 									},
@@ -74,10 +74,10 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							},
 							Type: aggregation.PropertyTypeText,
 						},
-						"date": aggregation.Property{
+						"date": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Bar",
 										Occurs: 100,
 									},
@@ -85,13 +85,13 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							},
 							Type: aggregation.PropertyTypeText,
 						},
-						"number": aggregation.Property{
+						"number": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"sum": 200,
 							},
 						},
-						"int": aggregation.Property{
+						"int": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"sum": 100,
@@ -123,35 +123,35 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		params := aggregation.Params{
 			ClassName: "MyClass",
 			Properties: []aggregation.ParamProperty{
-				aggregation.ParamProperty{
+				{
 					Name: "label",
 					Aggregators: []aggregation.Aggregator{
 						aggregation.TypeAggregator,
 						aggregation.NewTopOccurrencesAggregator(nil),
 					},
 				},
-				aggregation.ParamProperty{
+				{
 					Name: "number",
 					Aggregators: []aggregation.Aggregator{
 						aggregation.TypeAggregator,
 						aggregation.SumAggregator,
 					},
 				},
-				aggregation.ParamProperty{
+				{
 					Name: "int",
 					Aggregators: []aggregation.Aggregator{
 						aggregation.TypeAggregator,
 						aggregation.SumAggregator,
 					},
 				},
-				aggregation.ParamProperty{
+				{
 					Name: "date",
 					Aggregators: []aggregation.Aggregator{
 						aggregation.TypeAggregator,
 						aggregation.NewTopOccurrencesAggregator(nil),
 					},
 				},
-				aggregation.ParamProperty{
+				{
 					Name:        "a ref",
 					Aggregators: []aggregation.Aggregator{aggregation.TypeAggregator},
 				},
@@ -160,12 +160,12 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		agg := aggregation.Result{
 			Groups: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"label": aggregation.Property{
+						"label": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Foo",
 										Occurs: 200,
 									},
@@ -173,10 +173,10 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							},
 							Type: aggregation.PropertyTypeText,
 						},
-						"date": aggregation.Property{
+						"date": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Bar",
 										Occurs: 100,
 									},
@@ -184,13 +184,13 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							},
 							Type: aggregation.PropertyTypeText,
 						},
-						"number": aggregation.Property{
+						"number": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"sum": 200,
 							},
 						},
-						"int": aggregation.Property{
+						"int": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"sum": 100,
@@ -203,12 +203,12 @@ func Test_Traverser_Aggregate(t *testing.T) {
 
 		expectedResult := aggregation.Result{
 			Groups: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"label": aggregation.Property{
+						"label": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Foo",
 										Occurs: 200,
 									},
@@ -217,10 +217,10 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							Type:       aggregation.PropertyTypeText,
 							SchemaType: string(schema.DataTypeString),
 						},
-						"date": aggregation.Property{
+						"date": {
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "Bar",
 										Occurs: 100,
 									},
@@ -229,21 +229,21 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							SchemaType: string(schema.DataTypeDate),
 							Type:       aggregation.PropertyTypeText,
 						},
-						"number": aggregation.Property{
+						"number": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: string(schema.DataTypeNumber),
 							NumericalAggregations: map[string]float64{
 								"sum": 200,
 							},
 						},
-						"int": aggregation.Property{
+						"int": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: string(schema.DataTypeInt),
 							NumericalAggregations: map[string]float64{
 								"sum": 100,
 							},
 						},
-						"a ref": aggregation.Property{
+						"a ref": {
 							Type: aggregation.PropertyTypeReference,
 							ReferenceAggregation: aggregation.Reference{
 								PointingTo: []string{"AnotherClass"},
@@ -265,29 +265,29 @@ func Test_Traverser_Aggregate(t *testing.T) {
 var aggregateTestSchema = schema.Schema{
 	Objects: &models.Schema{
 		Classes: []*models.Class{
-			&models.Class{
+			{
 				Class: "AnotherClass",
 			},
-			&models.Class{
+			{
 				Class: "MyClass",
 				Properties: []*models.Property{
-					&models.Property{
+					{
 						Name:     "label",
 						DataType: []string{string(schema.DataTypeString)},
 					},
-					&models.Property{
+					{
 						Name:     "number",
 						DataType: []string{string(schema.DataTypeNumber)},
 					},
-					&models.Property{
+					{
 						Name:     "int",
 						DataType: []string{string(schema.DataTypeInt)},
 					},
-					&models.Property{
+					{
 						Name:     "date",
 						DataType: []string{string(schema.DataTypeDate)},
 					},
-					&models.Property{
+					{
 						Name:     "a ref",
 						DataType: []string{"AnotherClass"},
 					},

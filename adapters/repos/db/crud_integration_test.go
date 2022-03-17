@@ -615,11 +615,11 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("listing multiple things by IDs (MultiGet)", func(t *testing.T) {
 		query := []multi.Identifier{
-			multi.Identifier{
+			{
 				ID:        "be685717-e61e-450d-8d5c-f44f32d0336c", // this id does not exist
 				ClassName: "TheBestThingClass",
 			},
-			multi.Identifier{
+			{
 				ID:        thingID.String(),
 				ClassName: "TheBestThingClass",
 			},

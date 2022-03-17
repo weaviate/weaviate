@@ -19,27 +19,27 @@ type mainCategory struct {
 }
 
 var mainCategories = []mainCategory{
-	mainCategory{
+	{
 		ID:   "51dd8b95-9e80-4824-9229-21f40e9b4e85",
 		Name: "Computers",
 	},
-	mainCategory{
+	{
 		ID:   "e546bbab-fcc2-4688-8803-b75b061cc349",
 		Name: "Recreation",
 	},
-	mainCategory{
+	{
 		ID:   "c2d5a423-5e5a-41df-b7b0-fd7e159482a3",
 		Name: "Science",
 	},
-	mainCategory{
+	{
 		ID:   "ed0bab28-1479-4970-ad4f-c07ee6502da8",
 		Name: "For Sale",
 	},
-	mainCategory{
+	{
 		ID:   "d0ddbcc2-964a-4211-9ddc-d5d366e0dc14",
 		Name: "Politics",
 	},
-	mainCategory{
+	{
 		ID:   "74e76a5b-8b4c-46b5-9898-e6b569c18a00",
 		Name: "Religion",
 	},
