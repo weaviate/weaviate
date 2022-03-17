@@ -146,6 +146,23 @@ func FromEnv(config *Config) error {
 		config.AutoSchema.DefaultDate = v
 	}
 
+	if v := os.Getenv("BM25_K1"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse BM25_K1 as float64")
+		}
+
+		config.BM25.K1 = asFloat
+	}
+	if v := os.Getenv("BM25_B"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse BM25_B as float64")
+		}
+
+		config.BM25.B = asFloat
+	}
+
 	return nil
 }
 
