@@ -98,7 +98,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
-		res, err := repo.ObjectSearch(context.Background(), 0, 100,
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: op,

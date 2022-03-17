@@ -22,6 +22,7 @@ type GetParams struct {
 	Filters              *filters.LocalFilter
 	ClassName            string
 	Pagination           *filters.Pagination
+	Sort                 []filters.Sort
 	Properties           search.SelectProperties
 	NearVector           *searchparams.NearVector
 	NearObject           *searchparams.NearObject

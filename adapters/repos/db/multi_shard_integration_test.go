@@ -67,6 +67,8 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 		}
 	})
 
+	t.Run("sorting objects", makeTestSortingClass(repo))
+
 	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
 		groundTruth))
 
@@ -173,6 +175,14 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 					Name:         "contents",
 					DataType:     []string{string(schema.DataTypeText)},
 					Tokenization: "word",
+				},
+				{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+				{
+					Name:     "textArrayProp",
+					DataType: []string{string(schema.DataTypeTextArray)},
 				},
 			},
 		}
@@ -340,7 +350,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, nil, filters,
 					additional.Properties{})
 				assert.Nil(t, err)
 
@@ -473,6 +483,114 @@ func makeTestRetrieveRefClass(repo *DB, data, refData []*models.Object) func(t *
 	}
 }
 
+func makeTestSortingClass(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("sort by property", func(t *testing.T) {
+			getIndex := func(res search.Result) float64 {
+				if prop := res.Object().Properties.(map[string]interface{})["index"]; prop != nil {
+					return prop.(float64)
+				}
+				return -1
+			}
+			getBoolProp := func(res search.Result) bool {
+				if prop := res.Object().Properties.(map[string]interface{})["boolProp"]; prop != nil {
+					return prop.(bool)
+				}
+				return false
+			}
+			getStringProp := func(res search.Result) string {
+				if prop := res.Object().Properties.(map[string]interface{})["stringProp"]; prop != nil {
+					return prop.(string)
+				}
+				return ""
+			}
+			getTextArrayProp := func(res search.Result) []string {
+				if prop := res.Object().Properties.(map[string]interface{})["textArrayProp"]; prop != nil {
+					return prop.([]string)
+				}
+				return nil
+			}
+			type test struct {
+				name                   string
+				sort                   []filters.Sort
+				expectedIndexes        []float64
+				expectedBoolProps      []bool
+				expectedStringProps    []string
+				expectedTextArrayProps [][]string
+			}
+			tests := []test{
+				{
+					name:            "index desc",
+					sort:            []filters.Sort{{Path: []string{"index"}, Order: "desc"}},
+					expectedIndexes: []float64{19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
+				},
+				{
+					name:            "index asc",
+					sort:            []filters.Sort{{Path: []string{"index"}, Order: "asc"}},
+					expectedIndexes: []float64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19},
+				},
+				{
+					name:                "stringProp desc",
+					sort:                []filters.Sort{{Path: []string{"stringProp"}, Order: "desc"}},
+					expectedStringProps: []string{"s19", "s18", "s17", "s16", "s15", "s14", "s13", "s12", "s11", "s10", "s09", "s08", "s07", "s06", "s05", "s04", "s03", "s02", "s01", "s00"},
+				},
+				{
+					name:                "stringProp asc",
+					sort:                []filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
+					expectedStringProps: []string{"s00", "s01", "s02", "s03", "s04", "s05", "s06", "s07", "s08", "s09", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s17", "s18", "s19"},
+				},
+				{
+					name:                   "textArrayProp desc",
+					sort:                   []filters.Sort{{Path: []string{"textArrayProp"}, Order: "desc"}},
+					expectedTextArrayProps: [][]string{[]string{"s19", "19"}, []string{"s18", "18"}, []string{"s17", "17"}, []string{"s16", "16"}, []string{"s15", "15"}, []string{"s14", "14"}, []string{"s13", "13"}, []string{"s12", "12"}, []string{"s11", "11"}, []string{"s10", "10"}, []string{"s09", "09"}, []string{"s08", "08"}, []string{"s07", "07"}, []string{"s06", "06"}, []string{"s05", "05"}, []string{"s04", "04"}, []string{"s03", "03"}, []string{"s02", "02"}, []string{"s01", "01"}, []string{"s00", "00"}},
+				},
+				{
+					name:                   "textArrayProp asc",
+					sort:                   []filters.Sort{{Path: []string{"textArrayProp"}, Order: "asc"}},
+					expectedTextArrayProps: [][]string{[]string{"s00", "00"}, []string{"s01", "01"}, []string{"s02", "02"}, []string{"s03", "03"}, []string{"s04", "04"}, []string{"s05", "05"}, []string{"s06", "06"}, []string{"s07", "07"}, []string{"s08", "08"}, []string{"s09", "09"}, []string{"s10", "10"}, []string{"s11", "11"}, []string{"s12", "12"}, []string{"s13", "13"}, []string{"s14", "14"}, []string{"s15", "15"}, []string{"s16", "16"}, []string{"s17", "17"}, []string{"s18", "18"}, []string{"s19", "19"}},
+				},
+				{
+					name:              "boolProp desc",
+					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "desc"}},
+					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+				},
+				{
+					name:              "boolProp asc",
+					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}},
+					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
+				},
+			}
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					res, err := repo.ObjectSearch(context.Background(), 0, 1000, test.sort, nil,
+						additional.Properties{})
+					require.Nil(t, err)
+					if len(test.expectedIndexes) > 0 {
+						for i := range res {
+							assert.Equal(t, test.expectedIndexes[i], getIndex(res[i]))
+						}
+					}
+					if len(test.expectedBoolProps) > 0 {
+						for i := range res {
+							assert.Equal(t, test.expectedBoolProps[i], getBoolProp(res[i]))
+						}
+					}
+					if len(test.expectedStringProps) > 0 {
+						for i := range res {
+							assert.Equal(t, test.expectedStringProps[i], getStringProp(res[i]))
+						}
+					}
+					if len(test.expectedTextArrayProps) > 0 {
+						for i := range res {
+							assert.EqualValues(t, test.expectedTextArrayProps[i], getTextArrayProp(res[i]))
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func exampleQueryVec() []float32 {
 	dim := 10
 	vec := make([]float32, dim)
@@ -497,8 +615,10 @@ func multiShardTestData() []*models.Object {
 			Class:  "TestClass",
 			Vector: vec,
 			Properties: map[string]interface{}{
-				"boolProp": i%2 == 0,
-				"index":    i,
+				"boolProp":      i%2 == 0,
+				"index":         i,
+				"stringProp":    fmt.Sprintf("s%02d", i),
+				"textArrayProp": []string{fmt.Sprintf("s%02d", i), fmt.Sprintf("%02d", i)},
 			},
 		}
 	}
@@ -582,6 +702,14 @@ func testClassesForImporting() []*models.Class {
 				{
 					Name:     "index",
 					DataType: []string{string(schema.DataTypeInt)},
+				},
+				{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+				{
+					Name:     "textArrayProp",
+					DataType: []string{string(schema.DataTypeTextArray)},
 				},
 			},
 		},

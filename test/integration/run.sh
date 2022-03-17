@@ -2,6 +2,12 @@
 
 set -e 
 
+function echo_yellow() {
+  yellow='\033[0;33m'
+  nc='\033[0m'
+  echo -e "${yellow}${*}${nc}"
+}
+
 norestart=false
 includeslow=false
 
@@ -25,9 +31,9 @@ else
   echo "Found no --include-slow flag, skipping the slow ones"
 fi
 
-echo "Run the regular integration tests with race detector ON"
+echo_yellow "Run the regular integration tests with race detector ON"
 go test -count 1 -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
-echo "Run the !race integration tests with race detector OFF"
+echo_yellow "Run the !race integration tests with race detector OFF"
 go test -count 1 -coverpkg=./adapters/repos/... -tags=$tags "$@" -run Test_NoRace ./adapters/repos/...
-echo "Run the classification integration tests with race detector ON"
+echo_yellow "Run the classification integration tests with race detector ON"
 go test -count 1 -race -tags=$tags "$@" ./usecases/classification/...

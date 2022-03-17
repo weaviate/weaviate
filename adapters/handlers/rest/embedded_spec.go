@@ -548,6 +548,12 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonSortParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonOrderParameterQuery"
           }
         ],
         "responses": {
@@ -2773,6 +2779,18 @@ func init() {
       "description": "The starting index of the result window. Default value is 0.",
       "name": "offset",
       "in": "query"
+    },
+    "CommonOrderParameterQuery": {
+      "type": "string",
+      "description": "Order parameter to tell how to order (asc or desc) data within given field",
+      "name": "order",
+      "in": "query"
+    },
+    "CommonSortParameterQuery": {
+      "type": "string",
+      "description": "Sort parameter to pass an information about the names of the sort fields",
+      "name": "sort",
+      "in": "query"
     }
   },
   "securityDefinitions": {
@@ -3350,6 +3368,18 @@ func init() {
             "type": "string",
             "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
             "name": "include",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Sort parameter to pass an information about the names of the sort fields",
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Order parameter to tell how to order (asc or desc) data within given field",
+            "name": "order",
             "in": "query"
           }
         ],
@@ -5693,6 +5723,18 @@ func init() {
       "default": 0,
       "description": "The starting index of the result window. Default value is 0.",
       "name": "offset",
+      "in": "query"
+    },
+    "CommonOrderParameterQuery": {
+      "type": "string",
+      "description": "Order parameter to tell how to order (asc or desc) data within given field",
+      "name": "order",
+      "in": "query"
+    },
+    "CommonSortParameterQuery": {
+      "type": "string",
+      "description": "Sort parameter to pass an information about the names of the sort fields",
+      "name": "sort",
       "in": "query"
     }
   },

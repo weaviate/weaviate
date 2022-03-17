@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -68,7 +69,7 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 
 // Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int,
-	filter *filters.LocalFilter, additional additional.Properties,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
@@ -87,12 +88,26 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	// cutoff if required, e.g. after merging unlimted filters
-	if len(pointers.docIDs) > limit {
-		pointers.docIDs = pointers.docIDs[:limit]
+	data, err := f.byteDataByDocID(pointers.docIDs)
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve doc ids to byte data")
 	}
 
-	res, err := f.objectsByDocID(pointers.IDs(), additional)
+	_, data, err = f.sort(pointers.docIDs, data, sort, className)
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve doc ids to byte data")
+	}
+
+	// cutoff if required, e.g. after merging unlimted filters
+	// if len(pointers.docIDs) > limit {
+	// 	pointers.docIDs = pointers.docIDs[:limit]
+	// }
+	if len(data) > limit {
+		data = data[:limit]
+	}
+
+	res, err := f.byteDataToObjects(data, additional)
+	// res, err := f.objectsByDocID(pointers.IDs(), additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
@@ -101,9 +116,66 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	return out, nil
 }
 
-func (f *Searcher) objectsByDocID(ids []uint64,
+func (f *Searcher) sort(docIDs []uint64, data [][]byte, sort []filters.Sort, className schema.ClassName) ([]uint64, [][]byte, error) {
+	docIDs, data, err := sorter.New(f.schema).SortDocIDs(docIDs, data, sort, className)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "sort doc ids")
+	}
+	return docIDs, data, nil
+}
+
+func (f *Searcher) byteDataToObjects(data [][]byte,
 	additional additional.Properties) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
+	out := make([]*storobj.Object, len(data))
+	for i := range data {
+		unmarshalled, err := storobj.FromBinaryOptional(data[i], additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+	}
+	return out, nil
+}
+
+// func (f *Searcher) objectsByDocID(ids []uint64,
+// 	additional additional.Properties) ([]*storobj.Object, error) {
+// 	out := make([]*storobj.Object, len(ids))
+
+// 	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
+// 	if bucket == nil {
+// 		return nil, errors.Errorf("objects bucket not found")
+// 	}
+
+// 	i := 0
+
+// 	for _, id := range ids {
+// 		keyBuf := bytes.NewBuffer(nil)
+// 		binary.Write(keyBuf, binary.LittleEndian, &id)
+// 		docIDBytes := keyBuf.Bytes()
+// 		res, err := bucket.GetBySecondary(0, docIDBytes)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		if res == nil {
+// 			continue
+// 		}
+
+// 		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
+// 		if err != nil {
+// 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+// 		}
+
+// 		out[i] = unmarshalled
+// 		i++
+// 	}
+
+// 	return out[:i], nil
+// }
+
+func (f *Searcher) byteDataByDocID(ids []uint64) ([][]byte, error) {
+	out := make([][]byte, len(ids))
 
 	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -125,12 +197,7 @@ func (f *Searcher) objectsByDocID(ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
-		}
-
-		out[i] = unmarshalled
+		out[i] = res
 		i++
 	}
 

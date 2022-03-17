@@ -116,7 +116,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 0, 10,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10, nil,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -137,7 +137,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 0, 10,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10, nil,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -201,7 +201,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10, nil,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -222,7 +222,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10, nil,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
