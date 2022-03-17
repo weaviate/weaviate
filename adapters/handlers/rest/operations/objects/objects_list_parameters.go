@@ -63,6 +63,14 @@ type ObjectsListParams struct {
 	  Default: 0
 	*/
 	Offset *int64
+	/*Order parameter to tell how to order (asc or desc) data within given field
+	  In: query
+	*/
+	Order *string
+	/*Sort parameter to pass an information about the names of the sort fields
+	  In: query
+	*/
+	Sort *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -88,6 +96,16 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	qOffset, qhkOffset, _ := qs.GetOK("offset")
 	if err := o.bindOffset(qOffset, qhkOffset, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qOrder, qhkOrder, _ := qs.GetOK("order")
+	if err := o.bindOrder(qOrder, qhkOrder, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qSort, qhkSort, _ := qs.GetOK("sort")
+	if err := o.bindSort(qSort, qhkSort, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -156,6 +174,42 @@ func (o *ObjectsListParams) bindOffset(rawData []string, hasKey bool, formats st
 		return errors.InvalidType("offset", "query", "int64", raw)
 	}
 	o.Offset = &value
+
+	return nil
+}
+
+// bindOrder binds and validates parameter Order from query.
+func (o *ObjectsListParams) bindOrder(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Order = &raw
+
+	return nil
+}
+
+// bindSort binds and validates parameter Sort from query.
+func (o *ObjectsListParams) bindSort(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Sort = &raw
 
 	return nil
 }

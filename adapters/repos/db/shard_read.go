@@ -158,7 +158,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +
@@ -171,17 +171,17 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version()).
-			Object(ctx, limit, keywordRanking, filters, additional, s.index.Config.ClassName)
+			Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, additional)
+		objs, err := s.objectList(ctx, limit, sort, additional)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
-		Object(ctx, limit, filters, additional, s.index.Config.ClassName)
+		Object(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
 
@@ -281,7 +281,7 @@ func (s *Shard) objectsByDocID(ids []uint64,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	additional additional.Properties) ([]*storobj.Object, error) {
+	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
@@ -296,6 +296,8 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		out[i] = obj
 		i++
 	}
+
+	// sort herer objects
 
 	return out[:i], nil
 }

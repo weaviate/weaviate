@@ -73,7 +73,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 // Object returns a list of full objects
 func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
-	filter *filters.LocalFilter, additional additional.Properties,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, []float32, error) {
 	defer func() {
 		err := recover()
@@ -107,9 +107,10 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 
 	// TODO: we can probably do this way smarter in a way that we immediately
 	// skip anything worse the the current worst candidate
-	sort.Slice(ids.docIDs, func(a, b int) bool {
-		return ids.docIDs[a].score > ids.docIDs[b].score
-	})
+	ids = b.sort(ids)
+	// sort.Slice(ids.docIDs, func(a, b int) bool {
+	// 	return ids.docIDs[a].score > ids.docIDs[b].score
+	// })
 
 	if len(ids.docIDs) > limit {
 		ids.docIDs = ids.docIDs[:limit]
@@ -121,6 +122,15 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	}
 
 	return objs, scores, nil
+}
+
+func (b *BM25Searcher) sort(ids docPointersWithScore) docPointersWithScore {
+	// TODO: we can probably do this way smarter in a way that we immediately
+	// skip anything worse the the current worst candidate
+	sort.Slice(ids.docIDs, func(a, b int) bool {
+		return ids.docIDs[a].score > ids.docIDs[b].score
+	})
+	return ids
 }
 
 func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,

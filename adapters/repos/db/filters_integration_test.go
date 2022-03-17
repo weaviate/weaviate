@@ -69,6 +69,9 @@ func TestFilters(t *testing.T) {
 
 	t.Run("chained primitive props",
 		testChainedPrimitiveProps(repo, migrator))
+
+	t.Run("sort props",
+		testSortProperties(repo))
 }
 
 var (
@@ -548,6 +551,10 @@ func buildFilter(propName string, value interface{}, operator filters.Operator, 
 			},
 		},
 	}
+}
+
+func buildSortFilter(path []string, order string) filters.Sort {
+	return filters.Sort{Path: path, Order: order}
 }
 
 func compoundFilter(operator filters.Operator,
@@ -1111,4 +1118,160 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testSortProperties(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			sort        []filters.Sort
+			expectedIDs []strfmt.UUID
+		}
+		tests := []test{
+			{
+				name: "modelName asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+			},
+			{
+				name: "modelName desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carE63sID},
+			},
+			{
+				name: "horsepower asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "horsepower desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "weight asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"weight"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carSprinterID},
+			},
+			{
+				name: "weight desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"weight"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID},
+			},
+			{
+				name: "released asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"released"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "released desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"released"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "parkedAt asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"parkedAt"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "parkedAt desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"parkedAt"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "contact asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"contact"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "contact desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"contact"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "description asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"description"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "description desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"description"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "colorArrayWord asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"colorArrayWord"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "colorArrayWord desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"colorArrayWord"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "modelName and horsepower asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName", "horsepower"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "horsepower and modelName asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower", "modelName"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				params := traverser.GetParams{
+					ClassName:  carClass.Class,
+					Pagination: &filters.Pagination{Limit: 100},
+					Sort:       test.sort,
+				}
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, len(test.expectedIDs))
+
+				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				for pos, concept := range res {
+					ids[pos] = concept.ID
+				}
+				assert.EqualValues(t, ids, test.expectedIDs, "ids dont match")
+			})
+		}
+	}
 }

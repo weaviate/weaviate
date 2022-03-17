@@ -538,7 +538,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -555,7 +555,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector additional props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, additional.Properties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, additional.Properties{Vector: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -578,7 +578,7 @@ func TestCRUD(t *testing.T) {
 				"interpretation": true,
 			},
 		}
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, params)
+		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, nil, params)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -721,7 +721,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, additional.Properties{})
+		res, err := repo.ObjectSearch(context.Background(), 0, 10, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
@@ -731,6 +731,63 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
+	})
+
+	t.Run("sorting all objects", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			sort        []filters.Sort
+			expectedIDs []strfmt.UUID
+		}{
+			{
+				name:        "by stringProp asc",
+				sort:        []filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
+				expectedIDs: []strfmt.UUID{actionID, thingID},
+			},
+			{
+				name:        "by stringProp desc",
+				sort:        []filters.Sort{{Path: []string{"stringProp"}, Order: "desc"}},
+				expectedIDs: []strfmt.UUID{thingID, actionID},
+			},
+			{
+				name:        "by phone asc",
+				sort:        []filters.Sort{{Path: []string{"phone"}, Order: "asc"}},
+				expectedIDs: []strfmt.UUID{actionID, thingID},
+			},
+			{
+				name:        "by phone desc",
+				sort:        []filters.Sort{{Path: []string{"phone"}, Order: "desc"}},
+				expectedIDs: []strfmt.UUID{thingID, actionID},
+			},
+			{
+				name:        "by location asc",
+				sort:        []filters.Sort{{Path: []string{"location"}, Order: "asc"}},
+				expectedIDs: []strfmt.UUID{actionID, thingID},
+			},
+			{
+				name:        "by location desc",
+				sort:        []filters.Sort{{Path: []string{"location"}, Order: "desc"}},
+				expectedIDs: []strfmt.UUID{thingID, actionID},
+			},
+			{
+				name:        "by stringProp and location asc",
+				sort:        []filters.Sort{{Path: []string{"stringProp", "location"}, Order: "asc"}},
+				expectedIDs: []strfmt.UUID{actionID, thingID},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				res, err := repo.ObjectSearch(context.Background(), 0, 100, tt.sort, nil, additional.Properties{Vector: true})
+				require.Nil(t, err)
+				require.Len(t, res, len(tt.expectedIDs))
+
+				ids := make([]strfmt.UUID, len(res))
+				for i := range res {
+					ids[i] = res[i].ID
+				}
+				assert.EqualValues(t, ids, tt.expectedIDs, "ids dont match")
+			})
+		}
 	})
 
 	t.Run("verifying the thing is indexed in the inverted index", func(t *testing.T) {

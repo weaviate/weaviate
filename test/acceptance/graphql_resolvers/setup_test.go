@@ -12,6 +12,7 @@
 package test
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -57,6 +58,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where and nearVector nearMedia", localMetaWithWhereAndNearVectorFilters)
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
+	t.Run("sorting objects", gettingObjectsWithSort)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -148,6 +150,30 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "isCapital",
 				DataType: []string{"boolean"},
+			},
+			{
+				Name:     "cityArea",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "cityRights",
+				DataType: []string{"date"},
+			},
+			{
+				Name:     "timezones",
+				DataType: []string{"string[]"},
+			},
+			{
+				Name:     "museums",
+				DataType: []string{"text[]"},
+			},
+			{
+				Name:     "history",
+				DataType: []string{"text"},
+			},
+			{
+				Name:     "phoneNumber",
+				DataType: []string{"phoneNumber"},
 			},
 		},
 	})
@@ -389,7 +415,15 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", netherlands).String(),
 				},
 			},
-			"isCapital": true,
+			"isCapital":  true,
+			"cityArea":   float64(891.95),
+			"cityRights": mustParseYear("1400"),
+			"timezones":  []string{"CET", "CEST"},
+			"museums":    []string{"Stedelijk Museum", "Rijksmuseum"},
+			"history":    "Due to its geographical location in what used to be wet peatland, the founding of Amsterdam is of a younger age than the founding of other urban centers in the Low Countries. However, in and around the area of what later became Amsterdam, local farmers settled as early as three millennia ago. They lived along the prehistoric IJ river and upstream of its tributary Amstel. The prehistoric IJ was a shallow and quiet stream in peatland behind beach ridges. This secluded area could grow there into an important local settlement center, especially in the late Bronze Age, the Iron Age and the Roman Age. Neolithic and Roman artefacts have also been found downstream of this area, in the prehistoric Amstel bedding under Amsterdam's Damrak and Rokin, such as shards of Bell Beaker culture pottery (2200-2000 BC) and a granite grinding stone (2700-2750 BC).[27][28] But the location of these artefacts around the river banks of the Amstel probably point to a presence of a modest semi-permanent or seasonal settlement of the previous mentioned local farmers. A permanent settlement would not have been possible, since the river mouth and the banks of the Amstel in this period in time were too wet for permanent habitation",
+			"phoneNumber": map[string]interface{}{
+				"input": "+311000004",
+			},
 		},
 	})
 	createObject(t, &models.Object{
@@ -403,7 +437,15 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", netherlands).String(),
 				},
 			},
-			"isCapital": false,
+			"isCapital":  false,
+			"cityArea":   float64(319.35),
+			"cityRights": mustParseYear("1283"),
+			"timezones":  []string{"CET", "CEST"},
+			"museums":    []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"},
+			"history":    "On 7 July 1340, Count Willem IV of Holland granted city rights to Rotterdam, whose population then was only a few thousand.[14] Around the year 1350, a shipping canal (the Rotterdamse Schie) was completed, which provided Rotterdam access to the larger towns in the north, allowing it to become a local trans-shipment centre between the Netherlands, England and Germany, and to urbanize",
+			"phoneNumber": map[string]interface{}{
+				"input": "+311000000",
+			},
 		},
 	})
 	createObject(t, &models.Object{
@@ -417,7 +459,15 @@ func addTestDataCityAirport(t *testing.T) {
 					"beacon": crossref.New("localhost", germany).String(),
 				},
 			},
-			"isCapital": true,
+			"isCapital":  true,
+			"cityArea":   float64(891.96),
+			"cityRights": mustParseYear("1400"),
+			"timezones":  []string{"CET", "CEST"},
+			"museums":    []string{"German Historical Museum"},
+			"history":    "The earliest evidence of settlements in the area of today's Berlin are remnants of a house foundation dated to 1174, found in excavations in Berlin Mitte,[27] and a wooden beam dated from approximately 1192.[28] The first written records of towns in the area of present-day Berlin date from the late 12th century. Spandau is first mentioned in 1197 and Köpenick in 1209, although these areas did not join Berlin until 1920.[29] The central part of Berlin can be traced back to two towns. Cölln on the Fischerinsel is first mentioned in a 1237 document, and Berlin, across the Spree in what is now called the Nikolaiviertel, is referenced in a document from 1244.[28] 1237 is considered the founding date of the city.[30] The two towns over time formed close economic and social ties, and profited from the staple right on the two important trade routes Via Imperii and from Bruges to Novgorod.[12] In 1307, they formed an alliance with a common external policy, their internal administrations still being separated",
+			"phoneNumber": map[string]interface{}{
+				"input": "+311000002",
+			},
 		},
 	})
 	createObject(t, &models.Object{
@@ -435,7 +485,15 @@ func addTestDataCityAirport(t *testing.T) {
 				"latitude":  51.225556,
 				"longitude": 6.782778,
 			},
-			"isCapital": false,
+			"isCapital":  false,
+			"cityArea":   float64(217.22),
+			"cityRights": mustParseYear("1135"),
+			"timezones":  []string{"CET", "CEST"},
+			"museums":    []string{"Schlossturm", "Schiffahrt Museum", "Onomato"},
+			"history":    "The first written mention of Düsseldorf (then called Dusseldorp in the local Low Rhenish dialect) dates back to 1135. Under Emperor Friedrich Barbarossa the small town of Kaiserswerth to the north of Düsseldorf became a well-fortified outpost, where soldiers kept a watchful eye on every movement on the Rhine. Kaiserswerth eventually became a suburb of Düsseldorf in 1929. In 1186, Düsseldorf came under the rule of the Counts of Berg. 14 August 1288 is one of the most important dates in the history of Düsseldorf. On this day the sovereign Count Adolf VIII of Berg granted the village on the banks of the Düssel town privileges. Before this, a bloody struggle for power had taken place between the Archbishop of Cologne and the count of Berg, culminating in the Battle of Worringen",
+			"phoneNumber": map[string]interface{}{
+				"input": "+311000001",
+			},
 		},
 	})
 
@@ -769,4 +827,13 @@ func addTestDataRansomNotes(t *testing.T) {
 
 		createObjectsBatch(t, batch)
 	}
+}
+
+func mustParseYear(year string) time.Time {
+	date := fmt.Sprintf("%s-01-01T00:00:00+02:00", year)
+	asTime, err := time.Parse(time.RFC3339, date)
+	if err != nil {
+		panic(err)
+	}
+	return asTime
 }

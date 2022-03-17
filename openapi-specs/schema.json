@@ -1172,6 +1172,20 @@
       "name": "include",
       "required": false,
       "type": "string"
+    },
+    "CommonSortParameterQuery": {
+      "description": "Sort parameter to pass an information about the names of the sort fields",
+      "in": "query",
+      "name": "sort",
+      "required": false,
+      "type": "string"
+    },
+    "CommonOrderParameterQuery": {
+      "description": "Order parameter to tell how to order (asc or desc) data within given field",
+      "in": "query",
+      "name": "order",
+      "required": false,
+      "type": "string"
     }
   },
   "paths": {
@@ -1236,6 +1250,12 @@
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonSortParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonOrderParameterQuery"
           }
         ],
         "responses": {

@@ -92,7 +92,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// list kinds
 		{
 			methodName:       "GetObjects",
-			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), additional.Properties{}},
+			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
 			expectedVerb:     "list",
 			expectedResource: "objects",
 		},

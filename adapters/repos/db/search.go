@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -58,10 +59,16 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, err := idx.objectSearch(ctx, totalLimit,
+	res, err := idx.objectSearch(ctx, totalLimit, params.Sort,
 		params.Filters, params.KeywordRanking, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
+	}
+
+	// QUESTION: should we sort here?
+	res, _, err = db.sort(res, nil, totalLimit, params.Sort, false, false)
+	if err != nil {
+		return nil, err
 	}
 
 	return db.enrichRefsForList(ctx,
@@ -87,13 +94,19 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
-		totalLimit, params.Filters, params.AdditionalProperties)
+		totalLimit, params.Filters, params.Sort, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
 	if totalLimit < 0 {
 		params.Pagination.Limit = len(res)
+	}
+
+	// QUESTION: should we sort here?
+	res, dists, err = db.sort(res, dists, totalLimit, params.Sort, false, false)
+	if err != nil {
+		return nil, err
 	}
 
 	return db.enrichRefsForList(ctx,
@@ -134,7 +147,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			defer wg.Done()
 
 			res, _, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, emptyAdditional)
+				ctx, vector, 0, totalLimit, filters, nil, emptyAdditional)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -171,34 +184,40 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	return db.getSearchResults(found, offset, limit), nil
 }
 
-func (d *DB) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	additional additional.Properties) (search.Results, error) {
-	return d.objectSearch(ctx, offset, limit, filters, additional)
+func (d *DB) ObjectSearch(ctx context.Context, offset, limit int, sort []filters.Sort,
+	filters *filters.LocalFilter, additional additional.Properties) (search.Results, error) {
+	return d.objectSearch(ctx, offset, limit, sort, filters, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter,
+	sort []filters.Sort, filters *filters.LocalFilter,
 	additional additional.Properties) (search.Results, error) {
-	var found search.Results
+	var found []*storobj.Object
 
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, err := index.objectSearch(ctx, totalLimit, filters, nil, additional)
+		res, err := index.objectSearch(ctx, totalLimit, sort, filters, nil, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
-		found = append(found, storobj.SearchResults(res, additional)...)
+		found = append(found, res...)
 		if len(found) >= totalLimit {
 			// we are done
 			break
 		}
 	}
 
-	return d.getSearchResults(found, offset, limit), nil
+	// QUESTION: sort all results or just add already sorted class objects
+	found, _, err := d.sort(found, nil, limit, sort, false, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
@@ -263,4 +282,10 @@ func (db *DB) getLimit(limit int) int {
 		return int(db.config.QueryLimit)
 	}
 	return limit
+}
+
+func (d *DB) sort(objects []*storobj.Object, distances []float32,
+	limit int, sort []filters.Sort, keywordRanking, sortByDistance bool) ([]*storobj.Object, []float32, error) {
+	return sorter.New(d.schemaGetter.GetSchemaSkipAuth()).
+		Sort(objects, distances, limit, sort, keywordRanking, sortByDistance)
 }
