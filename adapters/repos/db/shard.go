@@ -319,5 +319,7 @@ func (s *Shard) notifyReady() {
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
 
-	s.scanDiskUse()
+	if s.index.shouldScanDiskUse() {
+		s.scanDiskUse()
+	}
 }

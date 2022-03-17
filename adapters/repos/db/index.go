@@ -916,3 +916,8 @@ func (i *Index) notifyReady() {
 		shd.notifyReady()
 	}
 }
+
+func (i *Index) shouldScanDiskUse() bool {
+	return i.Config.DiskUseReadOnlyPercentage > 0 ||
+		i.Config.DiskUseWarningPercentage > 0
+}
