@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -26,12 +27,42 @@ import (
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
 
+	// bm25
+	Bm25 *BM25Config `json:"bm25,omitempty"`
+
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 }
 
 // Validate validates this inverted index config
 func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateBm25(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Bm25) { // not required
+		return nil
+	}
+
+	if m.Bm25 != nil {
+		if err := m.Bm25.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("bm25")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

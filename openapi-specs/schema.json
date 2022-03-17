@@ -336,6 +336,25 @@
           "description": "Asynchronous index clean up happens every n seconds",
           "format": "int",
           "type": "number"
+        },
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        }
+      },
+      "type": "object"
+    },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "properties": {
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "format": "float",
+          "type": "number"
+        },
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "format": "float",
+          "type": "number"
         }
       },
       "type": "object"
