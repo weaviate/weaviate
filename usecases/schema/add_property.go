@@ -108,12 +108,6 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return err
 	}
 
-	err = m.validatePropertyName(ctx, class.Class, property.Name,
-		property.ModuleConfig)
-	if err != nil {
-		return err
-	}
-
 	// Validate data type of property.
 	schema, err := m.GetSchema(principal)
 	if err != nil {
