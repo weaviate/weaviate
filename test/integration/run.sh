@@ -2,11 +2,6 @@
 
 set -e 
 
-echo 'BEGIN TEMP DEBUG ON CI'
-echo 'run stalling test in isolation'
-(cd adapters/repos/db && go test -tags integrationTest -run Halt)
-
-echo 'END TEMP DEBUG ON CI'
 norestart=false
 includeslow=false
 

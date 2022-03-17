@@ -168,8 +168,8 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop() error {
-	if s.isReadOnly() {
+func (s *Shard) drop(force bool) error {
+	if s.isReadOnly() && !force {
 		return storagestate.ErrStatusReadOnly
 	}
 
