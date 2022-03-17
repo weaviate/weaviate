@@ -57,7 +57,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 }
 
 func TestReadOnlyShard_HaltCompaction(t *testing.T) {
-	amount := 100000
+	amount := 10000
 	sizePerValue := 8
 	bucketName := "testbucket"
 
@@ -97,6 +97,8 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 			assert.Nil(t, err)
 			time.Sleep(time.Microsecond)
 		}
+
+		t.Logf("insertion complete!")
 	})
 
 	t.Run("halt compaction with readonly status", func(t *testing.T) {
@@ -123,12 +125,11 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Equal(t, numSegments, len(entries))
+			t.Logf("iteration %d, sleeping", i)
 			time.Sleep(time.Second)
 		}
 	})
 
-	t.Log("shutdown shard")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.Nil(t, shd.shutdown(ctx))
+	t.Logf("drop shard")
+	require.Nil(t, shd.drop(true))
 }

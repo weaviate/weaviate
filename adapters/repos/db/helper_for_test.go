@@ -200,7 +200,7 @@ func testShard(ctx context.Context) *Shard {
 	idx := &Index{
 		Config:                IndexConfig{RootPath: dirName},
 		invertedIndexConfig:   &models.InvertedIndexConfig{CleanupIntervalSeconds: 1},
-		vectorIndexUserConfig: hnsw.UserConfig{},
+		vectorIndexUserConfig: hnsw.UserConfig{CleanupIntervalSeconds: 1},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
 	}
