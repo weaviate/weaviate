@@ -27,7 +27,7 @@ import (
 // SchemaObjectsGetOKCode is the HTTP code returned for type SchemaObjectsGetOK
 const SchemaObjectsGetOKCode int = 200
 
-/*SchemaObjectsGetOK Class was updated successfully
+/*SchemaObjectsGetOK Found the Class, returned as body
 
 swagger:response schemaObjectsGetOK
 */

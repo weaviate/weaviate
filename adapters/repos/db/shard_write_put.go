@@ -21,10 +21,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -127,7 +132,7 @@ type objectInsertStatus struct {
 // to be called with the current contents of a row, if the row is empty (i.e.
 // didn't exist before, we will get a new docID from the central counter.
 // Otherwise, we will will reuse the previous docID and mark this as an update
-func (s Shard) determineInsertStatus(previous []byte,
+func (s *Shard) determineInsertStatus(previous []byte,
 	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
@@ -164,7 +169,7 @@ func (s Shard) determineInsertStatus(previous []byte,
 // where it does not alter the doc id if one already exists. Calling this
 // method only makes sense under very special conditions, such as those
 // outlined in mutableMergeObjectInTx
-func (s Shard) determineMutableInsertStatus(previous []byte,
+func (s *Shard) determineMutableInsertStatus(previous []byte,
 	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
@@ -187,7 +192,7 @@ func (s Shard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
+func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64) error {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
@@ -196,7 +201,7 @@ func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
 }
 
-func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
+func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, previous []byte) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
@@ -222,7 +227,7 @@ func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
 	return nil
 }
 
-func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
+func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	previous []byte) error {
 	if !status.docIDChanged {
 		// nothing to do

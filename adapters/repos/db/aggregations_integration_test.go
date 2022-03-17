@@ -33,11 +33,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCtx() context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
-	return ctx
-}
-
 func Test_Aggregations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))

@@ -29,6 +29,9 @@ type Migrator interface {
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error
 
+	GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
+	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
+
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
