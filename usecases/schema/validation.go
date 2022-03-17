@@ -47,17 +47,6 @@ func validatePropertyNameUniqueness(propertyName string, class *models.Class) er
 	return nil
 }
 
-// Check that the format of the name is correct
-func (m *Manager) validatePropertyName(ctx context.Context, className string,
-	propertyName string, moduleConfig interface{}) error {
-	_, err := schema.ValidatePropertyName(propertyName)
-	return err
-}
-
-func (m *Manager) validateReservedPropertyName(propertyName string) error {
-	return schema.ValidateReservedPropertyName(propertyName)
-}
-
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
 	if err := m.validateVectorizer(ctx, class); err != nil {
 		return err
