@@ -119,13 +119,11 @@ func (p Persistence) Validate() error {
 	return nil
 }
 
-// TODO: Note the mix of camelCase and snake_case
 type DiskUse struct {
 	WarningPercentage  uint64 `json:"warning_percentage" yaml:"warning_percentage"`
 	ReadOnlyPercentage uint64 `json:"readonly_percentage" yaml:"readonly_percentage"`
 }
 
-// TODO: Does it make sense to allow for setting up to 100%?
 func (d DiskUse) Validate() error {
 	if d.WarningPercentage > 100 {
 		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
