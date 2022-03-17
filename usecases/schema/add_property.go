@@ -114,9 +114,14 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return err
 	}
 
-	_, err = (&schema).FindPropertyDataType(property.DataType)
+	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
+	}
+
+	err = validatePropertyTokenization(property.Tokenization, propertyDataType)
+	if err != nil {
+		return err
 	}
 
 	// all is fine!

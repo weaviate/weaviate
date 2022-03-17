@@ -47,6 +47,33 @@ func validatePropertyNameUniqueness(propertyName string, class *models.Class) er
 	return nil
 }
 
+func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
+	if tokenization == "" {
+		return nil
+	}
+
+	if propertyDataType.IsPrimitive() {
+		primitiveDataType := propertyDataType.AsPrimitive()
+
+		switch primitiveDataType {
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			switch tokenization {
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord:
+				return nil
+			}
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			switch tokenization {
+			case models.PropertyTokenizationWord:
+				return nil
+			}
+		}
+
+		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+	}
+
+	return fmt.Errorf("Tokenization '%s' is not allowed for reference data type", tokenization)
+}
+
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
 	if err := m.validateVectorizer(ctx, class); err != nil {
 		return err
