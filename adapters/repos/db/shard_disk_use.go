@@ -28,27 +28,33 @@ func (d diskUse) String() string {
 }
 
 func (s *Shard) scanDiskUse() {
-	for {
-		time.Sleep(time.Second * 30)
+	go func() {
+		for {
+			t := time.Tick(time.Second * 30)
+			select {
+			case <-s.cancel:
+				return
+			case <-t:
+				fs := syscall.Statfs_t{}
+				diskPath := s.index.Config.RootPath
 
-		fs := syscall.Statfs_t{}
-		diskPath := s.index.Config.RootPath
+				err := syscall.Statfs(diskPath, &fs)
+				if err != nil {
+					s.index.logger.WithField("action", "read_disk_use").
+						WithField("path", diskPath).
+						Fatalf("failed to read disk usage: %s", err)
+				}
 
-		err := syscall.Statfs(diskPath, &fs)
-		if err != nil {
-			s.index.logger.WithField("action", "read_disk_use").
-				WithField("path", diskPath).
-				Fatalf("failed to read disk usage: %s", err)
+				du := diskUse{
+					total: fs.Blocks * uint64(fs.Bsize),
+					avail: fs.Bavail * uint64(fs.Bsize),
+				}
+
+				s.diskUseWarn(du, diskPath)
+				s.diskUseReadonly(du, diskPath)
+			}
 		}
-
-		du := diskUse{
-			total: fs.Blocks * uint64(fs.Bsize),
-			avail: fs.Bavail * uint64(fs.Bsize),
-		}
-
-		s.diskUseWarn(du, diskPath)
-		s.diskUseReadonly(du, diskPath)
-	}
+	}()
 }
 
 // logs a warning if user-set threshold is surpassed
