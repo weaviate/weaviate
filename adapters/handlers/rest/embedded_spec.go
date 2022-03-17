@@ -2455,12 +2455,20 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuratino specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "tokenization": {
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "type": "string",
+          "enum": [
+            "word",
+            "field"
+          ]
         }
       }
     },
@@ -5359,12 +5367,20 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuratino specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "tokenization": {
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "type": "string",
+          "enum": [
+            "word",
+            "field"
+          ]
         }
       }
     },
