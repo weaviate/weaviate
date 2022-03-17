@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -30,10 +31,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
-// Shard is the smallest completely-contained index unit. A shard mananages
+// Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
@@ -51,6 +53,9 @@ type Shard struct {
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
+
+	status     storagestate.Status
+	statusLock sync.Mutex
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
@@ -163,7 +168,11 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop() error {
+func (s *Shard) drop(force bool) error {
+	if s.isReadOnly() && !force {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
@@ -212,6 +221,10 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
@@ -230,6 +243,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
@@ -277,6 +294,10 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	return s.vectorIndex.UpdateUserConfig(updated)
 }
 

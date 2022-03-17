@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,6 +42,9 @@ type SegmentGroup struct {
 	// for backward-compatibility with states where the disk state for maps was
 	// not guaranteed to be sorted yet
 	mapRequiresSorting bool
+
+	status     storagestate.Status
+	statusLock sync.Mutex
 }
 
 func newSegmentGroup(dir string,
@@ -283,6 +287,20 @@ func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (ig *SegmentGroup) updateStatus(status storagestate.Status) {
+	ig.statusLock.Lock()
+	defer ig.statusLock.Unlock()
+
+	ig.status = status
+}
+
+func (ig *SegmentGroup) isReadyOnly() bool {
+	ig.statusLock.Lock()
+	defer ig.statusLock.Unlock()
+
+	return ig.status == storagestate.StatusReadOnly
 }
 
 func fileExists(path string) (bool, error) {

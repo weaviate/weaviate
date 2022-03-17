@@ -25,6 +25,19 @@ func (ig *SegmentGroup) eligbleForCompaction() bool {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
 
+	// if true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// SegmentGroup should refrain from flushing until its
+	// shard indicates otherwise
+	if ig.isReadyOnly() {
+		ig.logger.WithField("action", "lsm_compaction").
+			WithField("path", ig.dir).
+			Warn("compaction halted due to shard READONLY status")
+
+		time.Sleep(time.Second)
+		return false
+	}
+
 	// if there are at least two segments of the same level a regular compaction
 	// can be performed
 

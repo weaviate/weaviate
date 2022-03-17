@@ -42,6 +42,14 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	return nil
+}
+
 func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
 	return nil
 }

@@ -17,6 +17,7 @@ import (
 	"path"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,6 +41,16 @@ func New(rootDir string, logger logrus.FieldLogger) (*Store, error) {
 
 func (s *Store) Bucket(name string) *Bucket {
 	return s.bucketsByName[name]
+}
+
+func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
+	for _, b := range s.bucketsByName {
+		if b == nil {
+			continue
+		}
+
+		b.UpdateStatus(targetStatus)
+	}
 }
 
 func (s *Store) init() error {

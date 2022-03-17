@@ -15,9 +15,18 @@
 package db
 
 import (
+	"context"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/sirupsen/logrus"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -174,5 +183,40 @@ func cityCountryAirportSchema() schema.Schema {
 				},
 			},
 		},
+	}
+}
+
+func testCtx() context.Context {
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	return ctx
+}
+
+func testShard(ctx context.Context) *Shard {
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+
+	idx := &Index{
+		Config:                IndexConfig{RootPath: dirName},
+		invertedIndexConfig:   &models.InvertedIndexConfig{CleanupIntervalSeconds: 1},
+		vectorIndexUserConfig: hnsw.UserConfig{CleanupIntervalSeconds: 1},
+		logger:                logrus.New(),
+		getSchema:             schemaGetter,
+	}
+
+	shd, err := NewShard(ctx, "testshard", idx)
+	if err != nil {
+		panic(err)
+	}
+
+	return shd
+}
+
+func testObject() *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString())},
+		Vector:            []float32{1, 2, 3},
 	}
 }

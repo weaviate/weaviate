@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -153,6 +154,17 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 	}
 
 	return nil
+}
+
+func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
+	className, shardName, targetStatus string) error {
+	err := m.authorizer.Authorize(principal, "update",
+		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
+	if err != nil {
+		return err
+	}
+
+	return m.migrator.UpdateShardStatus(ctx, className, shardName, targetStatus)
 }
 
 // Below here is old - to be deleted

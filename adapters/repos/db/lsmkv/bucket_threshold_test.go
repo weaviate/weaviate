@@ -17,7 +17,9 @@ package lsmkv
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -90,19 +92,25 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 			require.Nil(t, err)
 
 			for _, entry := range entries {
-				if filepath.Ext(entry.Name()) == ".wal" {
-					info, err := entry.Info()
-					require.Nil(t, err)
+				info, err := entry.Info()
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				require.Nil(t, err)
 
-					if !isSizeWithinTolerance(t, uint64(info.Size()), walThreshold, tolerance) {
+				entrySize := info.Size()
+				entryName := info.Name()
+
+				if filepath.Ext(entryName) == ".wal" {
+					if !isSizeWithinTolerance(t, uint64(entrySize), walThreshold, tolerance) {
 						t.Fatalf("WAL size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
-							info.Size(), walThreshold, tolerance*100)
+							entrySize, walThreshold, tolerance*100)
 					}
 
 					// Set the name of the first WAL file created
 					if origWalFile == "" {
-						origWalFile = entry.Name()
-					} else if entry.Name() != origWalFile {
+						origWalFile = entryName
+					} else if entryName != origWalFile {
 						// If a new WAL is detected, the switch over was successful
 						done <- true
 						break out

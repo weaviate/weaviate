@@ -104,6 +104,24 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
+func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	}
+
+	return idx.getShardsStatus(), nil
+}
+
+func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+	}
+
+	return idx.updateShardStatus(shardName, targetStatus)
+}
+
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }

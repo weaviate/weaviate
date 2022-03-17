@@ -49,6 +49,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		testCase{
+			methodName:       "GetShardsStatus",
+			additionalArgs:   []interface{}{"className"},
+			expectedVerb:     "list",
+			expectedResource: "schema/className/shards",
+		},
+		testCase{
 			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
@@ -83,6 +89,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
+		},
+		testCase{
+			methodName:       "UpdateShardStatus",
+			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
+			expectedVerb:     "update",
+			expectedResource: "schema/className/shards/shardName",
 		},
 	}
 
