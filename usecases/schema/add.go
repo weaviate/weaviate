@@ -171,9 +171,14 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 			return err
 		}
 
-		_, err = (&schema).FindPropertyDataType(property.DataType)
+		propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+		}
+
+		err = validatePropertyTokenization(property.Tokenization, propertyDataType)
+		if err != nil {
+			return err
 		}
 	}
 
