@@ -272,12 +272,14 @@ func TestExtractPhoneNumberField(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver()
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolver()
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
@@ -641,12 +643,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
