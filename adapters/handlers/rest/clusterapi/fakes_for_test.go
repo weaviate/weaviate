@@ -184,6 +184,7 @@ func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className str
 func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
 	return nil
 }
+
 func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
 	return nil
 }
