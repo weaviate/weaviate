@@ -500,7 +500,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				AdditionalProperties: models.AdditionalProperties{
 					"interpretation": &Interpretation{
 						Source: []*InterpretationSource{
-							&InterpretationSource{
+							{
 								Concept:    "foo",
 								Weight:     0.123,
 								Occurrence: 123,
@@ -539,7 +539,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -738,7 +738,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					AdditionalProperties: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -754,7 +754,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					AdditionalProperties: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -786,7 +786,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -800,7 +800,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -1428,7 +1428,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 					"nearestNeighbors": &NearestNeighbors{
 						Neighbors: []*NearestNeighbor{
-							&NearestNeighbor{
+							{
 								Concept:  "foo",
 								Distance: 0.1,
 							},
@@ -1447,7 +1447,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					},
 					"nearestNeighbors": &NearestNeighbors{
 						Neighbors: []*NearestNeighbor{
-							&NearestNeighbor{
+							{
 								Concept:  "bar",
 								Distance: 0.1,
 							},
@@ -1472,7 +1472,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1481,7 +1481,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -1500,7 +1500,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,
@@ -1509,7 +1509,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -1545,7 +1545,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
@@ -1553,7 +1553,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "foo",
 									Weight:     0.123,
 									Occurrence: 123,
@@ -1572,7 +1572,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.1,
 								},
@@ -1580,7 +1580,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 						},
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "bar",
 									Weight:     0.456,
 									Occurrence: 456,
@@ -1918,14 +1918,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					AdditionalProperties: models.AdditionalProperties{
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -1944,14 +1944,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					AdditionalProperties: models.AdditionalProperties{
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -1988,14 +1988,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,
@@ -2013,14 +2013,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem1",
 									DistanceToQuery:    0,
 									DistanceToResult:   2.1,
 									DistanceToPrevious: nil,
 									DistanceToNext:     ptFloat32(0.5),
 								},
-								&SemanticPathElement{
+								{
 									Concept:            "pathelem2",
 									DistanceToQuery:    2.1,
 									DistanceToResult:   0,

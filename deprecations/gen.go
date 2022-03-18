@@ -152,7 +152,7 @@ func ptString(in string) *string {
 
 var ByID = map[string]models.Deprecation{
 {{- range .Deprecations }}
-	{{ printf "%q" .ID }}: models.Deprecation{ 
+	{{ printf "%q" .ID }}: { 
 		ID: {{ printf "%q" .ID }},
 		Status: {{ printf "%q" .Status }},
 		APIType: {{ printf "%q" .APIType }},

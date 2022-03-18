@@ -36,7 +36,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "someProperty",
 					DataType: []string{""},
 				},
@@ -66,7 +66,7 @@ func TestInvalidPropertyName(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "some-property",
 					DataType: []string{"string"},
 				},
@@ -147,7 +147,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "string_prop",
 					DataType: []string{"string"},
 				},

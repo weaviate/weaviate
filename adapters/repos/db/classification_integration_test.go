@@ -297,7 +297,6 @@ func classificationTestCategories() search.Results {
 	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
-
 		// exact categories
 		search.Result{
 			ID:        idCategoryPolitics,
@@ -348,7 +347,6 @@ func classificationTestArticles() search.Results {
 	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
-
 		// classified
 		search.Result{
 			ID:        "8aeecd06-55a0-462c-9853-81b31a284d80",

@@ -33,7 +33,7 @@ func Test_InValidConfig(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.ID = ""
@@ -41,7 +41,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("id cannot be empty"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.RootPath = ""
@@ -49,7 +49,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("rootPath cannot be empty"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.MakeCommitLoggerThunk = nil
@@ -57,7 +57,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("makeCommitLoggerThunk cannot be nil"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.VectorForIDThunk = nil
@@ -93,7 +93,7 @@ func Test_UserConfig(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: UserConfig{
@@ -110,7 +110,7 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			name: "with maximum connections",
 			input: map[string]interface{}{
 				"maxConnections": json.Number("100"),
@@ -128,7 +128,7 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			name: "with all optional fields",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": json.Number("11"),
@@ -156,7 +156,7 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			// this is the case when reading the json representation from disk, as
 			// opposed to from the API
 			name: "with raw data as floats",
