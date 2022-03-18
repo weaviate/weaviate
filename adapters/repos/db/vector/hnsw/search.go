@@ -114,13 +114,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		candidateNode.Lock()
-		connections := make([]uint64, len(candidateNode.connections[level]))
+		connections := h.pools.connList.Get(len(candidateNode.connections[level]))
+		defer h.pools.connList.Put(connections)
 		for i, conn := range candidateNode.connections[level] {
-			connections[i] = conn
+			(*connections)[i] = conn
 		}
 		candidateNode.Unlock()
 
-		for _, neighborID := range connections {
+		for _, neighborID := range *connections {
 
 			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor
