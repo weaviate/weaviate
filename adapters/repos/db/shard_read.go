@@ -164,9 +164,13 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			return nil, errors.Errorf("shard was built with an older version of " +
 				"Weaviate which does not yet support BM25 search")
 		}
-		return inverted.NewBM25Searcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs, s.propLengths, s.index.logger, s.versioner.Version()).
+
+		bm25Config := s.index.getInvertedIndexConfig().BM25
+
+		return inverted.NewBM25Searcher(bm25Config, s.store,
+			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
+			s.index.logger, s.versioner.Version()).
 			Object(ctx, limit, keywordRanking, filters, additional, s.index.Config.ClassName)
 	}
 

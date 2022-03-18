@@ -57,6 +57,11 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	err = m.invertedConfigValidator(class.InvertedIndexConfig)
+	if err != nil {
+		return err
+	}
+
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config), m.clusterState)
 	if err != nil {
@@ -109,6 +114,13 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
+	}
+
+	if class.InvertedIndexConfig.Bm25 == nil {
+		class.InvertedIndexConfig.Bm25 = &models.BM25Config{
+			K1: config.DefaultBM25k1,
+			B:  config.DefaultBM25b,
+		}
 	}
 
 	m.moduleConfig.SetClassDefaults(class)
