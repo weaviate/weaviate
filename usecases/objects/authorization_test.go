@@ -40,49 +40,49 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		// single kind
-		testCase{
+		{
 			methodName:       "AddObject",
 			additionalArgs:   []interface{}{(*models.Object)(nil)},
 			expectedVerb:     "create",
 			expectedResource: "objects",
 		},
-		testCase{
+		{
 			methodName:       "ValidateObject",
 			additionalArgs:   []interface{}{(*models.Object)(nil)},
 			expectedVerb:     "validate",
 			expectedResource: "objects",
 		},
-		testCase{
+		{
 			methodName:       "GetObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), additional.Properties{}},
 			expectedVerb:     "get",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
 			expectedVerb:     "delete",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "MergeObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "GetObjectsClass",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
 			expectedVerb:     "get",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "HeadObject",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
 			expectedVerb:     "head",
@@ -90,7 +90,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 
 		// list kinds
-		testCase{
+		{
 			methodName:       "GetObjects",
 			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), additional.Properties{}},
 			expectedVerb:     "list",
@@ -98,19 +98,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 
 		// reference on kinds
-		testCase{
+		{
 			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "DeleteObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
 		},
-		testCase{
+		{
 			methodName:       "UpdateObjectReferences",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (models.MultipleRef)(nil)},
 			expectedVerb:     "update",
@@ -173,14 +173,14 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		// 	expectedResource: "batch/actions",
 		// },
 
-		testCase{
+		{
 			methodName:       "AddObjects",
 			additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",
 		},
 
-		testCase{
+		{
 			methodName:       "AddReferences",
 			additionalArgs:   []interface{}{[]*models.BatchReference{}},
 			expectedVerb:     "update",

@@ -250,7 +250,7 @@ func (l *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	if err := l.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
 		values: []value{
-			value{
+			{
 				value: valuesForCommitLog,
 			},
 		},

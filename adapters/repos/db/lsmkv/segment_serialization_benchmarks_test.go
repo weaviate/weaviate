@@ -46,11 +46,11 @@ func BenchmarkCollectionNodeKeyIndexAndWriteTo(b *testing.B) {
 		primaryKey: []byte("foo bar"),
 		offset:     27,
 		values: []value{
-			value{
+			{
 				value:     []byte("my-value"),
 				tombstone: true,
 			},
-			value{
+			{
 				value:     []byte("my-value"),
 				tombstone: true,
 			},

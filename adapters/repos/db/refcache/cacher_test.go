@@ -44,7 +44,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 			},
@@ -58,7 +58,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -76,7 +76,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -106,7 +106,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -122,7 +122,7 @@ func TestCacher(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -180,7 +180,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -196,7 +196,7 @@ func TestCacher(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -206,10 +206,10 @@ func TestCacher(t *testing.T) {
 							search.SelectProperty{
 								Name: "nestedRef",
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "SomeNestedClass",
 										RefProperties: []search.SelectProperty{
-											search.SelectProperty{
+											{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -290,7 +290,7 @@ func TestCacher(t *testing.T) {
 
 		// contains three items, all pointing to the same inner class
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -301,7 +301,7 @@ func TestCacher(t *testing.T) {
 					},
 				},
 			},
-			search.Result{
+			{
 				ID:        "bar",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -312,7 +312,7 @@ func TestCacher(t *testing.T) {
 					},
 				},
 			},
-			search.Result{
+			{
 				ID:        "baz",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -328,7 +328,7 @@ func TestCacher(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -338,10 +338,10 @@ func TestCacher(t *testing.T) {
 							search.SelectProperty{
 								Name: "nestedRef",
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "SomeNestedClass",
 										RefProperties: []search.SelectProperty{
-											search.SelectProperty{
+											{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -446,7 +446,7 @@ func TestCacher(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -462,7 +462,7 @@ func TestCacher(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -472,10 +472,10 @@ func TestCacher(t *testing.T) {
 							search.SelectProperty{
 								Name: "nestedRef",
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "SomeNestedClass",
 										RefProperties: []search.SelectProperty{
-											search.SelectProperty{
+											{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -486,20 +486,20 @@ func TestCacher(t *testing.T) {
 							search.SelectProperty{
 								Name: "nestedRef2",
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "SomeNestedClass2",
 										RefProperties: []search.SelectProperty{
-											search.SelectProperty{
+											{
 												Name:        "title",
 												IsPrimitive: true,
 											},
-											search.SelectProperty{
+											{
 												Name: "nestedRefInNestedRef",
 												Refs: []search.SelectClass{
-													search.SelectClass{
+													{
 														ClassName: "SomeNestedClassNested2",
 														RefProperties: []search.SelectProperty{
-															search.SelectProperty{
+															{
 																Name:        "titleNested",
 																IsPrimitive: true,
 															},

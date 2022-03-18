@@ -80,91 +80,91 @@ func zooAnimalSchemaForTest() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class:             "ZooAction",
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
-						&models.Property{
+						{
 							Name:     "area",
 							DataType: []string{"number"},
 						},
-						&models.Property{
+						{
 							Name:     "employees",
 							DataType: []string{"int"},
 						},
-						&models.Property{
+						{
 							Name:     "located",
 							DataType: []string{"geoCoordinates"},
 						},
-						&models.Property{
+						{
 							Name:     "foundedIn",
 							DataType: []string{"date"},
 						},
-						&models.Property{
+						{
 							Name:     "hasAnimals",
 							DataType: []string{"AnimalAction"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:             "AnimalAction",
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:             "Zoo",
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
-						&models.Property{
+						{
 							Name:     "area",
 							DataType: []string{"number"},
 						},
-						&models.Property{
+						{
 							Name:     "employees",
 							DataType: []string{"int"},
 						},
-						&models.Property{
+						{
 							Name:     "located",
 							DataType: []string{"geoCoordinates"},
 						},
-						&models.Property{
+						{
 							Name:     "foundedIn",
 							DataType: []string{"date"},
 						},
-						&models.Property{
+						{
 							Name:     "hasAnimals",
 							DataType: []string{"Animal"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:             "Animal",
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:             "NotVectorized",
 					VectorIndexConfig: hnsw.UserConfig{},
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "description",
 							DataType: []string{"text"},
 						},

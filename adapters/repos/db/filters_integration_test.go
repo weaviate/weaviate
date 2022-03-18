@@ -390,7 +390,7 @@ func testChainedPrimitiveProps(repo *DB,
 		}
 
 		tests := []test{
-			test{
+			{
 				name: "modelName == sprinter AND  weight > 3000",
 				filter: filterAnd(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -398,7 +398,7 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
-			test{
+			{
 				name: "modelName == sprinter OR modelName == e63s",
 				filter: filterOr(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -422,7 +422,7 @@ func testChainedPrimitiveProps(repo *DB,
 			// 	),
 			// 	expectedIDs: []strfmt.UUID{carE63sID},
 			// },
-			test{
+			{
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
 					filterAnd(
@@ -436,7 +436,7 @@ func testChainedPrimitiveProps(repo *DB,
 
 			// this test prevents a regression on
 			// https://github.com/semi-technologies/weaviate/issues/1638
-			test{
+			{
 				name: "Like ca* AND Like eng*",
 				filter: filterAnd(
 					buildFilter("description", "ca*", like, dtText),
@@ -563,7 +563,7 @@ func mustParseTime(in string) time.Time {
 }
 
 var cars = []models.Object{
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carSprinterID,
 		Properties: map[string]interface{}{
@@ -579,7 +579,7 @@ var cars = []models.Object{
 			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carE63sID,
 		Properties: map[string]interface{}{
@@ -595,7 +595,7 @@ var cars = []models.Object{
 			"description": "This car has a huge motor, but it's also not exactly lightweight.",
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Properties: map[string]interface{}{
