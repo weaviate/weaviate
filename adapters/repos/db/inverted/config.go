@@ -34,8 +34,7 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfig {
 	var conf schema.InvertedIndexConfig
 
-	conf.CleanupIntervalSeconds =
-		iicm.CleanupIntervalSeconds
+	conf.CleanupIntervalSeconds = iicm.CleanupIntervalSeconds
 
 	if iicm.Bm25 == nil {
 		conf.BM25.K1 = float64(config.DefaultBM25k1)
