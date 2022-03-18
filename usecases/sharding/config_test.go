@@ -29,7 +29,7 @@ func Test_Config(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: Config{
@@ -44,7 +44,7 @@ func Test_Config(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			name: "everything specified, everything legal",
 			input: map[string]interface{}{
 				"virtualPerPhysical":  json.Number("64"),
@@ -66,7 +66,7 @@ func Test_Config(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			name: "everything specified, everything legal, from disk using floats for numbers",
 			input: map[string]interface{}{
 				"virtualPerPhysical":  float64(64),
@@ -88,7 +88,7 @@ func Test_Config(t *testing.T) {
 			},
 		},
 
-		test{
+		{
 			name: "unsupported sharding key",
 			input: map[string]interface{}{
 				"key":      "myCustomField",
@@ -99,7 +99,7 @@ func Test_Config(t *testing.T) {
 				"for now, got: myCustomField"),
 		},
 
-		test{
+		{
 			name: "unsupported sharding strategy",
 			input: map[string]interface{}{
 				"key":      "_id",
@@ -110,7 +110,7 @@ func Test_Config(t *testing.T) {
 				"for now, got: range"),
 		},
 
-		test{
+		{
 			name: "unsupported sharding function",
 			input: map[string]interface{}{
 				"key":      "_id",

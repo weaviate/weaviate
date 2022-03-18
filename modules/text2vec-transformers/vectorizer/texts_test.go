@@ -30,14 +30,14 @@ func TestVectorizingTexts(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			name:                    "single word",
 			input:                   []string{"hello"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
 			expectedClientCall:      "hello",
 		},
-		testCase{
+		{
 			name:                    "multiple words",
 			input:                   []string{"hello world, this is me!"},
 			poolingStrategy:         "cls",
@@ -45,7 +45,7 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedClientCall:      "hello world, this is me!",
 		},
 
-		testCase{
+		{
 			name:                    "multiple sentences (joined with a dot)",
 			input:                   []string{"this is sentence 1", "and here's number 2"},
 			poolingStrategy:         "cls",
@@ -53,28 +53,28 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedClientCall:      "this is sentence 1. and here's number 2",
 		},
 
-		testCase{
+		{
 			name:                    "multiple sentences already containing a dot",
 			input:                   []string{"this is sentence 1.", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
 			expectedClientCall:      "this is sentence 1. and here's number 2",
 		},
-		testCase{
+		{
 			name:                    "multiple sentences already containing a question mark",
 			input:                   []string{"this is sentence 1?", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
 			expectedClientCall:      "this is sentence 1? and here's number 2",
 		},
-		testCase{
+		{
 			name:                    "multiple sentences already containing an exclamation mark",
 			input:                   []string{"this is sentence 1!", "and here's number 2"},
 			poolingStrategy:         "cls",
 			expectedPoolingStrategy: "cls",
 			expectedClientCall:      "this is sentence 1! and here's number 2",
 		},
-		testCase{
+		{
 			name:                    "multiple sentences already containing comma",
 			input:                   []string{"this is sentence 1,", "and here's number 2"},
 			poolingStrategy:         "cls",

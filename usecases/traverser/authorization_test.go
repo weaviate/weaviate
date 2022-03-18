@@ -38,21 +38,21 @@ func Test_Traverser_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{GetParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
 
-		testCase{
+		{
 			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&aggregation.Params{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
 
-		testCase{
+		{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",

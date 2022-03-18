@@ -39,7 +39,7 @@ func TestResolver(t *testing.T) {
 	t.Run("with nil-schemas", func(t *testing.T) {
 		r := NewResolver(newFakeCacher())
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 			},
@@ -54,7 +54,7 @@ func TestResolver(t *testing.T) {
 	t.Run("with single ref but no select props", func(t *testing.T) {
 		r := NewResolver(newFakeCacher())
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -84,7 +84,7 @@ func TestResolver(t *testing.T) {
 			},
 		}
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -100,7 +100,7 @@ func TestResolver(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -114,7 +114,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -162,7 +162,7 @@ func TestResolver(t *testing.T) {
 			},
 		}
 		input := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
@@ -178,7 +178,7 @@ func TestResolver(t *testing.T) {
 			search.SelectProperty{
 				Name: "refProp",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "SomeClass",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -188,10 +188,10 @@ func TestResolver(t *testing.T) {
 							search.SelectProperty{
 								Name: "nestedRef",
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "SomeNestedClass",
 										RefProperties: []search.SelectProperty{
-											search.SelectProperty{
+											{
 												Name:        "name",
 												IsPrimitive: true,
 											},
@@ -206,7 +206,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := []search.Result{
-			search.Result{
+			{
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{

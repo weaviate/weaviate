@@ -28,7 +28,7 @@ func Test_ValidateUserInput(t *testing.T) {
 
 	// knn or general
 	tests := []testcase{
-		testcase{
+		{
 			name: "missing class",
 			input: models.Classification{
 				BasedOnProperties:  []string{"description"},
@@ -37,7 +37,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: class must be set"),
 		},
 
-		testcase{
+		{
 			name: "missing basedOnProperty (nil)",
 			input: models.Classification{
 				Class:              "Article",
@@ -46,7 +46,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			},
 			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property"),
 		},
-		testcase{
+		{
 			name: "missing basedOnProperty (len=0)",
 			input: models.Classification{
 				Class:              "Article",
@@ -56,7 +56,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: basedOnProperties must have at least one property"),
 		},
 
-		testcase{
+		{
 			name: "more than one basedOnProperty",
 			input: models.Classification{
 				Class:              "Article",
@@ -67,7 +67,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				"supported at the moment, got [description name]"),
 		},
 
-		testcase{
+		{
 			name: "basedOnProperty does not exist",
 			input: models.Classification{
 				Class:              "Article",
@@ -77,7 +77,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'doesNotExist' does not exist"),
 		},
 
-		testcase{
+		{
 			name: "basedOnProperty is not of type text",
 			input: models.Classification{
 				Class:              "Article",
@@ -87,7 +87,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'name' must be of type 'text'"),
 		},
 
-		testcase{
+		{
 			name: "missing classifyProperties (nil)",
 			input: models.Classification{
 				Class:              "Article",
@@ -97,7 +97,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: classifyProperties must have at least one property"),
 		},
 
-		testcase{
+		{
 			name: "missing classifyProperties (len=0)",
 			input: models.Classification{
 				Class:              "Article",
@@ -107,7 +107,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: classifyProperties must have at least one property"),
 		},
 
-		testcase{
+		{
 			name: "classifyProperties does not exist",
 			input: models.Classification{
 				Class:              "Article",
@@ -117,7 +117,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'doesNotExist' does not exist"),
 		},
 
-		testcase{
+		{
 			name: "classifyProperties is not of reference type",
 			input: models.Classification{
 				Class:              "Article",
@@ -127,14 +127,14 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'name' must be of reference type (cref)"),
 		},
 
-		testcase{
+		{
 			name:          "multiple missing fields (aborts early as we can't validate properties if class is not set)",
 			input:         models.Classification{},
 			expectedError: fmt.Errorf("invalid classification: class must be set"),
 		},
 
 		// specific for knn
-		testcase{
+		{
 			name: "targetWhere is set",
 			input: models.Classification{
 				Class:              "Article",
@@ -149,7 +149,7 @@ func Test_ValidateUserInput(t *testing.T) {
 		},
 
 		// specific for text2vec-contextionary-contextual
-		testcase{
+		{
 			name: "classifyProperty has more than one target class",
 			input: models.Classification{
 				Class:              "Article",
@@ -160,7 +160,7 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'anyCategory' has more than one target class, classification of type 'text2vec-contextionary-contextual' requires exactly one target class"),
 		},
 
-		testcase{
+		{
 			name: "trainingSetWhere is set",
 			input: models.Classification{
 				Class:              "Article",

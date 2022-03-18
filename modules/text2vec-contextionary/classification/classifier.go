@@ -24,7 +24,6 @@ type vectorizer interface {
 	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
 	// element should be explicit nil, not skipped
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
-
 	VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 }
 
