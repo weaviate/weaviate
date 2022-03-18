@@ -31,6 +31,12 @@ const DefaultConfigFile string = "./weaviate.conf.json"
 // DefaultCleanupIntervalSeconds can be overwritten on a per-class basis
 const DefaultCleanupIntervalSeconds = int64(60)
 
+const (
+	// These BM25 tuning params can be overwritten on a per-class basis
+	DefaultBM25k1 = float32(1.2)
+	DefaultBM25b  = float32(0.75)
+)
+
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
@@ -52,7 +58,7 @@ type Config struct {
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
-	BM25                    BM25           `json:"bm25" yaml:"bm25"`
+	// BM25                    BM25           `json:"bm25" yaml:"bm25"`
 }
 
 type moduleProvider interface {
@@ -116,21 +122,6 @@ func (p Persistence) Validate() error {
 		return fmt.Errorf("persistence.dataPath must be set")
 	}
 
-	return nil
-}
-
-type BM25 struct {
-	K1 float64 `json:"k1" yaml:"k1"`
-	B  float64 `json:"b" yaml:"b"`
-}
-
-func (bm25 BM25) Validate() error {
-	if bm25.K1 < 0 {
-		return fmt.Errorf("BM25.k1 must be >= 0")
-	}
-	if bm25.B < 0 || bm25.B > 1 {
-		return fmt.Errorf("BM25.b must be <= 0 and <= 1")
-	}
 	return nil
 }
 
@@ -200,10 +191,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.AutoSchema.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.BM25.Validate(); err != nil {
 		return configErr(err)
 	}
 
