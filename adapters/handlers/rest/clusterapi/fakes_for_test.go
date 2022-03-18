@@ -54,6 +54,10 @@ func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error)
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 
+func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
+	return nil
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -174,5 +178,12 @@ func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, 
 }
 
 func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaent.VectorIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
 	return nil
 }

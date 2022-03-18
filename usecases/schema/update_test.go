@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,7 +131,7 @@ func TestClassUpdates(t *testing.T) {
 						"to add additional properties"),
 			},
 			{
-				name: "attempting to update the inverted index config",
+				name: "attempting to update the inverted index cleanup interval",
 				initial: &models.Class{
 					Class: "InitialName",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
@@ -141,9 +142,35 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
 						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: config.DefaultBM25k1,
+							B:  config.DefaultBM25b,
+						},
 					},
 				},
-				expectedError: errors.Errorf("inverted index config is immutable"),
+			},
+			{
+				name: "attempting to update the inverted index BM25 config",
+				initial: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: 1.012,
+							B:  0.125,
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: 1.012,
+							B:  0.125,
+						},
+					},
+				},
 			},
 			{
 				name: "attempting to update module config",
