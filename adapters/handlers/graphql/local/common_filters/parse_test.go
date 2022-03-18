@@ -171,9 +171,9 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 		}) }`
 
 		expectedErrors := []gqlerrors.FormattedError{
-			gqlerrors.FormattedError{
+			{
 				Message:   "Argument \"where\" has invalid value {path: [\"location\"], operator: WithinGeoRange, valueGeoRange: {geoCoordinates: {latitude: 0.5}, distance: {max: 2.0}}}.\nIn field \"valueGeoRange\": In field \"geoCoordinates\": In field \"longitude\": Expected \"Float!\", found null.",
-				Locations: []location.SourceLocation{location.SourceLocation{Line: 1, Column: 21}},
+				Locations: []location.SourceLocation{{Line: 1, Column: 21}},
 			},
 		}
 		resolver.AssertErrors(t, query, expectedErrors)
@@ -216,7 +216,7 @@ func TestExtractOperand(t *testing.T) {
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorAnd,
 		Operands: []filters.Clause{
-			filters.Clause{
+			{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),
@@ -227,7 +227,7 @@ func TestExtractOperand(t *testing.T) {
 					Type:  schema.DataTypeInt,
 				},
 			},
-			filters.Clause{
+			{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),

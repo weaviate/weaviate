@@ -770,22 +770,22 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-019"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-016-key-0"), Value: []byte("row-016-value-0")},
 					{Key: []byte("row-016-key-1"), Value: []byte("row-016-value-1")},
 					{Key: []byte("row-016-key-2"), Value: []byte("row-016-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-017-key-0"), Value: []byte("row-017-value-0")},
 					{Key: []byte("row-017-key-1"), Value: []byte("row-017-value-1")},
 					{Key: []byte("row-017-key-2"), Value: []byte("row-017-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-018-key-0"), Value: []byte("row-018-value-0")},
 					{Key: []byte("row-018-key-1"), Value: []byte("row-018-value-1")},
 					{Key: []byte("row-018-key-2"), Value: []byte("row-018-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-019-key-0"), Value: []byte("row-019-value-0")},
 					{Key: []byte("row-019-key-1"), Value: []byte("row-019-value-1")},
 					{Key: []byte("row-019-key-2"), Value: []byte("row-019-value-2")},
@@ -816,17 +816,17 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-002"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-000-key-0"), Value: []byte("row-000-value-0")},
 					{Key: []byte("row-000-key-1"), Value: []byte("row-000-value-1")},
 					{Key: []byte("row-000-key-2"), Value: []byte("row-000-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
 					{Key: []byte("row-001-key-1"), Value: []byte("row-001-value-1")},
 					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
 					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1")},
 					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},
@@ -873,12 +873,12 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-002"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
 					// key-1 was deleted
 					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
 					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1-updated")},
 					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},
@@ -1055,22 +1055,22 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-019"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-016-key-0"), Value: []byte("row-016-value-0")},
 					{Key: []byte("row-016-key-1"), Value: []byte("row-016-value-1")},
 					{Key: []byte("row-016-key-2"), Value: []byte("row-016-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-017-key-0"), Value: []byte("row-017-value-0")},
 					{Key: []byte("row-017-key-1"), Value: []byte("row-017-value-1")},
 					{Key: []byte("row-017-key-2"), Value: []byte("row-017-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-018-key-0"), Value: []byte("row-018-value-0")},
 					{Key: []byte("row-018-key-1"), Value: []byte("row-018-value-1")},
 					{Key: []byte("row-018-key-2"), Value: []byte("row-018-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-019-key-0"), Value: []byte("row-019-value-0")},
 					{Key: []byte("row-019-key-1"), Value: []byte("row-019-value-1")},
 					{Key: []byte("row-019-key-2"), Value: []byte("row-019-value-2")},
@@ -1101,17 +1101,17 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-002"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-000-key-0"), Value: []byte("row-000-value-0")},
 					{Key: []byte("row-000-key-1"), Value: []byte("row-000-value-1")},
 					{Key: []byte("row-000-key-2"), Value: []byte("row-000-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
 					{Key: []byte("row-001-key-1"), Value: []byte("row-001-value-1")},
 					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
 					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1")},
 					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},
@@ -1158,12 +1158,12 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-002"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
 					// key-1 was deleted
 					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
 					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1-updated")},
 					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},
@@ -1199,12 +1199,12 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("row-002"),
 			}
 			expectedValues := [][]MapPair{
-				[]MapPair{
+				{
 					{Key: []byte("row-001-key-0"), Value: []byte("row-001-value-0")},
 					// key-1 was deleted
 					{Key: []byte("row-001-key-2"), Value: []byte("row-001-value-2")},
 				},
-				[]MapPair{
+				{
 					{Key: []byte("row-002-key-0"), Value: []byte("row-002-value-0")},
 					{Key: []byte("row-002-key-1"), Value: []byte("row-002-value-1-updated")},
 					{Key: []byte("row-002-key-2"), Value: []byte("row-002-value-2")},

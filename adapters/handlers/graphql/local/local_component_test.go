@@ -37,17 +37,16 @@ import (
 
 func Test_GraphQLNetworkBuild(t *testing.T) {
 	tests := testCases{
-
 		// This tests asserts that an action-only schema doesn't lead to errors.
 		testCase{
 			name: "with only objects locally",
 			localSchema: schema.Schema{
 				Objects: &models.Schema{
 					Classes: []*models.Class{
-						&models.Class{
+						{
 							Class: "BestLocalAction",
 							Properties: []*models.Property{
-								&models.Property{
+								{
 									DataType: []string{"string"},
 									Name:     "myStringProp",
 								},
@@ -64,10 +63,10 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 			localSchema: schema.Schema{
 				Objects: &models.Schema{
 					Classes: []*models.Class{
-						&models.Class{
+						{
 							Class: "BestLocalThing",
 							Properties: []*models.Property{
-								&models.Property{
+								{
 									DataType: []string{"string"},
 									Name:     "myStringProp",
 								},
@@ -85,7 +84,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 			localSchema: schema.Schema{
 				Objects: &models.Schema{
 					Classes: []*models.Class{
-						&models.Class{
+						{
 							Class:      "BestLocalThing",
 							Properties: []*models.Property{},
 						},
@@ -144,10 +143,10 @@ func validSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class: "BestLocalThing",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							DataType: []string{"string"},
 							Name:     "myStringProp",
 						},

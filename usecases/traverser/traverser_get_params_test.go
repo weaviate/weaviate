@@ -54,7 +54,7 @@ func TestGetParams(t *testing.T) {
 				IsPrimitive: false,
 				Name:        "inCity",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "City",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -65,7 +65,7 @@ func TestGetParams(t *testing.T) {
 								Name:        "inCountry",
 								IsPrimitive: false,
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "Country",
 										RefProperties: search.SelectProperties{
 											search.SelectProperty{

@@ -109,7 +109,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 	if haystack == needle {
 		// direct match
 		return []filters.Path{
-			filters.Path{
+			{
 				Class:    libschema.ClassName(class.Class),
 				Property: libschema.PropertyName(propName),
 				Child: &filters.Path{

@@ -92,76 +92,76 @@ func TestGetPropertyDataType(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			propName:         "stringProp",
 			expectedDataType: ptDataType(DataTypeString),
 		},
-		test{
+		{
 			propName:         "textProp",
 			expectedDataType: ptDataType(DataTypeText),
 		},
-		test{
+		{
 			propName:         "numberProp",
 			expectedDataType: ptDataType(DataTypeNumber),
 		},
-		test{
+		{
 			propName:         "intProp",
 			expectedDataType: ptDataType(DataTypeInt),
 		},
-		test{
+		{
 			propName:         "booleanProp",
 			expectedDataType: ptDataType(DataTypeBoolean),
 		},
-		test{
+		{
 			propName:         "dateProp",
 			expectedDataType: ptDataType(DataTypeDate),
 		},
-		test{
+		{
 			propName:         "phoneNumberProp",
 			expectedDataType: ptDataType(DataTypePhoneNumber),
 		},
-		test{
+		{
 			propName:         "geoCoordinatesProp",
 			expectedDataType: ptDataType(DataTypeGeoCoordinates),
 		},
-		test{
+		{
 			propName:         "blobProp",
 			expectedDataType: ptDataType(DataTypeBlob),
 		},
-		test{
+		{
 			propName:         "string[]Prop",
 			expectedDataType: ptDataType(DataTypeStringArray),
 		},
-		test{
+		{
 			propName:         "text[]Prop",
 			expectedDataType: ptDataType(DataTypeTextArray),
 		},
-		test{
+		{
 			propName:         "int[]Prop",
 			expectedDataType: ptDataType(DataTypeIntArray),
 		},
-		test{
+		{
 			propName:         "number[]Prop",
 			expectedDataType: ptDataType(DataTypeNumberArray),
 		},
-		test{
+		{
 			propName:         "boolean[]Prop",
 			expectedDataType: ptDataType(DataTypeBooleanArray),
 		},
-		test{
+		{
 			propName:         "date[]Prop",
 			expectedDataType: ptDataType(DataTypeDateArray),
 		},
-		test{
+		{
 			propName:         "RefProp",
 			expectedDataType: ptDataType(DataTypeCRef),
 		},
-		test{
+		{
 			propName:         "wrongProp",
 			expectedDataType: nil,
 			expectedErr:      fmt.Errorf("no such prop with name 'wrongProp' found in class 'TestClass' in the schema. Check your schema files for which properties in this class are available"),
 		},
-		test{
+		{
 			propName:         "invalidProp",
 			expectedDataType: nil,
 			expectedErr:      fmt.Errorf("given value-DataType does not exist."),

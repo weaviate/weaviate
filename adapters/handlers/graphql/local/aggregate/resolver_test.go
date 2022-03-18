@@ -87,9 +87,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							Type: aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 20,
@@ -102,7 +102,7 @@ func Test_Resolve(t *testing.T) {
 				Root: &filters.Clause{
 					Operator: filters.OperatorOr,
 					Operands: []filters.Clause{
-						filters.Clause{
+						{
 							Operator: filters.OperatorEqual,
 							On: &filters.Path{
 								Class:    schema.ClassName("Car"),
@@ -113,7 +113,7 @@ func Test_Resolve(t *testing.T) {
 								Type:  schema.DataType("string"),
 							},
 						},
-						filters.Clause{
+						{
 							Operator: filters.OperatorEqual,
 							On: &filters.Path{
 								Class:    schema.ClassName("Car"),
@@ -152,9 +152,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -184,9 +184,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -245,10 +245,10 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: 10,
 					Properties: map[string]aggregation.Property{
-						"stillInProduction": aggregation.Property{
+						"stillInProduction": {
 							SchemaType: "boolean",
 							Type:       aggregation.PropertyTypeBoolean,
 							BooleanAggregation: aggregation.Boolean{
@@ -259,24 +259,24 @@ func Test_Resolve(t *testing.T) {
 								Count:           40,
 							},
 						},
-						"modelName": aggregation.Property{
+						"modelName": {
 							SchemaType: "string",
 							Type:       aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 40,
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "fastcar",
 										Occurs: 39,
 									},
-									aggregation.TextOccurrence{
+									{
 										Value:  "slowcar",
 										Occurs: 1,
 									},
 								},
 							},
 						},
-						"madeBy": aggregation.Property{
+						"madeBy": {
 							SchemaType: "cref",
 							Type:       aggregation.PropertyTypeReference,
 							ReferenceAggregation: aggregation.Reference{
@@ -339,19 +339,19 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: 10,
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							SchemaType: "string",
 							Type:       aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "fastcar",
 										Occurs: 39,
 									},
-									aggregation.TextOccurrence{
+									{
 										Value:  "slowcar",
 										Occurs: 1,
 									},
@@ -393,9 +393,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: "int",
 							NumericalAggregations: map[string]float64{
@@ -430,13 +430,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -485,13 +485,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -536,13 +536,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"maximum": 610.0,
@@ -588,13 +588,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							Type: aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 7,

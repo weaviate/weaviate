@@ -103,7 +103,7 @@ func Test_GetAction(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ActionClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
@@ -113,7 +113,7 @@ func Test_GetAction(t *testing.T) {
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ActionClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -131,7 +131,7 @@ func Test_GetAction(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ActionClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
@@ -141,7 +141,7 @@ func Test_GetAction(t *testing.T) {
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ActionClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -233,14 +233,14 @@ func Test_GetAction(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -258,7 +258,7 @@ func Test_GetAction(t *testing.T) {
 					Additional: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -284,7 +284,7 @@ func Test_GetAction(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -293,14 +293,14 @@ func Test_GetAction(t *testing.T) {
 				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -311,7 +311,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -319,7 +319,7 @@ func Test_GetAction(t *testing.T) {
 						Additional: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -344,7 +344,7 @@ func Test_GetAction(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -353,7 +353,7 @@ func Test_GetAction(t *testing.T) {
 				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -366,7 +366,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -467,7 +467,7 @@ func Test_GetThing(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ThingClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
@@ -477,7 +477,7 @@ func Test_GetThing(t *testing.T) {
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ThingClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -522,14 +522,14 @@ func Test_GetThing(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -547,7 +547,7 @@ func Test_GetThing(t *testing.T) {
 					Additional: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -573,7 +573,7 @@ func Test_GetThing(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -582,14 +582,14 @@ func Test_GetThing(t *testing.T) {
 				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -600,7 +600,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -608,7 +608,7 @@ func Test_GetThing(t *testing.T) {
 						Additional: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -633,7 +633,7 @@ func Test_GetThing(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -642,7 +642,7 @@ func Test_GetThing(t *testing.T) {
 				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -655,7 +655,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
