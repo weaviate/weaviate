@@ -179,10 +179,12 @@ func TestInspector(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		client := &fakeClient{}
-		i := NewInspector(client)
-		res, err := i.GetWords(context.Background(), test.input)
-		require.Equal(t, err, test.expectedErr)
-		assert.Equal(t, res, test.expectedOutput)
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{}
+			i := NewInspector(client)
+			res, err := i.GetWords(context.Background(), test.input)
+			require.Equal(t, err, test.expectedErr)
+			assert.Equal(t, res, test.expectedOutput)
+		})
 	}
 }

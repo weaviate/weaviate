@@ -295,12 +295,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver()
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolver()
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
