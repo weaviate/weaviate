@@ -62,6 +62,10 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
 					"cleanupIntervalSeconds": float64(60),
+					"bm25": map[string]interface{}{
+						"k1": float64(1.2),
+						"b":  float64(0.75),
+					},
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
