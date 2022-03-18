@@ -64,13 +64,15 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		return nil, errors.Wrap(err, "init bufferend random generator")
 	}
 
+	invertedIndexConfig := index.getInvertedIndexConfig()
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
-		cleanupInterval: time.Duration(index.invertedIndexConfig.
+		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
 		cleanupCancel: make(chan struct{}),
 		randomSource:  rand,
