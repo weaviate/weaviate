@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	initialSize             = 25000
+	initialSize             = 110000
 	defaultIndexGrowthDelta = 25000
 )
 
