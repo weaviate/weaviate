@@ -36,6 +36,7 @@ type neighborFinderConnector struct {
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
+	statistics map[uint64]int
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
@@ -49,10 +50,12 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 		targetLevel:     targetLevel,
 		currentMaxLevel: currentMaxLevel,
 		denyList:        denyList,
+		statistics:      map[uint64]int{},
 	}
 }
 
 func (n *neighborFinderConnector) Do() error {
+	n.statistics[n.entryPointID]++
 	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -90,6 +93,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	// max := n.maximumConnections(level)
 	max := n.graph.maximumConnections
+	// if err := n.graph.selectNeighborsHeuristicWithStatistics(results, max, n.denyList, n.statistics); err != nil {
+	// 	return err
+	// }
 	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
 		return err
 	}
@@ -216,6 +222,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			candidates.Insert(existingConnection, dist)
 		}
 
+		// err = n.graph.selectNeighborsHeuristicWithStatistics(candidates, maximumConnections, n.denyList, nil)
 		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")

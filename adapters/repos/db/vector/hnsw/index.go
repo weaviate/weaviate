@@ -77,7 +77,8 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID VectorForID
+	vectorForID      VectorForID
+	multiVectorForID MultiVectorForID
 
 	cache cache
 
@@ -131,7 +132,10 @@ type BufferedLinksLogger interface {
 
 type MakeCommitLogger func() (CommitLogger, error)
 
-type VectorForID func(ctx context.Context, id uint64) ([]float32, error)
+type (
+	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
+	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, error)
+)
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -155,8 +159,12 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		normalizeOnRead = true
 	}
 
+	// vectorCache := newAtomicVectorCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	// 	cfg.Logger, normalizeOnRead)
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
+	// vectorCache := newShardedLockCacheFixedSize(cfg.VectorForIDThunk, 384, uc.VectorCacheMaxObjects,
+	// 	cfg.Logger, normalizeOnRead)
 
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
@@ -172,6 +180,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
+		multiVectorForID:  vectorCache.multiGet,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
 		tombstones:        map[uint64]struct{}{},
