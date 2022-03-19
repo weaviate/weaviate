@@ -93,6 +93,7 @@ func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 		n.shardedLocks[id%shardFactor].RLock()
 		vec := n.cache[id]
 		if vec == nil {
+			n.shardedLocks[id%shardFactor].RUnlock()
 			return nil, errors.Errorf("no vector for id %d in cache", id)
 		}
 
