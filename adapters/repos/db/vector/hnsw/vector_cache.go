@@ -18,7 +18,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
 )
@@ -68,6 +67,10 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 		return vec, nil
 	}
 
+	return n.handleCacheMiss(ctx, id)
+}
+
+func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -92,14 +95,18 @@ func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 	for i, id := range ids {
 		n.shardedLocks[id%shardFactor].RLock()
 		vec := n.cache[id]
+		n.shardedLocks[id%shardFactor].RUnlock()
+
 		if vec == nil {
-			n.shardedLocks[id%shardFactor].RUnlock()
-			return nil, errors.Errorf("no vector for id %d in cache", id)
+			vecFromDisk, err := n.handleCacheMiss(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+
+			vec = vecFromDisk
 		}
 
 		out[i] = vec
-
-		n.shardedLocks[id%shardFactor].RUnlock()
 	}
 
 	return out, nil
