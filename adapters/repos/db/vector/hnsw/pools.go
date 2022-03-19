@@ -21,7 +21,7 @@ import (
 type pools struct {
 	visitedLists *visited.Pool
 	pqItemSlice  *sync.Pool
-	pqHeuristic  *pqMinPool
+	pqHeuristic  *pqMinWithIndexPool
 	pqResults    *pqMaxPool
 	pqCandidates *pqMinPool
 	connList     *connList
@@ -32,10 +32,10 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		visitedLists: visited.NewPool(1, initialSize+500),
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
-				return make([]priorityqueue.Item, 0, maxConnectionsLayerZero)
+				return make([]priorityqueue.ItemWithIndex, 0, maxConnectionsLayerZero)
 			},
 		},
-		pqHeuristic:  newPqMinPool(maxConnectionsLayerZero),
+		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
 		pqResults:    newPqMaxPool(maxConnectionsLayerZero),
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
 		connList:     newConnList(maxConnectionsLayerZero),
@@ -68,6 +68,35 @@ func (pqh *pqMinPool) GetMin(capacity int) *priorityqueue.Queue {
 }
 
 func (pqh *pqMinPool) Put(pq *priorityqueue.Queue) {
+	pqh.pool.Put(pq)
+}
+
+type pqMinWithIndexPool struct {
+	pool *sync.Pool
+}
+
+func newPqMinWithIndexPool(defaultCap int) *pqMinWithIndexPool {
+	return &pqMinWithIndexPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return priorityqueue.NewMinWithIndex(defaultCap)
+			},
+		},
+	}
+}
+
+func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.QueueWithIndex {
+	pq := pqh.pool.Get().(*priorityqueue.QueueWithIndex)
+	if pq.Cap() < capacity {
+		pq.ResetCap(capacity)
+	} else {
+		pq.Reset()
+	}
+
+	return pq
+}
+
+func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.QueueWithIndex) {
 	pqh.pool.Put(pq)
 }
 
