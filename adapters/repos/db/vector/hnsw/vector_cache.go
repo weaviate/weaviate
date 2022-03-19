@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,16 +24,16 @@ import (
 )
 
 type shardedLockCache struct {
-	shardedLocks     []sync.RWMutex
-	cache            [][]float32
-	vectorForID      VectorForID
-	normalizeOnRead  bool
-	maxSize          int64
-	count            int64
-	cancel           chan bool
-	logger           logrus.FieldLogger
-	readCounter      uint64
-	multiReadCounter uint64
+	shardedLocks    []sync.RWMutex
+	cache           [][]float32
+	vectorForID     VectorForID
+	normalizeOnRead bool
+	maxSize         int64
+	count           int64
+	cancel          chan bool
+	logger          logrus.FieldLogger
+	// readCounter      uint64
+	// multiReadCounter uint64
 }
 
 var shardFactor = uint64(512)
@@ -60,7 +59,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 }
 
 func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	atomic.AddUint64(&n.readCounter, 1)
+	// atomic.AddUint64(&n.readCounter, 1)
 	n.shardedLocks[id%shardFactor].RLock()
 	vec := n.cache[id]
 	n.shardedLocks[id%shardFactor].RUnlock()
@@ -87,7 +86,7 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 }
 
 func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, error) {
-	atomic.AddUint64(&n.multiReadCounter, 1)
+	// atomic.AddUint64(&n.multiReadCounter, 1)
 
 	out := make([][]float32, len(ids))
 	for i, id := range ids {
@@ -148,8 +147,8 @@ func (c *shardedLockCache) watchForDeletion() {
 			case <-c.cancel:
 				return
 			case <-t:
-				fmt.Printf("received %d read requests so far\n", atomic.LoadUint64(&c.readCounter))
-				fmt.Printf("received %d multi-read requests so far\n", atomic.LoadUint64(&c.multiReadCounter))
+				// fmt.Printf("received %d read requests so far\n", atomic.LoadUint64(&c.readCounter))
+				// fmt.Printf("received %d multi-read requests so far\n", atomic.LoadUint64(&c.multiReadCounter))
 				c.replaceIfFull()
 			}
 		}
