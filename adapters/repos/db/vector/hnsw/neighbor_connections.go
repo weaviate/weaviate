@@ -93,12 +93,12 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	// max := n.maximumConnections(level)
 	max := n.graph.maximumConnections
-	// if err := n.graph.selectNeighborsHeuristicWithStatistics(results, max, n.denyList, n.statistics); err != nil {
-	// 	return err
-	// }
-	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristicWithStatistics(results, max, n.denyList, n.statistics); err != nil {
 		return err
 	}
+	// if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+	// 	return err
+	// }
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
@@ -222,8 +222,8 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			candidates.Insert(existingConnection, dist)
 		}
 
-		// err = n.graph.selectNeighborsHeuristicWithStatistics(candidates, maximumConnections, n.denyList, nil)
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		err = n.graph.selectNeighborsHeuristicWithStatistics(candidates, maximumConnections, n.denyList, nil)
+		// err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")
 		}
