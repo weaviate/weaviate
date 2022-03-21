@@ -49,7 +49,8 @@ func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
 			s.index.logger.WithField("action", "read_disk_use").
 				WithField("shard", s.name).
 				WithField("path", diskPath).
-				Warnf("disk usage currently at %.2f%%", pu)
+				Warnf("disk usage currently at %.2f%%, threshold set to %.2f%%",
+					pu, float64(s.index.Config.DiskUseWarningPercentage))
 
 			s.index.logger.WithField("action", "disk_use_stats").
 				WithField("shard", s.name).
@@ -77,7 +78,8 @@ func (s *Shard) diskUseReadonly(du diskUse, diskPath string) {
 			s.index.logger.WithField("action", "set_shard_read_only").
 				WithField("shard", s.name).
 				WithField("path", diskPath).
-				Warnf("disk usage currently at %.2f%%, %s set READONLY", pu, s.name)
+				Warnf("disk usage currently at %.2f%%, %s set READONLY, threshold set to %.2f%%",
+					pu, s.name, float64(s.index.Config.DiskUseReadOnlyPercentage))
 		}
 	}
 }
