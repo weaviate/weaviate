@@ -28,6 +28,7 @@ func (d diskUse) String() string {
 }
 
 func (d *DB) scanDiskUse() {
+	d.logger.Warnf("inside scanner, config: %+v", d.config)
 	go func() {
 		t := time.Tick(time.Second * 30)
 		for {
