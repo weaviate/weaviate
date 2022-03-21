@@ -45,7 +45,6 @@ func newDiskScanState() *diskScanState {
 func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
 	if pu := du.percentUsed(); s.index.Config.DiskUseWarningPercentage > 0 &&
 		pu > float64(s.index.Config.DiskUseWarningPercentage) {
-
 		if !s.isReadOnly() && time.Since(s.diskScanState.lastWarning) >
 			s.diskScanState.getWarningInterval() {
 			s.index.logger.WithField("action", "read_disk_use").
@@ -69,7 +68,6 @@ func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
 func (s *Shard) diskUseReadonly(du diskUse, diskPath string) {
 	if pu := du.percentUsed(); s.index.Config.DiskUseReadOnlyPercentage > 0 &&
 		pu > float64(s.index.Config.DiskUseReadOnlyPercentage) {
-
 		if !s.isReadOnly() {
 			err := s.updateStatus(storagestate.StatusReadOnly.String())
 			if err != nil {
