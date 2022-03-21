@@ -8,21 +8,23 @@ import (
 
 type diskUse struct {
 	total uint64
+	free  uint64
 	avail uint64
 }
 
 func (d diskUse) percentUsed() float64 {
-	used := d.total - d.avail
+	used := d.total - d.free
 	return (float64(used) / float64(d.total)) * 100
 }
 
 func (d diskUse) String() string {
 	GB := 1024 * 1024 * 1024
 
-	return fmt.Sprintf("total: %.2fGB, avail: %.2fGB, used: %.2fGB",
+	return fmt.Sprintf("total: %.2fGB, free: %.2fGB, used: %.2fGB (avail: %.2fGF)",
 		float64(d.total)/float64(GB),
-		float64(d.avail)/float64(GB),
-		float64(d.total-d.avail)/float64(GB))
+		float64(d.free)/float64(GB),
+		float64(d.total-d.free)/float64(GB),
+		float64(d.avail)/float64(GB))
 }
 
 func (d *DB) scanDiskUse() {
@@ -61,6 +63,7 @@ func (d *DB) getDiskUse(diskPath string) diskUse {
 
 	return diskUse{
 		total: fs.Blocks * uint64(fs.Bsize),
-		avail: fs.Bavail * uint64(fs.Bsize),
+		free:  fs.Bfree * uint64(fs.Bsize),
+		avail: fs.Bfree * uint64(fs.Bsize),
 	}
 }
