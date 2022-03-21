@@ -14,7 +14,6 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
-	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -35,45 +34,68 @@ type Analyzer struct {
 	stopwords stopwordDetector
 }
 
-// Text removes non alpha-numeric and splits into words, then aggregates
+// Text removes non alpha-numeric and splits into lowercased words, then aggregates
 // duplicates
-func (a *Analyzer) Text(in string) []Countable {
-	parts := helpers.TokenizeText(in)
-	terms := map[string]uint64{}
-	total := 0
-	for _, word := range parts {
-		if a.stopwords.IsStopword(word) {
-			continue
-		}
+func (a *Analyzer) Text(tokenization, in string) []Countable {
+	parts := textArrayTokenize(tokenization, []string{in})
+	return a.countParts(parts)
+}
 
-		word = strings.ToLower(word)
-		count, ok := terms[word]
-		if !ok {
-			terms[word] = 0
+// TextArray removes non alpha-numeric and splits into lowercased words, then aggregates
+// duplicates
+func (a *Analyzer) TextArray(tokenization string, in []string) []Countable {
+	parts := textArrayTokenize(tokenization, in)
+	return a.countParts(parts)
+}
+
+func textArrayTokenize(tokenization string, in []string) []string {
+	var parts []string
+
+	switch tokenization {
+	case models.PropertyTokenizationWord, "":
+		for _, value := range in {
+			parts = append(parts, helpers.TokenizeText(value)...)
 		}
-		terms[word] = count + 1
-		total++
 	}
 
-	out := make([]Countable, len(terms))
-	i := 0
-	for term, count := range terms {
-		out[i] = Countable{
-			Data:          []byte(term),
-			TermFrequency: float32(count),
-		}
-		i++
-	}
-
-	return out
+	return parts
 }
 
 // String splits only on spaces and does not lowercase, then aggregates
 // duplicates
-func (a *Analyzer) String(in string) []Countable {
-	parts := helpers.TokenizeString(in)
+func (a *Analyzer) String(tokenization, in string) []Countable {
+	parts := stringArrayTokenize(tokenization, []string{in})
+	return a.countParts(parts)
+}
+
+// StringArray splits only on spaces and does not lowercase, then aggregates
+// duplicates
+func (a *Analyzer) StringArray(tokenization string, in []string) []Countable {
+	parts := stringArrayTokenize(tokenization, in)
+	return a.countParts(parts)
+}
+
+func stringArrayTokenize(tokenization string, in []string) []string {
+	var parts []string
+
+	switch tokenization {
+	case models.PropertyTokenizationField:
+		for _, value := range in {
+			if trimmed := helpers.TrimString(value); trimmed != "" {
+				parts = append(parts, trimmed)
+			}
+		}
+	case models.PropertyTokenizationWord, "":
+		for _, value := range in {
+			parts = append(parts, helpers.TokenizeString(value)...)
+		}
+	}
+
+	return parts
+}
+
+func (a *Analyzer) countParts(parts []string) []Countable {
 	terms := map[string]uint64{}
-	total := 0
 	for _, word := range parts {
 		if a.stopwords.IsStopword(word) {
 			continue
@@ -84,7 +106,6 @@ func (a *Analyzer) String(in string) []Countable {
 			terms[word] = 0
 		}
 		terms[word] = count + 1
-		total++
 	}
 
 	out := make([]Countable, len(terms))
