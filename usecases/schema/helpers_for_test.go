@@ -55,6 +55,10 @@ func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
+func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
+	return nil
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
