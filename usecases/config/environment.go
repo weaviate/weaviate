@@ -152,13 +152,18 @@ func FromEnv(config *Config) error {
 			return errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
 		}
 		config.DiskUse.WarningPercentage = asUint
+	} else {
+		config.DiskUse.WarningPercentage = DefaultDiskUseWarningPercentage
 	}
+
 	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
 			return errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
 		}
 		config.DiskUse.ReadOnlyPercentage = asUint
+	} else {
+		config.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
 	}
 
 	return nil

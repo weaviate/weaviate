@@ -43,14 +43,12 @@ func newDiskScanState() *diskScanState {
 
 // logs a warning if user-set threshold is surpassed
 func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
-	if pu := du.percentUsed(); s.index.Config.DiskUseWarningPercentage > 0 &&
-		pu > float64(s.index.Config.DiskUseWarningPercentage) {
+	if pu := du.percentUsed(); pu > float64(s.index.Config.DiskUseWarningPercentage) {
 		if !s.isReadOnly() && time.Since(s.diskScanState.lastWarning) >
 			s.diskScanState.getWarningInterval() {
 			s.index.logger.WithField("action", "read_disk_use").
 				WithField("shard", s.name).
 				WithField("path", diskPath).
-				WithField("time", time.Now()).
 				Warnf("disk usage currently at %.2f%%", pu)
 
 			s.index.logger.WithField("action", "disk_use_stats").
@@ -66,8 +64,7 @@ func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
 
 // sets the shard to readonly if user-set threshold is surpassed
 func (s *Shard) diskUseReadonly(du diskUse, diskPath string) {
-	if pu := du.percentUsed(); s.index.Config.DiskUseReadOnlyPercentage > 0 &&
-		pu > float64(s.index.Config.DiskUseReadOnlyPercentage) {
+	if pu := du.percentUsed(); pu > float64(s.index.Config.DiskUseReadOnlyPercentage) {
 		if !s.isReadOnly() {
 			err := s.updateStatus(storagestate.StatusReadOnly.String())
 			if err != nil {

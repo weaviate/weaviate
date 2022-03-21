@@ -37,6 +37,11 @@ const (
 	DefaultBM25b  = float32(0.75)
 )
 
+const (
+	DefaultDiskUseWarningPercentage  = uint64(80)
+	DefaultDiskUseReadonlyPercentage = uint64(90)
+)
+
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
@@ -212,7 +217,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.DiskUse.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return configErr(err)
 	}
 
 	return nil

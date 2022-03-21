@@ -28,21 +28,23 @@ func (d diskUse) String() string {
 func (d *DB) scanDiskUse() {
 	go func() {
 		t := time.Tick(time.Second * 30)
-		select {
-		case <-d.shutdown:
-			return
-		case <-t:
-			d.indexLock.Lock()
-			for _, i := range d.indices {
-				for _, s := range i.Shards {
-					diskPath := i.Config.RootPath
-					du := d.getDiskUse(diskPath)
+		for {
+			select {
+			case <-d.shutdown:
+				return
+			case <-t:
+				d.indexLock.Lock()
+				for _, i := range d.indices {
+					for _, s := range i.Shards {
+						diskPath := i.Config.RootPath
+						du := d.getDiskUse(diskPath)
 
-					s.diskUseWarn(du, diskPath)
-					s.diskUseReadonly(du, diskPath)
+						s.diskUseWarn(du, diskPath)
+						s.diskUseReadonly(du, diskPath)
+					}
 				}
+				d.indexLock.Unlock()
 			}
-			d.indexLock.Unlock()
 		}
 	}()
 }
