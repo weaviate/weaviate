@@ -40,13 +40,13 @@ func TestVectorCachePrefilling(t *testing.T) {
 		cache.reset()
 		pf.Prefill(context.Background(), 7)
 		assert.Equal(t, map[uint64]struct{}{
-			0:  struct{}{},
-			15: struct{}{},
-			30: struct{}{},
-			45: struct{}{},
-			60: struct{}{},
-			75: struct{}{},
-			90: struct{}{},
+			0:  {},
+			15: {},
+			30: {},
+			45: {},
+			60: {},
+			75: {},
+			90: {},
 		}, cache.store)
 	})
 
@@ -55,18 +55,18 @@ func TestVectorCachePrefilling(t *testing.T) {
 		pf.Prefill(context.Background(), 10)
 		assert.Equal(t, map[uint64]struct{}{
 			// layer 3
-			0:  struct{}{},
-			15: struct{}{},
-			30: struct{}{},
-			45: struct{}{},
-			60: struct{}{},
-			75: struct{}{},
-			90: struct{}{},
+			0:  {},
+			15: {},
+			30: {},
+			45: {},
+			60: {},
+			75: {},
+			90: {},
 
 			// additional layer 2
-			5:  struct{}{},
-			10: struct{}{},
-			20: struct{}{},
+			5:  {},
+			10: {},
+			20: {},
 		}, cache.store)
 	})
 }

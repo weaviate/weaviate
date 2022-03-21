@@ -47,7 +47,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 		// If query is empty, the request is unprocessable
 		if query == "" {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
-				&models.ErrorResponseErrorItems0{
+				{
 					Message: "query cannot be empty",
 				},
 			}
@@ -63,7 +63,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 		graphQL := gqlProvider.GetGraphQL()
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
-				&models.ErrorResponseErrorItems0{
+				{
 					Message: "no graphql provider present, " +
 						"this is most likely because no schema is present. Import a schema first!",
 				},
@@ -81,7 +81,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 		resultJSON, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
-				&models.ErrorResponseErrorItems0{
+				{
 					Message: fmt.Sprintf("couldn't marshal json: %s", jsonErr),
 				},
 			}
@@ -95,7 +95,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 		// If json gave error, return nothing.
 		if marshallErr != nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
-				&models.ErrorResponseErrorItems0{
+				{
 					Message: fmt.Sprintf("couldn't unmarshal json: %s\noriginal result was %#v", marshallErr, result),
 				},
 			}
@@ -162,7 +162,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 		errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-		errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+		errors := []*models.GraphQLError{{Message: errorMessage}}
 		graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 		*requestResults <- gqlUnbatchedRequestResponse{
 			requestIndex,
@@ -185,7 +185,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 			errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-			errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+			errors := []*models.GraphQLError{{Message: errorMessage}}
 			graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 			*requestResults <- gqlUnbatchedRequestResponse{
 				requestIndex,
@@ -200,7 +200,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 				// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
-				errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+				errors := []*models.GraphQLError{{Message: errorMessage}}
 				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,

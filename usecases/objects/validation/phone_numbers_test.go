@@ -32,19 +32,19 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "phone of wrong type",
 			phone: "how about a string",
 			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
 				"phoneNumber must be a map, but got: string"),
 		},
-		test{
+		{
 			name:  "phone map missing all keys",
 			phone: map[string]interface{}{},
 			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
 				"phoneNumber is missing required field 'input'"),
 		},
-		test{
+		{
 			name: "input is not a string",
 			phone: map[string]interface{}{
 				"input": 1234,
@@ -52,7 +52,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
 				"phoneNumber.input must be a string"),
 		},
-		test{
+		{
 			name: "default country is not a string",
 			phone: map[string]interface{}{
 				"input":          "1234",
@@ -61,7 +61,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
 				"phoneNumber.defaultCountry must be a string"),
 		},
-		test{
+		{
 			name: "with only input set",
 			phone: map[string]interface{}{
 				"input": "+491711234567",
@@ -76,7 +76,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				NationalFormatted:      "0171 1234567",
 			},
 		},
-		test{
+		{
 			name: "with national number and country uppercased",
 			phone: map[string]interface{}{
 				"input":          "01711234567",
@@ -93,7 +93,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				NationalFormatted:      "0171 1234567",
 			},
 		},
-		test{
+		{
 			name: "with national number, but missing defaultCountry",
 			phone: map[string]interface{}{
 				"input": "01711234567",
@@ -103,7 +103,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				"this field is optional if the specified number is in the international format, " +
 				"but required if the number is in national format, use ISO 3166-1 alpha-2"),
 		},
-		test{
+		{
 			name: "with national number and country uppercased",
 			phone: map[string]interface{}{
 				"input":          "01711234567",
@@ -120,7 +120,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				NationalFormatted:      "0171 1234567",
 			},
 		},
-		test{
+		{
 			name: "with national number and various special characters",
 			phone: map[string]interface{}{
 				"input":          "(0)171-123 456 7",
@@ -137,7 +137,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				NationalFormatted:      "0171 1234567",
 			},
 		},
-		test{
+		{
 			name: "with international number and optional zero after country code",
 			phone: map[string]interface{}{
 				"input":          "+49 (0) 171 123 456 7",

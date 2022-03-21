@@ -93,7 +93,7 @@ func Test_ResolveExplore(t *testing.T) {
 				Limit: 17,
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -139,7 +139,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -193,7 +193,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -251,7 +251,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -337,7 +337,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -369,7 +369,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
@@ -402,7 +402,7 @@ func Test_ResolveExplore(t *testing.T) {
 				Limit: 17,
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
@@ -479,7 +479,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},

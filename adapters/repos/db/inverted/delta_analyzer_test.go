@@ -21,7 +21,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 	t.Run("without previous indexing", func(t *testing.T) {
 		previous := []Property(nil)
 		next := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -34,7 +34,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -56,7 +56,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 
 	t.Run("with previous indexing and no changes", func(t *testing.T) {
 		previous := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -69,7 +69,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -84,7 +84,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 			},
 		}
 		next := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -97,7 +97,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -119,7 +119,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 
 	t.Run("with previous indexing - only additions", func(t *testing.T) {
 		previous := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -128,7 +128,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -139,7 +139,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 			},
 		}
 		next := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -152,7 +152,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -168,7 +168,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 		}
 
 		expectedAdd := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -177,7 +177,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -195,7 +195,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 
 	t.Run("with previous indexing - both additions and deletions", func(t *testing.T) {
 		previous := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -204,7 +204,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -215,7 +215,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 			},
 		}
 		next := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -224,7 +224,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{
@@ -240,7 +240,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 		}
 
 		expectedAdd := []Property{
-			Property{
+			{
 				Name: "prop1",
 				Items: []Countable{
 					{
@@ -249,7 +249,7 @@ func TestDeltaAnalyzer(t *testing.T) {
 					},
 				},
 			},
-			Property{
+			{
 				Name: "prop2",
 				Items: []Countable{
 					{

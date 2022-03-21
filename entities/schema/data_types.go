@@ -66,13 +66,10 @@ const (
 
 type PropertyDataType interface {
 	Kind() PropertyKind
-
 	IsPrimitive() bool
 	AsPrimitive() DataType
-
 	IsReference() bool
 	Classes() []ClassName
-
 	ContainsClass(name ClassName) bool
 }
 

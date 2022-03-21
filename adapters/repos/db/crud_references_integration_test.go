@@ -143,7 +143,7 @@ func TestNestedReferences(t *testing.T) {
 
 	t.Run("importing some thing objects with references", func(t *testing.T) {
 		objects := []models.Object{
-			models.Object{
+			{
 				Class: "Planet",
 				Properties: map[string]interface{}{
 					"name": "Earth",
@@ -151,7 +151,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
 				CreationTimeUnix: 1566464889,
 			},
-			models.Object{
+			{
 				Class: "Continent",
 				Properties: map[string]interface{}{
 					"name": "North America",
@@ -164,7 +164,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "4aad8154-e7f3-45b8-81a6-725171419e55",
 				CreationTimeUnix: 1566464892,
 			},
-			models.Object{
+			{
 				Class: "Country",
 				Properties: map[string]interface{}{
 					"name": "USA",
@@ -177,7 +177,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "18c80a16-346a-477d-849d-9d92e5040ac9",
 				CreationTimeUnix: 1566464896,
 			},
-			models.Object{
+			{
 				Class: "City",
 				Properties: map[string]interface{}{
 					"name": "San Francisco",
@@ -190,7 +190,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "2297e094-6218-43d4-85b1-3d20af752f23",
 				CreationTimeUnix: 1566464899,
 			},
-			models.Object{
+			{
 				Class: "Place",
 				Properties: map[string]interface{}{
 					"name": "Tim Apple's Fruit Bar",
@@ -341,28 +341,28 @@ func fullyNestedSelectProperties() search.SelectProperties {
 			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName: "City",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
 							Name:        "inCountry",
 							IsPrimitive: false,
 							Refs: []search.SelectClass{
-								search.SelectClass{
+								{
 									ClassName: "Country",
 									RefProperties: search.SelectProperties{
 										search.SelectProperty{
 											Name:        "onContinent",
 											IsPrimitive: false,
 											Refs: []search.SelectClass{
-												search.SelectClass{
+												{
 													ClassName: "Continent",
 													RefProperties: search.SelectProperties{
 														search.SelectProperty{
 															Name:        "onPlanet",
 															IsPrimitive: false,
 															Refs: []search.SelectClass{
-																search.SelectClass{
+																{
 																	ClassName:     "Planet",
 																	RefProperties: nil,
 																},
@@ -389,7 +389,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "City",
 					RefProperties: search.SelectProperties{},
 				},

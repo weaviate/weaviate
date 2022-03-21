@@ -27,7 +27,7 @@ func Test_Batch(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class: "BulkTest",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
@@ -36,11 +36,11 @@ func Test_Batch(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class: "BulkTestSource",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:     "ref",
 					DataType: []string{"BulkTest"},
 				},

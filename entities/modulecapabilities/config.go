@@ -23,7 +23,6 @@ import (
 // implement. If it is implemented, all methods will be called when the user
 // adds or updates a class which has the module set as the vectorizer
 type ClassConfigurator interface {
-
 	// ClassDefaults provides the defaults for a per-class module config. The
 	// module provider will merge the props into the user-specified config with
 	// the user-provided values taking precedence

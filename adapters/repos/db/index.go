@@ -48,14 +48,16 @@ type Index struct {
 	Shards                map[string]*Shard
 	Config                IndexConfig
 	vectorIndexUserConfig schema.VectorIndexConfig
-	invertedIndexConfig   *models.InvertedIndexConfig
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
+
+	invertedIndexConfig     schema.InvertedIndexConfig
+	invertedIndexConfigLock sync.Mutex
 }
 
-func (i Index) ID() string {
+func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
@@ -66,7 +68,7 @@ type nodeResolver interface {
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
-	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
+	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
@@ -139,6 +141,23 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 			return errors.Wrapf(err, "shard %s", name)
 		}
 	}
+
+	return nil
+}
+
+func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
+	i.invertedIndexConfigLock.Lock()
+	defer i.invertedIndexConfigLock.Unlock()
+
+	return i.invertedIndexConfig
+}
+
+func (i *Index) updateInvertedIndexConfig(ctx context.Context,
+	updated schema.InvertedIndexConfig) error {
+	i.invertedIndexConfigLock.Lock()
+	defer i.invertedIndexConfigLock.Unlock()
+
+	i.invertedIndexConfig = updated
 
 	return nil
 }

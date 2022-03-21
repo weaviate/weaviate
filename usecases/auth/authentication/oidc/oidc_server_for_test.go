@@ -62,7 +62,7 @@ func oidcHandler(t *testing.T, url string) http.Handler {
 		w.Header().Add("Content-Type", "application/json")
 		d := jwksResponse{
 			Keys: []jose.JSONWebKey{
-				jose.JSONWebKey{
+				{
 					Key:       publicKey,
 					Use:       "sig",
 					Algorithm: string(jose.RS256),
