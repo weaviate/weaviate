@@ -57,17 +57,17 @@ func TestValidateConfig(t *testing.T) {
 		assert.EqualError(t, err, "BM25.b must be <= 0 and <= 1")
 	})
 
-	t.Run("invalid BM25.b", func(t *testing.T) {
+	t.Run("with valid config", func(t *testing.T) {
 		in := &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 1,
 			Bm25: &models.BM25Config{
 				K1: 1,
-				B:  1.001,
+				B:  0.1,
 			},
 		}
 
 		err := ValidateConfig(in)
-		assert.EqualError(t, err, "BM25.b must be <= 0 and <= 1")
+		assert.Nil(t, err)
 	})
 }
 
