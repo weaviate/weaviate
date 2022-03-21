@@ -35,6 +35,7 @@ import (
 )
 
 type BM25Searcher struct {
+	config        schema.BM25Config
 	store         *lsmkv.Store
 	schema        schema.Schema
 	rowCache      cacher
@@ -50,12 +51,13 @@ type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
 }
 
-func NewBM25Searcher(store *lsmkv.Store, schema schema.Schema,
+func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
 	shardVersion uint16) *BM25Searcher {
 	return &BM25Searcher{
+		config:        config,
 		store:         store,
 		schema:        schema,
 		rowCache:      rowCache,
@@ -159,8 +161,9 @@ func (bm *BM25Searcher) score(ids docPointersWithScore, propName string) error {
 	}
 
 	averageDocLen := float64(m)
-	k1 := 1.2 // TODO: make configurable
-	b := 0.75 // TODO: make configurable
+	k1 := bm.config.K1
+	b := bm.config.B
+
 	N := float64(bm.store.Bucket(helpers.ObjectsBucketLSM).Count())
 	n := float64(len(ids.docIDs))
 	idf := math.Log(float64(1) + (N-n+0.5)/(n+0.5))

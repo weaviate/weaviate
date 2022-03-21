@@ -59,6 +59,11 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "vector index config")
 	}
 
+	if err := m.migrator.ValidateInvertedIndexConfigUpdate(ctx,
+		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
+		return errors.Wrap(err, "inverted index config")
+	}
+
 	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
 		updated.ShardingConfig.(sharding.Config)); err != nil {
 		return errors.Wrap(err, "sharding config")
@@ -85,6 +90,11 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
+	}
+
+	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
+		updated.InvertedIndexConfig); err != nil {
+		return errors.Wrap(err, "inverted index config")
 	}
 
 	initial := m.getClassByName(className)
@@ -124,12 +134,6 @@ func (m *Manager) validateImmutableFields(initial, updated *models.Class) error 
 			"properties cannot be updated through updating the class. Use the add " +
 				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
 				"to add additional properties")
-	}
-
-	if !reflect.DeepEqual(initial.InvertedIndexConfig, updated.InvertedIndexConfig) {
-		// NOTE: There is no technical reason for this to be immutable, it is
-		// simply not implemented (yet).
-		return errors.Errorf("inverted index config is immutable")
 	}
 
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {

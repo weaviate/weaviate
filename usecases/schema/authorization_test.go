@@ -127,7 +127,8 @@ func Test_Schema_Authorization(t *testing.T) {
 				authorizer := &authDenier{}
 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
 					logger, authorizer, config.Config{},
-					dummyParseVectorConfig, &fakeVectorizerValidator{}, &fakeModuleConfig{},
+					dummyParseVectorConfig, &fakeVectorizerValidator{},
+					dummyValidateInvertedConfig, &fakeModuleConfig{},
 					&fakeClusterState{}, &fakeTxClient{})
 				require.Nil(t, err)
 

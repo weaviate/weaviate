@@ -1584,6 +1584,22 @@ func init() {
         "type": "object"
       }
     },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -2103,6 +2119,9 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
@@ -4336,6 +4355,22 @@ func init() {
         "type": "object"
       }
     },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -4943,6 +4978,9 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
