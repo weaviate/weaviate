@@ -28,6 +28,8 @@ func TestAnalyzeObject(t *testing.T) {
 		schema := map[string]interface{}{
 			"description": "I am great!",
 			"email":       "john@doe.com",
+			"about_me":    "I like reading sci-fi books",
+			"profession":  "Mechanical Engineer",
 		}
 
 		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
@@ -39,6 +41,16 @@ func TestAnalyzeObject(t *testing.T) {
 			{
 				Name:     "email",
 				DataType: []string{"string"},
+			},
+			{
+				Name:         "about_me",
+				DataType:     []string{"string"},
+				Tokenization: "word",
+			},
+			{
+				Name:         "profession",
+				DataType:     []string{"string"},
+				Tokenization: "field",
 			},
 		}
 		res, err := a.Object(schema, props, strfmt.UUID(uuid))
@@ -66,6 +78,36 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
+		expectedAboutMe := []Countable{
+			{
+				Data:          []byte("I"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("like"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("reading"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("sci-fi"),
+				TermFrequency: float32(1),
+			},
+			{
+				Data:          []byte("books"),
+				TermFrequency: float32(1),
+			},
+		}
+
+		expectedProfession := []Countable{
+			{
+				Data:          []byte("Mechanical Engineer"),
+				TermFrequency: float32(1),
+			},
+		}
+
 		expectedUUID := []Countable{
 			{
 				Data:          []byte(uuid),
@@ -73,9 +115,11 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		require.Len(t, res, 3)
+		require.Len(t, res, 5)
 		var actualDescription []Countable
 		var actualEmail []Countable
+		var actualAboutMe []Countable
+		var actualProfession []Countable
 		var actualUUID []Countable
 
 		for _, elem := range res {
@@ -87,6 +131,14 @@ func TestAnalyzeObject(t *testing.T) {
 				actualDescription = elem.Items
 			}
 
+			if elem.Name == "about_me" {
+				actualAboutMe = elem.Items
+			}
+
+			if elem.Name == "profession" {
+				actualProfession = elem.Items
+			}
+
 			if elem.Name == "_id" {
 				actualUUID = elem.Items
 			}
@@ -94,6 +146,8 @@ func TestAnalyzeObject(t *testing.T) {
 
 		assert.ElementsMatch(t, expectedEmail, actualEmail, res)
 		assert.ElementsMatch(t, expectedDescription, actualDescription, res)
+		assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
+		assert.ElementsMatch(t, expectedProfession, actualProfession, res)
 		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 	})
 
@@ -260,8 +314,10 @@ func TestAnalyzeObject(t *testing.T) {
 			schema := map[string]interface{}{
 				"descriptions": []interface{}{"I am great!", "I am also great!"},
 				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
-				"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
-				"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
+				"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
+				"professions": []interface{}{"Mechanical Engineer", "	Marketing Analyst"},
+				"integers": []interface{}{int64(1), int64(2), int64(3), int64(4)},
+				"numbers":  []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
 			}
 
 			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
@@ -273,6 +329,16 @@ func TestAnalyzeObject(t *testing.T) {
 				{
 					Name:     "emails",
 					DataType: []string{"string[]"},
+				},
+				{
+					Name:         "about_me",
+					DataType:     []string{"string[]"},
+					Tokenization: "word",
+				},
+				{
+					Name:         "professions",
+					DataType:     []string{"string[]"},
+					Tokenization: "field",
 				},
 				{
 					Name:     "integers",
@@ -316,6 +382,48 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
+			expectedAboutMe := []Countable{
+				{
+					Data:          []byte("I"),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("like"),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("reading"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("sci-fi"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("books"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("playing"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("piano"),
+					TermFrequency: float32(1),
+				},
+			}
+
+			expectedProfessions := []Countable{
+				{
+					Data:          []byte("Mechanical Engineer"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Marketing Analyst"),
+					TermFrequency: float32(1),
+				},
+			}
+
 			expectedIntegers := []Countable{
 				{
 					Data: mustGetByteIntNumber(1),
@@ -353,9 +461,11 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
-			assert.Len(t, res, 5)
+			assert.Len(t, res, 7)
 			var actualDescriptions []Countable
 			var actualEmails []Countable
+			var actualAboutMe []Countable
+			var actualProfessions []Countable
 			var actualIntegers []Countable
 			var actualNumbers []Countable
 			var actualUUID []Countable
@@ -367,6 +477,14 @@ func TestAnalyzeObject(t *testing.T) {
 
 				if elem.Name == "descriptions" {
 					actualDescriptions = elem.Items
+				}
+
+				if elem.Name == "about_me" {
+					actualAboutMe = elem.Items
+				}
+
+				if elem.Name == "professions" {
+					actualProfessions = elem.Items
 				}
 
 				if elem.Name == "integers" {
@@ -384,6 +502,8 @@ func TestAnalyzeObject(t *testing.T) {
 
 			assert.ElementsMatch(t, expectedEmails, actualEmails, res)
 			assert.ElementsMatch(t, expectedDescriptions, actualDescriptions, res)
+			assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
+			assert.ElementsMatch(t, expectedProfessions, actualProfessions, res)
 			assert.ElementsMatch(t, expectedIntegers, actualIntegers, res)
 			assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
