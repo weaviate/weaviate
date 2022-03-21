@@ -53,6 +53,7 @@ type Shard struct {
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
+	diskScanState    *diskScanState
 
 	status     storagestate.Status
 	statusLock sync.Mutex
@@ -72,8 +73,9 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(index.invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cancel:       make(chan struct{}, 1),
-		randomSource: rand,
+		cancel:        make(chan struct{}, 1),
+		randomSource:  rand,
+		diskScanState: newDiskScanState(),
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -318,8 +320,4 @@ func (s *Shard) notifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
-
-	if s.index.shouldScanDiskUse() {
-		s.scanDiskUse()
-	}
 }

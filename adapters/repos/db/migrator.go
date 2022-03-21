@@ -63,6 +63,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	m.db.indices[idx.ID()] = idx
+	idx.notifyReady()
+
 	return nil
 }
 
