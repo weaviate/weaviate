@@ -59,7 +59,7 @@ func (d *DB) getDiskUse(diskPath string) diskUse {
 	if err != nil {
 		d.logger.WithField("action", "read_disk_use").
 			WithField("path", diskPath).
-			Fatalf("failed to read disk usage: %s", err)
+			Errorf("failed to read disk usage: %s", err)
 	}
 
 	return diskUse{
