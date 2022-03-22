@@ -14,6 +14,7 @@ package inverted
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,9 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 			K1: config.DefaultBM25k1,
 			B:  config.DefaultBM25b,
 		},
+		Stopwords: &models.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
+		},
 	}
 
 	t.Run("with valid updated config all fields", func(t *testing.T) {
@@ -35,6 +39,11 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 			Bm25: &models.BM25Config{
 				K1: 1.3,
 				B:  0.778,
+			},
+			Stopwords: &models.StopwordConfig{
+				Preset:    "en",
+				Additions: []string{"star", "nebula"},
+				Removals:  []string{"the", "a"},
 			},
 		}
 
@@ -51,6 +60,18 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, validInitial.Bm25.K1, updated.Bm25.K1)
 		assert.Equal(t, validInitial.Bm25.B, updated.Bm25.B)
+	})
+
+	t.Run("with valid updated config missing Stopwords", func(t *testing.T) {
+		updated := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 2,
+		}
+
+		err := ValidateUserConfigUpdate(validInitial, updated)
+		require.Nil(t, err)
+		assert.Equal(t, validInitial.Stopwords.Preset, updated.Stopwords.Preset)
+		assert.Equal(t, validInitial.Stopwords.Additions, updated.Stopwords.Additions)
+		assert.Equal(t, validInitial.Stopwords.Removals, updated.Stopwords.Removals)
 	})
 
 	t.Run("with invalid cleanup interval", func(t *testing.T) {
@@ -73,5 +94,30 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 
 		err := ValidateUserConfigUpdate(validInitial, updated)
 		require.EqualError(t, err, "BM25.b must be <= 0 and <= 1")
+	})
+
+	t.Run("with invalid updated Stopwords preset config", func(t *testing.T) {
+		updated := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 1,
+			Stopwords: &models.StopwordConfig{
+				Preset: "mongolian",
+			},
+		}
+
+		err := ValidateUserConfigUpdate(validInitial, updated)
+		require.EqualError(t, err, "stopwordPreset 'mongolian' does not exist")
+	})
+
+	t.Run("with invalid updated Stopwords addition/removal config", func(t *testing.T) {
+		updated := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 1,
+			Stopwords: &models.StopwordConfig{
+				Additions: []string{"duplicate"},
+				Removals:  []string{"duplicate"},
+			},
+		}
+
+		err := ValidateUserConfigUpdate(validInitial, updated)
+		require.EqualError(t, err, "found 'duplicate' in both stopwords.additions and stopwords.removals")
 	})
 }

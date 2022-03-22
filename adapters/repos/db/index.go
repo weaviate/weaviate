@@ -72,8 +72,11 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
-	// TODO: can't error with hard-coded preset, needs checking once configurable
-	sd, _ := stopwords.NewDetectorFromPreset("")
+	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -82,7 +85,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
-		stopwords:             sd, // TODO: take preset from config, reflect additions and removals
+		stopwords:             sd,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 	}

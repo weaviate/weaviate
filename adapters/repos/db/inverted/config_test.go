@@ -80,6 +80,106 @@ func TestValidateConfig(t *testing.T) {
 		err := ValidateConfig(in)
 		assert.Nil(t, err)
 	})
+
+	t.Run("with nonexistent stopword preset", func(t *testing.T) {
+		in := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 1,
+			Stopwords: &models.StopwordConfig{
+				Preset: "DNE",
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err, "stopwordPreset 'DNE' does not exist")
+	})
+
+	t.Run("with whitespace stopword additions", func(t *testing.T) {
+		additions := [][]string{
+			{"bats", " "},
+			{""},
+			{"something", "   ", "skippable"},
+		}
+
+		for _, addList := range additions {
+			in := &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: 1,
+				Stopwords: &models.StopwordConfig{
+					Additions: addList,
+				},
+			}
+
+			err := ValidateConfig(in)
+			assert.EqualError(t, err, "cannot use whitespace in stopword.additions")
+		}
+	})
+
+	t.Run("with whitespace stopword removals", func(t *testing.T) {
+		removals := [][]string{
+			{"bats", " "},
+			{""},
+			{"something", "   ", "skippable"},
+		}
+
+		for _, remList := range removals {
+			in := &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: 1,
+				Stopwords: &models.StopwordConfig{
+					Removals: remList,
+				},
+			}
+
+			err := ValidateConfig(in)
+			assert.EqualError(t, err, "cannot use whitespace in stopword.removals")
+		}
+	})
+
+	t.Run("with shared additions/removals items", func(t *testing.T) {
+		in := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 1,
+			Stopwords: &models.StopwordConfig{
+				Additions: []string{"some", "words", "are", "different"},
+				Removals:  []string{"and", "some", "the", "same"},
+			},
+		}
+
+		err := ValidateConfig(in)
+		assert.EqualError(t, err,
+			"found 'some' in both stopwords.additions and stopwords.removals")
+	})
+
+	t.Run("with additions that exist in preset", func(t *testing.T) {
+		tests := []struct {
+			additions      []string
+			expectedLength int
+		}{
+			{
+				additions:      []string{"superfluous", "extravagant", "a"},
+				expectedLength: 2,
+			},
+			{
+				additions:      []string{"a", "are", "the"},
+				expectedLength: 0,
+			},
+			{
+				additions:      []string{"everyone", "sleeps", "eventually"},
+				expectedLength: 3,
+			},
+		}
+
+		for _, test := range tests {
+			in := &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: 1,
+				Stopwords: &models.StopwordConfig{
+					Preset:    "en",
+					Additions: test.additions,
+				},
+			}
+
+			err := ValidateConfig(in)
+			assert.Nil(t, err)
+			assert.Equal(t, test.expectedLength, len(in.Stopwords.Additions))
+		}
+	})
 }
 
 func TestConfigFromModel(t *testing.T) {
@@ -94,6 +194,9 @@ func TestConfigFromModel(t *testing.T) {
 				K1: float32(k1),
 				B:  float32(b),
 			},
+			Stopwords: &models.StopwordConfig{
+				Preset: "en",
+			},
 		}
 
 		expected := schema.InvertedIndexConfig{
@@ -102,12 +205,16 @@ func TestConfigFromModel(t *testing.T) {
 				K1: k1,
 				B:  b,
 			},
+			Stopwords: schema.StopwordConfig{
+				Preset: "en",
+			},
 		}
 
 		conf := ConfigFromModel(in)
-		assert.Equal(t, conf.CleanupIntervalSeconds, expected.CleanupIntervalSeconds)
+		assert.Equal(t, expected.CleanupIntervalSeconds, conf.CleanupIntervalSeconds)
 		assert.True(t, almostEqual(t, conf.BM25.K1, expected.BM25.K1))
 		assert.True(t, almostEqual(t, conf.BM25.B, expected.BM25.B))
+		assert.Equal(t, expected.Stopwords, conf.Stopwords)
 	})
 
 	t.Run("with no BM25 params set", func(t *testing.T) {
@@ -126,8 +233,27 @@ func TestConfigFromModel(t *testing.T) {
 		}
 
 		conf := ConfigFromModel(in)
-		assert.Equal(t, conf.CleanupIntervalSeconds, expected.CleanupIntervalSeconds)
+		assert.Equal(t, expected.CleanupIntervalSeconds, conf.CleanupIntervalSeconds)
 		assert.True(t, almostEqual(t, conf.BM25.K1, expected.BM25.K1))
 		assert.True(t, almostEqual(t, conf.BM25.B, expected.BM25.B))
+	})
+
+	t.Run("with no Stopword config set", func(t *testing.T) {
+		interval := int64(1)
+
+		in := &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: interval,
+		}
+
+		expected := schema.InvertedIndexConfig{
+			CleanupIntervalSeconds: interval,
+			Stopwords: schema.StopwordConfig{
+				Preset: "en",
+			},
+		}
+
+		conf := ConfigFromModel(in)
+		assert.Equal(t, expected.CleanupIntervalSeconds, conf.CleanupIntervalSeconds)
+		assert.Equal(t, expected.Stopwords, conf.Stopwords)
 	})
 }
