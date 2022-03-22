@@ -30,6 +30,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -52,7 +53,12 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	shardState := singleShardState()
 	sg := &fakeSchemaGetter{shardState: shardState}
 
-	vrepo := db.New(logger, db.Config{RootPath: dirName, QueryMaximumResults: 10000},
+	vrepo := db.New(logger, db.Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	},
 		&fakeRemoteClient{}, &fakeNodeResolver{})
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
@@ -194,7 +200,12 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	sg := &fakeSchemaGetter{shardState: singleShardState()}
 
-	vrepo := db.New(logger, db.Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	vrepo := db.New(logger, db.Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())

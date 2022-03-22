@@ -30,11 +30,6 @@ func (ig *SegmentGroup) eligbleForCompaction() bool {
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if ig.isReadyOnly() {
-		ig.logger.WithField("action", "lsm_compaction").
-			WithField("path", ig.dir).
-			Warn("compaction halted due to shard READONLY status")
-
-		time.Sleep(time.Second)
 		return false
 	}
 

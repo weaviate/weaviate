@@ -163,8 +163,10 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 type IndexConfig struct {
-	RootPath  string
-	ClassName schema.ClassName
+	RootPath                  string
+	ClassName                 schema.ClassName
+	DiskUseWarningPercentage  uint64
+	DiskUseReadOnlyPercentage uint64
 }
 
 func indexID(class schema.ClassName) string {
@@ -926,4 +928,10 @@ func (i *Index) updateShardStatus(shardName, targetStatus string) error {
 	}
 
 	return shard.updateStatus(targetStatus)
+}
+
+func (i *Index) notifyReady() {
+	for _, shd := range i.Shards {
+		shd.notifyReady()
+	}
 }
