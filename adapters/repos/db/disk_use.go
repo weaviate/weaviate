@@ -31,7 +31,7 @@ func (d diskUse) percentUsed() float64 {
 func (d diskUse) String() string {
 	GB := 1024 * 1024 * 1024
 
-	return fmt.Sprintf("total: %.2fGB, free: %.2fGB, used: %.2fGB (avail: %.2fGF)",
+	return fmt.Sprintf("total: %.2fGB, free: %.2fGB, used: %.2fGB (avail: %.2fGB)",
 		float64(d.total)/float64(GB),
 		float64(d.free)/float64(GB),
 		float64(d.total-d.free)/float64(GB),
