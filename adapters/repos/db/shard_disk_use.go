@@ -55,7 +55,7 @@ func (s *Shard) diskUseWarn(du diskUse, diskPath string) {
 			s.index.logger.WithField("action", "disk_use_stats").
 				WithField("shard", s.name).
 				WithField("path", diskPath).
-				Warnf("%s", du.String())
+				Debugf("%s", du.String())
 
 			s.diskScanState.lastWarning = time.Now()
 			s.diskScanState.increaseWarningInterval()

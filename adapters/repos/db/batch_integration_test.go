@@ -62,8 +62,6 @@ func TestBatchPutObjects(t *testing.T) {
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
-	t.Logf("db config: %+v", migrator.db.config)
-
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 	t.Run("batch import things", testBatchImportObjects(repo))
@@ -520,8 +518,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						Vector:        objs[i+j].Vector,
 					}
 				}
-
-				t.Logf("REPO DB CONFIG: %+v", repo.config)
 
 				res, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err)

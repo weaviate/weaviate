@@ -44,9 +44,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
-	d.logger.Warnf("about to start scan, config: %+v", d.config)
 	d.scanDiskUse()
-	d.logger.Warnf("scan started, config: %+v", d.config)
 
 	return nil
 }
