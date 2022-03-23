@@ -9,8 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTest
-// +build integrationTest
+//go:build (integrationTest && !race
+// +build integrationTest,!race
 
 package hnsw
 
@@ -30,7 +30,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ManySmallCommitlogs(t *testing.T) {
+// The !race build tag makes sure that this test is EXCLUDED from running with
+// the race detector on, but now we also need to make sure that it runs in the
+// separate no-race test run. To INCLUDE it there we use the Test_NoRace_
+// prefix.
+// This test imports 10,000 objects concurrently which is extremly expensive
+// with the race detector on.
+// It prevents a regresssion on
+// https://github.com/semi-technologies/weaviate/issues/1868
+func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	n := 10000
 	dim := 16
 	m := 8
