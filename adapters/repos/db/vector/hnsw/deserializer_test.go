@@ -30,7 +30,7 @@ func BenchmarkDeserializer2ReadUint64(b *testing.B) {
 	binary.LittleEndian.PutUint64(val, uint64(randUint64))
 	data := bytes.NewReader(val)
 	logger, _ := test.NewNullLogger()
-	d := NewDeserializer2(logger)
+	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
@@ -48,7 +48,7 @@ func BenchmarkDeserializer2ReadUint16(b *testing.B) {
 	binary.LittleEndian.PutUint16(val, randUint16)
 	data := bytes.NewReader(val)
 	logger, _ := test.NewNullLogger()
-	d := NewDeserializer2(logger)
+	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
@@ -66,7 +66,7 @@ func BenchmarkDeserializer2ReadCommitType(b *testing.B) {
 	val[0] = byte(commitType)
 	data := bytes.NewReader(val)
 	logger, _ := test.NewNullLogger()
-	d := NewDeserializer2(logger)
+	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
@@ -87,7 +87,7 @@ func BenchmarkDeserializer2ReadUint64Slice(b *testing.B) {
 
 	data := bytes.NewReader(val)
 	logger, _ := test.NewNullLogger()
-	d := NewDeserializer2(logger)
+	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
@@ -113,7 +113,7 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 		b[0] = byte(commitType)
 		data := bytes.NewReader(b)
 		logger, _ := test.NewNullLogger()
-		d := NewDeserializer2(logger)
+		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
 		res, err := d.ReadCommitType(reader)
 		if err != nil {

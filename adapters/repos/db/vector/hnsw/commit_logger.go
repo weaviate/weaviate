@@ -46,7 +46,7 @@ func NewCommitLogger(rootPath, name string,
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor2(logger),
+		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
 
 		// both can be overwritten using functional options
