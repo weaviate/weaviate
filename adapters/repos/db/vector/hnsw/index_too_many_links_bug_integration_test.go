@@ -141,6 +141,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("destroy the old index", func(t *testing.T) {
 		// kill the index
+		original.cancel <- struct{}{}
 		index = nil
 		original = nil
 	})
