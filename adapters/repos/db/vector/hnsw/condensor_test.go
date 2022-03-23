@@ -22,7 +22,7 @@ import (
 func BenchmarkCondensor2NewUint64Write(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
-	c := NewMemoryCondensor2(logger)
+	c := NewMemoryCondensor(logger)
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
@@ -33,7 +33,7 @@ func BenchmarkCondensor2NewUint64Write(b *testing.B) {
 func BenchmarkCondensor2NewUint16Write(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
-	c := NewMemoryCondensor2(logger)
+	c := NewMemoryCondensor(logger)
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
@@ -44,7 +44,7 @@ func BenchmarkCondensor2NewUint16Write(b *testing.B) {
 func BenchmarkCondensor2WriteCommitType(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
-	c := NewMemoryCondensor2(logger)
+	c := NewMemoryCondensor(logger)
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
@@ -55,7 +55,7 @@ func BenchmarkCondensor2WriteCommitType(b *testing.B) {
 func BenchmarkCondensor2WriteUint64Slice(b *testing.B) {
 	b.StopTimer()
 	logger, _ := test.NewNullLogger()
-	c := NewMemoryCondensor2(logger)
+	c := NewMemoryCondensor(logger)
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 	testInts := make([]uint64, 100)
 	for i := 0; i < 100; i++ {
