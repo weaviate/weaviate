@@ -473,7 +473,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, err := NewDeserializer(logger).Do(bufr, &initialState)
+		res, _, err := NewDeserializer2(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
@@ -488,7 +488,7 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 
 	bufr := bufio.NewReader(fd)
 	logger, _ := test.NewNullLogger()
-	res, err := NewDeserializer(logger).Do(bufr, nil)
+	res, _, err := NewDeserializer2(logger).Do(bufr, nil, false)
 	require.Nil(t, err)
 
 	index := &hnsw{
