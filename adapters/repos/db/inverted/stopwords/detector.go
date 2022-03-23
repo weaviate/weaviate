@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type Detector struct {
@@ -22,12 +23,24 @@ type Detector struct {
 	stopwords map[string]struct{}
 }
 
+func NewDetectorFromConfig(config schema.StopwordConfig) (*Detector, error) {
+	d, err := NewDetectorFromPreset(config.Preset)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new detector from config")
+	}
+
+	d.SetAdditions(config.Additions)
+	d.SetRemovals(config.Removals)
+
+	return d, nil
+}
+
 func NewDetectorFromPreset(preset string) (*Detector, error) {
 	var list []string
 	var ok bool
 
 	if preset != "" {
-		list, ok = presets[preset]
+		list, ok = Presets[preset]
 		if !ok {
 			return nil, errors.Errorf("preset %q not known to stopword detector", preset)
 		}
@@ -44,21 +57,21 @@ func NewDetectorFromPreset(preset string) (*Detector, error) {
 	return d, nil
 }
 
-func (d *Detector) SetAdditions(list []string) {
+func (d *Detector) SetAdditions(additions []string) {
 	d.Lock()
 	defer d.Unlock()
 
-	for _, word := range list {
-		d.stopwords[word] = struct{}{}
+	for _, add := range additions {
+		d.stopwords[add] = struct{}{}
 	}
 }
 
-func (d *Detector) SetRemovals(list []string) {
+func (d *Detector) SetRemovals(removals []string) {
 	d.Lock()
 	defer d.Unlock()
 
-	for _, word := range list {
-		delete(d.stopwords, word)
+	for _, rem := range removals {
+		delete(d.stopwords, rem)
 	}
 }
 

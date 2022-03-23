@@ -66,6 +66,11 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"k1": float64(1.2),
 						"b":  float64(0.75),
 					},
+					"stopwords": map[string]interface{}{
+						"preset":    "en",
+						"additions": nil,
+						"removals":  nil,
+					},
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{

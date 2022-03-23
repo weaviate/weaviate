@@ -173,6 +173,29 @@ func TestClassUpdates(t *testing.T) {
 				},
 			},
 			{
+				name: "attempting to update the inverted index Stopwords config",
+				initial: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Stopwords: &models.StopwordConfig{
+							Preset: "en",
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Stopwords: &models.StopwordConfig{
+							Preset:    "none",
+							Additions: []string{"banana", "passionfruit", "kiwi"},
+							Removals:  []string{"a", "the"},
+						},
+					},
+				},
+			},
+			{
 				name: "attempting to update module config",
 				initial: &models.Class{
 					Class: "InitialName",

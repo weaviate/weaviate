@@ -339,6 +339,9 @@
         },
         "bm25": {
           "$ref": "#/definitions/BM25Config"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       },
       "type": "object"
@@ -355,6 +358,30 @@
           "description": "calibrates term-weight scaling based on the document length",
           "format": "float",
           "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "properties": {
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "type": "object"
