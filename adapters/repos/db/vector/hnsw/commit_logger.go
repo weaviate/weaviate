@@ -28,7 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxUncondensedCommitLogSize = 500 * 1024 * 1024
+const defaultCommitLogSize = 500 * 1024 * 1024
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -39,8 +39,8 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string,
-	maintainenceInterval time.Duration,
-	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
+	maintainenceInterval time.Duration, logger logrus.FieldLogger,
+	opts ...CommitlogOption) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		cancel:               make(chan struct{}),
 		rootPath:             rootPath,
@@ -48,8 +48,16 @@ func NewCommitLogger(rootPath, name string,
 		maintainenceInterval: maintainenceInterval,
 		condensor:            NewMemoryCondensor2(logger),
 		logger:               logger,
-		maxSizeIndividual:    maxUncondensedCommitLogSize / 5, // TODO: make configurable
-		maxSizeCombining:     maxUncondensedCommitLogSize,     // TODO: make configurable
+
+		// both can be overwritten using functional options
+		maxSizeIndividual: defaultCommitLogSize / 5,
+		maxSizeCombining:  defaultCommitLogSize,
+	}
+
+	for _, o := range opts {
+		if err := o(l); err != nil {
+			return nil, err
+		}
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
