@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/require"
@@ -66,5 +67,46 @@ func TestAddClass(t *testing.T) {
 		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
 		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
 		require.Equal(t, expectedBM25Config, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Bm25)
+	})
+
+	t.Run("with default Stopwords config", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		expectedStopwordConfig := &models.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
+		}
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewClass"})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
+	})
+
+	t.Run("with customized Stopwords config", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		expectedStopwordConfig := &models.StopwordConfig{
+			Preset:    "none",
+			Additions: []string{"monkey", "zebra", "octopus"},
+			Removals:  []string{"are"},
+		}
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: expectedStopwordConfig,
+				},
+			})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 }

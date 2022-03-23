@@ -249,5 +249,8 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 func invertedConfig() *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		CleanupIntervalSeconds: 60,
+		Stopwords: &models.StopwordConfig{
+			Preset: "none",
+		},
 	}
 }
