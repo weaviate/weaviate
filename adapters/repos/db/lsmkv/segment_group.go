@@ -286,6 +286,11 @@ func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 		ig.segments[i] = nil
 	}
 
+	// make sure the segment list itself is set to nil. In case a memtable will
+	// still flush after closing, it might try to read from a disk segment list
+	// otherwise and run into nil-pointer problems.
+	ig.segments = nil
+
 	return nil
 }
 

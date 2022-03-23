@@ -26,6 +26,11 @@ func ValidateUserConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 		return err
 	}
 
+	err = validateStopwordsConfigUpdate(initial, updated)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -39,6 +44,24 @@ func validateBM25ConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 	}
 
 	err := validateBM25Config(updated.Bm25)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateStopwordsConfigUpdate(initial, updated *models.InvertedIndexConfig) error {
+	if updated.Stopwords == nil {
+		updated.Stopwords = &models.StopwordConfig{
+			Preset:    initial.Stopwords.Preset,
+			Additions: initial.Stopwords.Additions,
+			Removals:  initial.Stopwords.Removals,
+		}
+		return nil
+	}
+
+	err := validateStopwordConfig(updated.Stopwords)
 	if err != nil {
 		return err
 	}
