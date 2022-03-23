@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -120,6 +121,12 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		class.InvertedIndexConfig.Bm25 = &models.BM25Config{
 			K1: config.DefaultBM25k1,
 			B:  config.DefaultBM25b,
+		}
+	}
+
+	if class.InvertedIndexConfig.Stopwords == nil {
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
 		}
 	}
 

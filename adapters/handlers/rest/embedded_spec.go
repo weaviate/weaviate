@@ -2126,6 +2126,9 @@ func init() {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -2603,6 +2606,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -4985,6 +5012,9 @@ func init() {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -5480,6 +5510,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

@@ -12,7 +12,10 @@
 package inverted
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -24,6 +27,11 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 	}
 
 	err := validateBM25Config(conf.Bm25)
+	if err != nil {
+		return err
+	}
+
+	err = validateStopwordConfig(conf.Stopwords)
 	if err != nil {
 		return err
 	}
@@ -44,6 +52,16 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.BM25.B = float64(iicm.Bm25.B)
 	}
 
+	if iicm.Stopwords == nil {
+		conf.Stopwords = schema.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
+		}
+	} else {
+		conf.Stopwords.Preset = iicm.Stopwords.Preset
+		conf.Stopwords.Additions = iicm.Stopwords.Additions
+		conf.Stopwords.Removals = iicm.Stopwords.Removals
+	}
+
 	return conf
 }
 
@@ -60,4 +78,84 @@ func validateBM25Config(conf *models.BM25Config) error {
 	}
 
 	return nil
+}
+
+func validateStopwordConfig(conf *models.StopwordConfig) error {
+	if conf == nil {
+		conf = &models.StopwordConfig{}
+	}
+
+	if conf.Preset == "" {
+		conf.Preset = stopwords.EnglishPreset
+	}
+
+	if _, ok := stopwords.Presets[conf.Preset]; !ok {
+		return errors.Errorf("stopwordPreset '%s' does not exist", conf.Preset)
+	}
+
+	err := validateStopwordAdditionsRemovals(conf)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateStopwordAdditionsRemovals(conf *models.StopwordConfig) error {
+	// the same stopword cannot exist
+	// in both additions and removals
+	foundAdditions := make(map[string]int)
+
+	for idx, add := range conf.Additions {
+		if strings.TrimSpace(add) == "" {
+			return errors.Errorf("cannot use whitespace in stopword.additions")
+		}
+
+		// save the index of the addition since it
+		// is readily available here. we will need
+		// this below when trimming additions that
+		// already exist in the selected preset
+		foundAdditions[add] = idx
+	}
+
+	for _, rem := range conf.Removals {
+		if strings.TrimSpace(rem) == "" {
+			return errors.Errorf("cannot use whitespace in stopword.removals")
+		}
+
+		if _, ok := foundAdditions[rem]; ok {
+			return errors.Errorf(
+				"found '%s' in both stopwords.additions and stopwords.removals", rem)
+		}
+	}
+
+	removeStopwordAdditionsIfInPreset(conf, foundAdditions)
+	return nil
+}
+
+func removeStopwordAdditionsIfInPreset(conf *models.StopwordConfig, foundAdditions map[string]int) {
+	presets := stopwords.Presets[conf.Preset]
+
+	// if any of the elements in stopwords.additions
+	// already exist in the preset, mark it as to
+	// be removed
+	indicesToRemove := make(map[int]bool)
+	for _, preset := range presets {
+		if idx, ok := foundAdditions[preset]; ok {
+			indicesToRemove[idx] = true
+		}
+	}
+
+	if len(indicesToRemove) == 0 {
+		return
+	}
+
+	// take remaining additions, build new list
+	var trimmedAdditions []string
+	for idx, add := range conf.Additions {
+		if _, ok := indicesToRemove[idx]; !ok {
+			trimmedAdditions = append(trimmedAdditions, add)
+		}
+	}
+	conf.Additions = trimmedAdditions
 }

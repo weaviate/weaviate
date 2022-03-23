@@ -14,9 +14,16 @@ package schema
 type InvertedIndexConfig struct {
 	CleanupIntervalSeconds int64
 	BM25                   BM25Config
+	Stopwords              StopwordConfig
 }
 
 type BM25Config struct {
 	K1 float64
 	B  float64
+}
+
+type StopwordConfig struct {
+	Preset    string
+	Additions []string
+	Removals  []string
 }

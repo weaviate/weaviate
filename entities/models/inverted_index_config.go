@@ -32,6 +32,9 @@ type InvertedIndexConfig struct {
 
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
+
+	// stopwords
+	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
 }
 
 // Validate validates this inverted index config
@@ -39,6 +42,10 @@ func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateBm25(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStopwords(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -58,6 +65,24 @@ func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
 		if err := m.Bm25.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("bm25")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Stopwords) { // not required
+		return nil
+	}
+
+	if m.Stopwords != nil {
+		if err := m.Stopwords.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("stopwords")
 			}
 			return err
 		}
