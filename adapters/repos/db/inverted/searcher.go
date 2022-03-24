@@ -217,6 +217,10 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	// we are on a value element
 
+	if fs.onIDProp(props[0]) {
+		return fs.extractIDProp(filter.Value.Value, filter.Operator)
+	}
+
 	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
@@ -228,20 +232,14 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
-	if fs.onIDProp(props[0]) {
-		return fs.extractIDProp(filter.Value.Value, filter.Operator)
-	}
-
 	if fs.onTokenizablePropValue(filter.Value.Type) {
-		var tokenization string
-		for _, classProperty := range fs.schema.GetClass(className).Properties {
-			if classProperty.Name == props[0] {
-				tokenization = classProperty.Tokenization
-				break
-			}
+		property, err := fs.schema.GetProperty(className, schema.PropertyName(props[0]))
+		if err != nil {
+			return nil, err
 		}
+
 		return fs.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
-			filter.Operator, tokenization)
+			filter.Operator, property.Tokenization)
 	}
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
@@ -395,22 +393,12 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		if schema.IsRefDataType(prop.DataType) {
-			return true
-		}
-	}
-
-	return false
+	return schema.IsRefDataType(property.DataType)
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -418,24 +406,16 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		return schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
-	}
-
-	return false
+	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
 func (fs *Searcher) onIDProp(propName string) bool {
-	return propName == helpers.PropertyNameID
+	return propName == helpers.PropertyNameID || propName == "id"
 }
 
 func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
