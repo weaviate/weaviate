@@ -509,7 +509,7 @@ func (l *hnswCommitLogger) maintenance() error {
 
 func (l *hnswCommitLogger) condenseOldLogs() error {
 	l.maintenanceLock.Lock()
-	defer l.maintenanceLock.Lock()
+	defer l.maintenanceLock.Unlock()
 
 	files, err := getCommitFileNames(l.rootPath, l.id)
 	if err != nil {
@@ -540,7 +540,7 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 
 func (l *hnswCommitLogger) combineLogs() error {
 	l.maintenanceLock.Lock()
-	defer l.maintenanceLock.Lock()
+	defer l.maintenanceLock.Unlock()
 
 	// maxSize is the desired final size, since we assume a lot of redunancy we
 	// can set the combining threshold higher than the final threshold under the
