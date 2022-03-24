@@ -31,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
@@ -132,9 +133,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
-		RootPath:            appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:          appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults: appState.ServerConfig.Config.QueryMaximumResults,
+		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
+		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
 	}, remoteIndexClient, appState.Cluster) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -169,7 +172,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster,
+		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
 		schemaTxClient)
 	if err != nil {
 		appState.Logger.

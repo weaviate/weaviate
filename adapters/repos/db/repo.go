@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -28,6 +29,9 @@ type DB struct {
 	indices      map[string]*Index
 	remoteClient sharding.RemoteIndexClient
 	nodeResolver nodeResolver
+	shutdown     chan struct{}
+
+	indexLock sync.Mutex
 }
 
 func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -35,7 +39,14 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 }
 
 func (d *DB) WaitForStartup(ctx context.Context) error {
-	return d.init(ctx)
+	err := d.init(ctx)
+	if err != nil {
+		return err
+	}
+
+	d.scanDiskUse()
+
+	return nil
 }
 
 func New(logger logrus.FieldLogger, config Config,
@@ -46,17 +57,23 @@ func New(logger logrus.FieldLogger, config Config,
 		indices:      map[string]*Index{},
 		remoteClient: remoteClient,
 		nodeResolver: nodeResolver,
+		shutdown:     make(chan struct{}),
 	}
 }
 
 type Config struct {
-	RootPath            string
-	QueryLimit          int64
-	QueryMaximumResults int64
+	RootPath                  string
+	QueryLimit                int64
+	QueryMaximumResults       int64
+	DiskUseWarningPercentage  uint64
+	DiskUseReadOnlyPercentage uint64
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndex(className schema.ClassName) *Index {
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
+
 	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {
@@ -68,6 +85,9 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
+
 	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {
@@ -79,6 +99,9 @@ func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInde
 
 // DeleteIndex deletes the index
 func (d *DB) DeleteIndex(className schema.ClassName) error {
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
+
 	id := indexID(className)
 	index, ok := d.indices[id]
 	if !ok {
@@ -93,6 +116,8 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (d *DB) Shutdown(ctx context.Context) error {
+	d.shutdown <- struct{}{}
+
 	for id, index := range d.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)

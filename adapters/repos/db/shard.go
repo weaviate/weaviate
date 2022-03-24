@@ -49,10 +49,11 @@ type Shard struct {
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
-	cleanupCancel    chan struct{}
+	cancel           chan struct{}
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
+	diskScanState    *diskScanState
 
 	status     storagestate.Status
 	statusLock sync.Mutex
@@ -64,16 +65,19 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		return nil, errors.Wrap(err, "init bufferend random generator")
 	}
 
+	invertedIndexConfig := index.getInvertedIndexConfig()
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
-		cleanupInterval: time.Duration(index.invertedIndexConfig.
+		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cleanupCancel: make(chan struct{}),
+		cancel:        make(chan struct{}, 1),
 		randomSource:  rand,
+		diskScanState: newDiskScanState(),
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -172,6 +176,8 @@ func (s *Shard) drop(force bool) error {
 	if s.isReadOnly() && !force {
 		return storagestate.ErrStatusReadOnly
 	}
+
+	s.cancel <- struct{}{}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
@@ -302,9 +308,18 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
+	s.cancel <- struct{}{}
+
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
 	return s.store.Shutdown(ctx)
+}
+
+func (s *Shard) notifyReady() {
+	s.initStatus()
+	s.index.logger.
+		WithField("action", "startup").
+		Debugf("shard=%s is ready", s.name)
 }

@@ -18,6 +18,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
 
+func (s *Shard) initStatus() {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.status = storagestate.StatusReady
+}
+
 func (s *Shard) getStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()

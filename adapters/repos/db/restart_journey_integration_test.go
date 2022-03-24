@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +57,12 @@ func TestRestartJourney(t *testing.T) {
 	}
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -171,7 +177,12 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-		newRepo = New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+		newRepo = New(logger, Config{
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+			DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		}, &fakeRemoteClient{},
 			&fakeNodeResolver{})
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())

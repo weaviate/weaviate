@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -31,13 +32,15 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State) error {
 	idx, err := NewIndex(ctx,
 		IndexConfig{
-			ClassName: schema.ClassName(class.Class),
-			RootPath:  m.db.config.RootPath,
+			ClassName:                 schema.ClassName(class.Class),
+			RootPath:                  m.db.config.RootPath,
+			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
+			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
-		class.InvertedIndexConfig,
+		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient)
 	if err != nil {
@@ -61,6 +64,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	m.db.indices[idx.ID()] = idx
+	idx.notifyReady()
+
 	return nil
 }
 
@@ -142,4 +147,21 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
 	return hnsw.ValidateUserConfigUpdate(old, updated)
+}
+
+func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
+	old, updated *models.InvertedIndexConfig) error {
+	return inverted.ValidateUserConfigUpdate(old, updated)
+}
+
+func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className string,
+	updated *models.InvertedIndexConfig) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+	}
+
+	conf := inverted.ConfigFromModel(updated)
+
+	return idx.updateInvertedIndexConfig(ctx, conf)
 }
