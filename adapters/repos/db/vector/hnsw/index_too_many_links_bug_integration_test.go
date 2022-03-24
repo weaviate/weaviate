@@ -34,9 +34,9 @@ import (
 // the race detector on, but now we also need to make sure that it runs in the
 // separate no-race test run. To INCLUDE it there we use the Test_NoRace_
 // prefix.
-// This test imports 10,000 objects concurrently which is extremly expensive
+// This test imports 10,000 objects concurrently which is extremely expensive
 // with the race detector on.
-// It prevents a regresssion on
+// It prevents a regression on
 // https://github.com/semi-technologies/weaviate/issues/1868
 func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	n := 10000
@@ -94,7 +94,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			id  uint64
 		}
 
-		jobs := make(chan tuple)
+		jobs := make(chan tuple, n)
 
 		wg := sync.WaitGroup{}
 		worker := func(jobs chan tuple) {
@@ -140,8 +140,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	})
 
 	t.Run("destroy the old index", func(t *testing.T) {
-		// kill the index
-		original.cancel <- struct{}{}
+		// kill the commit loger and index
+		original.Shutdown()
 		index = nil
 		original = nil
 	})
