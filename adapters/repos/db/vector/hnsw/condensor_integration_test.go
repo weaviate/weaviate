@@ -115,7 +115,7 @@ func TestCondensor(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -191,14 +191,14 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
 		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -289,14 +289,14 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
 		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -391,14 +391,14 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
 		require.Nil(t, err)
 
 		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -453,7 +453,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
@@ -473,7 +473,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, err := NewDeserializer(logger).Do(bufr, &initialState)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
@@ -488,7 +488,7 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 
 	bufr := bufio.NewReader(fd)
 	logger, _ := test.NewNullLogger()
-	res, err := NewDeserializer(logger).Do(bufr, nil)
+	res, _, err := NewDeserializer(logger).Do(bufr, nil, false)
 	require.Nil(t, err)
 
 	index := &hnsw{
@@ -518,7 +518,7 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 
 		bufr := bufio.NewReader(fd)
 		logger, _ := test.NewNullLogger()
-		res, _, err = NewDeserializer2(logger).Do(bufr, res, false)
+		res, _, err = NewDeserializer(logger).Do(bufr, res, false)
 		require.Nil(t, err)
 	}
 
