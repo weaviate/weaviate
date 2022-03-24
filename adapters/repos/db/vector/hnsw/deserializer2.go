@@ -32,7 +32,12 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 
 	// If there is no entry for the links at a level to be replaced, we must
-	// assume that all links were appended and prior stat must exist
+	// assume that all links were appended and prior state must exist
+	// Similarly if we run into a "Clear" we need to explicitly set the replace
+	// flag, so that future appends aren't always appended and we run into a
+	// situation where reading multiple condensed logs in succession leads to too
+	// many connections as discovered in
+	// https://github.com/semi-technologies/weaviate/issues/1868
 	LinksReplaced map[uint64]map[uint16]struct{}
 }
 
@@ -100,10 +105,10 @@ func (c *Deserializer2) Do(fd *bufio.Reader,
 			err = c.ReadRemoveTombstone(fd, out.Tombstones)
 			readThisRound = 8
 		case ClearLinks:
-			err = c.ReadClearLinks(fd, out)
+			err = c.ReadClearLinks(fd, out, keepLinkReplaceInformation)
 			readThisRound = 8
 		case ClearLinksAtLevel:
-			err = c.ReadClearLinksAtLevel(fd, out)
+			err = c.ReadClearLinksAtLevel(fd, out, keepLinkReplaceInformation)
 			readThisRound = 10
 		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
@@ -313,7 +318,8 @@ func (c *Deserializer2) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]s
 	return nil
 }
 
-func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -333,7 +339,8 @@ func (c *Deserializer2) ReadClearLinks(r io.Reader, res *DeserializationResult) 
 	return nil
 }
 
-func (c *Deserializer2) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult) error {
+func (c *Deserializer2) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -349,15 +356,48 @@ func (c *Deserializer2) ReadClearLinksAtLevel(r io.Reader, res *DeserializationR
 		return nil
 	}
 
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[id]; !ok {
+			res.LinksReplaced[id] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[id][level] = struct{}{}
+	}
+
 	if res.Nodes[id] == nil {
-		// node has been deleted or never existed, nothing to do
-		return nil
+		if !keepReplaceInfo {
+			// node has been deleted or never existed and we are not looking at a
+			// single log in isolation, nothing to do
+			return nil
+		}
+
+		// we need to keep the replace info, meaning we have to explicitly create
+		// this node in order to be able to store the "clear links" information for
+		// it
+		res.Nodes[id] = &vertex{
+			id:          id,
+			connections: map[int][]uint64{},
+		}
 	}
 
 	if res.Nodes[id].connections == nil {
 		res.Nodes[id].connections = map[int][]uint64{}
 	} else {
 		res.Nodes[id].connections[int(level)] = []uint64{}
+	}
+
+	if keepReplaceInfo {
+		// mark the replace flag for this node and level, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[id]; !ok {
+			res.LinksReplaced[id] = map[uint16]struct{}{}
+		}
+
+		res.LinksReplaced[id][level] = struct{}{}
 	}
 
 	return nil
