@@ -26,10 +26,15 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	className = "TestClass"
 )
 
 func Test_CachedFilters_String(t *testing.T) {
@@ -92,7 +97,7 @@ func Test_CachedFilters_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string
@@ -296,7 +301,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -311,7 +316,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -345,7 +350,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -356,7 +361,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -442,7 +447,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string
@@ -672,7 +677,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -687,7 +692,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -708,7 +713,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -719,7 +724,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -855,7 +860,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil, 2)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, 2)
 
 	type test struct {
 		name                     string
@@ -915,7 +920,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -930,7 +935,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -963,7 +968,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -974,7 +979,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -992,5 +997,27 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 						idsMapValues[0].Key))
 				})
 		})
+	}
+}
+
+func createSchema() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+					Properties: []*models.Property{
+						{
+							Name:     "inverted-with-frequency",
+							DataType: []string{"string"},
+						},
+						{
+							Name:     "inverted-without-frequency",
+							DataType: []string{"int"},
+						},
+					},
+				},
+			},
+		},
 	}
 }

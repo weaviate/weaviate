@@ -393,10 +393,10 @@ func TestAnalyzer_ConfigurableStopwords(t *testing.T) {
 		for _, test := range tests {
 			a := newTestAnalyzer(t, test.cfg)
 
-			textCountable := a.Text(test.input)
+			textCountable := a.Text(models.PropertyTokenizationWord, test.input)
 			assert.Equal(t, test.expectedCountable, len(textCountable))
 
-			stringCountable := a.String(test.input)
+			stringCountable := a.String(models.PropertyTokenizationWord, test.input)
 			assert.Equal(t, test.expectedCountable, len(stringCountable))
 		}
 	}
