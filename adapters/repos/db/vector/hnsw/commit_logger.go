@@ -231,16 +231,28 @@ type condensor interface {
 }
 
 type hnswCommitLogger struct {
+	// protect against concurrent attempts to write in the underlying file or
+	// buffer
 	sync.Mutex
-	cancel               chan struct{}
-	rootPath             string
-	id                   string
-	condensor            condensor
+
+	cancel            chan struct{}
+	rootPath          string
+	id                string
+	condensor         condensor
+	logger            logrus.FieldLogger
+	maxSizeIndividual int64
+	maxSizeCombining  int64
+	commitLogger      *commitlog.Logger
+
+	// Generally maintenance is happening from a single goroutine on a read-only
+	// file, so no locking should be required. However, there is one situation
+	// where maintenance suddenly becomes concurrent: When a cancel signal is
+	// received, we need to be able to make sure that cancellation does not
+	// complete while a maintenance process is still running. This would mean, we
+	// would return to the caller too early and the files on disk might still
+	// change due to a maintenance process that was still running undetected
+	maintenanceLock      sync.Mutex
 	maintainenceInterval time.Duration
-	logger               logrus.FieldLogger
-	maxSizeIndividual    int64
-	maxSizeCombining     int64
-	commitLogger         *commitlog.Logger
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -367,10 +379,28 @@ func (l *hnswCommitLogger) StartLogging() {
 	// cancel maintenance jobs on request
 	go func(cancel ...chan struct{}) {
 		<-l.cancel
+
+		// Once we've received the cancel signal, we must obtain all possible
+		// locks. Both the one for maintenance as well as the regular one for
+		// writing. Once we hold all locks, we can be sure that no background
+		// process is running anymore (as they would themselves require those
+		// locks) and we can cancel all tasks before a new one could start.
+		l.maintenanceLock.Lock()
+		defer l.maintenanceLock.Unlock()
+		l.Lock()
+		defer l.Unlock()
+
 		for _, c := range cancel {
 			c <- struct{}{}
 		}
 	}(cancelCombineAndCondenseLogs, cancelSwitchLog)
+}
+
+// Shutdown waits for ongoing maintenance processes to stop, then cancels their
+// scheduling. The caller can be sure that state on disk is immutable after
+// calling Shutdown().
+func (l *hnswCommitLogger) Shutdown() {
+	l.cancel <- struct{}{}
 }
 
 func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
@@ -478,6 +508,9 @@ func (l *hnswCommitLogger) maintenance() error {
 }
 
 func (l *hnswCommitLogger) condenseOldLogs() error {
+	l.maintenanceLock.Lock()
+	defer l.maintenanceLock.Lock()
+
 	files, err := getCommitFileNames(l.rootPath, l.id)
 	if err != nil {
 		return err
@@ -506,6 +539,9 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 }
 
 func (l *hnswCommitLogger) combineLogs() error {
+	l.maintenanceLock.Lock()
+	defer l.maintenanceLock.Lock()
+
 	// maxSize is the desired final size, since we assume a lot of redunancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
