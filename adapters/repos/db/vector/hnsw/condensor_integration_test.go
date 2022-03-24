@@ -229,6 +229,206 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	})
 }
 
+// This test was added as part of
+// https://github.com/semi-technologies/weaviate/issues/1868 to rule out that
+// replace links broken across two independent commit logs. It turned out that
+// this was green and not the cause for the bug. The bug could be reproduced
+// with the new test added in index_too_many_links_bug_integration_test.go.
+// Nevertheless it makes sense to keep this test around as this might have been
+// a potential cause as well and by having this test, we can prevent a
+// regression.
+func TestCondensorReplaceNodeLinks(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(rootPath, 0o777)
+	defer func() {
+		err := os.RemoveAll(rootPath)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	require.Nil(t, err)
+
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	require.Nil(t, err)
+
+	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	require.Nil(t, err)
+
+	t.Run("add data to the first log", func(t *testing.T) {
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddLinkAtLevel(0, 0, 1)
+		uncondensed1.AddLinkAtLevel(0, 0, 2)
+		uncondensed1.AddLinkAtLevel(0, 0, 3)
+		uncondensed1.AddLinkAtLevel(0, 1, 1)
+		uncondensed1.AddLinkAtLevel(0, 1, 2)
+
+		require.Nil(t, uncondensed1.Flush())
+	})
+
+	t.Run("replace all data from previous log", func(t *testing.T) {
+		uncondensed2.AddLinkAtLevel(0, 0, 10)
+		uncondensed2.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6})
+		uncondensed2.AddLinkAtLevel(0, 0, 7)
+		uncondensed2.ReplaceLinksAtLevel(0, 1, []uint64{8})
+
+		require.Nil(t, uncondensed2.Flush())
+	})
+
+	t.Run("create a control log", func(t *testing.T) {
+		control.AddNode(&vertex{id: 0, level: 1})
+		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
+		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
+
+		require.Nil(t, control.Flush())
+	})
+
+	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		require.Nil(t, err)
+
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		require.Nil(t, err)
+
+		control, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "control"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed1, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed2, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(condensed1, ".condensed"),
+			"commit log is now saved as condensed")
+		assert.True(t, strings.HasSuffix(condensed2, ".condensed"),
+			"commit log is now saved as condensed")
+
+		assertIndicesFromCommitLogsMatch(t, commitLogFileName(rootPath, "control", control),
+			[]string{
+				commitLogFileName(rootPath, "uncondensed1", condensed1),
+				commitLogFileName(rootPath, "uncondensed2", condensed2),
+			})
+	})
+}
+
+// This test was added as part of the investigation and fixing of
+// https://github.com/semi-technologies/weaviate/issues/1868. We used the new
+// (higher level) test in index_too_many_links_bug_integration_test.go to
+// reproduce the problem without knowing what causes it. Eventually we came to
+// the conclusion that "ClearLinksAtLevel" was not propagated correctly across
+// two independently condensed commit logs. While the higher-level test already
+// makes sure that the bug is gone and prevents regressions, this test was
+// still added to test the broken (now fixed) behavior in relative isolation.
+func TestCondensorClearLinksAtLevel(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(rootPath, 0o777)
+	defer func() {
+		err := os.RemoveAll(rootPath)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	require.Nil(t, err)
+
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	require.Nil(t, err)
+
+	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	require.Nil(t, err)
+
+	t.Run("add data to the first log", func(t *testing.T) {
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddLinkAtLevel(0, 0, 1)
+		uncondensed1.AddLinkAtLevel(0, 0, 2)
+		uncondensed1.AddLinkAtLevel(0, 0, 3)
+		uncondensed1.AddLinkAtLevel(0, 1, 1)
+		uncondensed1.AddLinkAtLevel(0, 1, 2)
+
+		require.Nil(t, uncondensed1.Flush())
+	})
+
+	t.Run("replace all data from previous log", func(t *testing.T) {
+		uncondensed2.AddLinkAtLevel(0, 0, 10)
+		uncondensed2.ClearLinksAtLevel(0, 0)
+		uncondensed2.AddLinkAtLevel(0, 0, 4)
+		uncondensed2.AddLinkAtLevel(0, 0, 5)
+		uncondensed2.AddLinkAtLevel(0, 0, 6)
+		uncondensed2.AddLinkAtLevel(0, 0, 7)
+		uncondensed2.ClearLinksAtLevel(0, 1)
+		uncondensed2.AddLinkAtLevel(0, 1, 8)
+
+		require.Nil(t, uncondensed2.Flush())
+	})
+
+	t.Run("create a control log", func(t *testing.T) {
+		control.AddNode(&vertex{id: 0, level: 1})
+		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
+		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
+
+		require.Nil(t, control.Flush())
+	})
+
+	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		require.Nil(t, err)
+
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor2(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		require.Nil(t, err)
+
+		control, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "control"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed1, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed2, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(condensed1, ".condensed"),
+			"commit log is now saved as condensed")
+		assert.True(t, strings.HasSuffix(condensed2, ".condensed"),
+			"commit log is now saved as condensed")
+
+		assertIndicesFromCommitLogsMatch(t, commitLogFileName(rootPath, "control", control),
+			[]string{
+				commitLogFileName(rootPath, "uncondensed1", condensed1),
+				commitLogFileName(rootPath, "uncondensed2", condensed2),
+			})
+	})
+}
+
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))

@@ -69,12 +69,12 @@ func (c *MemoryCondensor2) Do(fileName string) error {
 			if res.ReplaceLinks(node.id, uint16(level)) {
 				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %dto commit log", node.id, level)
+						"write links for node %d at level %d to commit log", node.id, level)
 				}
 			} else {
 				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %dto commit log", node.id, level)
+						"write links for node %d at level %d to commit log", node.id, level)
 				}
 			}
 		}
