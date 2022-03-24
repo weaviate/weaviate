@@ -29,23 +29,25 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator            migrate.Migrator
-	repo                Repo
-	state               State
-	callbacks           []func(updatedSchema schema.Schema)
-	logger              logrus.FieldLogger
-	authorizer          authorizer
-	config              config.Config
-	vectorizerValidator VectorizerValidator
-	moduleConfig        ModuleConfig
-	cluster             *cluster.TxManager
-	clusterState        clusterState
+	migrator                migrate.Migrator
+	repo                    Repo
+	state                   State
+	callbacks               []func(updatedSchema schema.Schema)
+	logger                  logrus.FieldLogger
+	authorizer              authorizer
+	config                  config.Config
+	vectorizerValidator     VectorizerValidator
+	moduleConfig            ModuleConfig
+	cluster                 *cluster.TxManager
+	clusterState            clusterState
+	hnswConfigParser        VectorConfigParser
+	invertedConfigValidator InvertedConfigValidator
 	sync.Mutex
-
-	hnswConfigParser VectorConfigParser
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
+
+type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
@@ -86,20 +88,22 @@ type clusterState interface {
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
+	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client) (*Manager, error) {
 	m := &Manager{
-		config:              config,
-		migrator:            migrator,
-		repo:                repo,
-		state:               State{},
-		logger:              logger,
-		authorizer:          authorizer,
-		hnswConfigParser:    hnswConfigParser,
-		vectorizerValidator: vectorizerValidator,
-		moduleConfig:        moduleConfig,
-		cluster:             cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
-		clusterState:        clusterState,
+		config:                  config,
+		migrator:                migrator,
+		repo:                    repo,
+		state:                   State{},
+		logger:                  logger,
+		authorizer:              authorizer,
+		hnswConfigParser:        hnswConfigParser,
+		vectorizerValidator:     vectorizerValidator,
+		invertedConfigValidator: invertedConfigValidator,
+		moduleConfig:            moduleConfig,
+		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		clusterState:            clusterState,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)

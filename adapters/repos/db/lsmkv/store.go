@@ -51,6 +51,12 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
 
 		b.UpdateStatus(targetStatus)
 	}
+
+	if targetStatus == storagestate.StatusReadOnly {
+		s.logger.WithField("action", "lsm_compaction").
+			WithField("path", s.rootDir).
+			Warn("compaction halted due to shard READONLY status")
+	}
 }
 
 func (s *Store) init() error {

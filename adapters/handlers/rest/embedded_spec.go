@@ -1584,6 +1584,22 @@ func init() {
         "type": "object"
       }
     },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -2103,10 +2119,16 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -2584,6 +2606,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -4336,6 +4382,22 @@ func init() {
         "type": "object"
       }
     },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -4943,10 +5005,16 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -5442,6 +5510,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

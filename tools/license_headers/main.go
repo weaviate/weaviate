@@ -29,7 +29,7 @@ var (
 
 func init() {
 	headerSectionRe = regexp.MustCompile(`^(//.*\n)*\n`)
-	buildTagRe = regexp.MustCompile(`^//\s\+build`)
+	buildTagRe = regexp.MustCompile(`^//go:build`)
 	h, err := ioutil.ReadFile("tools/license_headers/header.txt")
 	fatal(err)
 	targetHeader = bytes.TrimSpace(h)
