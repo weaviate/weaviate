@@ -167,7 +167,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:    uc.EFConstruction,
-		ef:                int64(uc.EF),
 		flatSearchCutoff:  int64(uc.FlatSearchCutoff),
 		nodes:             make([]*vertex, initialSize),
 		cache:             vectorCache,
@@ -182,6 +181,11 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstoneLock:     &sync.RWMutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+
+		ef:       int64(uc.EF),
+		efMin:    int64(uc.DynamicEFMin),
+		efMax:    int64(uc.DynamicEFMax),
+		efFactor: int64(uc.DynamicEFFactor),
 	}
 
 	if err := index.init(cfg); err != nil {
