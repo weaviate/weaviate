@@ -33,7 +33,7 @@ type shardedLockCache struct {
 	logger          logrus.FieldLogger
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
-	// as growing the cache oclearing the cache happens at the same time.
+	// as growing the cache or clearing the cache happens at the same time.
 	maintenanceLock sync.Mutex
 }
 
