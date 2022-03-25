@@ -159,12 +159,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		normalizeOnRead = true
 	}
 
-	// vectorCache := newAtomicVectorCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-	// 	cfg.Logger, normalizeOnRead)
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
-	// vectorCache := newShardedLockCacheFixedSize(cfg.VectorForIDThunk, 384, uc.VectorCacheMaxObjects,
-	// 	cfg.Logger, normalizeOnRead)
 
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
