@@ -39,6 +39,11 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 		}, UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -91,6 +96,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 		assert.Equal(t, control, res)
 	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		vectorIndex.Drop()
+	})
 }
 
 func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
@@ -110,6 +119,11 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}, UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -195,6 +209,10 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
 	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		vectorIndex.Drop()
+	})
 }
 
 func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
@@ -214,6 +232,11 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		}, UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -305,6 +328,10 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2, 3, 4}, res)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		vectorIndex.Drop()
 	})
 }
 
@@ -450,6 +477,11 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	}, UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
 	})
 	require.Nil(t, err)
 
@@ -545,6 +577,9 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	})
 
 	// t.Fail()
+	t.Run("destroy the index", func(t *testing.T) {
+		index.Drop()
+	})
 }
 
 func TestDelete_MoreEntrypointIssues(t *testing.T) {
@@ -585,6 +620,11 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	}, UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
 	})
 	require.Nil(t, err)
 
@@ -633,6 +673,10 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		index.Drop()
+	})
 }
 
 func TestDelete_TombstonedEntrypoint(t *testing.T) {
@@ -651,6 +695,11 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		EFConstruction: 128,
 		// explicitly turn off, so we only focus on the tombstoned periods
 		CleanupIntervalSeconds: 0,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
 	})
 	require.Nil(t, err)
 
@@ -664,6 +713,10 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	res, _, err := index.SearchByVector(searchVec, 100, nil)
 	require.Nil(t, err)
 	assert.Equal(t, []uint64{1}, res, "should contain the only result")
+
+	t.Run("destroy the index", func(t *testing.T) {
+		index.Drop()
+	})
 }
 
 func TestDelete_Flakyness_gh_1369(t *testing.T) {
@@ -739,6 +792,10 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 
 	t.Run("clean up tombstoned nodes", func(t *testing.T) {
 		require.Nil(t, index.CleanUpTombstonedNodes())
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		index.Drop()
 	})
 }
 
