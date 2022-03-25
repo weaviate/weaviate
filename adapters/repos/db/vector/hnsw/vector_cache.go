@@ -69,6 +69,10 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 		return vec, nil
 	}
 
+	return n.handleCacheMiss(ctx, id)
+}
+
+func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -84,6 +88,28 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	n.shardedLocks[id%shardFactor].Unlock()
 
 	return vec, nil
+}
+
+func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, error) {
+	out := make([][]float32, len(ids))
+	for i, id := range ids {
+		n.shardedLocks[id%shardFactor].RLock()
+		vec := n.cache[id]
+		n.shardedLocks[id%shardFactor].RUnlock()
+
+		if vec == nil {
+			vecFromDisk, err := n.handleCacheMiss(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+
+			vec = vecFromDisk
+		}
+
+		out[i] = vec
+	}
+
+	return out, nil
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {

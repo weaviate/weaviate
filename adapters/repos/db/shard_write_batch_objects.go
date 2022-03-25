@@ -1,4 +1,3 @@
-//                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -13,6 +12,7 @@ package db
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
@@ -57,7 +57,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 
 	b.init(objects)
 	b.storeInObjectStore(ctx)
-	b.storeAdditionalStorage(ctx)
+	b.storeAdditionalStorageWithWorkers(ctx)
 	b.flushWALs(ctx)
 	return b.errs
 }
@@ -152,30 +152,53 @@ func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUI
 	b.statuses[id] = status
 }
 
-// storeAdditionalStorage stores the object in all non-key-value stores,
-// such as the main vector index as well as the property-specific indices, such
-// as the geo-index.
-func (b *objectsBatcher) storeAdditionalStorage(ctx context.Context) {
+type job struct {
+	object *storobj.Object
+	status objectInsertStatus
+	index  int
+}
+
+// storeAdditionalStorageWithWorkers stores the object in all non-key-value
+// stores, such as the main vector index as well as the property-specific
+// indices, such as the geo-index.
+func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
 	if ok := b.checkContext(ctx); !ok {
 		// if the context is no longer OK, there's no point in continuing - abort
 		// early
 		return
 	}
 
-	beforeVectorIndex := time.Now()
 	wg := &sync.WaitGroup{}
+	worker := func(jobs <-chan job) {
+		defer wg.Done()
+		for job := range jobs {
+			b.storeSingleObjectInAdditionalStorage(ctx, job.object, job.status, job.index)
+		}
+	}
+
+	beforeVectorIndex := time.Now()
+
+	jobs := make(chan job, len(b.objects))
+
+	// spawn one worker per thread
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go worker(jobs)
+	}
+
 	for i, object := range b.objects {
 		if b.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
 
-		wg.Add(1)
 		status := b.statuses[object.ID()]
-		go func(object *storobj.Object, status objectInsertStatus, index int) {
-			defer wg.Done()
-			b.storeSingleObjectInAdditionalStorage(ctx, object, status, index)
-		}(object, status, i)
+		jobs <- job{
+			object: object,
+			status: status,
+			index:  i,
+		}
 	}
+	close(jobs)
 	wg.Wait()
 	b.shard.metrics.VectorIndex(beforeVectorIndex)
 }

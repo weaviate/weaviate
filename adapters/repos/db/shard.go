@@ -94,7 +94,20 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 			RootPath: s.index.Config.RootPath,
 			ID:       s.ID(),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
+				// Previously we had an interval of 10s in here, which was changed to
+				// 0.5s as part of gh-1867. There's really no way to wait so long in
+				// between checks: If you are running on a low-powered machine, the
+				// interval will simply find that there is no work and do nothing in
+				// each iteration. However, if you are running on a very powerful
+				// machine within 10s you could have potentially created two units of
+				// work, but we'll only be handling one every 10s. This means
+				// uncombined/uncodensed hnsw commit logs will keep piling up can only
+				// be processes long after the initial insert is complete. This also
+				// means that if there is a crash during importing a lot of work needs
+				// to be done at startup, since the commit logs still contain too many
+				// redundancies. So as of now it seems there are only advantages to
+				// running the cleanup checks and work much more often.
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
 					index.logger)
 			},
 			VectorForIDThunk: s.vectorByIndexID,
