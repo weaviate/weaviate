@@ -91,8 +91,6 @@ func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 }
 
 func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, error) {
-	// atomic.AddUint64(&n.multiReadCounter, 1)
-
 	out := make([][]float32, len(ids))
 	for i, id := range ids {
 		n.shardedLocks[id%shardFactor].RLock()
