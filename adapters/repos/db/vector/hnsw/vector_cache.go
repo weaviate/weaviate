@@ -31,6 +31,10 @@ type shardedLockCache struct {
 	count           int64
 	cancel          chan bool
 	logger          logrus.FieldLogger
+
+	// The maintenanceLock makes sure that only one maintenance operation, such
+	// as growing the cache oclearing the cache happens at the same time.
+	maintenanceLock sync.Mutex
 }
 
 var shardFactor = uint64(512)
@@ -46,6 +50,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 		cancel:          make(chan bool),
 		logger:          logger,
 		shardedLocks:    make([]sync.RWMutex, shardFactor),
+		maintenanceLock: sync.Mutex{},
 	}
 
 	for i := uint64(0); i < shardFactor; i++ {
@@ -99,6 +104,9 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 }
 
 func (n *shardedLockCache) grow(node uint64) {
+	n.maintenanceLock.Lock()
+	defer n.maintenanceLock.Unlock()
+
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
 
@@ -132,6 +140,9 @@ func (c *shardedLockCache) watchForDeletion() {
 
 func (c *shardedLockCache) replaceIfFull() {
 	if atomic.LoadInt64(&c.count) >= atomic.LoadInt64(&c.maxSize) {
+		c.maintenanceLock.Lock()
+		defer c.maintenanceLock.Unlock()
+
 		c.obtainAllLocks()
 		c.logger.WithField("action", "hnsw_delete_vector_cache").
 			Debug("deleting full vector cache")
