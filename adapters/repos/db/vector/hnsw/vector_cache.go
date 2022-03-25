@@ -31,8 +31,6 @@ type shardedLockCache struct {
 	count           int64
 	cancel          chan bool
 	logger          logrus.FieldLogger
-	// readCounter      uint64
-	// multiReadCounter uint64
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -63,7 +61,6 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 }
 
 func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	// atomic.AddUint64(&n.readCounter, 1)
 	n.shardedLocks[id%shardFactor].RLock()
 	vec := n.cache[id]
 	n.shardedLocks[id%shardFactor].RUnlock()
@@ -163,8 +160,6 @@ func (c *shardedLockCache) watchForDeletion() {
 			case <-c.cancel:
 				return
 			case <-t:
-				// fmt.Printf("received %d read requests so far\n", atomic.LoadUint64(&c.readCounter))
-				// fmt.Printf("received %d multi-read requests so far\n", atomic.LoadUint64(&c.multiReadCounter))
 				c.replaceIfFull()
 			}
 		}
