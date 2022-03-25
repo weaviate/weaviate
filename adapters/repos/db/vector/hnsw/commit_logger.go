@@ -444,19 +444,24 @@ func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
 		for {
 			select {
 			case <-cancel:
+				fmt.Println("received cancel")
 				return
 			case <-maintenance:
+				fmt.Println("started combine")
 				if err := l.combineLogs(); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_combining").
 						Error("hnsw commit log maintenance (combining) failed")
 				}
+				fmt.Println("finished combine")
 
+				fmt.Println("started condense")
 				if err := l.condenseOldLogs(); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_condensing").
 						Error("hnsw commit log maintenance (condensing) failed")
 				}
+				fmt.Println("finished condense")
 			}
 		}
 	}(cancelFromOutside)
