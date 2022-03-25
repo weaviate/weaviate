@@ -16,12 +16,9 @@ import (
 	"unicode"
 )
 
-// TokenizeString only splits on spaces, it does not alter casing
+// TokenizeString only splits on white spaces, it does not alter casing
 func TokenizeString(in string) []string {
-	parts := strings.FieldsFunc(in, func(c rune) bool {
-		return unicode.IsSpace(c)
-	})
-	return parts
+	return strings.FieldsFunc(in, unicode.IsSpace)
 }
 
 // Tokenize Text splits on any non-alphanumerical and lowercases the words
@@ -48,4 +45,9 @@ func TokenizeTextKeepWildcards(in string) []string {
 	}
 
 	return parts
+}
+
+// TrimString trims on white spaces
+func TrimString(in string) string {
+	return strings.TrimFunc(in, unicode.IsSpace)
 }

@@ -589,7 +589,7 @@
           "type": "string"
         },
         "moduleConfig": {
-          "description": "Configuratino specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
         "name": {
@@ -600,6 +600,11 @@
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
           "x-nullable": true
+        },
+        "tokenization": {
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are `word` (default) and `field` for string and string[], `word` (default) for text and text[]. Not supported for remaining data types",
+          "type": "string",
+          "enum": ["word", "field"]
         }
       },
       "type": "object"
