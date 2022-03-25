@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -148,13 +149,12 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyName(ctx, class.Class, property.Name,
-			property.ModuleConfig)
+		_, err := schema.ValidatePropertyName(property.Name)
 		if err != nil {
 			return err
 		}
 
-		err = m.validateReservedPropertyName(property.Name)
+		err = schema.ValidateReservedPropertyName(property.Name)
 		if err != nil {
 			return err
 		}
@@ -171,9 +171,14 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 			return err
 		}
 
-		_, err = (&schema).FindPropertyDataType(property.DataType)
+		propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+		}
+
+		err = validatePropertyTokenization(property.Tokenization, propertyDataType)
+		if err != nil {
+			return err
 		}
 	}
 

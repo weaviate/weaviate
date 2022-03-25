@@ -29,7 +29,7 @@ func TestAnalyzer(t *testing.T) {
 
 	t.Run("with text", func(t *testing.T) {
 		t.Run("only unique words", func(t *testing.T) {
-			res := a.Text("Hello, my name is John Doe")
+			res := a.Text(models.PropertyTokenizationWord, "Hello, my name is John Doe")
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("hello"),
@@ -58,8 +58,8 @@ func TestAnalyzer(t *testing.T) {
 			})
 		})
 
-		t.Run("with repeated words", func(t *testing.T) {
-			res := a.Text("Du. Du hast. Du hast. Du hast mich gefragt.")
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.Text(models.PropertyTokenizationWord, "Du. Du hast. Du hast. Du hast mich gefragt.")
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("du"),
@@ -79,27 +79,201 @@ func TestAnalyzer(t *testing.T) {
 				},
 			})
 		})
+
+		t.Run("not supported tokenization", func(t *testing.T) {
+			res := a.Text("not-supported", "Du. Du hast. Du hast. Du hast mich gefragt.")
+			assert.Empty(t, res)
+		})
+	})
+
+	t.Run("with text array", func(t *testing.T) {
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.TextArray(models.PropertyTokenizationWord, []string{"Hello,", "my name is John Doe"})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("hello"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("my"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("name"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("john"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("doe"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.TextArray(models.PropertyTokenizationWord, []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("du"),
+					TermFrequency: float32(4),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("not supported tokenization", func(t *testing.T) {
+			res := a.TextArray("not-supported", []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.Empty(t, res)
+		})
 	})
 
 	t.Run("with string", func(t *testing.T) {
-		res := a.String("My email is john-thats-jay.ohh.age.n+alloneword@doe.com")
-		assert.ElementsMatch(t, res, []Countable{
-			{
-				Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
-				TermFrequency: float32(1),
-			},
-			{
-				Data:          []byte("My"),
-				TermFrequency: float32(1),
-			},
-			{
-				Data:          []byte("email"),
-				TermFrequency: float32(1),
-			},
-			{
-				Data:          []byte("is"),
-				TermFrequency: float32(1),
-			},
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationWord, "My email is john-thats-jay.ohh.age.n+alloneword@doe.com")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("My"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("email"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationWord, "Du. Du hast. Du hast. Du hast mich gefragt.")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("hast."),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("field tokenization", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationField, "\n Du. Du hast. Du hast. Du hast mich gefragt.\t ")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du. Du hast. Du hast. Du hast mich gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+	})
+
+	t.Run("with string array", func(t *testing.T) {
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationWord, []string{"My email", "is john-thats-jay.ohh.age.n+alloneword@doe.com"})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("My"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("email"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationWord, []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("hast."),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("field tokenization", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationField, []string{"\n Du. Du hast. Du hast.", "Du hast mich gefragt.\t "})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du. Du hast. Du hast."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du hast mich gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
 		})
 	})
 
@@ -219,10 +393,10 @@ func TestAnalyzer_ConfigurableStopwords(t *testing.T) {
 		for _, test := range tests {
 			a := newTestAnalyzer(t, test.cfg)
 
-			textCountable := a.Text(test.input)
+			textCountable := a.Text(models.PropertyTokenizationWord, test.input)
 			assert.Equal(t, test.expectedCountable, len(textCountable))
 
-			stringCountable := a.String(test.input)
+			stringCountable := a.String(models.PropertyTokenizationWord, test.input)
 			assert.Equal(t, test.expectedCountable, len(stringCountable))
 		}
 	}

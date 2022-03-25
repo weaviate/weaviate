@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -161,18 +160,18 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	switch dt {
 	case schema.DataTypeTextArray:
 		hasFrequency = HasFrequency(dt)
-		value, err := a.stringValFromArray(prop, values)
+		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
-		items = a.Text(value)
+		items = a.TextArray(prop.Tokenization, in)
 	case schema.DataTypeStringArray:
 		hasFrequency = HasFrequency(dt)
-		value, err := a.stringValFromArray(prop, values)
+		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
-		items = a.String(value)
+		items = a.StringArray(prop.Tokenization, in)
 	case schema.DataTypeIntArray:
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
@@ -256,19 +255,16 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	}, nil
 }
 
-func (a *Analyzer) stringValFromArray(prop *models.Property, values []interface{}) (string, error) {
-	var value strings.Builder
-	for i := range values {
-		asString, ok := values[i].(string)
+func stringsFromValues(prop *models.Property, values []interface{}) ([]string, error) {
+	in := make([]string, len(values))
+	for i, value := range values {
+		asString, ok := value.(string)
 		if !ok {
-			return "", fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, values[i])
+			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		value.WriteString(asString)
-		if i != len(values)-1 {
-			value.WriteString(" ")
-		}
+		in[i] = asString
 	}
-	return value.String(), nil
+	return in, nil
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
@@ -282,14 +278,14 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.Text(asString)
+		items = a.Text(prop.Tokenization, asString)
 	case schema.DataTypeString:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.String(asString)
+		items = a.String(prop.Tokenization, asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {

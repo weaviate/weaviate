@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
@@ -216,6 +217,10 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	// we are on a value element
 
+	if fs.onIDProp(props[0]) {
+		return fs.extractIDProp(filter.Value.Value, filter.Operator)
+	}
+
 	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
@@ -227,13 +232,14 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
-	if fs.onIDProp(props[0]) {
-		return fs.extractIDProp(filter.Value.Value, filter.Operator)
-	}
+	if fs.onTokenizablePropValue(filter.Value.Type) {
+		property, err := fs.schema.GetProperty(className, schema.PropertyName(props[0]))
+		if err != nil {
+			return nil, err
+		}
 
-	if fs.onMultiWordPropValue(filter.Operator, filter.Value.Value, filter.Value.Type) {
-		return fs.extractMultiWordProp(props[0], filter.Value.Type, filter.Value.Value,
-			filter.Operator)
+		return fs.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
+			filter.Operator, property.Tokenization)
 	}
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
@@ -251,18 +257,6 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	var extractValueFn func(in interface{}) ([]byte, error)
 	var hasFrequency bool
 	switch dt {
-	case schema.DataTypeText:
-		if operator == filters.OperatorLike {
-			// if the operator is like, we cannot apply the regular text-splitting
-			// logic as it would remove all wildcard symbols
-			extractValueFn = fs.extractTextValueKeepWildcards
-		} else {
-			extractValueFn = fs.extractTextValue
-		}
-		hasFrequency = true
-	case schema.DataTypeString:
-		extractValueFn = fs.extractStringValue
-		hasFrequency = true
 	case schema.DataTypeBoolean:
 		extractValueFn = fs.extractBoolValue
 		hasFrequency = false
@@ -343,31 +337,55 @@ func (fs *Searcher) extractIDProp(value interface{},
 	}, nil
 }
 
-func (fs *Searcher) extractMultiWordProp(propName string, dt schema.DataType,
-	value interface{}, operator filters.Operator) (*propValuePair, error) {
-	var out propValuePair
+func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
+	operator filters.Operator, tokenization string) (*propValuePair, error) {
 	var parts []string
+	var multiword bool
+
 	switch dt {
 	case schema.DataTypeString:
-		parts = helpers.TokenizeString(value.(string))
-	case schema.DataTypeText:
-		parts = helpers.TokenizeText(value.(string))
-	default:
-		return nil, fmt.Errorf("expected value type to be string or text, got %T", dt)
-	}
-
-	out.children = make([]*propValuePair, len(parts))
-
-	for i, part := range parts {
-		child, err := fs.extractPrimitiveProp(propName, dt, part, operator)
-		if err != nil {
-			return nil, errors.Wrapf(err, "multi word at pos %d", i)
+		switch tokenization {
+		case models.PropertyTokenizationWord, "":
+			parts = helpers.TokenizeString(value.(string))
+			multiword = len(parts) > 1
+		case models.PropertyTokenizationField:
+			parts = []string{helpers.TrimString(value.(string))}
+			multiword = false
+		default:
+			return nil, fmt.Errorf("unsupported tokenization %v configured for data type %v", tokenization, dt)
 		}
-		out.children[i] = child
+	case schema.DataTypeText:
+		switch tokenization {
+		case models.PropertyTokenizationWord, "":
+			if operator == filters.OperatorLike {
+				// if the operator is like, we cannot apply the regular text-splitting
+				// logic as it would remove all wildcard symbols
+				parts = helpers.TokenizeTextKeepWildcards(value.(string))
+			} else {
+				parts = helpers.TokenizeText(value.(string))
+			}
+			multiword = len(parts) > 1
+		default:
+			return nil, fmt.Errorf("unsupported tokenization %v configured for data type %v", tokenization, dt)
+		}
+	default:
+		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
 	}
-	out.operator = filters.OperatorAnd
 
-	return &out, nil
+	propValuePairs := make([]*propValuePair, len(parts))
+	for i, part := range parts {
+		propValuePairs[i] = &propValuePair{
+			value:        []byte(part),
+			hasFrequency: true,
+			prop:         propName,
+			operator:     operator,
+		}
+	}
+
+	if multiword {
+		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs}, nil
+	}
+	return propValuePairs[0], nil
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -375,22 +393,12 @@ func (fs *Searcher) extractMultiWordProp(propName string, dt schema.DataType,
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		if schema.IsRefDataType(prop.DataType) {
-			return true
-		}
-	}
-
-	return false
+	return schema.IsRefDataType(property.DataType)
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -398,42 +406,22 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		return schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
-	}
-
-	return false
+	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
 func (fs *Searcher) onIDProp(propName string) bool {
-	return propName == helpers.PropertyNameID
+	return propName == helpers.PropertyNameID || propName == "id"
 }
 
-func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
-	value interface{}, valueType schema.DataType) bool {
+func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
-	case schema.DataTypeString:
-		parts := helpers.TokenizeString(value.(string))
-		return len(parts) > 1
-	case schema.DataTypeText:
-		var parts []string
-		if operator == filters.OperatorLike {
-			// if the operator is like, we cannot apply the regular text-splitting
-			// logic as it would remove all wildcard symbols
-			parts = helpers.TokenizeTextKeepWildcards(value.(string))
-		} else {
-			parts = helpers.TokenizeText(value.(string))
-		}
-		return len(parts) > 1
+	case schema.DataTypeString, schema.DataTypeText:
+		return true
 	default:
 		return false
 	}
