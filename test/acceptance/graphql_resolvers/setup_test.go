@@ -215,6 +215,26 @@ func addTestSchema(t *testing.T) {
 					},
 				},
 			},
+			{
+				Name:         "profession",
+				DataType:     []string{"string"},
+				Tokenization: "field",
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+			{
+				Name:         "about",
+				DataType:     []string{"string[]"},
+				Tokenization: "field",
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
 		},
 	})
 
@@ -488,20 +508,34 @@ func addTestDataPersons(t *testing.T) {
 	)
 
 	type personTemplate struct {
-		id      strfmt.UUID
-		name    string
-		livesIn []strfmt.UUID
+		id         strfmt.UUID
+		name       string
+		livesIn    []strfmt.UUID
+		profession string
+		about      []string
 	}
 
-	companies := []personTemplate{
-		{id: alice, name: "Alice", livesIn: []strfmt.UUID{}},
-		{id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}},
-		{id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}},
-		{id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}},
+	persons := []personTemplate{
+		{
+			id: alice, name: "Alice", livesIn: []strfmt.UUID{}, profession: "Quality Control Analyst",
+			about: []string{"loves travelling very much"},
+		},
+		{
+			id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}, profession: "Mechanical Engineer",
+			about: []string{"loves travelling", "hates cooking"},
+		},
+		{
+			id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}, profession: "Senior Mechanical Engineer",
+			about: []string{"hates swimming", "likes cooking", "loves travelling"},
+		},
+		{
+			id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}, profession: "Quality Assurance Manager",
+			about: []string{"likes swimming", "likes cooking for family"},
+		},
 	}
 
-	// companies
-	for _, person := range companies {
+	// persons
+	for _, person := range persons {
 		livesIn := []interface{}{}
 		for _, c := range person.livesIn {
 			livesIn = append(livesIn,
@@ -514,13 +548,15 @@ func addTestDataPersons(t *testing.T) {
 			Class: "Person",
 			ID:    person.id,
 			Properties: map[string]interface{}{
-				"livesIn": livesIn,
-				"name":    person.name,
+				"livesIn":    livesIn,
+				"name":       person.name,
+				"profession": person.profession,
+				"about":      person.about,
 			},
 		})
 	}
 
-	assertGetObjectEventually(t, companies[len(companies)-1].id)
+	assertGetObjectEventually(t, persons[len(persons)-1].id)
 }
 
 func addTestDataCVC(t *testing.T) {
