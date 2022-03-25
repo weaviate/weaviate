@@ -518,7 +518,13 @@ func (h *hnsw) Drop() error {
 	// cancel vector cache goroutine
 	h.cache.drop()
 	// cancel tombstone cleanup goroutine
-	h.cancel <- struct{}{}
+
+	// if the interval is 0 we never started a cleanup cycle, therefore there is
+	// no loop running that could receive our cancel and we would be stuck. Thus,
+	// only cancel if we know it's been started.
+	if h.cleanupInterval != 0 {
+		h.cancel <- struct{}{}
+	}
 	return nil
 }
 
