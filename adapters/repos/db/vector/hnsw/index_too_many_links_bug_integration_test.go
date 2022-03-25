@@ -83,6 +83,11 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			MaxConnections:         m,
 			EFConstruction:         128,
 			CleanupIntervalSeconds: 0,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 2 * n,
 		})
 		require.Nil(t, err)
 		index = idx
@@ -160,6 +165,11 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			MaxConnections:         m,
 			EFConstruction:         128,
 			CleanupIntervalSeconds: 1,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 2 * n,
 		})
 		require.Nil(t, err)
 		index = idx
@@ -181,5 +191,9 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 					i, level, len(conns))
 			}
 		}
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		index.Drop()
 	})
 }
