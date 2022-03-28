@@ -168,6 +168,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
+	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
 }
@@ -708,7 +709,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if local {
 				shard := i.Shards[shardName]
 				res, resDists, err = shard.localObjectVectorSearch(
-					ctx, searchVector, certainty, limit, filters, additional)
+					ctx, searchVector, certainty, limit, filters, additional, false)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -767,7 +768,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.localObjectVectorSearch(
-		ctx, searchVector, certainty, limit, filters, additional)
+		ctx, searchVector, certainty, limit, filters, additional, false)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

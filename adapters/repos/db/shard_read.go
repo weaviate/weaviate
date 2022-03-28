@@ -186,10 +186,11 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) localObjectVectorSearch(ctx context.Context,
 	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	additional additional.Properties, isInternalCaller bool) ([]*storobj.Object, []float32, error) {
 	if limit < 0 {
 		additional.Vector = true
-		return s.objectVectorSearchByDistance(ctx, searchVector, filters, additional, certainty)
+		return s.objectVectorSearchByDistance(
+			ctx, searchVector, filters, additional, certainty, isInternalCaller)
 	}
 
 	return s.objectVectorSearch(ctx, searchVector, limit, filters, additional)
@@ -197,9 +198,9 @@ func (s *Shard) localObjectVectorSearch(ctx context.Context,
 
 func (s *Shard) objectVectorSearchByDistance(ctx context.Context, searchVector []float32,
 	filters *filters.LocalFilter, additional additional.Properties,
-	certainty float64) ([]*storobj.Object, []float32, error) {
+	certainty float64, isInternalCaller bool) ([]*storobj.Object, []float32, error) {
 	var (
-		searchParams = newSearchByDistParams()
+		searchParams = s.newSearchByDistParams(isInternalCaller)
 
 		allowList  helpers.AllowList
 		resultObjs []*storobj.Object
@@ -401,16 +402,34 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func isAboveCertaintyThreshold(obj *storobj.Object, searchVector []float32, certainty float64) (bool, error) {
-	res := obj.SearchResult(additional.Properties{Vector: true})
-	nd, err := vectorizer.NormalizedDistance(searchVector, res.Vector)
-	if err != nil {
-		return false, err
+func (s *Shard) newSearchByDistParams(internalCaller bool) *searchByDistParams {
+	initialOffset := 0
+	initialLimit := defaultSearchByDistInitialLimit
+
+	var maxLimit int64
+
+	// search by distance will be used both internally (within weaviate)
+	// and externally (initiated by client), however the usecase is a
+	// bit different.
+	//
+	// if internal, we do not want to set a max limit on the results,
+	// because likely the caller is an aggregation process. if this
+	// search is initiated directly by the caller, for instance with
+	// a Get query, the limit will be set to the host's maximum query
+	// limit.
+	if internalCaller {
+		maxLimit = -1
+	} else {
+		maxLimit = s.index.Config.QueryMaximumResults
+
 	}
 
-	objCertainty := 1 - nd
-
-	return float64(objCertainty) >= certainty, nil
+	return &searchByDistParams{
+		offset:             initialOffset,
+		limit:              initialLimit,
+		totalLimit:         initialOffset + initialLimit,
+		maximumSearchLimit: maxLimit,
+	}
 }
 
 const (
@@ -428,7 +447,7 @@ type searchByDistParams struct {
 	offset             int
 	limit              int
 	totalLimit         int
-	maximumSearchLimit int
+	maximumSearchLimit int64
 }
 
 func (params *searchByDistParams) offsetCapacity(ids []uint64) int {
@@ -460,16 +479,21 @@ func (params *searchByDistParams) iterate() {
 }
 
 func (params *searchByDistParams) maxLimitReached() bool {
-	return params.totalLimit > params.maximumSearchLimit
+	if params.maximumSearchLimit < 0 {
+		return true
+	}
+
+	return int64(params.totalLimit) > params.maximumSearchLimit
 }
 
-func newSearchByDistParams() *searchByDistParams {
-	initialOffset := 0
-	initialLimit := defaultSearchByDistInitialLimit
-	return &searchByDistParams{
-		offset:             initialOffset,
-		limit:              initialLimit,
-		totalLimit:         initialOffset + initialLimit,
-		maximumSearchLimit: 100_000, // TODO: configurable thru env
+func isAboveCertaintyThreshold(obj *storobj.Object, searchVector []float32, certainty float64) (bool, error) {
+	res := obj.SearchResult(additional.Properties{Vector: true})
+	nd, err := vectorizer.NormalizedDistance(searchVector, res.Vector)
+	if err != nil {
+		return false, err
 	}
+
+	objCertainty := 1 - nd
+
+	return float64(objCertainty) >= certainty, nil
 }
