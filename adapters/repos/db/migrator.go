@@ -36,6 +36,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                  m.db.config.RootPath,
 			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
 			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
+			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
