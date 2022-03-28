@@ -39,8 +39,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "location",
@@ -54,8 +55,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -65,8 +67,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "parkedAt",
@@ -80,8 +83,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "drives",
@@ -95,8 +99,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "friendsWith",
@@ -110,8 +115,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "hasMembers",
@@ -127,8 +133,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -138,8 +145,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -157,7 +165,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}},
+						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
 					},
 				},
 				{
@@ -165,7 +173,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}},
+						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
 						{Name: "inCountry", DataType: []string{"Country"}},
 						{Name: "population", DataType: []string{"int"}},
 						{Name: "location", DataType: []string{"geoCoordinates"}},
@@ -176,7 +184,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "code", DataType: []string{"string"}},
+						{Name: "code", DataType: []string{"string"}, Tokenization: "word"},
 						{Name: "phone", DataType: []string{"phoneNumber"}},
 						{Name: "inCity", DataType: []string{"City"}},
 					},

@@ -50,8 +50,9 @@ func TestRestartJourney(t *testing.T) {
 		Class:               "Class",
 		Properties: []*models.Property{
 			{
-				Name:     "description",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "description",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 		},
 	}

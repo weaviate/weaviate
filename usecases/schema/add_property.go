@@ -44,12 +44,11 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
+	m.setNewPropDefaults(class, prop)
 	err = m.validateCanAddProperty(ctx, principal, prop, class)
 	if err != nil {
 		return err
 	}
-
-	m.setNewPropDefaults(class, prop)
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop})
@@ -68,6 +67,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 }
 
 func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) {
+	m.setPropertyDefaults(prop)
 	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
 }
 

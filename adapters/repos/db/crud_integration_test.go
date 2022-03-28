@@ -56,8 +56,9 @@ func TestCRUD(t *testing.T) {
 		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 			{
 				Name:     "location",
@@ -75,8 +76,9 @@ func TestCRUD(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 			{
 				Name:     "refProp",
