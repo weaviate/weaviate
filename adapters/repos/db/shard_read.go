@@ -421,7 +421,6 @@ func (s *Shard) newSearchByDistParams(internalCaller bool) *searchByDistParams {
 		maxLimit = -1
 	} else {
 		maxLimit = s.index.Config.QueryMaximumResults
-
 	}
 
 	return &searchByDistParams{
