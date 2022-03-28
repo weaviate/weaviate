@@ -852,6 +852,7 @@ func TestNearVectorRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
@@ -1277,6 +1278,7 @@ func TestNearVectorNoModules(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,

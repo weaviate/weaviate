@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -183,19 +184,123 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		Object(ctx, limit, filters, additional, s.index.Config.ClassName)
 }
 
+func (s *Shard) localObjectVectorSearch(ctx context.Context,
+	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	if limit < 0 {
+		additional.Vector = true
+		return s.objectVectorSearchByDistance(ctx, searchVector, filters, additional, certainty)
+	}
+
+	return s.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+}
+
+func (s *Shard) objectVectorSearchByDistance(ctx context.Context, searchVector []float32,
+	filters *filters.LocalFilter, additional additional.Properties,
+	certainty float64) ([]*storobj.Object, []float32, error) {
+	var (
+		searchParams = newSearchByDistParams()
+
+		allowList  helpers.AllowList
+		resultObjs []*storobj.Object
+		resultDist []float32
+	)
+
+	if filters != nil {
+		list, err := s.buildAllowList(ctx, filters, additional)
+		if err != nil {
+			return nil, nil, err
+		}
+		allowList = list
+	}
+
+	recursiveSearch := func() (bool, error) {
+		shouldContinue := false
+
+		ids, dist, err := s.vectorIndex.SearchByVector(searchVector, searchParams.totalLimit, allowList)
+		if err != nil {
+			return shouldContinue, errors.Wrap(err, "vector search")
+		}
+
+		// ensures the indexers aren't out of range
+		offsetCap := searchParams.offsetCapacity(ids)
+		totalLimitCap := searchParams.totalLimitCapacity(ids)
+
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+
+		if len(ids) == 0 {
+			return shouldContinue, nil
+		}
+
+		objs, err := s.objectsByDocID(ids, additional)
+		if err != nil {
+			return shouldContinue, err
+		}
+
+		// we can determine before checking all results whether
+		// another search will be needed, by seeing if the last
+		// result's certainty is still above the desired
+		// threshold. this is possible because the index sorts
+		// results by distance descending prior to returning
+		lastObj := objs[len(objs)-1]
+		shouldContinue, err = isAboveCertaintyThreshold(lastObj, searchVector, certainty)
+		if err != nil {
+			return false, err
+		}
+
+		for i := range objs {
+			aboveThresh, err := isAboveCertaintyThreshold(objs[i], searchVector, certainty)
+			if err != nil {
+				return false, err
+			}
+
+			if aboveThresh {
+				resultObjs = append(resultObjs, objs[i])
+				resultDist = append(resultDist, dist[i])
+			} else {
+				// as soon as we encounter a certainty which
+				// is below threshold, we can stop searching
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for shouldContinue {
+		searchParams.iterate()
+		if searchParams.maxLimitReached() {
+			s.index.logger.
+				WithField("action", "unlimited_vector_search").
+				WithField("path", s.index.Config.RootPath).
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.maximumSearchLimit)
+			break
+		}
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return resultObjs, resultDist, nil
+}
+
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var allowList helpers.AllowList
 	beforeAll := time.Now()
 	if filters != nil {
-		list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs, s.versioner.Version()).
-			DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+		list, err := s.buildAllowList(ctx, filters, additional)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "build inverted filter allow list")
+			return nil, nil, err
 		}
-
 		allowList = list
 	}
 	invertedTook := time.Since(beforeAll)
@@ -281,4 +386,90 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 	}
 
 	return out[:i], nil
+}
+
+func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
+	addl additional.Properties) (helpers.AllowList, error) {
+	list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
+		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
+		s.deletedDocIDs, s.versioner.Version()).
+		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
+	if err != nil {
+		return nil, errors.Wrap(err, "build inverted filter allow list")
+	}
+
+	return list, nil
+}
+
+func isAboveCertaintyThreshold(obj *storobj.Object, searchVector []float32, certainty float64) (bool, error) {
+	res := obj.SearchResult(additional.Properties{Vector: true})
+	nd, err := vectorizer.NormalizedDistance(searchVector, res.Vector)
+	if err != nil {
+		return false, err
+	}
+
+	objCertainty := 1 - nd
+
+	return float64(objCertainty) >= certainty, nil
+}
+
+const (
+	// the initial limit of 100 here is an
+	// arbitrary decision, and can be tuned
+	// as needed
+	defaultSearchByDistInitialLimit = 100
+	// the decision to increase the limit in
+	// multiples of 10 here is an arbitrary
+	// decision, and can be tuned as needed
+	defaultSearchByDistLimitMultiplier = 10
+)
+
+type searchByDistParams struct {
+	offset             int
+	limit              int
+	totalLimit         int
+	maximumSearchLimit int
+}
+
+func (params *searchByDistParams) offsetCapacity(ids []uint64) int {
+	var offsetCap int
+	if params.offset < len(ids) {
+		offsetCap = params.offset
+	} else {
+		offsetCap = len(ids)
+	}
+
+	return offsetCap
+}
+
+func (params *searchByDistParams) totalLimitCapacity(ids []uint64) int {
+	var totalLimitCap int
+	if params.totalLimit < len(ids) {
+		totalLimitCap = params.totalLimit
+	} else {
+		totalLimitCap = len(ids)
+	}
+
+	return totalLimitCap
+}
+
+func (params *searchByDistParams) iterate() {
+	params.offset = params.totalLimit
+	params.limit *= defaultSearchByDistLimitMultiplier
+	params.totalLimit = params.offset + params.limit
+}
+
+func (params *searchByDistParams) maxLimitReached() bool {
+	return params.totalLimit > params.maximumSearchLimit
+}
+
+func newSearchByDistParams() *searchByDistParams {
+	initialOffset := 0
+	initialLimit := defaultSearchByDistInitialLimit
+	return &searchByDistParams{
+		offset:             initialOffset,
+		limit:              initialLimit,
+		totalLimit:         initialOffset + initialLimit,
+		maximumSearchLimit: 100_000, // TODO: configurable thru env
+	}
 }

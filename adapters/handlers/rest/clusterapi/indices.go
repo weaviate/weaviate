@@ -71,7 +71,7 @@ type shards interface {
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
-		vector []float32, limit int, filters *filters.LocalFilter,
+		vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -460,7 +460,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, limit, filters, additional, err := IndicesPayloads.SearchParams.
+		vector, certainty, limit, filters, additional, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -469,7 +469,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, limit, filters, additional)
+			vector, certainty, limit, filters, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

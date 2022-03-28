@@ -1056,6 +1056,119 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 }
 
+func TestVectorSearch_ByCertainty(t *testing.T) {
+	className := "SomeClass"
+	var class *models.Class
+
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	logger, _ := test.NewNullLogger()
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		RootPath: dirName,
+		// this is set really low to ensure that search
+		// by distance is conducted, which executes
+		// without regard to this value
+		QueryMaximumResults:       1,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("create required schema", func(t *testing.T) {
+		class = &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					DataType: []string{string(schema.DataTypeInt)},
+					Name:     "int_prop",
+				},
+			},
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	searchVector := []float32{1, 2, 3, 4, 5, 6, 7, 8, 9}
+	tests := map[strfmt.UUID]struct {
+		inputVec []float32
+		expected bool
+	}{
+		strfmt.UUID(uuid.NewString()): {
+			inputVec: []float32{1, 2, 3, 4, 5, 6, 98, 99, 100},
+			expected: true,
+		},
+		strfmt.UUID(uuid.NewString()): {
+			inputVec: []float32{1, 2, 3, 4, 5, 6, -98, -99, -100},
+			expected: false,
+		},
+		strfmt.UUID(uuid.NewString()): {
+			inputVec: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9},
+			expected: true,
+		},
+		strfmt.UUID(uuid.NewString()): {
+			inputVec: []float32{-1, -2, -3, -4, -5, -6, -7, -8, 0},
+			expected: false,
+		},
+		strfmt.UUID(uuid.NewString()): {
+			inputVec: []float32{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9},
+			expected: true,
+		},
+	}
+
+	t.Run("insert test objects", func(t *testing.T) {
+		for id, props := range tests {
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("perform search vector by distance", func(t *testing.T) {
+		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &traverser.NearVectorParams{
+				Certainty: 0.9,
+			},
+			SearchVector:         searchVector,
+			AdditionalProperties: additional.Properties{Certainty: true},
+		})
+		require.Nil(t, err)
+		require.NotEmpty(t, results)
+		// ensure that we receive more results than
+		// the `QueryMaximumResults`, as this should
+		// only apply to limited vector searches
+		require.Greater(t, len(results), 1)
+
+		for _, res := range results {
+			if props, ok := tests[res.ID]; !ok {
+				assert.False(t, props.expected)
+			} else {
+				assert.True(t, props.expected)
+			}
+		}
+	})
+}
+
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {
