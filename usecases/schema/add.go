@@ -131,7 +131,31 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		}
 	}
 
+	for _, prop := range class.Properties {
+		m.setPropertyDefaults(prop)
+	}
+
 	m.moduleConfig.SetClassDefaults(class)
+}
+
+func (m *Manager) setPropertyDefaults(prop *models.Property) {
+	m.setPropertyDefaultTokenization(prop)
+}
+
+func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
+	// already set, no default needed
+	if prop.Tokenization != "" {
+		return
+	}
+
+	// set only for tokenization supporting data types
+	if len(prop.DataType) == 1 {
+		switch prop.DataType[0] {
+		case string(schema.DataTypeString), string(schema.DataTypeStringArray),
+			string(schema.DataTypeText), string(schema.DataTypeTextArray):
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	}
 }
 
 func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {

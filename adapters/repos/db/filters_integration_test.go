@@ -584,16 +584,19 @@ var carClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "modelName",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "modelName",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "contact",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "contact",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeText)},
-			Name:     "description",
+			DataType:     []string{string(schema.DataTypeText)},
+			Name:         "description",
+			Tokenization: "word",
 		},
 		{
 			DataType: []string{string(schema.DataTypeInt)},
@@ -860,16 +863,19 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "name",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "textProp",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "textProp",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 		},
 	}

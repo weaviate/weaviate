@@ -51,11 +51,13 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "stringProp",
-			DataType: []string{string(schema.DataTypeString)},
+			Name:         "stringProp",
+			DataType:     []string{string(schema.DataTypeString)},
+			Tokenization: "word",
 		}, {
 			Name:          "hiddenStringProp",
 			DataType:      []string{string(schema.DataTypeString)},
+			Tokenization:  "word",
 			IndexInverted: ptBool(false),
 		}},
 	}

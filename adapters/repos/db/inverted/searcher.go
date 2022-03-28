@@ -340,23 +340,20 @@ func (fs *Searcher) extractIDProp(value interface{},
 func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
 	operator filters.Operator, tokenization string) (*propValuePair, error) {
 	var parts []string
-	var multiword bool
 
 	switch dt {
 	case schema.DataTypeString:
 		switch tokenization {
-		case models.PropertyTokenizationWord, "":
+		case models.PropertyTokenizationWord:
 			parts = helpers.TokenizeString(value.(string))
-			multiword = len(parts) > 1
 		case models.PropertyTokenizationField:
 			parts = []string{helpers.TrimString(value.(string))}
-			multiword = false
 		default:
-			return nil, fmt.Errorf("unsupported tokenization %v configured for data type %v", tokenization, dt)
+			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
 		}
 	case schema.DataTypeText:
 		switch tokenization {
-		case models.PropertyTokenizationWord, "":
+		case models.PropertyTokenizationWord:
 			if operator == filters.OperatorLike {
 				// if the operator is like, we cannot apply the regular text-splitting
 				// logic as it would remove all wildcard symbols
@@ -364,9 +361,8 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 			} else {
 				parts = helpers.TokenizeText(value.(string))
 			}
-			multiword = len(parts) > 1
 		default:
-			return nil, fmt.Errorf("unsupported tokenization %v configured for data type %v", tokenization, dt)
+			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
@@ -382,7 +378,7 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 		}
 	}
 
-	if multiword {
+	if len(parts) > 1 {
 		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs}, nil
 	}
 	return propValuePairs[0], nil

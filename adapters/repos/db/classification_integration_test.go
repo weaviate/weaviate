@@ -244,8 +244,9 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 			},
 		},
@@ -255,8 +256,9 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 			},
 		},
@@ -266,12 +268,14 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "description",
-					DataType: []string{string(schema.DataTypeText)},
+					Name:         "description",
+					DataType:     []string{string(schema.DataTypeText)},
+					Tokenization: "word",
 				},
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 				{
 					Name:     "exactCategory",

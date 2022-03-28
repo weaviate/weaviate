@@ -48,10 +48,6 @@ func validatePropertyNameUniqueness(propertyName string, class *models.Class) er
 }
 
 func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
-	if tokenization == "" {
-		return nil
-	}
-
 	if propertyDataType.IsPrimitive() {
 		primitiveDataType := propertyDataType.AsPrimitive()
 
@@ -66,9 +62,17 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 			case models.PropertyTokenizationWord:
 				return nil
 			}
+		default:
+			if tokenization == "" {
+				return nil
+			}
 		}
 
 		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+	}
+
+	if tokenization == "" {
+		return nil
 	}
 
 	return fmt.Errorf("Tokenization '%s' is not allowed for reference data type", tokenization)
