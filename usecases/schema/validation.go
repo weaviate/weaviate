@@ -37,16 +37,6 @@ func (m *Manager) validateClassName(ctx context.Context, className string) error
 	return err
 }
 
-func validatePropertyNameUniqueness(propertyName string, class *models.Class) error {
-	for _, otherProperty := range class.Properties {
-		if propertyName == otherProperty.Name {
-			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", propertyName, class.Class)
-		}
-	}
-
-	return nil
-}
-
 func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
 	if propertyDataType.IsPrimitive() {
 		primitiveDataType := propertyDataType.AsPrimitive()
