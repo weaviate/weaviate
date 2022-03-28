@@ -322,7 +322,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
-		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+		filt, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
@@ -331,6 +331,16 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			nearVectorParams = &p
+		}
+
+		if nearVectorParams != nil && nearVectorParams.Certainty != 0 {
+			if pagination == nil {
+				pagination = &filters.Pagination{
+					Limit: filters.LimitFlagSearchByDist,
+				}
+			} else if pagination.Limit < 0 {
+				pagination.Limit = filters.LimitFlagSearchByDist
+			}
 		}
 
 		var nearObjectParams *traverser.NearObjectParams
@@ -356,7 +366,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
-			Filters:              filters,
+			Filters:              filt,
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,
