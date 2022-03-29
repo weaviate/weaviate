@@ -104,8 +104,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
-	// t.Run("clean up",
-	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
+	t.Run("clean up",
+		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
 
 func prepareCompanyTestSchemaAndData(repo *DB,
@@ -147,16 +147,15 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 		})
 
 		t.Run("import companies", func(t *testing.T) {
-			// import everything 10 times to even out the multi-shard errors a bit
-			// more
-			for j := 0; j < 10; j++ {
+			for j := 0; j < importFactor; j++ {
 				for i, schema := range companies {
 					t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
 						fixture := models.Object{
 							Class:      companyClass.Class,
-							ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+							ID:         companyIDs[j*(importFactor-1)+i],
 							Properties: schema,
 						}
+
 						require.Nil(t,
 							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
 					})
