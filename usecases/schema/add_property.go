@@ -13,7 +13,6 @@ package schema
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -44,12 +43,15 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	err = m.validateCanAddProperty(ctx, principal, prop, class)
-	if err != nil {
+	m.setNewPropDefaults(class, prop)
+
+	existingPropertyNames := map[string]bool{}
+	for _, existingProperty := range class.Properties {
+		existingPropertyNames[existingProperty.Name] = true
+	}
+	if err := m.validateProperty(prop, class, existingPropertyNames, principal); err != nil {
 		return err
 	}
-
-	m.setNewPropDefaults(class, prop)
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop})
@@ -68,6 +70,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 }
 
 func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) {
+	m.setPropertyDefaults(prop)
 	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
 }
 
@@ -86,44 +89,4 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	}
 
 	return m.migrator.AddProperty(ctx, className, prop)
-}
-
-func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.Principal,
-	property *models.Property, class *models.Class) error {
-	// Verify format of property.
-	_, err := schema.ValidatePropertyName(property.Name)
-	if err != nil {
-		return err
-	}
-
-	// Verify that property name is not a reserved name
-	err = schema.ValidateReservedPropertyName(property.Name)
-	if err != nil {
-		return err
-	}
-
-	// First check if there is a name clash.
-	err = validatePropertyNameUniqueness(property.Name, class)
-	if err != nil {
-		return err
-	}
-
-	// Validate data type of property.
-	schema, err := m.GetSchema(principal)
-	if err != nil {
-		return err
-	}
-
-	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
-	if err != nil {
-		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
-	}
-
-	err = validatePropertyTokenization(property.Tokenization, propertyDataType)
-	if err != nil {
-		return err
-	}
-
-	// all is fine!
-	return nil
 }

@@ -37,21 +37,7 @@ func (m *Manager) validateClassName(ctx context.Context, className string) error
 	return err
 }
 
-func validatePropertyNameUniqueness(propertyName string, class *models.Class) error {
-	for _, otherProperty := range class.Properties {
-		if propertyName == otherProperty.Name {
-			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", propertyName, class.Class)
-		}
-	}
-
-	return nil
-}
-
 func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
-	if tokenization == "" {
-		return nil
-	}
-
 	if propertyDataType.IsPrimitive() {
 		primitiveDataType := propertyDataType.AsPrimitive()
 
@@ -66,9 +52,17 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 			case models.PropertyTokenizationWord:
 				return nil
 			}
+		default:
+			if tokenization == "" {
+				return nil
+			}
 		}
 
 		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+	}
+
+	if tokenization == "" {
+		return nil
 	}
 
 	return fmt.Errorf("Tokenization '%s' is not allowed for reference data type", tokenization)

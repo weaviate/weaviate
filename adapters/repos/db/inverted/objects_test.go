@@ -35,12 +35,14 @@ func TestAnalyzeObject(t *testing.T) {
 		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 		props := []*models.Property{
 			{
-				Name:     "description",
-				DataType: []string{"text"},
+				Name:         "description",
+				DataType:     []string{"text"},
+				Tokenization: "word",
 			},
 			{
-				Name:     "email",
-				DataType: []string{"string"},
+				Name:         "email",
+				DataType:     []string{"string"},
+				Tokenization: "word",
 			},
 			{
 				Name:         "about_me",
@@ -323,12 +325,14 @@ func TestAnalyzeObject(t *testing.T) {
 			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 			props := []*models.Property{
 				{
-					Name:     "descriptions",
-					DataType: []string{"text[]"},
+					Name:         "descriptions",
+					DataType:     []string{"text[]"},
+					Tokenization: "word",
 				},
 				{
-					Name:     "emails",
-					DataType: []string{"string[]"},
+					Name:         "emails",
+					DataType:     []string{"string[]"},
+					Tokenization: "word",
 				},
 				{
 					Name:         "about_me",

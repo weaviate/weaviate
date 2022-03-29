@@ -57,8 +57,9 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "unrelatedProp",
-			DataType: []string{string(schema.DataTypeString)},
+			Name:         "unrelatedProp",
+			DataType:     []string{string(schema.DataTypeString)},
+			Tokenization: "word",
 		}, {
 			Name:     "boolProp",
 			DataType: []string{string(schema.DataTypeBoolean)},
@@ -179,8 +180,9 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "author",
-			DataType: []string{string(schema.DataTypeText)},
+			Name:         "author",
+			DataType:     []string{string(schema.DataTypeText)},
+			Tokenization: "word",
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
