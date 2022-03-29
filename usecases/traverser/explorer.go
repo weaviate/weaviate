@@ -242,7 +242,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		if searchVector != nil {
 			// Dist is between 0..2, we need to reduce to the user space of 0..1
 			normalizedDist := res.Dist / 2
-			certainty := extractCertaintyFromParams(params)
+			certainty := ExtractCertaintyFromParams(params)
 			if 1-(normalizedDist) < float32(certainty) {
 				continue
 			}
@@ -546,7 +546,7 @@ func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, e
 	return res.Vector, nil
 }
 
-func extractCertaintyFromParams(params GetParams) float64 {
+func ExtractCertaintyFromParams(params GetParams) float64 {
 	if params.NearVector != nil {
 		return params.NearVector.Certainty
 	}

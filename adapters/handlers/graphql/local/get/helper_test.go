@@ -140,6 +140,11 @@ type nearCustomTextParams struct {
 	Certainty    float64
 }
 
+// implements the modulecapabilities.NearParam interface
+func (n *nearCustomTextParams) GetCertainty() float64 {
+	return n.Certainty
+}
+
 type nearExploreMove struct {
 	Values  []string
 	Force   float32

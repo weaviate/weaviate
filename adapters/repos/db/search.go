@@ -102,11 +102,15 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 }
 
 func extractCertaintyFromParams(params traverser.GetParams) float64 {
-	if params.NearVector != nil {
-		return params.NearVector.Certainty
+	// we need to check these conditions first before calling
+	// traverser.ExtractCertaintyFromParams, because it will
+	// panic if these conditions are not met
+	if params.NearVector == nil && params.NearObject == nil &&
+		len(params.ModuleParams) == 0 {
+		return 0
 	}
 
-	return 0
+	return traverser.ExtractCertaintyFromParams(params)
 }
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,
