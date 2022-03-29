@@ -411,7 +411,6 @@ func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 			return
 		}
 	}
-
 }
 
 func extractGroup(args map[string]interface{}) *traverser.GroupParams {
