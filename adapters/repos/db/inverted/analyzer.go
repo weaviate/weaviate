@@ -52,7 +52,7 @@ func textArrayTokenize(tokenization string, in []string) []string {
 	var parts []string
 
 	switch tokenization {
-	case models.PropertyTokenizationWord, "":
+	case models.PropertyTokenizationWord:
 		for _, value := range in {
 			parts = append(parts, helpers.TokenizeText(value)...)
 		}
@@ -85,7 +85,7 @@ func stringArrayTokenize(tokenization string, in []string) []string {
 				parts = append(parts, trimmed)
 			}
 		}
-	case models.PropertyTokenizationWord, "":
+	case models.PropertyTokenizationWord:
 		for _, value := range in {
 			parts = append(parts, helpers.TokenizeString(value)...)
 		}

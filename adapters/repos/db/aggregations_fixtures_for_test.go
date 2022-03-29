@@ -28,8 +28,9 @@ var productClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			Name:     "name",
-			DataType: []string{"string"},
+			Name:         "name",
+			DataType:     []string{"string"},
+			Tokenization: "word",
 		},
 	},
 }
@@ -40,12 +41,14 @@ var companyClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			Name:     "sector",
-			DataType: []string{"string"},
+			Name:         "sector",
+			DataType:     []string{"string"},
+			Tokenization: "word",
 		},
 		{
-			Name:     "location",
-			DataType: []string{"text"},
+			Name:         "location",
+			DataType:     []string{"text"},
+			Tokenization: "word",
 		},
 		{
 			Name:     "dividendYield",
@@ -73,8 +76,9 @@ var arrayTypesClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			Name:     "strings",
-			DataType: []string{"string[]"},
+			Name:         "strings",
+			DataType:     []string{"string[]"},
+			Tokenization: "word",
 		},
 		{
 			Name:     "numbers",

@@ -131,64 +131,87 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		}
 	}
 
+	for _, prop := range class.Properties {
+		m.setPropertyDefaults(prop)
+	}
+
 	m.moduleConfig.SetClassDefaults(class)
 }
 
+func (m *Manager) setPropertyDefaults(prop *models.Property) {
+	m.setPropertyDefaultTokenization(prop)
+}
+
+func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
+	// already set, no default needed
+	if prop.Tokenization != "" {
+		return
+	}
+
+	// set only for tokenization supporting data types
+	if len(prop.DataType) == 1 {
+		switch prop.DataType[0] {
+		case string(schema.DataTypeString), string(schema.DataTypeStringArray),
+			string(schema.DataTypeText), string(schema.DataTypeTextArray):
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	}
+}
+
 func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
-	// First check if there is a name clash.
-	err := m.validateClassNameUniqueness(class.Class)
-	if err != nil {
+	if err := m.validateClassNameUniqueness(class.Class); err != nil {
 		return err
 	}
 
-	err = m.validateClassName(ctx, class.Class)
-	if err != nil {
+	if err := m.validateClassName(ctx, class.Class); err != nil {
 		return err
 	}
 
-	// Check properties
-	foundNames := map[string]bool{}
+	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		_, err := schema.ValidatePropertyName(property.Name)
-		if err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, principal); err != nil {
 			return err
 		}
-
-		err = schema.ValidateReservedPropertyName(property.Name)
-		if err != nil {
-			return err
-		}
-
-		if foundNames[property.Name] {
-			return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
-		}
-
-		foundNames[property.Name] = true
-
-		// Validate data type of property.
-		schema, err := m.GetSchema(principal)
-		if err != nil {
-			return err
-		}
-
-		propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
-		if err != nil {
-			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
-		}
-
-		err = validatePropertyTokenization(property.Tokenization, propertyDataType)
-		if err != nil {
-			return err
-		}
+		existingPropertyNames[property.Name] = true
 	}
 
-	err = m.validateVectorSettings(ctx, class)
+	if err := m.validateVectorSettings(ctx, class); err != nil {
+		return err
+	}
+
+	if err := m.moduleConfig.ValidateClass(ctx, class); err != nil {
+		return err
+	}
+
+	// all is fine!
+	return nil
+}
+
+func (m *Manager) validateProperty(property *models.Property, class *models.Class, existingPropertyNames map[string]bool, principal *models.Principal) error {
+	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
+		return err
+	}
+
+	if err := schema.ValidateReservedPropertyName(property.Name); err != nil {
+		return err
+	}
+
+	if existingPropertyNames[property.Name] {
+		return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
+	}
+
+	// Validate data type of property.
+	schema, err := m.GetSchema(principal)
 	if err != nil {
 		return err
 	}
 
-	err = m.moduleConfig.ValidateClass(ctx, class)
+	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
+		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+	}
+
+	if err := validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
 

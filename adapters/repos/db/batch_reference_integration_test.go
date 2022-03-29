@@ -69,8 +69,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Class:               "AddingBatchReferencesTestTarget",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     []string{"string"},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -80,8 +81,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Class:               "AddingBatchReferencesTestSource",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     []string{"string"},
+							Tokenization: "word",
 						},
 						{
 							Name:     "toTarget",

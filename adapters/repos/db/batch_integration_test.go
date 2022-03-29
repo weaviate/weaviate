@@ -77,8 +77,9 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "stringProp",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 				{
 					Name:     "location",

@@ -1008,8 +1008,9 @@ func createSchema() schema.Schema {
 					Class: className,
 					Properties: []*models.Property{
 						{
-							Name:     "inverted-with-frequency",
-							DataType: []string{"string"},
+							Name:         "inverted-with-frequency",
+							DataType:     []string{"string"},
+							Tokenization: "word",
 						},
 						{
 							Name:     "inverted-without-frequency",
