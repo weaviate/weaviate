@@ -1109,27 +1109,29 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	}
 
 	searchVector := []float32{1, 2, 3, 4, 5, 6, 7, 8, 9}
+	searchObject := strfmt.UUID("fe687bf4-f10f-4c23-948d-0746ea2927b3")
+
 	tests := map[strfmt.UUID]struct {
 		inputVec []float32
 		expected bool
 	}{
-		strfmt.UUID(uuid.NewString()): {
+		strfmt.UUID("88460290-03b2-44a3-9adb-9fa3ae11d9e6"): {
 			inputVec: []float32{1, 2, 3, 4, 5, 6, 98, 99, 100},
 			expected: true,
 		},
-		strfmt.UUID(uuid.NewString()): {
+		strfmt.UUID("c99bc97d-7035-4311-94f3-947dc6471f51"): {
 			inputVec: []float32{1, 2, 3, 4, 5, 6, -98, -99, -100},
 			expected: false,
 		},
-		strfmt.UUID(uuid.NewString()): {
+		strfmt.UUID("fe687bf4-f10f-4c23-948d-0746ea2927b3"): {
 			inputVec: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9},
 			expected: true,
 		},
-		strfmt.UUID(uuid.NewString()): {
+		strfmt.UUID("e7bf6c45-de72-493a-b273-5ef198974d61"): {
 			inputVec: []float32{-1, -2, -3, -4, -5, -6, -7, -8, 0},
 			expected: false,
 		},
-		strfmt.UUID(uuid.NewString()): {
+		strfmt.UUID("0999d109-1d5f-465a-bd8b-e3fbd46f10aa"): {
 			inputVec: []float32{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9},
 			expected: true,
 		},
@@ -1142,12 +1144,39 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		}
 	})
 
-	t.Run("perform search vector by distance", func(t *testing.T) {
+	t.Run("perform nearVector search by distance", func(t *testing.T) {
 		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &traverser.NearVectorParams{
 				Certainty: 0.9,
+			},
+			SearchVector:         searchVector,
+			AdditionalProperties: additional.Properties{Certainty: true},
+		})
+		require.Nil(t, err)
+		require.NotEmpty(t, results)
+		// ensure that we receive more results than
+		// the `QueryMaximumResults`, as this should
+		// only apply to limited vector searches
+		require.Greater(t, len(results), 1)
+
+		for _, res := range results {
+			if props, ok := tests[res.ID]; !ok {
+				assert.False(t, props.expected)
+			} else {
+				assert.True(t, props.expected)
+			}
+		}
+	})
+
+	t.Run("perform nearObject search by distance", func(t *testing.T) {
+		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearObject: &traverser.NearObjectParams{
+				Certainty: 0.9,
+				ID:        searchObject.String(),
 			},
 			SearchVector:         searchVector,
 			AdditionalProperties: additional.Properties{Certainty: true},
