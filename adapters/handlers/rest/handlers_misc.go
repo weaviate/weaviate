@@ -126,14 +126,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name:              "search contextionary for concepts (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/concepts/:concept", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/modules/text2vec-contextionary.html",
 					},
 
 					// TODO: part of the text2vec-contextionary module
 					{
 						Name:              "extend contextionary with custom extensions (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/extensions", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/modules/text2vec-contextionary.html",
 					},
 				},
 			}
