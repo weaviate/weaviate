@@ -322,7 +322,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
-		filt, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
@@ -356,7 +356,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
-			Filters:              filt,
+			Filters:              filters,
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,
