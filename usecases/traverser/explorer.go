@@ -242,7 +242,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		if searchVector != nil {
 			// Dist is between 0..2, we need to reduce to the user space of 0..1
 			normalizedDist := res.Dist / 2
-			certainty := e.extractCertaintyFromParams(params)
+			certainty := ExtractCertaintyFromParams(params)
 			if 1-(normalizedDist) < float32(certainty) {
 				continue
 			}
@@ -331,48 +331,6 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 	}
 }
 
-func (e *Explorer) extractCertaintyFromParams(params GetParams) float64 {
-	if params.NearVector != nil {
-		return params.NearVector.Certainty
-	}
-
-	if params.NearObject != nil {
-		return params.NearObject.Certainty
-	}
-
-	if len(params.ModuleParams) == 1 {
-		return e.extractCertaintyFromModuleParams(params.ModuleParams)
-	}
-
-	panic("extractCertainty was called without any known params present")
-}
-
-func (e *Explorer) extractCertaintyFromExploreParams(params ExploreParams) float64 {
-	if params.NearVector != nil {
-		return params.NearVector.Certainty
-	}
-
-	if params.NearObject != nil {
-		return params.NearObject.Certainty
-	}
-
-	if len(params.ModuleParams) == 1 {
-		return e.extractCertaintyFromModuleParams(params.ModuleParams)
-	}
-
-	panic("extractCertainty was called without any known params present")
-}
-
-func (e *Explorer) extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
-	for _, param := range moduleParams {
-		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
-			return nearParam.GetCertainty()
-		}
-	}
-
-	panic("extractCertaintyFromModuleParams was called without any known module near param present")
-}
-
 func (e *Explorer) Concepts(ctx context.Context,
 	params ExploreParams) ([]search.Result, error) {
 	if err := e.validateExploreParams(params); err != nil {
@@ -397,7 +355,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 			return nil, errors.Errorf("res %s: %v", item.Beacon, err)
 		}
 		item.Certainty = 1 - dist
-		certainty := e.extractCertaintyFromExploreParams(params)
+		certainty := extractCertaintyFromExploreParams(params)
 		if item.Certainty >= float32(certainty) {
 			results = append(results, item)
 		}
@@ -586,6 +544,48 @@ func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, e
 	}
 
 	return res.Vector, nil
+}
+
+func ExtractCertaintyFromParams(params GetParams) float64 {
+	if params.NearVector != nil {
+		return params.NearVector.Certainty
+	}
+
+	if params.NearObject != nil {
+		return params.NearObject.Certainty
+	}
+
+	if len(params.ModuleParams) == 1 {
+		return extractCertaintyFromModuleParams(params.ModuleParams)
+	}
+
+	panic("extractCertainty was called without any known params present")
+}
+
+func extractCertaintyFromExploreParams(params ExploreParams) float64 {
+	if params.NearVector != nil {
+		return params.NearVector.Certainty
+	}
+
+	if params.NearObject != nil {
+		return params.NearObject.Certainty
+	}
+
+	if len(params.ModuleParams) == 1 {
+		return extractCertaintyFromModuleParams(params.ModuleParams)
+	}
+
+	panic("extractCertaintyFromExploreParams was called without any known params present")
+}
+
+func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
+	for _, param := range moduleParams {
+		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
+			return nearParam.GetCertainty()
+		}
+	}
+
+	panic("extractCertaintyFromModuleParams was called without any known module near param present")
 }
 
 func beacon(res search.Result) string {

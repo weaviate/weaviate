@@ -168,6 +168,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
+	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
 }
@@ -675,7 +676,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter,
+	certainty float64, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -683,8 +684,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	errgrp := &errgroup.Group{}
 	m := &sync.Mutex{}
 
-	out := make([]*storobj.Object, 0, len(shardNames)*limit)
-	dists := make([]float32, 0, len(shardNames)*limit)
+	// a limit of -1 is used to signal a search by distance. if that is
+	// the case we have to adjust how we calculate the outpout capacity
+	var shardCap int
+	if limit < 0 {
+		shardCap = len(shardNames) * defaultSearchByDistInitialLimit
+	} else {
+		shardCap = len(shardNames) * limit
+	}
+
+	out := make([]*storobj.Object, 0, shardCap)
+	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
@@ -698,13 +708,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			if local {
 				shard := i.Shards[shardName]
-				res, resDists, err = shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+				res, resDists, err = shard.localObjectVectorSearch(
+					ctx, searchVector, certainty, limit, filters, additional, false)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
-
 			} else {
-				res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
+				res, resDists, err = i.remote.SearchShard(
+					ctx, shardName, searchVector, limit, filters, additional)
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -738,7 +749,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, limit int, filters *filters.LocalFilter,
+	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
@@ -756,7 +767,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return res, nil, nil
 	}
 
-	res, resDists, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+	res, resDists, err := shard.localObjectVectorSearch(
+		ctx, searchVector, certainty, limit, filters, additional, false)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

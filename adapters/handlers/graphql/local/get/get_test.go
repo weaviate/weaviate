@@ -698,7 +698,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
 		query := `{ Get { CustomVectorClass(nearCustomText: {
-                concepts: ["c1", "c2", "c3"],
+	            concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -707,7 +707,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-        			}) { intField } } }`
+	    			}) { intField } } }`
 
 		res := resolver.Resolve(query)
 		require.Len(t, res.Errors, 1)
@@ -716,7 +716,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearCustomText: {
-                concepts: ["c1", "c2", "c3"],
+	            concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -726,11 +726,12 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-        			}) { intField } } }`
+	    			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -778,6 +779,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -852,6 +854,7 @@ func TestNearVectorRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
@@ -1113,6 +1116,7 @@ func TestNearObject(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &traverser.NearObjectParams{
 				Beacon:    "weaviate://localhost/some-other-uuid",
 				Certainty: 0.7,
@@ -1153,6 +1157,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				ID:        "some-other-uuid",
@@ -1230,6 +1235,7 @@ func TestNearObjectNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &traverser.NearObjectParams{
 				ID:        "some-uuid",
@@ -1277,6 +1283,7 @@ func TestNearVectorNoModules(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &traverser.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,

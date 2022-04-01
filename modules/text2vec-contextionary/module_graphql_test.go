@@ -16,6 +16,7 @@ import (
 
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -383,6 +384,7 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -430,6 +432,7 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},

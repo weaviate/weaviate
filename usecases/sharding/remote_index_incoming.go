@@ -48,7 +48,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
-		vector []float32, limit int, filters *filters.LocalFilter,
+		vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -148,14 +148,14 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
-	vector []float32, limit int, filters *filters.LocalFilter,
+	vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil, errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingSearch(ctx, shardName, vector, limit, filters, additional)
+	return index.IncomingSearch(ctx, shardName, vector, certainty, limit, filters, additional)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
