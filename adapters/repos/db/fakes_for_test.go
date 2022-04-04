@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -124,7 +125,8 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	shardName string, vector []float32, limit int,
+	filters *filters.LocalFilter, _ *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

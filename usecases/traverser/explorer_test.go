@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// text2vec-contextionary module
 		params := GetParams{
 			ClassName: "BestClass",
-			NearVector: &NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
 			Pagination: &filters.Pagination{Limit: 100},
@@ -90,7 +91,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// text2vec-contextionary module
 		params := GetParams{
 			ClassName: "BestClass",
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Certainty: 0.9,
 			},
 			Pagination: &filters.Pagination{Limit: 100},
@@ -115,7 +116,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// text2vec-contextionary module
 		params := GetParams{
 			ClassName: "BestClass",
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 				Certainty: 0.9,
 			},
@@ -181,7 +182,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		// text2vec-contextionary module
 		params := GetParams{
 			ClassName: "BestClass",
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 				Certainty: 0.9,
 			},
@@ -246,7 +247,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		func(t *testing.T) {
 			params := GetParams{
 				ClassName: "BestClass",
-				NearVector: &NearVectorParams{
+				NearVector: &searchparams.NearVector{
 					Vector:    []float32{0.8, 0.2, 0.7},
 					Certainty: 0.8,
 				},
@@ -291,10 +292,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			NearVector: &NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 		}
@@ -1701,7 +1702,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			NearVector: &NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
 			ModuleParams: map[string]interface{}{
@@ -1724,7 +1725,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 			ModuleParams: map[string]interface{}{
@@ -1747,10 +1748,10 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
-			NearVector: &NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
-			NearObject: &NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 			},
 			ModuleParams: map[string]interface{}{

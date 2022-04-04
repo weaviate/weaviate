@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -327,13 +328,13 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		var nearVectorParams *traverser.NearVectorParams
+		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			nearVectorParams = &p
 		}
 
-		var nearObjectParams *traverser.NearObjectParams
+		var nearObjectParams *searchparams.NearObject
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			nearObjectParams = &p
@@ -347,7 +348,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			}
 		}
 
-		var keywordRankingParams *traverser.KeywordRankingParams
+		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
 			keywordRankingParams = &p

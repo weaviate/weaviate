@@ -29,8 +29,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -72,7 +72,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 
 // Object returns a list of full objects
 func (b *BM25Searcher) Object(ctx context.Context, limit int,
-	keywordRanking *traverser.KeywordRankingParams,
+	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	defer func() {

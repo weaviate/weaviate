@@ -16,6 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // Explore through unstructured search terms
@@ -33,27 +34,10 @@ func (t *Traverser) Explore(ctx context.Context,
 	return t.explorer.Concepts(ctx, params)
 }
 
-type NearVectorParams struct {
-	Vector    []float32
-	Certainty float64
-}
-
-type KeywordRankingParams struct {
-	Type       string   `json:"type"`
-	Properties []string `json:"properties"`
-	Query      string   `json:"query"`
-}
-
-type NearObjectParams struct {
-	ID        string
-	Beacon    string
-	Certainty float64
-}
-
 // ExploreParams are the parameters used by the GraphQL `Explore { }` API
 type ExploreParams struct {
-	NearVector   *NearVectorParams
-	NearObject   *NearObjectParams
+	NearVector   *searchparams.NearVector
+	NearObject   *searchparams.NearObject
 	Offset       int
 	Limit        int
 	ModuleParams map[string]interface{}

@@ -11,13 +11,11 @@
 
 package common_filters
 
-import (
-	"github.com/semi-technologies/weaviate/usecases/traverser"
-)
+import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractNearObject arguments, such as "vector" and "certainty"
-func ExtractNearObject(source map[string]interface{}) traverser.NearObjectParams {
-	var args traverser.NearObjectParams
+func ExtractNearObject(source map[string]interface{}) searchparams.NearObject {
+	var args searchparams.NearObject
 
 	id, ok := source["id"]
 	if ok {

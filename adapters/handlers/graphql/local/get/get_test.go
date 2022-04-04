@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -834,7 +835,7 @@ func TestNearVectorRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearVector: &traverser.NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.123, 0.984},
 			},
 		}
@@ -855,7 +856,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
-			NearVector: &traverser.NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
 			},
@@ -1095,7 +1096,7 @@ func TestNearObject(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/some-uuid",
 			},
 		}
@@ -1117,7 +1118,7 @@ func TestNearObject(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon:    "weaviate://localhost/some-other-uuid",
 				Certainty: 0.7,
 			},
@@ -1137,7 +1138,7 @@ func TestNearObject(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				ID: "some-uuid",
 			},
 		}
@@ -1159,7 +1160,7 @@ func TestNearObject(t *testing.T) {
 			ClassName:  "SomeThing",
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				ID:        "some-other-uuid",
 				Certainty: 0.7,
 			},
@@ -1215,7 +1216,7 @@ func TestNearObjectNoModules(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/some-uuid",
 			},
 		}
@@ -1237,7 +1238,7 @@ func TestNearObjectNoModules(t *testing.T) {
 			ClassName:  "SomeThing",
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				ID:        "some-uuid",
 				Certainty: 0.7,
 			},
@@ -1263,7 +1264,7 @@ func TestNearVectorNoModules(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-			NearVector: &traverser.NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.123, 0.984},
 			},
 		}
@@ -1284,7 +1285,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
-			NearVector: &traverser.NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
 			},

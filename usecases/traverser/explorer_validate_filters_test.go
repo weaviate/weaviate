@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -338,7 +339,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				params := GetParams{
 					ClassName: "ClassOne",
-					NearVector: &NearVectorParams{
+					NearVector: &searchparams.NearVector{
 						Vector: []float32{0.8, 0.2, 0.7},
 					},
 					Pagination: &filters.Pagination{Limit: 100},
