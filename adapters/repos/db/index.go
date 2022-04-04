@@ -643,6 +643,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
+	if len(shardNames) > 1 && keywordRanking != nil {
+		return nil, errors.Errorf("bm25 support limited to single-shard setups for now." +
+			" Multi-shard support expected in v1.13.0")
+	}
+
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
 		local := i.getSchema.
