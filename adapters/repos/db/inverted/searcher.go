@@ -37,6 +37,7 @@ type Searcher struct {
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+	stopwords     stopwords.StopwordDetector
 	shardVersion  uint16
 }
 
@@ -52,7 +53,7 @@ type DeletedDocIDChecker interface {
 func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	shardVersion uint16) *Searcher {
+	stopwords stopwords.StopwordDetector, shardVersion uint16) *Searcher {
 	return &Searcher{
 		store:         store,
 		schema:        schema,
@@ -60,6 +61,7 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
+		stopwords:     stopwords,
 		shardVersion:  shardVersion,
 	}
 }
@@ -239,13 +241,8 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			return nil, err
 		}
 
-		sd, err := fs.stopwordDetector(className)
-		if err != nil {
-			return nil, err
-		}
-
 		return fs.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
-			filter.Operator, property.Tokenization, sd)
+			filter.Operator, property.Tokenization)
 	}
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
@@ -344,7 +341,7 @@ func (fs *Searcher) extractIDProp(value interface{},
 }
 
 func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
-	operator filters.Operator, tokenization string, sd stopwordDetector) (*propValuePair, error) {
+	operator filters.Operator, tokenization string) (*propValuePair, error) {
 	var parts []string
 
 	switch dt {
@@ -376,7 +373,7 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 
 	propValuePairs := make([]*propValuePair, 0, len(parts))
 	for _, part := range parts {
-		if sd.IsStopword(part) {
+		if fs.stopwords.IsStopword(part) {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
@@ -433,26 +430,6 @@ func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	default:
 		return false
 	}
-}
-
-func (fs *Searcher) stopwordDetector(className schema.ClassName) (stopwordDetector, error) {
-	class := fs.schema.GetClass(className)
-	if class == nil {
-		return nil, errors.Errorf("Unknown Class '%v'", className)
-	}
-
-	iicm := &models.InvertedIndexConfig{}
-	if class.InvertedIndexConfig != nil {
-		iicm = class.InvertedIndexConfig
-	}
-
-	iics := ConfigFromModel(iicm)
-	sd, err := stopwords.NewDetectorFromConfig(iics.Stopwords)
-	if err != nil {
-		return nil, err
-	}
-
-	return sd, nil
 }
 
 type docPointers struct {

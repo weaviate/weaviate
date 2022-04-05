@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -31,7 +32,7 @@ type Property struct {
 }
 
 type Analyzer struct {
-	stopwords stopwordDetector
+	stopwords stopwords.StopwordDetector
 }
 
 // Text removes non alpha-numeric and splits into lowercased words, then aggregates
@@ -242,10 +243,6 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-type stopwordDetector interface {
-	IsStopword(string) bool
-}
-
-func NewAnalyzer(stopwordDetector stopwordDetector) *Analyzer {
-	return &Analyzer{stopwords: stopwordDetector}
+func NewAnalyzer(stopwords stopwords.StopwordDetector) *Analyzer {
+	return &Analyzer{stopwords: stopwords}
 }
