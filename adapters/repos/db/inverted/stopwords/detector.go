@@ -18,6 +18,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
+type StopwordDetector interface {
+	IsStopword(string) bool
+}
+
 type Detector struct {
 	sync.Mutex
 	stopwords map[string]struct{}
