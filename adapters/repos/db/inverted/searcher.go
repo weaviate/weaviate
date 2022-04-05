@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
@@ -36,6 +37,7 @@ type Searcher struct {
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+	stopwords     stopwords.StopwordDetector
 	shardVersion  uint16
 }
 
@@ -51,7 +53,7 @@ type DeletedDocIDChecker interface {
 func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	shardVersion uint16) *Searcher {
+	stopwords stopwords.StopwordDetector, shardVersion uint16) *Searcher {
 	return &Searcher{
 		store:         store,
 		schema:        schema,
@@ -59,6 +61,7 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
+		stopwords:     stopwords,
 		shardVersion:  shardVersion,
 	}
 }
@@ -368,20 +371,26 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
 	}
 
-	propValuePairs := make([]*propValuePair, len(parts))
-	for i, part := range parts {
-		propValuePairs[i] = &propValuePair{
+	propValuePairs := make([]*propValuePair, 0, len(parts))
+	for _, part := range parts {
+		if fs.stopwords.IsStopword(part) {
+			continue
+		}
+		propValuePairs = append(propValuePairs, &propValuePair{
 			value:        []byte(part),
 			hasFrequency: true,
 			prop:         propName,
 			operator:     operator,
-		}
+		})
 	}
 
-	if len(parts) > 1 {
+	if len(propValuePairs) > 1 {
 		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs}, nil
 	}
-	return propValuePairs[0], nil
+	if len(propValuePairs) == 1 {
+		return propValuePairs[0], nil
+	}
+	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
