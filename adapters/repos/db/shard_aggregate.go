@@ -21,5 +21,6 @@ import (
 func (s *Shard) aggregate(ctx context.Context,
 	params aggregation.Params) (*aggregation.Result, error) {
 	return aggregator.New(s.store, params, s.index.getSchema, s.invertedRowCache,
-		s.index.classSearcher, s.deletedDocIDs, s.versioner.Version()).Do(ctx)
+		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+		Do(ctx)
 }
