@@ -32,8 +32,6 @@
     * Smooth and accelerated handover of your Machine Learning models to engineers.
 ## Install
 
-We have many examples in our [official documentation page](https://weaviate.io/developers/weaviate/current/getting-started/index.html).
-
 For a quick start checkout our [package customizer](https://weaviate.io/developers/weaviate/current/getting-started/installation.html) or just run the following for our basic package: 
 ```
 $ curl -o docker-compose.yml https://raw.githubusercontent.com/semi-technologies/weaviate-examples/main/weaviate-transformers-newspublications/docker-compose-simple.yml
