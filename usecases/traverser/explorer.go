@@ -14,15 +14,12 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/near"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
@@ -432,88 +429,6 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 		return vector, nil
 	}
 	return nil, errors.New("no modules defined")
-}
-
-func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *NearObjectParams,
-	moduleParams map[string]interface{}, className ...string) error {
-	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
-		return errors.Errorf("found 'nearText' and 'nearVector' and 'nearObject' parameters " +
-			"which are conflicting, choose one instead")
-	}
-
-	if len(moduleParams) == 1 && nearVector != nil {
-		return errors.Errorf("found both 'nearText' and 'nearVector' parameters " +
-			"which are conflicting, choose one instead")
-	}
-
-	if len(moduleParams) == 1 && nearObject != nil {
-		return errors.Errorf("found both 'nearText' and 'nearObject' parameters " +
-			"which are conflicting, choose one instead")
-	}
-
-	if nearVector != nil && nearObject != nil {
-		return errors.Errorf("found both 'nearVector' and 'nearObject' parameters " +
-			"which are conflicting, choose one instead")
-	}
-
-	if e.modulesProvider != nil {
-		if len(moduleParams) > 1 {
-			params := []string{}
-			for p := range moduleParams {
-				params = append(params, fmt.Sprintf("'%s'", p))
-			}
-			return errors.Errorf("found more then one module param: %s which are conflicting "+
-				"choose one instead", strings.Join(params, ", "))
-		}
-
-		for name, value := range moduleParams {
-			if len(className) == 1 {
-				err := e.modulesProvider.ValidateSearchParam(name, value, className[0])
-				if err != nil {
-					return err
-				}
-			} else {
-				err := e.modulesProvider.CrossClassValidateSearchParam(name, value)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (e *Explorer) vectorFromNearObjectParams(ctx context.Context,
-	params *NearObjectParams) ([]float32, error) {
-	if len(params.ID) == 0 && len(params.Beacon) == 0 {
-		return nil, errors.New("empty id and beacon")
-	}
-
-	var id strfmt.UUID
-	if len(params.ID) > 0 {
-		id = strfmt.UUID(params.ID)
-	} else {
-		ref, err := crossref.Parse(params.Beacon)
-		if err != nil {
-			return nil, err
-		}
-		id = ref.TargetID
-	}
-
-	return e.findVector(ctx, id)
-}
-
-func (e *Explorer) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := e.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
-	if err != nil {
-		return nil, err
-	}
-	if res == nil {
-		return nil, errors.New("vector not found")
-	}
-
-	return res.Vector, nil
 }
 
 func ExtractCertaintyFromParams(params GetParams) float64 {
