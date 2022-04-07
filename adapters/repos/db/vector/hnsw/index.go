@@ -324,7 +324,8 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			// if we could find a new entrypoint, use it
 			// in case everything was tombstoned, stick with the existing one
 			elem := res.Pop()
-			if !h.nodeByID(elem.ID).isUnderMaintenance() {
+			n := h.nodeByID(elem.ID)
+			if n != nil && !n.isUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
 				entryPointID = elem.ID
 			}
