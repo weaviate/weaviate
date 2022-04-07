@@ -114,8 +114,28 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		candidateNode.Lock()
-		connections := h.pools.connList.Get(len(candidateNode.connections[level]))
-		defer h.pools.connList.Put(connections)
+
+		var connections *[]uint64
+
+		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			// How is it possible that we could ever have more connections than the
+			// allowed maximum? It is not anymore, but there was a bug that allowed
+			// this to happen in versions prior to v1.12.0:
+			// https://github.com/semi-technologies/weaviate/issues/1868
+			//
+			// As a result the length of this slice is entirely unpredictable and we
+			// can no longer retrieve it from the pool. Instead we need to fallback
+			// to allocating a new slice.
+			//
+			// This was discovered as part of
+			// https://github.com/semi-technologies/weaviate/issues/1897
+			c := make([]uint64, len(candidateNode.connections[level]))
+			connections = &c
+		} else {
+			connections = h.pools.connList.Get(len(candidateNode.connections[level]))
+			defer h.pools.connList.Put(connections)
+		}
+
 		for i, conn := range candidateNode.connections[level] {
 			(*connections)[i] = conn
 		}
