@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -29,10 +31,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
-// Shard is the smallest completely-contained index unit. A shard mananages
+// Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
@@ -46,19 +49,35 @@ type Shard struct {
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
-	cleanupCancel    chan struct{}
+	cancel           chan struct{}
+	propLengths      *inverted.PropertyLengthTracker
+	randomSource     *bufferedRandomGen
+	versioner        *shardVersioner
+	diskScanState    *diskScanState
+
+	status     storagestate.Status
+	statusLock sync.Mutex
 }
 
 func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
+	rand, err := newBufferedRandomGen(64 * 1024)
+	if err != nil {
+		return nil, errors.Wrap(err, "init bufferend random generator")
+	}
+
+	invertedIndexConfig := index.getInvertedIndexConfig()
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
-		cleanupInterval: time.Duration(index.invertedIndexConfig.
+		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cleanupCancel: make(chan struct{}),
+		cancel:        make(chan struct{}, 1),
+		randomSource:  rand,
+		diskScanState: newDiskScanState(),
 	}
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -75,7 +94,20 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 			RootPath: s.index.Config.RootPath,
 			ID:       s.ID(),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
+				// Previously we had an interval of 10s in here, which was changed to
+				// 0.5s as part of gh-1867. There's really no way to wait so long in
+				// between checks: If you are running on a low-powered machine, the
+				// interval will simply find that there is no work and do nothing in
+				// each iteration. However, if you are running on a very powerful
+				// machine within 10s you could have potentially created two units of
+				// work, but we'll only be handling one every 10s. This means
+				// uncombined/uncodensed hnsw commit logs will keep piling up can only
+				// be processes long after the initial insert is complete. This also
+				// means that if there is a crash during importing a lot of work needs
+				// to be done at startup, since the commit logs still contain too many
+				// redundancies. So as of now it seems there are only advantages to
+				// running the cleanup checks and work much more often.
+				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
 					index.logger)
 			},
 			VectorForIDThunk: s.vectorByIndexID,
@@ -89,7 +121,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		defer vi.PostStartup()
 	}
 
-	err := s.initDBFile(ctx)
+	err = s.initDBFile(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -98,8 +130,22 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
-
 	s.counter = counter
+
+	dataPresent := s.counter.PreviewNext() != 0
+	versionPath := path.Join(index.Config.RootPath, s.ID()+".version")
+	versioner, err := newShardVersioner(versionPath, dataPresent)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: check versions", s.ID())
+	}
+	s.versioner = versioner
+
+	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
+	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+	}
+	s.propLengths = propLengths
 
 	if err := s.initProperties(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -139,7 +185,13 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop() error {
+func (s *Shard) drop(force bool) error {
+	if s.isReadOnly() && !force {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	s.cancel <- struct{}{}
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
@@ -158,11 +210,24 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.versioner.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+	}
 	// remove vector index
 	err = s.vectorIndex.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
+
+	// delete indexcount
+	err = s.propLengths.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
+	}
+
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
@@ -175,6 +240,10 @@ func (s *Shard) drop() error {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
@@ -193,6 +262,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
@@ -213,13 +286,18 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	strategy := lsmkv.StrategySetCollection
+	var mapOpts []lsmkv.BucketOption
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		strategy = lsmkv.StrategyMapCollection
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+		}
+	} else {
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(strategy))
+		mapOpts...)
 	if err != nil {
 		return err
 	}
@@ -235,9 +313,26 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	return s.vectorIndex.UpdateUserConfig(updated)
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
+	s.cancel <- struct{}{}
+
+	if err := s.propLengths.Close(); err != nil {
+		return errors.Wrap(err, "close prop length tracker")
+	}
+
 	return s.store.Shutdown(ctx)
+}
+
+func (s *Shard) notifyReady() {
+	s.initStatus()
+	s.index.logger.
+		WithField("action", "startup").
+		Debugf("shard=%s is ready", s.name)
 }

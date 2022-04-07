@@ -12,8 +12,8 @@
 package db
 
 import (
-	"crypto/rand"
 	"encoding/binary"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -37,7 +37,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 		if prop.HasFrequency {
 			for _, item := range prop.Items {
 				if err := s.extendInvertedIndexItemWithFrequencyLSM(b, hashBucket, item,
-					docID, item.TermFrequency); err != nil {
+					docID, item.TermFrequency, float32(len(prop.Items))); err != nil {
 					return errors.Wrapf(err, "extend index with item '%s'",
 						string(item.Data))
 				}
@@ -56,12 +56,12 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 }
 
 func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64, frequency float64) error {
+	item inverted.Countable, docID uint64, frequency float32, propLen float32) error {
 	if b.Strategy() != lsmkv.StrategyMapCollection {
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -70,9 +70,18 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		return err
 	}
 
-	buf := make([]byte, 16) // 8 bytes for doc id, 8 bytes for frequency
-	binary.LittleEndian.PutUint64(buf[:8], docID)
-	binary.LittleEndian.PutUint64(buf[8:], uint64(item.TermFrequency))
+	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
+	buf := make([]byte, 16)
+
+	// Shard Index version 2 requires BigEndian for sorting, if the shard was
+	// built prior assume it uses LittleEndian
+	if s.versioner.Version() < 2 {
+		binary.LittleEndian.PutUint64(buf[0:8], docID)
+	} else {
+		binary.BigEndian.PutUint64(buf[0:8], docID)
+	}
+	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(item.TermFrequency))
+	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
 	pair := lsmkv.MapPair{
 		Key:   buf[:8],
@@ -88,7 +97,7 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -109,7 +118,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -133,8 +142,18 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 // if it should read the row again from cache. So changing the "hash" (by
 // replacing it with other random bytes) is essentially just a signal to the
 // read-time cacher to invalidate its entry
-func generateRowHash() ([]byte, error) {
-	out := make([]byte, 8)
-	_, err := rand.Read(out)
-	return out, err
+func (s *Shard) generateRowHash() ([]byte, error) {
+	return s.randomSource.Make(8)
+}
+
+func (s *Shard) addPropLengths(props []inverted.Property) error {
+	for _, prop := range props {
+		if !prop.HasFrequency {
+			continue
+		}
+
+		s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items)))
+	}
+
+	return nil
 }

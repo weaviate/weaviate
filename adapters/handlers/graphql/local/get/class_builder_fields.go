@@ -14,21 +14,22 @@ package get
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
@@ -219,6 +220,11 @@ func buildGetClassField(classObject *graphql.Object,
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
+	// hacky way to temporarily check feature flag
+	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
+		field.Args["bm25"] = bm25Argument(class.Class)
+	}
+
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
 			field.Args[name] = argument
@@ -342,6 +348,12 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			}
 		}
 
+		var keywordRankingParams *traverser.KeywordRankingParams
+		if bm25, ok := p.Args["bm25"]; ok {
+			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
+			keywordRankingParams = &p
+		}
+
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
@@ -354,11 +366,51 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			Group:                group,
 			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
+			KeywordRanking:       keywordRankingParams,
 		}
+
+		// need to perform vector search by distance
+		// under certain conditions
+		setLimitBasedOnVectorSearchParams(&params)
 
 		return func() (interface{}, error) {
 			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
+	}
+}
+
+// the limit needs to be set according to the vector search parameters.
+// for example, if a certainty is provided by any of the near* options,
+// and no limit was provided, weaviate will want to execute a vector
+// search by distance. it knows to do this by watching for a limit
+// flag, specicially filters.LimitFlagSearchByDistance
+func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
+	setLimit := func(params *traverser.GetParams) {
+		if params.Pagination == nil {
+			params.Pagination = &filters.Pagination{
+				Limit: filters.LimitFlagSearchByDist,
+			}
+		} else {
+			params.Pagination.Limit = filters.LimitFlagSearchByDist
+		}
+	}
+
+	if params.NearVector != nil && params.NearVector.Certainty != 0 {
+		setLimit(params)
+		return
+	}
+
+	if params.NearObject != nil && params.NearObject.Certainty != 0 {
+		setLimit(params)
+		return
+	}
+
+	for _, param := range params.ModuleParams {
+		nearParam, ok := param.(modulecapabilities.NearParam)
+		if ok && nearParam.GetCertainty() != 0 {
+			setLimit(params)
+			return
+		}
 	}
 }
 
@@ -410,7 +462,8 @@ type additionalCheck struct {
 }
 
 func (ac *additionalCheck) isAdditional(name string) bool {
-	if name == "classification" || name == "certainty" || name == "id" || name == "vector" {
+	if name == "classification" || name == "certainty" || name == "id" || name == "vector" ||
+		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -485,6 +538,14 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "vector" {
 							additionalProps.Vector = true
+							continue
+						}
+						if additionalProperty == "creationTimeUnix" {
+							additionalProps.CreationTimeUnix = true
+							continue
+						}
+						if additionalProperty == "lastUpdateTimeUnix" {
+							additionalProps.LastUpdateTimeUnix = true
 							continue
 						}
 						if modulesProvider != nil {

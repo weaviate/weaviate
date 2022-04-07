@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,12 @@ func TestFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -321,6 +327,66 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	filter:      buildFilter("id", carPoloID.String(), like, dtString),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
+			{
+				name:        "by color with word tokenization",
+				filter:      buildFilter("colorWord", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name:        "by color with word tokenization multiword (1)",
+				filter:      buildFilter("colorWord", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "by color with word tokenization multiword (2)",
+				filter:      buildFilter("colorWord", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color with field tokenization",
+				filter:      buildFilter("colorField", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{},
+			},
+			{
+				name:        "by color with field tokenization multiword (1)",
+				filter:      buildFilter("colorField", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "by color with field tokenization multiword (2)",
+				filter:      buildFilter("colorField", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color array with word tokenization",
+				filter:      buildFilter("colorArrayWord", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name:        "by color array with word tokenization multiword (1)",
+				filter:      buildFilter("colorArrayWord", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "by color array with word tokenization multiword (2)",
+				filter:      buildFilter("colorArrayWord", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color array with field tokenization",
+				filter:      buildFilter("colorArrayField", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "by color with array field tokenization multiword (1)",
+				filter:      buildFilter("colorArrayField", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "by color with array field tokenization multiword (2)",
+				filter:      buildFilter("colorArrayField", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{},
+			},
 		}
 
 		for _, test := range tests {
@@ -390,7 +456,7 @@ func testChainedPrimitiveProps(repo *DB,
 		}
 
 		tests := []test{
-			test{
+			{
 				name: "modelName == sprinter AND  weight > 3000",
 				filter: filterAnd(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -398,7 +464,7 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
-			test{
+			{
 				name: "modelName == sprinter OR modelName == e63s",
 				filter: filterOr(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -422,7 +488,7 @@ func testChainedPrimitiveProps(repo *DB,
 			// 	),
 			// 	expectedIDs: []strfmt.UUID{carE63sID},
 			// },
-			test{
+			{
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
 					filterAnd(
@@ -436,7 +502,7 @@ func testChainedPrimitiveProps(repo *DB,
 
 			// this test prevents a regression on
 			// https://github.com/semi-technologies/weaviate/issues/1638
-			test{
+			{
 				name: "Like ca* AND Like eng*",
 				filter: filterAnd(
 					buildFilter("description", "ca*", like, dtText),
@@ -518,16 +584,19 @@ var carClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "modelName",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "modelName",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "contact",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "contact",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeText)},
-			Name:     "description",
+			DataType:     []string{string(schema.DataTypeText)},
+			Name:         "description",
+			Tokenization: "word",
 		},
 		{
 			DataType: []string{string(schema.DataTypeInt)},
@@ -544,6 +613,26 @@ var carClass = &models.Class{
 		{
 			DataType: []string{string(schema.DataTypeDate)},
 			Name:     "released",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "colorWord",
+			Tokenization: "word",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "colorField",
+			Tokenization: "field",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeStringArray)},
+			Name:         "colorArrayWord",
+			Tokenization: "word",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeStringArray)},
+			Name:         "colorArrayField",
+			Tokenization: "field",
 		},
 	},
 }
@@ -563,7 +652,7 @@ func mustParseTime(in string) time.Time {
 }
 
 var cars = []models.Object{
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carSprinterID,
 		Properties: map[string]interface{}{
@@ -575,11 +664,15 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(34.052235),
 				Longitude: ptFloat32(-118.243683),
 			},
-			"contact":     "john@heavycars.example.com",
-			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
+			"contact":         "john@heavycars.example.com",
+			"description":     "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
+			"colorWord":       "light grey",
+			"colorField":      "light grey",
+			"colorArrayWord":  []interface{}{"light grey"},
+			"colorArrayField": []interface{}{"light grey"},
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carE63sID,
 		Properties: map[string]interface{}{
@@ -591,20 +684,28 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(40.730610),
 				Longitude: ptFloat32(-73.935242),
 			},
-			"contact":     "jessica@fastcars.example.com",
-			"description": "This car has a huge motor, but it's also not exactly lightweight.",
+			"contact":         "jessica@fastcars.example.com",
+			"description":     "This car has a huge motor, but it's also not exactly lightweight.",
+			"colorWord":       "very light grey",
+			"colorField":      "very light grey",
+			"colorArrayWord":  []interface{}{"very light", "grey"},
+			"colorArrayField": []interface{}{"very light", "grey"},
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Properties: map[string]interface{}{
-			"released":    mustParseTime("1975-01-01T10:12:00+02:00"),
-			"modelName":   "polo",
-			"horsepower":  int64(100),
-			"weight":      1200.0,
-			"contact":     "sandra@efficientcars.example.com",
-			"description": "This small car has a small engine, but it's very light, so it feels fater than it is.",
+			"released":        mustParseTime("1975-01-01T10:12:00+02:00"),
+			"modelName":       "polo",
+			"horsepower":      int64(100),
+			"weight":          1200.0,
+			"contact":         "sandra@efficientcars.example.com",
+			"description":     "This small car has a small engine, but it's very light, so it feels fater than it is.",
+			"colorWord":       "dark grey",
+			"colorField":      "dark grey",
+			"colorArrayWord":  []interface{}{"dark", "grey"},
+			"colorArrayField": []interface{}{"dark", "grey"},
 		},
 	},
 }
@@ -628,7 +729,12 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -738,7 +844,12 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -752,16 +863,19 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "name",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "textProp",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "textProp",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 		},
 	}

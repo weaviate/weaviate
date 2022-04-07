@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
+	sch "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
@@ -30,26 +31,28 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
+	t.Run("import test data (pizzas)", addTestDataPizzas)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (array class)", addTestDataArrayClasses)
 
 	// tests
-	t.Run("getting objects", gettingObjects)
-	t.Run("getting objects with filters", gettingObjectsWithFilters)
-	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
-	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
-	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
-	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
-	t.Run("aggregates local meta with filters", localMetaWithFilters)
-	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
-	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
-	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
+	//t.Run("getting objects", gettingObjects)
+	//t.Run("getting objects with filters", gettingObjectsWithFilters)
+	//t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
+	//t.Run("getting objects with grouping", gettingObjectsWithGrouping)
+	//t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
+	//t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
+	//t.Run("aggregates local meta with filters", localMetaWithFilters)
+	//t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
+	//t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
+	//t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
 	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
-	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
-	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
+	//t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
+	//t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
 
 	// tear down
 	deleteObjectClass(t, "Person")
+	deleteObjectClass(t, "Pizza")
 	deleteObjectClass(t, "Country")
 	deleteObjectClass(t, "City")
 	deleteObjectClass(t, "Airport")
@@ -218,6 +221,57 @@ func addTestSchema(t *testing.T) {
 					},
 				},
 			},
+			{
+				Name:         "profession",
+				DataType:     []string{string(sch.DataTypeString)},
+				Tokenization: models.PropertyTokenizationField,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+			{
+				Name:         "about",
+				DataType:     []string{string(sch.DataTypeStringArray)},
+				Tokenization: models.PropertyTokenizationField,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "Pizza",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": false,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     []string{string(sch.DataTypeString)},
+				Tokenization: models.PropertyTokenizationField,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+			{
+				Name:         "description",
+				DataType:     []string{string(sch.DataTypeText)},
+				Tokenization: models.PropertyTokenizationWord,
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
 		},
 	})
 
@@ -271,6 +325,11 @@ const (
 	cvc1        strfmt.UUID = "1ffeb3e1-1258-4c2a-afc3-55543f6c44b8"
 	cvc2        strfmt.UUID = "df22e5c4-5d17-49f9-a71d-f392a82bc086"
 	cvc3        strfmt.UUID = "c28a039a-d509-4c2e-940a-8b109e5bebf4"
+
+	quattroFormaggi strfmt.UUID = "152500c6-4a8a-4732-aede-9fcab7e43532"
+	fruttiDiMare    strfmt.UUID = "a828e9aa-d1b6-4644-8569-30d404e31a0d"
+	hawaii          strfmt.UUID = "ed75037b-0748-4970-811e-9fe835ed41d1"
+	doener          strfmt.UUID = "a655292d-1b93-44a1-9a47-57b6922bb455"
 )
 
 func addTestDataCityAirport(t *testing.T) {
@@ -496,20 +555,34 @@ func addTestDataPersons(t *testing.T) {
 	)
 
 	type personTemplate struct {
-		id      strfmt.UUID
-		name    string
-		livesIn []strfmt.UUID
+		id         strfmt.UUID
+		name       string
+		livesIn    []strfmt.UUID
+		profession string
+		about      []string
 	}
 
-	companies := []personTemplate{
-		{id: alice, name: "Alice", livesIn: []strfmt.UUID{}},
-		{id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}},
-		{id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}},
-		{id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}},
+	persons := []personTemplate{
+		{
+			id: alice, name: "Alice", livesIn: []strfmt.UUID{}, profession: "Quality Control Analyst",
+			about: []string{"loves travelling very much"},
+		},
+		{
+			id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}, profession: "Mechanical Engineer",
+			about: []string{"loves travelling", "hates cooking"},
+		},
+		{
+			id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}, profession: "Senior Mechanical Engineer",
+			about: []string{"hates swimming", "likes cooking", "loves travelling"},
+		},
+		{
+			id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}, profession: "Quality Assurance Manager",
+			about: []string{"likes swimming", "likes cooking for family"},
+		},
 	}
 
-	// companies
-	for _, person := range companies {
+	// persons
+	for _, person := range persons {
 		livesIn := []interface{}{}
 		for _, c := range person.livesIn {
 			livesIn = append(livesIn,
@@ -522,13 +595,55 @@ func addTestDataPersons(t *testing.T) {
 			Class: "Person",
 			ID:    person.id,
 			Properties: map[string]interface{}{
-				"livesIn": livesIn,
-				"name":    person.name,
+				"livesIn":    livesIn,
+				"name":       person.name,
+				"profession": person.profession,
+				"about":      person.about,
 			},
 		})
 	}
 
-	assertGetObjectEventually(t, companies[len(companies)-1].id)
+	assertGetObjectEventually(t, persons[len(persons)-1].id)
+}
+
+func addTestDataPizzas(t *testing.T) {
+	createObject(t, &models.Object{
+		Class: "Pizza",
+		ID:    quattroFormaggi,
+		Properties: map[string]interface{}{
+			"name":        "Quattro Formaggi",
+			"description": "Pizza quattro formaggi Italian: [ˈkwattro forˈmaddʒi] (four cheese pizza) is a variety of pizza in Italian cuisine that is topped with a combination of four kinds of cheese, usually melted together, with (rossa, red) or without (bianca, white) tomato sauce. It is popular worldwide, including in Italy,[1] and is one of the iconic items from pizzerias's menus.",
+		},
+	})
+	createObject(t, &models.Object{
+		Class: "Pizza",
+		ID:    fruttiDiMare,
+		Properties: map[string]interface{}{
+			"name":        "Frutti di Mare",
+			"description": "Frutti di Mare is an Italian type of pizza that may be served with scampi, mussels or squid. It typically lacks cheese, with the seafood being served atop a tomato sauce.",
+		},
+	})
+	createObject(t, &models.Object{
+		Class: "Pizza",
+		ID:    hawaii,
+		Properties: map[string]interface{}{
+			"name":        "Hawaii",
+			"description": "Universally accepted to be the best pizza ever created.",
+		},
+	})
+	createObject(t, &models.Object{
+		Class: "Pizza",
+		ID:    doener,
+		Properties: map[string]interface{}{
+			"name":        "Doener",
+			"description": "A innovation, some say revolution, in the pizza industry.",
+		},
+	})
+
+	assertGetObjectEventually(t, quattroFormaggi)
+	assertGetObjectEventually(t, fruttiDiMare)
+	assertGetObjectEventually(t, hawaii)
+	assertGetObjectEventually(t, doener)
 }
 
 func addTestDataCVC(t *testing.T) {

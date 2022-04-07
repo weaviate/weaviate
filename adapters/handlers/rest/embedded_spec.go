@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.10.1"
+    "version": "1.12.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -1265,7 +1265,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Class was updated successfully",
+            "description": "Found the Class, returned as body",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -1456,6 +1456,124 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
+    },
+    "/schema/{className}/shards": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get the shards status of an Object class",
+        "operationId": "schema.objects.shards.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the status of the shards, returned as body",
+            "schema": {
+              "$ref": "#/definitions/ShardStatusList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
+    "/schema/{className}/shards/{shardName}": {
+      "put": {
+        "description": "Update shard status of an Object Class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "schema.objects.shards.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "shardName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ShardStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shard status was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/ShardStatus"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update attempt",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1464,6 +1582,22 @@ func init() {
       "type": "object",
       "additionalProperties": {
         "type": "object"
+      }
+    },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
       }
     },
     "BatchReference": {
@@ -1985,10 +2119,16 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -2315,12 +2455,20 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuratino specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "tokenization": {
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "type": "string",
+          "enum": [
+            "word",
+            "field"
+          ]
         }
       }
     },
@@ -2412,6 +2560,35 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ShardStatus": {
+      "description": "The status of a single shard",
+      "properties": {
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        }
+      }
+    },
+    "ShardStatusGetResponse": {
+      "description": "Response body of shard status get request",
+      "properties": {
+        "name": {
+          "description": "Name of the shard",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        }
+      }
+    },
+    "ShardStatusList": {
+      "description": "The status of all the shards of a Class",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -2437,6 +2614,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -2638,7 +2839,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.10.1"
+    "version": "1.12.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -3870,7 +4071,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Class was updated successfully",
+            "description": "Found the Class, returned as body",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -4061,6 +4262,124 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
+    },
+    "/schema/{className}/shards": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get the shards status of an Object class",
+        "operationId": "schema.objects.shards.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the status of the shards, returned as body",
+            "schema": {
+              "$ref": "#/definitions/ShardStatusList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
+    "/schema/{className}/shards/{shardName}": {
+      "put": {
+        "description": "Update shard status of an Object Class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "schema.objects.shards.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "shardName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ShardStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shard status was updated successfully",
+            "schema": {
+              "$ref": "#/definitions/ShardStatus"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard to be updated does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update attempt",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
     }
   },
   "definitions": {
@@ -4069,6 +4388,22 @@ func init() {
       "type": "object",
       "additionalProperties": {
         "type": "object"
+      }
+    },
+    "BM25Config": {
+      "description": "tuning parameters for the BM25 algorithm",
+      "type": "object",
+      "properties": {
+        "b": {
+          "description": "calibrates term-weight scaling based on the document length",
+          "type": "number",
+          "format": "float"
+        },
+        "k1": {
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "type": "number",
+          "format": "float"
+        }
       }
     },
     "BatchReference": {
@@ -4678,10 +5013,16 @@ func init() {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
       "properties": {
+        "bm25": {
+          "$ref": "#/definitions/BM25Config"
+        },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "stopwords": {
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -5026,12 +5367,20 @@ func init() {
           "x-nullable": true
         },
         "moduleConfig": {
-          "description": "Configuratino specific to modules this Weaviate instance has installed",
+          "description": "Configuration specific to modules this Weaviate instance has installed",
           "type": "object"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "tokenization": {
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "type": "string",
+          "enum": [
+            "word",
+            "field"
+          ]
         }
       }
     },
@@ -5123,6 +5472,35 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ShardStatus": {
+      "description": "The status of a single shard",
+      "properties": {
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        }
+      }
+    },
+    "ShardStatusGetResponse": {
+      "description": "Response body of shard status get request",
+      "properties": {
+        "name": {
+          "description": "Name of the shard",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        }
+      }
+    },
+    "ShardStatusList": {
+      "description": "The status of all the shards of a Class",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -5148,6 +5526,30 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "StopwordConfig": {
+      "description": "fine-grained control over stopword list usage",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "stopwords to be considered additionally",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preset": {
+          "description": "pre-existing list of common words by language",
+          "type": "string"
+        },
+        "removals": {
+          "description": "stopwords to be removed from consideration",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

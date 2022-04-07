@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sort"
 
 	"github.com/pkg/errors"
 )
@@ -33,11 +34,15 @@ type compactorMap struct {
 	bufw *bufio.Writer
 
 	scratchSpacePath string
+
+	// for backward-compatibility with states where the disk state for maps was
+	// not guaranteed to be sorted yet
+	requiresSorting bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string) *compactorMap {
+	scratchSpacePath string, requiresSorting bool) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
 		c2:                  c2,
@@ -46,6 +51,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
+		requiresSorting:     requiresSorting,
 	}
 }
 
@@ -100,17 +106,46 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	var kis []keyIndex
 
 	for {
+		// TODO: each iteration makes a massive amount of allocations, this could
+		// probably be made more efficiently if all the [][]MapPair, etc would be
+		// reused
+
 		if key1 == nil && key2 == nil {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			values := append(value1, value2...)
-			valuesMerged, err := newMapDecoder().DoPartial(values)
+			pairs1 := make([]MapPair, len(value1))
+			for i, v := range value1 {
+				if err := pairs1[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs1[i].Tombstone = v.tombstone
+			}
+
+			pairs2 := make([]MapPair, len(value2))
+			for i, v := range value2 {
+				if err := pairs2[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs2[i].Tombstone = v.tombstone
+			}
+
+			if c.requiresSorting {
+				sort.Slice(pairs1, func(a, b int) bool {
+					return bytes.Compare(pairs1[a].Key, pairs1[b].Key) < 0
+				})
+				sort.Slice(pairs2, func(a, b int) bool {
+					return bytes.Compare(pairs2[a].Key, pairs2[b].Key) < 0
+				})
+			}
+
+			mergedPairs, err := newSortedMapMerger().
+				doKeepTombstones([][]MapPair{pairs1, pairs2})
 			if err != nil {
 				return nil, err
 			}
 
-			mergedEncoded, err := newMapEncoder().DoMulti(valuesMerged)
+			mergedEncoded, err := newMapEncoder().DoMulti(mergedPairs)
 			if err != nil {
 				return nil, err
 			}

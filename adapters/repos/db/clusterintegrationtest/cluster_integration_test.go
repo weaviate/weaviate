@@ -43,6 +43,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -246,7 +247,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 						Name:        "toFirst",
 						IsPrimitive: false,
 						Refs: []search.SelectClass{
-							search.SelectClass{
+							{
 								ClassName: "Distributed",
 								RefProperties: search.SelectProperties{
 									search.SelectProperty{
@@ -290,7 +291,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		expectedResult := &aggregation.Result{
 			Groups: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: numberOfObjects,
 				},
 			},
@@ -505,7 +506,12 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
-	n.repo = db.New(logger, db.Config{RootPath: localDir, QueryMaximumResults: 10000}, client, nodeResolver)
+	n.repo = db.New(logger, db.Config{
+		RootPath:                  localDir,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, client, nodeResolver)
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},

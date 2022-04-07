@@ -79,11 +79,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -92,13 +92,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/987-654-321",
@@ -127,11 +127,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -140,13 +140,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/987-654-321",
@@ -182,11 +182,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
 			Return(&searchRes, nil)
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 			},
@@ -195,13 +195,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
@@ -236,11 +236,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
 			Return(&searchRes, nil)
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 			},
@@ -249,13 +249,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
@@ -285,11 +285,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -323,11 +323,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -368,11 +368,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -381,13 +381,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/987-654-321",
@@ -446,11 +446,11 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 		vectorSearcher.results = []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 			},
@@ -488,13 +488,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
-			search.Result{
+			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 			},
-			search.Result{
+			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/987-654-321",

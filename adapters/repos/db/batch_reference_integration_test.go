@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -47,7 +48,12 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -63,8 +69,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Class:               "AddingBatchReferencesTestTarget",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     []string{"string"},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -74,8 +81,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 					Class:               "AddingBatchReferencesTestSource",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     []string{"string"},
+							Tokenization: "word",
 						},
 						{
 							Name:     "toTarget",

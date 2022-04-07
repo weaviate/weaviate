@@ -14,7 +14,9 @@
 package get
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql/language/ast"
@@ -109,7 +111,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "with only input requested",
 			query: "{ Get { SomeAction { phone { input } } } }",
 			expectedParams: traverser.GetParams{
@@ -127,7 +129,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only internationalFormatted requested",
 			query: "{ Get { SomeAction { phone { internationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
@@ -145,7 +147,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only nationalFormatted requested",
 			query: "{ Get { SomeAction { phone { nationalFormatted } } } }",
 			expectedParams: traverser.GetParams{
@@ -163,7 +165,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only national requested",
 			query: "{ Get { SomeAction { phone { national } } } }",
 			expectedParams: traverser.GetParams{
@@ -181,7 +183,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only valid requested",
 			query: "{ Get { SomeAction { phone { valid } } } }",
 			expectedParams: traverser.GetParams{
@@ -199,7 +201,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only countryCode requested",
 			query: "{ Get { SomeAction { phone { countryCode } } } }",
 			expectedParams: traverser.GetParams{
@@ -217,7 +219,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with only defaultCountry requested",
 			query: "{ Get { SomeAction { phone { defaultCountry } } } }",
 			expectedParams: traverser.GetParams{
@@ -235,7 +237,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name: "with multiple fields set",
 			query: "{ Get { SomeAction { phone { input internationalFormatted " +
 				"nationalFormatted defaultCountry national countryCode valid } } } }",
@@ -271,12 +273,14 @@ func TestExtractPhoneNumberField(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver()
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolver()
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
@@ -293,8 +297,11 @@ func TestExtractAdditionalFields(t *testing.T) {
 		expectedResult interface{}
 	}
 
+	// To facilitate testing timestamps
+	nowString := fmt.Sprint(time.Now().UnixNano() / int64(time.Millisecond))
+
 	tests := []test{
-		test{
+		{
 			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
@@ -316,7 +323,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional vector",
 			query: "{ Get { SomeAction { _additional { vector } } } }",
 			expectedParams: traverser.GetParams{
@@ -338,7 +345,51 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
+			name:  "with _additional creationTimeUnix",
+			query: "{ Get { SomeAction { _additional { creationTimeUnix } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					CreationTimeUnix: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"creationTimeUnix": nowString,
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"creationTimeUnix": nowString,
+				},
+			},
+		},
+		{
+			name:  "with _additional lastUpdateTimeUnix",
+			query: "{ Get { SomeAction { _additional { lastUpdateTimeUnix } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					LastUpdateTimeUnix: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"lastUpdateTimeUnix": nowString,
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"lastUpdateTimeUnix": nowString,
+				},
+			},
+		},
+		{
 			name:  "with _additional classification",
 			query: "{ Get { SomeAction { _additional { classification { id completed classifiedFields scope basedOn }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -372,7 +423,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -388,12 +439,12 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"interpretation": &Interpretation{
 							Source: []*InterpretationSource{
-								&InterpretationSource{
+								{
 									Concept:    "foo",
 									Weight:     0.6,
 									Occurrence: 1200,
 								},
-								&InterpretationSource{
+								{
 									Concept:    "bar",
 									Weight:     0.9,
 									Occurrence: 800,
@@ -422,7 +473,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional nearestNeighbors",
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -438,11 +489,11 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
-								&NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.2,
 								},
@@ -468,7 +519,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -496,7 +547,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
@@ -532,7 +583,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
@@ -548,14 +599,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": models.AdditionalProperties{
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
-								&SemanticPathElement{
+								{
 									Concept:            "foo",
 									DistanceToNext:     ptFloat32(0.5),
 									DistanceToPrevious: nil,
 									DistanceToQuery:    0.1,
 									DistanceToResult:   0.1,
 								},
-								&SemanticPathElement{
+								{
 									Concept:            "bar",
 									DistanceToPrevious: ptFloat32(0.5),
 									DistanceToNext:     nil,
@@ -593,12 +644,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolverWithVectorizer("mock-custom-near-text-module")
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
@@ -646,7 +699,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
 		query := `{ Get { CustomVectorClass(nearCustomText: {
-                concepts: ["c1", "c2", "c3"],
+	            concepts: ["c1", "c2", "c3"],
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -655,7 +708,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-        			}) { intField } } }`
+	    			}) { intField } } }`
 
 		res := resolver.Resolve(query)
 		require.Len(t, res.Errors, 1)
@@ -664,7 +717,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearCustomText: {
-                concepts: ["c1", "c2", "c3"],
+	            concepts: ["c1", "c2", "c3"],
 								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
@@ -674,11 +727,12 @@ func TestNearCustomTextRanker(t *testing.T) {
 									concepts:["epic"]
 									force: 0.25
 								}
-        			}) { intField } } }`
+	    			}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -726,6 +780,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -800,6 +855,7 @@ func TestNearVectorRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &near.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
@@ -1061,6 +1117,7 @@ func TestNearObject(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &near.NearObjectParams{
 				Beacon:    "weaviate://localhost/some-other-uuid",
 				Certainty: 0.7,
@@ -1101,6 +1158,7 @@ func TestNearObject(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &near.NearObjectParams{
 				ID:        "some-other-uuid",
@@ -1178,6 +1236,7 @@ func TestNearObjectNoModules(t *testing.T) {
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &near.NearObjectParams{
 				ID:        "some-uuid",
@@ -1225,6 +1284,7 @@ func TestNearVectorNoModules(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &near.NearVectorParams{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,

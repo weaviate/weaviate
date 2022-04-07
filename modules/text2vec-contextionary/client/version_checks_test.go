@@ -27,13 +27,13 @@ func TestExtractVersionAndCompare(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			input:           "notavalidversiontag",
 			requiredMinimum: "1.2.3",
 			expectedIsMet:   false,
 			expectedErr:     fmt.Errorf("unexpected input version tag: notavalidversiontag"),
 		},
-		test{
+		{
 			input:           "abc-v0.1.2",
 			requiredMinimum: "invalidrequired",
 			expectedIsMet:   false,
@@ -43,7 +43,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		// valid matches
 
 		// exact match
-		test{
+		{
 			input:           "abc-v0.1.2",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
@@ -51,7 +51,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// every digit bigger
-		test{
+		{
 			input:           "abc-v1.2.3",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
@@ -59,7 +59,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// only major bigger
-		test{
+		{
 			input:           "abc-v1.0.0",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
@@ -67,7 +67,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// only minor bigger
-		test{
+		{
 			input:           "abc-v0.2.0",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
@@ -75,7 +75,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// only patch bigger
-		test{
+		{
 			input:           "abc-v0.1.3",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
@@ -85,7 +85,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		// invalid requirements
 
 		// only patch smaller
-		test{
+		{
 			input:           "abc-v0.1.1",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   false,
@@ -93,7 +93,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// only minor smaller
-		test{
+		{
 			input:           "abc-v0.0.9",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   false,
@@ -101,7 +101,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 		},
 
 		// only major smaller
-		test{
+		{
 			input:           "abc-v0.9.9",
 			requiredMinimum: "1.1.2",
 			expectedIsMet:   false,

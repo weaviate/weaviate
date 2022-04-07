@@ -61,7 +61,7 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,13 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 	}
 
 	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	// Shard Index version 2 requires BigEndian for sorting, if the shard was
+	// built prior assume it uses LittleEndian
+	if s.versioner.Version() < 2 {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+	} else {
+		binary.BigEndian.PutUint64(docIDBytes, docID)
+	}
 
 	return b.MapDeleteKey(item.Data, docIDBytes)
 }
@@ -82,7 +88,7 @@ func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
 
-	hash, err := generateRowHash()
+	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}

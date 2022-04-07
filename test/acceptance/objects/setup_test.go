@@ -29,27 +29,27 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "testString",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:     "testWholeNumber",
 					DataType: []string{"int"},
 				},
-				&models.Property{
+				{
 					Name:     "testNumber",
 					DataType: []string{"number"},
 				},
-				&models.Property{
+				{
 					Name:     "testDateTime",
 					DataType: []string{"date"},
 				},
-				&models.Property{
+				{
 					Name:     "testTrueFalse",
 					DataType: []string{"boolean"},
 				},
-				&models.Property{
+				{
 					Name:     "testPhoneNumber",
 					DataType: []string{"phoneNumber"},
 				},
@@ -60,8 +60,29 @@ func Test_Objects(t *testing.T) {
 			Class:      "TestObjectCustomVector",
 			Vectorizer: "none",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "description",
+					DataType: []string{"text"},
+				},
+			},
+		})
+
+		createObjectClass(t, &models.Class{
+			Class:      "TestDeleteClassOne",
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
+					DataType: []string{"text"},
+				},
+			},
+		})
+		createObjectClass(t, &models.Class{
+			Class:      "TestDeleteClassTwo",
+			Vectorizer: "none",
+			Properties: []*models.Property{
+				{
+					Name:     "text",
 					DataType: []string{"text"},
 				},
 			},
@@ -77,10 +98,13 @@ func Test_Objects(t *testing.T) {
 	t.Run("custom vector journey", customVectors)
 	t.Run("auto schema", autoSchemaObjects)
 	t.Run("checking object's existence", checkObjects)
+	t.Run("delete request deletes all objects with a given ID", deleteAllObjectsFromAllClasses)
 	// tear down
 	deleteObjectClass(t, "TestObject")
 	deleteObjectClass(t, "TestObjectCustomVector")
 	deleteObjectClass(t, "NonExistingClass")
+	deleteObjectClass(t, "TestDeleteClassOne")
+	deleteObjectClass(t, "TestDeleteClassTwo")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {

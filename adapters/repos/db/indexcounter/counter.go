@@ -45,6 +45,7 @@ func New(shardID string, rootPath string) (*Counter, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "read initial count from file")
 		}
+
 	}
 
 	return &Counter{
@@ -65,6 +66,15 @@ func (c *Counter) GetAndInc() (uint64, error) {
 	}
 	c.f.Seek(0, 0)
 	return before, nil
+}
+
+// PreviewNext can be used to check if there is data present in the index, if
+// it returns 0, you can be certain that no data exists
+func (c *Counter) PreviewNext() uint64 {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.count
 }
 
 func (c *Counter) Drop() error {

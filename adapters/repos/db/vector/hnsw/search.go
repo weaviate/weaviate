@@ -114,13 +114,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		candidateNode.Lock()
-		connections := make([]uint64, len(candidateNode.connections[level]))
+		connections := h.pools.connList.Get(len(candidateNode.connections[level]))
+		defer h.pools.connList.Put(connections)
 		for i, conn := range candidateNode.connections[level] {
-			connections[i] = conn
+			(*connections)[i] = conn
 		}
 		candidateNode.Unlock()
 
-		for _, neighborID := range connections {
+		for _, neighborID := range *connections {
 
 			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor
@@ -266,7 +267,7 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 	h.addTombstone(docID)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
-		Info("found a deleted node (%d) without a tombstone, "+
+		Infof("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
 }
 
@@ -279,7 +280,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	if !ok {

@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,12 @@ func TestClassifications(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -238,8 +244,9 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 			},
 		},
@@ -249,8 +256,9 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 			},
 		},
@@ -260,12 +268,14 @@ func classificationTestSchema() []*models.Class {
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "description",
-					DataType: []string{string(schema.DataTypeText)},
+					Name:         "description",
+					DataType:     []string{string(schema.DataTypeText)},
+					Tokenization: "word",
 				},
 				{
-					Name:     "name",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "name",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 				{
 					Name:     "exactCategory",
@@ -297,7 +307,6 @@ func classificationTestCategories() search.Results {
 	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
-
 		// exact categories
 		search.Result{
 			ID:        idCategoryPolitics,
@@ -348,7 +357,6 @@ func classificationTestArticles() search.Results {
 	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
-
 		// classified
 		search.Result{
 			ID:        "8aeecd06-55a0-462c-9853-81b31a284d80",

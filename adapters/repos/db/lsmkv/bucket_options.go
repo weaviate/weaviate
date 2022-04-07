@@ -35,9 +35,23 @@ func WithMemtableThreshold(threshold uint64) BucketOption {
 	}
 }
 
+func WithWalThreshold(threshold uint64) BucketOption {
+	return func(b *Bucket) error {
+		b.walThreshold = threshold
+		return nil
+	}
+}
+
 func WithSecondaryIndicies(count uint16) BucketOption {
 	return func(b *Bucket) error {
 		b.secondaryIndices = count
+		return nil
+	}
+}
+
+func WithLegacyMapSorting() BucketOption {
+	return func(b *Bucket) error {
+		b.legacyMapSortingBeforeCompaction = true
 		return nil
 	}
 }

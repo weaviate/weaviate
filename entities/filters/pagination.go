@@ -11,8 +11,17 @@
 
 package filters
 
-// Pagination for now only contains a limit parameter, but might be extended in
-// the future
+const (
+	// LimitFlagSearchByDist indicates that the
+	// vector search should be conducted by
+	// distance, witout limit
+	LimitFlagSearchByDist int = iota - 2
+
+	// LimitFlagNotSet indicates that no limit
+	// was provided by the client
+	LimitFlagNotSet
+)
+
 type Pagination struct {
 	Offset int
 	Limit  int
@@ -28,7 +37,9 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 
 	limit, limitOk := args["limit"]
 	if !limitOk {
-		limit = -1
+		limit = LimitFlagNotSet
+	} else if limit == -1 {
+		limit = LimitFlagSearchByDist
 	}
 
 	if !offsetOk && !limitOk {

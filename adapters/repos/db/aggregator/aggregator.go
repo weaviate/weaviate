@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -36,13 +37,15 @@ type Aggregator struct {
 	classSearcher    inverted.ClassSearcher // to support ref-filters
 	deletedDocIDs    inverted.DeletedDocIDChecker
 	vectorIndex      vectorIndex
+	stopwords        stopwords.StopwordDetector
+	shardVersion     uint16
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
-	deletedDocIDs inverted.DeletedDocIDChecker,
-	vectorIndex vectorIndex) *Aggregator {
+	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
+	shardVersion uint16, vectorIndex vectorIndex) *Aggregator {
 	return &Aggregator{
 		store:            store,
 		params:           params,
@@ -50,6 +53,8 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		invertedRowCache: cache,
 		classSearcher:    classSearcher,
 		deletedDocIDs:    deletedDocIDs,
+		stopwords:        stopwords,
+		shardVersion:     shardVersion,
 		vectorIndex:      vectorIndex,
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -34,6 +35,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -46,13 +48,16 @@ type Index struct {
 	Shards                map[string]*Shard
 	Config                IndexConfig
 	vectorIndexUserConfig schema.VectorIndexConfig
-	invertedIndexConfig   *models.InvertedIndexConfig
 	getSchema             schemaUC.SchemaGetter
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
+	stopwords             *stopwords.Detector
+
+	invertedIndexConfig     schema.InvertedIndexConfig
+	invertedIndexConfigLock sync.Mutex
 }
 
-func (i Index) ID() string {
+func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
 
@@ -60,12 +65,18 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 
-// NewIndex - for now - always creates a single-shard index
+// NewIndex creates an index with the specified amount of shards, using only
+// the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
-	shardState *sharding.State, invertedIndexConfig *models.InvertedIndexConfig,
+	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient) (*Index, error) {
+	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	index := &Index{
 		Config:                config,
 		Shards:                map[string]*Shard{},
@@ -74,6 +85,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+		stopwords:             sd,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 	}
@@ -136,9 +148,29 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
+	i.invertedIndexConfigLock.Lock()
+	defer i.invertedIndexConfigLock.Unlock()
+
+	return i.invertedIndexConfig
+}
+
+func (i *Index) updateInvertedIndexConfig(ctx context.Context,
+	updated schema.InvertedIndexConfig) error {
+	i.invertedIndexConfigLock.Lock()
+	defer i.invertedIndexConfigLock.Unlock()
+
+	i.invertedIndexConfig = updated
+
+	return nil
+}
+
 type IndexConfig struct {
-	RootPath  string
-	ClassName schema.ClassName
+	RootPath                  string
+	ClassName                 schema.ClassName
+	QueryMaximumResults       int64
+	DiskUseWarningPercentage  uint64
+	DiskUseReadOnlyPercentage uint64
 }
 
 func indexID(class schema.ClassName) string {
@@ -606,10 +638,15 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
+
+	if len(shardNames) > 1 && keywordRanking != nil {
+		return nil, errors.Errorf("bm25 support limited to single-shard setups for now." +
+			" Multi-shard support expected in v1.13.0")
+	}
 
 	out := make([]*storobj.Object, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
@@ -622,7 +659,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 
 		if local {
 			shard := i.Shards[shardName]
-			res, err = shard.objectSearch(ctx, limit, filters, additional)
+			res, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
@@ -644,7 +681,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter,
+	certainty float64, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -652,8 +689,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	errgrp := &errgroup.Group{}
 	m := &sync.Mutex{}
 
-	out := make([]*storobj.Object, 0, len(shardNames)*limit)
-	dists := make([]float32, 0, len(shardNames)*limit)
+	// a limit of -1 is used to signal a search by distance. if that is
+	// the case we have to adjust how we calculate the outpout capacity
+	var shardCap int
+	if limit < 0 {
+		shardCap = len(shardNames) * defaultSearchByDistInitialLimit
+	} else {
+		shardCap = len(shardNames) * limit
+	}
+
+	out := make([]*storobj.Object, 0, shardCap)
+	dists := make([]float32, 0, shardCap)
 	for _, shardName := range shardNames {
 		shardName := shardName
 		errgrp.Go(func() error {
@@ -667,13 +713,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			if local {
 				shard := i.Shards[shardName]
-				res, resDists, err = shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+				res, resDists, err = shard.localObjectVectorSearch(
+					ctx, searchVector, certainty, limit, filters, additional, false)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
-
 			} else {
-				res, resDists, err = i.remote.SearchShard(ctx, shardName, searchVector, limit, filters, additional)
+				res, resDists, err = i.remote.SearchShard(
+					ctx, shardName, searchVector, limit, filters, additional)
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -707,15 +754,16 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, limit int, filters *filters.LocalFilter,
+	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	// TODO: support BM25 on sharded search
 	if searchVector == nil {
-		res, err := shard.objectSearch(ctx, limit, filters, additional)
+		res, err := shard.objectSearch(ctx, limit, filters, nil, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}
@@ -724,7 +772,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return res, nil, nil
 	}
 
-	res, resDists, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, additional)
+	res, resDists, err := shard.localObjectVectorSearch(
+		ctx, searchVector, certainty, limit, filters, additional, false)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -859,11 +908,11 @@ func (i *Index) drop() error {
 		AllPhysicalShards() {
 		shard, ok := i.Shards[name]
 		if !ok {
-			// skip non-local, but do delete evertying that exists - even if it
+			// skip non-local, but do delete everything that exists - even if it
 			// shouldn't
 			continue
 		}
-		err := shard.drop()
+		err := shard.drop(false)
 		if err != nil {
 			return errors.Wrapf(err, "delete shard %s", shard.ID())
 		}
@@ -880,4 +929,29 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (i *Index) getShardsStatus() map[string]string {
+	shardsStatus := make(map[string]string)
+
+	for _, shard := range i.Shards {
+		shardsStatus[shard.name] = shard.getStatus().String()
+	}
+
+	return shardsStatus
+}
+
+func (i *Index) updateShardStatus(shardName, targetStatus string) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %s does not exist locally", shardName)
+	}
+
+	return shard.updateStatus(targetStatus)
+}
+
+func (i *Index) notifyReady() {
+	for _, shd := range i.Shards {
+		shd.notifyReady()
+	}
 }

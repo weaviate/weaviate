@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -56,15 +57,21 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "unrelatedProp",
-			DataType: []string{string(schema.DataTypeString)},
+			Name:         "unrelatedProp",
+			DataType:     []string{string(schema.DataTypeString)},
+			Tokenization: "word",
 		}, {
 			Name:     "boolProp",
 			DataType: []string{string(schema.DataTypeBoolean)},
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -173,12 +180,18 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "author",
-			DataType: []string{string(schema.DataTypeText)},
+			Name:         "author",
+			DataType:     []string{string(schema.DataTypeText)},
+			Tokenization: "word",
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())

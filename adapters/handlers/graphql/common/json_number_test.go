@@ -27,19 +27,19 @@ type testCase struct {
 
 func TestJSONNumberResolver(t *testing.T) {
 	tests := []testCase{
-		testCase{
+		{
 			input:          json.Number("10"),
 			expectedOutput: 10.0,
 		},
-		testCase{
+		{
 			input:          int(10),
 			expectedOutput: 10.0,
 		},
-		testCase{
+		{
 			input:          int64(10),
 			expectedOutput: 10.0,
 		},
-		testCase{
+		{
 			input:          float64(10),
 			expectedOutput: 10.0,
 		},

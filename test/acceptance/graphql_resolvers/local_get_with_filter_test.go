@@ -199,6 +199,152 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 	})
 
+	t.Run("filtering by property with field tokenization", func(t *testing.T) {
+		// tests gh-1821 feature
+
+		query := func(value string) string {
+			return fmt.Sprintf(`
+			{
+				Get {
+					Person(where:{
+						valueString: "%s"
+						operator:Equal,
+						path:["profession"]
+					}) {
+						name
+					}
+				}
+			}
+		`, value)
+		}
+
+		t.Run("noone", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Quality"))
+			// Quality is not full field for anyone, therefore noone should be returned
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 0)
+		})
+
+		t.Run("just one is Mechanical Engineer", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Mechanical Engineer"))
+			// Bob is Mechanical Engineer, though John is Senior
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "Bob", name)
+		})
+
+		t.Run("just one is Senior Mechanical Engineer", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Senior Mechanical Engineer"))
+			// so to get John, his full profession name has to be used
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "John", name)
+		})
+
+		t.Run("just one is Quality Assurance Manager", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Quality Assurance Manager"))
+			// petra is Quality Assurance Manager
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "Petra", name)
+		})
+	})
+
+	t.Run("filtering by array property with field tokenization", func(t *testing.T) {
+		// tests gh-1821 feature
+
+		query := func(value string) string {
+			return fmt.Sprintf(`
+			{
+				Get {
+					Person(where:{
+						valueString: "%s"
+						operator:Equal,
+						path:["about"]
+					}) {
+						name
+					}
+				}
+			}
+		`, value)
+		}
+
+		t.Run("noone", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("swimming"))
+			// swimming is not full field for anyone, therefore noone should be returned
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 0)
+		})
+
+		t.Run("just one hates swimming", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("hates swimming"))
+			// but only john hates swimming
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"].(string)
+			assert.Equal(t, "John", name)
+		})
+
+		t.Run("exactly 2 loves travelling", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("loves travelling"))
+			// bob and john loves travelling, alice loves traveling very much
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 2)
+			name1 := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"].(string)
+			name2 := result.Get("Get", "Person").AsSlice()[1].(map[string]interface{})["name"].(string)
+			assert.ElementsMatch(t, []string{"Bob", "John"}, []string{name1, name2})
+		})
+
+		t.Run("only one likes cooking for family", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("likes cooking for family"))
+			// petra likes cooking for family, john simply likes cooking
+			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "Petra", name)
+		})
+	})
+
+	t.Run("filtering by stopwords", func(t *testing.T) {
+		query := func(value string) string {
+			return fmt.Sprintf(`
+			{
+				Get {
+					Pizza(where:{
+						valueText: "%s"
+						operator:Equal,
+						path:["description"]
+					}) {
+						name
+						_additional{
+							id
+						}
+					}
+				}
+			}
+		`, value)
+		}
+
+		t.Run("2 results by partial description", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("italian"))
+			pizzas := result.Get("Get", "Pizza").AsSlice()
+			require.Len(t, pizzas, 2)
+			id1 := pizzas[0].(map[string]interface{})["_additional"].(map[string]interface{})["id"]
+			id2 := pizzas[1].(map[string]interface{})["_additional"].(map[string]interface{})["id"]
+			assert.Equal(t, quattroFormaggi.String(), id1)
+			assert.Equal(t, fruttiDiMare.String(), id2)
+		})
+
+		t.Run("1 result by full description containing stopwords", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Universally accepted to be the best pizza ever created."))
+			pizzas := result.Get("Get", "Pizza").AsSlice()
+			require.Len(t, pizzas, 1)
+			id1 := pizzas[0].(map[string]interface{})["_additional"].(map[string]interface{})["id"]
+			assert.Equal(t, hawaii.String(), id1)
+		})
+
+		t.Run("error by description containing just stopwords", func(t *testing.T) {
+			errors := ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
+			require.Len(t, errors, 1)
+			assert.Contains(t, errors[0].Message, "invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
+		})
+	})
+
 	t.Run("with filtering with id", func(t *testing.T) {
 		// this is the journey test for gh-1088
 

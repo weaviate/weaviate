@@ -51,8 +51,13 @@ func (l *Memtable) flush() error {
 			return err
 		}
 
-	case StrategySetCollection, StrategyMapCollection:
-		if keys, err = l.flushDataCollection(w); err != nil {
+	case StrategySetCollection:
+		if keys, err = l.flushDataSet(w); err != nil {
+			return err
+		}
+
+	case StrategyMapCollection:
+		if keys, err = l.flushDataMap(w); err != nil {
 			return err
 		}
 
@@ -132,9 +137,41 @@ func (l *Memtable) flushDataReplace(f io.Writer) ([]keyIndex, error) {
 	return keys, nil
 }
 
-func (l *Memtable) flushDataCollection(f io.Writer) ([]keyIndex, error) {
+func (l *Memtable) flushDataSet(f io.Writer) ([]keyIndex, error) {
 	flat := l.keyMulti.flattenInOrder()
+	return l.flushDataCollection(f, flat)
+}
 
+func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
+	flat := l.keyMap.flattenInOrder()
+
+	// by encoding each map pair we can force the same structure as for a
+	// collection, which means we can reuse the same flushing logic
+	asMulti := make([]*binarySearchNodeMulti, len(flat))
+	for i, mapNode := range flat {
+		asMulti[i] = &binarySearchNodeMulti{
+			key:    mapNode.key,
+			values: make([]value, len(mapNode.values)),
+		}
+
+		for j := range asMulti[i].values {
+			enc, err := mapNode.values[j].Bytes()
+			if err != nil {
+				return nil, err
+			}
+
+			asMulti[i].values[j] = value{
+				value:     enc,
+				tombstone: mapNode.values[j].Tombstone,
+			}
+		}
+
+	}
+	return l.flushDataCollection(f, asMulti)
+}
+
+func (l *Memtable) flushDataCollection(f io.Writer,
+	flat []*binarySearchNodeMulti) ([]keyIndex, error) {
 	totalDataLength := totalValueSizeCollection(flat)
 	header := segmentHeader{
 		indexStart:       uint64(totalDataLength + SegmentHeaderSize),

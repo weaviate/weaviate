@@ -42,6 +42,14 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	return nil
+}
+
 func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
 	return nil
 }
@@ -63,6 +71,14 @@ func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, 
 }
 
 func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
 	return nil
 }
 
@@ -454,7 +470,8 @@ func newSchemaManager() *Manager {
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		vectorizerValidator, &fakeModuleConfig{}, &fakeClusterState{},
+		vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{},
 	)
 	if err != nil {
@@ -501,7 +518,8 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
-		&fakeVectorizerValidator{}, &fakeModuleConfig{}, &fakeClusterState{},
+		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{},
 	)
 	require.Nil(t, err)
