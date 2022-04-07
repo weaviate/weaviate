@@ -76,7 +76,7 @@ func (m *ClipModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *ClipModule) InitDependency(modules []modulecapabilities.Module) error {
+func (m *ClipModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
