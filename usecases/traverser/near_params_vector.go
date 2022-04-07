@@ -167,10 +167,6 @@ func (e *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	return e.findVector(ctx, id)
 }
 
-func (e *nearParamsVector) extractCertaintyFromExploreParams(params near.ExploreParams) float64 {
-	return e.extractCertaintyFromParams(params.NearVector, params.NearObject, params.ModuleParams)
-}
-
 func (e *nearParamsVector) extractCertaintyFromParams(nearVector *near.NearVectorParams, nearObject *near.NearObjectParams,
 	moduleParams map[string]interface{}) float64 {
 	if nearVector != nil {
