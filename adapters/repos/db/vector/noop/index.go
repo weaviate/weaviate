@@ -37,6 +37,10 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
+func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+}
+
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }

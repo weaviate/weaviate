@@ -233,18 +233,18 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float64, int,
+func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 	*filters.LocalFilter, additional.Properties, error) {
 	type searchParametersPayload struct {
 		SearchVector []float32             `json:"searchVector"`
-		Certainty    float64               `json:"certainty"`
+		Distance     float32               `json:"distance"`
 		Limit        int                   `json:"limit"`
 		Filters      *filters.LocalFilter  `json:"filters"`
 		Additional   additional.Properties `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.Certainty, par.Limit, par.Filters, par.Additional, err
+	return par.SearchVector, par.Distance, par.Limit, par.Filters, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {

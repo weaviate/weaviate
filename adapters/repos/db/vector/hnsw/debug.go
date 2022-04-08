@@ -20,18 +20,18 @@ import (
 )
 
 // Dump to stdout for debugging purposes
-func (index *hnsw) Dump(labels ...string) {
+func (h *hnsw) Dump(labels ...string) {
 	if len(labels) > 0 {
 		fmt.Printf("--------------------------------------------------\n")
 		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
 	}
 	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("Entrypoint: %d\n", index.entryPointID)
-	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
-	fmt.Printf("Tombstones %v\n", index.tombstones)
+	fmt.Printf("ID: %s\n", h.id)
+	fmt.Printf("Entrypoint: %d\n", h.entryPointID)
+	fmt.Printf("Max Level: %d\n", h.currentMaximumLayer)
+	fmt.Printf("Tombstones %v\n", h.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range index.nodes {
+	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
@@ -46,15 +46,15 @@ func (index *hnsw) Dump(labels ...string) {
 }
 
 // DumpJSON to stdout for debugging purposes
-func (index *hnsw) DumpJSON(labels ...string) {
+func (h *hnsw) DumpJSON(labels ...string) {
 	dump := JSONDump{
 		Labels:              labels,
-		ID:                  index.id,
-		Entrypoint:          index.entryPointID,
-		CurrentMaximumLayer: index.currentMaximumLayer,
-		Tombstones:          index.tombstones,
+		ID:                  h.id,
+		Entrypoint:          h.entryPointID,
+		CurrentMaximumLayer: h.currentMaximumLayer,
+		Tombstones:          h.tombstones,
 	}
-	for _, node := range index.nodes {
+	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
