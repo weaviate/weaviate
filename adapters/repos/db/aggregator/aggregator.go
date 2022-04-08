@@ -26,7 +26,8 @@ import (
 )
 
 type vectorIndex interface {
-	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
+		allowList helpers.AllowList) ([]uint64, []float32, error)
 }
 
 type Aggregator struct {

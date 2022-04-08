@@ -98,31 +98,17 @@ func (fa *filteredAggregator) getDefaultFilter() *filters.LocalFilter {
 
 func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int,
 	ids helpers.AllowList) ([]uint64, error) {
-	idsFound, resDists, err := fa.vectorIndex.SearchByVector(
-		searchVector, fa.getParamsLimit(limit, ids), ids)
+	if fa.params.Certainty <= 0 {
+		return nil, errors.New("must provide certainty with nearVector search")
+	}
+
+	targetDist := float32(1-fa.params.Certainty) * 2
+	idsFound, _, err := fa.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate search by vector")
 	}
-	if fa.params.Certainty > 0 {
-		var idsList []uint64
-		for i := range idsFound {
-			// Dist is between 0..2, we need to reduce to the user space of 0..1
-			normalizedDist := resDists[i] / 2
-			if 1-(normalizedDist) < float32(fa.params.Certainty) {
-				continue
-			}
-			idsList = append(idsList, idsFound[i])
-		}
-		return idsList, nil
-	}
-	return idsFound, nil
-}
 
-func (fa *filteredAggregator) getParamsLimit(limit *int, ids helpers.AllowList) int {
-	if limit != nil {
-		return *(limit)
-	}
-	return len(ids)
+	return idsFound, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
