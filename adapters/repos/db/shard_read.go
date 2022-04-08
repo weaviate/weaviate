@@ -183,34 +183,37 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		Object(ctx, limit, filters, additional, s.index.Config.ClassName)
 }
 
-func (s *Shard) localObjectVectorSearch(ctx context.Context,
-	searchVector []float32, dist float32, limit int, filters *filters.LocalFilter,
+func (s *Shard) objectVectorSearch(ctx context.Context,
+	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	var (
+		ids       []uint64
+		dists     []float32
+		err       error
+		allowList helpers.AllowList
+	)
+
+	beforeAll := time.Now()
+
+	if filters != nil {
+		list, err := s.buildAllowList(ctx, filters, additional)
+		if err != nil {
+			return nil, nil, err
+		}
+		allowList = list
+	}
+
 	if limit < 0 {
-		additional.Vector = true
-		return s.objectVectorSearchByDistance(ctx, searchVector, filters, additional, dist)
-	}
-
-	return s.objectVectorSearch(ctx, searchVector, limit, filters, additional)
-}
-
-func (s *Shard) objectVectorSearchByDistance(ctx context.Context, searchVector []float32,
-	filters *filters.LocalFilter, additional additional.Properties,
-	targetDist float32) ([]*storobj.Object, []float32, error) {
-	beforeAll := time.Now()
-	var allowList helpers.AllowList
-	if filters != nil {
-		list, err := s.buildAllowList(ctx, filters, additional)
+		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
+			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
-		allowList = list
-	}
-
-	ids, dists, err := s.vectorIndex.SearchByVectorDistance(
-		searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "vector search by distance")
+	} else {
+		ids, dists, err = s.vectorIndex.SearchByVector(searchVector, limit, allowList)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "vector search")
+		}
 	}
 
 	invertedTook := time.Since(beforeAll)
@@ -219,46 +222,7 @@ func (s *Shard) objectVectorSearchByDistance(ctx context.Context, searchVector [
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
-	hnswTook := time.Since(beforeVector)
-	beforeObjects := time.Now()
 
-	objs, err := s.objectsByDocID(ids, additional)
-	if err != nil {
-		return nil, nil, err
-	}
-	objectsTook := time.Since(beforeObjects)
-
-	s.index.logger.WithField("action", "filtered_vector_search").
-		WithFields(logrus.Fields{
-			"inverted_took":         uint64(invertedTook),
-			"hnsw_took":             uint64(hnswTook),
-			"retrieve_objects_took": uint64(objectsTook),
-		}).Trace("completed filtered vector search")
-
-	return objs, dists, nil
-}
-
-func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, additional additional.Properties) ([]*storobj.Object, []float32, error) {
-	var allowList helpers.AllowList
-	beforeAll := time.Now()
-	if filters != nil {
-		list, err := s.buildAllowList(ctx, filters, additional)
-		if err != nil {
-			return nil, nil, err
-		}
-		allowList = list
-	}
-	invertedTook := time.Since(beforeAll)
-	beforeVector := time.Now()
-	ids, dists, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "vector search")
-	}
-
-	if len(ids) == 0 {
-		return nil, nil, nil
-	}
 	hnswTook := time.Since(beforeVector)
 	beforeObjects := time.Now()
 

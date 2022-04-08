@@ -73,7 +73,17 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 
-func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+// SearchByVectorDistance wraps SearchByVector, and calls it recursively until
+// the search results contain all vector within the threshold specified by the
+// target distance.
+//
+// The maxLimit param will place an upper bound on the number of search results
+// returned. This is used in situations where the results of the method are all
+// eventually turned into objects, for example, a Get query. If the caller just
+// needs ids for sake of something like aggregation, a maxLimit of -1 can be
+// passed in to truly obtain all results from the vector index.
+func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
