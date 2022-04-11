@@ -537,11 +537,7 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 
 			res, err := b.MapList(rowKey1)
 			require.Nil(t, err)
-			// NOTE: We are accepting that the order is changed here. Given the name
-			// "MapCollection" there should be no expectations regarding the order,
-			// but we have yet to validate if this fits with all of the intended use
-			// cases.
-			assert.ElementsMatch(t, row1Updated, res)
+			assert.Equal(t, row1Updated, res)
 			res, err = b.MapList(rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
