@@ -444,3 +444,202 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 		})
 	})
 }
+
+func TestMapStrategy_RecoverFromWAL(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
+	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
+	os.MkdirAll(dirNameOriginal, 0o777)
+	os.MkdirAll(dirNameRecovered, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirNameOriginal)
+		fmt.Println(err)
+		err = os.RemoveAll(dirNameRecovered)
+		fmt.Println(err)
+	}()
+
+	t.Run("without prior state", func(t *testing.T) {
+		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(),
+			WithStrategy(StrategyMapCollection))
+		require.Nil(t, err)
+
+		// so big it effectively never triggers as part of this test
+		b.SetMemtableThreshold(1e9)
+
+		rowKey1 := []byte("test1-key-1")
+		rowKey2 := []byte("test1-key-2")
+
+		t.Run("set original values and verify", func(t *testing.T) {
+			row1Map := []MapPair{
+				{
+					Key:   []byte("row1-key1"),
+					Value: []byte("row1-key1-value1"),
+				}, {
+					Key:   []byte("row1-key2"),
+					Value: []byte("row1-key2-value1"),
+				},
+			}
+
+			row2Map := []MapPair{
+				{
+					Key:   []byte("row2-key1"),
+					Value: []byte("row2-key1-value1"),
+				}, {
+					Key:   []byte("row2-key2"),
+					Value: []byte("row2-key2-value1"),
+				},
+			}
+
+			for _, pair := range row1Map {
+				err = b.MapSet(rowKey1, pair)
+				require.Nil(t, err)
+			}
+
+			for _, pair := range row2Map {
+				err = b.MapSet(rowKey2, pair)
+				require.Nil(t, err)
+			}
+
+			res, err := b.MapList(rowKey1)
+			require.Nil(t, err)
+			assert.Equal(t, row1Map, res)
+			res, err = b.MapList(rowKey2)
+			require.Nil(t, err)
+			assert.Equal(t, res, row2Map)
+		})
+
+		t.Run("replace an existing map key", func(t *testing.T) {
+			err = b.MapSet(rowKey1, MapPair{
+				Key:   []byte("row1-key1"),        // existing key
+				Value: []byte("row1-key1-value2"), // updated value
+			})
+			require.Nil(t, err)
+
+			row1Updated := []MapPair{
+				{
+					Key:   []byte("row1-key1"),
+					Value: []byte("row1-key1-value2"), // <--- updated, rest unchanged
+				}, {
+					Key:   []byte("row1-key2"),
+					Value: []byte("row1-key2-value1"),
+				},
+			}
+
+			row2Unchanged := []MapPair{
+				{
+					Key:   []byte("row2-key1"),
+					Value: []byte("row2-key1-value1"),
+				}, {
+					Key:   []byte("row2-key2"),
+					Value: []byte("row2-key2-value1"),
+				},
+			}
+
+			res, err := b.MapList(rowKey1)
+			require.Nil(t, err)
+			// NOTE: We are accepting that the order is changed here. Given the name
+			// "MapCollection" there should be no expectations regarding the order,
+			// but we have yet to validate if this fits with all of the intended use
+			// cases.
+			assert.ElementsMatch(t, row1Updated, res)
+			res, err = b.MapList(rowKey2)
+			require.Nil(t, err)
+			assert.Equal(t, res, row2Unchanged)
+		})
+
+		t.Run("validate the results prior to recovery", func(t *testing.T) {
+			rowKey1 := []byte("test1-key-1")
+			rowKey2 := []byte("test1-key-2")
+
+			expectedRow1 := []MapPair{
+				{
+					Key:   []byte("row1-key1"),
+					Value: []byte("row1-key1-value2"),
+				}, {
+					Key:   []byte("row1-key2"),
+					Value: []byte("row1-key2-value1"),
+				},
+			}
+
+			expectedRow2 := []MapPair{
+				{
+					Key:   []byte("row2-key1"),
+					Value: []byte("row2-key1-value1"),
+				}, {
+					Key:   []byte("row2-key2"),
+					Value: []byte("row2-key2-value1"),
+				},
+			}
+
+			res, err := b.MapList(rowKey1)
+			require.Nil(t, err)
+			assert.Equal(t, expectedRow1, res)
+			res, err = b.MapList(rowKey2)
+			require.Nil(t, err)
+			assert.Equal(t, expectedRow2, res)
+		})
+
+		t.Run("make sure the WAL is flushed", func(t *testing.T) {
+			require.Nil(t, b.WriteWAL())
+		})
+
+		t.Run("copy state into recovery folder and destroy original", func(t *testing.T) {
+			cmd := exec.Command("/bin/bash", "-c", fmt.Sprintf("cp -r %s/*.wal %s",
+				dirNameOriginal, dirNameRecovered))
+			var out bytes.Buffer
+			cmd.Stderr = &out
+			err := cmd.Run()
+			if err != nil {
+				fmt.Println(out.String())
+				t.Fatal(err)
+			}
+			b = nil
+			require.Nil(t, os.RemoveAll(dirNameOriginal))
+		})
+
+		var bRec *Bucket
+
+		t.Run("create new bucket from existing state", func(t *testing.T) {
+			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(),
+				WithStrategy(StrategyMapCollection))
+			require.Nil(t, err)
+
+			// so big it effectively never triggers as part of this test
+			b.SetMemtableThreshold(1e9)
+
+			bRec = b
+		})
+
+		t.Run("validate the results after  recovery", func(t *testing.T) {
+			rowKey1 := []byte("test1-key-1")
+			rowKey2 := []byte("test1-key-2")
+
+			expectedRow1 := []MapPair{
+				{
+					Key:   []byte("row1-key1"),
+					Value: []byte("row1-key1-value2"),
+				}, {
+					Key:   []byte("row1-key2"),
+					Value: []byte("row1-key2-value1"),
+				},
+			}
+
+			expectedRow2 := []MapPair{
+				{
+					Key:   []byte("row2-key1"),
+					Value: []byte("row2-key1-value1"),
+				}, {
+					Key:   []byte("row2-key2"),
+					Value: []byte("row2-key2-value1"),
+				},
+			}
+
+			res, err := bRec.MapList(rowKey1)
+			require.Nil(t, err)
+			assert.Equal(t, expectedRow1, res)
+			res, err = bRec.MapList(rowKey2)
+			require.Nil(t, err)
+			assert.Equal(t, expectedRow2, res)
+		})
+	})
+}
