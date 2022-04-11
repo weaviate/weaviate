@@ -43,6 +43,8 @@ const (
 	ErrorMissingActionObjectsSubjectType string = "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON"
 	// ErrorInvalidActionObjectsSubjectType message
 	ErrorInvalidActionObjectsSubjectType string = "subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
+	// ErrorMisingObject message
+	ErrorMissingObject = "the given object is empty"
 	// ErrorMissingClass message
 	ErrorMissingClass string = "the given class is empty"
 	// ErrorMissingContext message
