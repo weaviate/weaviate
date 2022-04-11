@@ -750,5 +750,4 @@ func addTestDataRansomNotes(t *testing.T) {
 
 		createObjectsBatch(t, batch)
 	}
-
 }
