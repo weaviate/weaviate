@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -397,9 +398,10 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, limit, filters, additional)
+		Marshal(vector, limit, filters, keywordRanking, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal request payload")
 	}

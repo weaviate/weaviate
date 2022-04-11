@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -327,13 +328,13 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		var nearVectorParams *traverser.NearVectorParams
+		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			nearVectorParams = &p
 		}
 
-		var nearObjectParams *traverser.NearObjectParams
+		var nearObjectParams *searchparams.NearObject
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			nearObjectParams = &p
@@ -347,7 +348,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			}
 		}
 
-		var keywordRankingParams *traverser.KeywordRankingParams
+		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
 			keywordRankingParams = &p
@@ -382,14 +383,18 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 // for example, if a certainty is provided by any of the near* options,
 // and no limit was provided, weaviate will want to execute a vector
 // search by distance. it knows to do this by watching for a limit
-// flag, specicially filters.LimitFlagSearchByDistance
+// flag, specifically filters.LimitFlagSearchByDistance
 func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 	setLimit := func(params *traverser.GetParams) {
 		if params.Pagination == nil {
+			// limit was omitted entirely, implicitly
+			// indicating to do unlimited search
 			params.Pagination = &filters.Pagination{
 				Limit: filters.LimitFlagSearchByDist,
 			}
 		} else if params.Pagination.Limit < 0 {
+			// a negative limit was set, explicitly
+			// indicating to do unlimited search
 			params.Pagination.Limit = filters.LimitFlagSearchByDist
 		}
 	}

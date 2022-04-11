@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
@@ -464,7 +465,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *NearObjectParams,
+func (e *Explorer) validateNearParams(nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className ...string) error {
 	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
 		return errors.Errorf("found 'nearText' and 'nearVector' and 'nearObject' parameters " +
@@ -515,7 +516,7 @@ func (e *Explorer) validateNearParams(nearVector *NearVectorParams, nearObject *
 }
 
 func (e *Explorer) vectorFromNearObjectParams(ctx context.Context,
-	params *NearObjectParams) ([]float32, error) {
+	params *searchparams.NearObject) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
 	}

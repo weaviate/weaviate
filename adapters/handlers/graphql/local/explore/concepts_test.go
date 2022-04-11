@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -364,7 +365,7 @@ func Test_ResolveExplore(t *testing.T) {
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				NearVector: &traverser.NearVectorParams{
+				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
 			},
@@ -396,7 +397,7 @@ func Test_ResolveExplore(t *testing.T) {
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				NearVector: &traverser.NearVectorParams{
+				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
 				Limit: 17,
@@ -433,7 +434,7 @@ func Test_ResolveExplore(t *testing.T) {
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				NearObject: &traverser.NearObjectParams{
+				NearObject: &searchparams.NearObject{
 					Beacon:    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
 					Certainty: 0.7,
 				},
@@ -473,7 +474,7 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearObject: &traverser.NearObjectParams{
+				NearObject: &searchparams.NearObject{
 					ID:        "27b5213d-e152-4fea-bd63-2063d529024d",
 					Certainty: 0.7,
 				},

@@ -31,11 +31,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -638,46 +638,54 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, keywordRanking *traverser.KeywordRankingParams,
+	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
-	if len(shardNames) > 1 && keywordRanking != nil {
-		return nil, errors.Errorf("bm25 support limited to single-shard setups for now." +
-			" Multi-shard support expected in v1.13.0")
-	}
-
-	out := make([]*storobj.Object, 0, len(shardNames)*limit)
+	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
+	outScores := make([]float32, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
 		local := i.getSchema.
 			ShardingState(i.Config.ClassName.String()).
 			IsShardLocal(shardName)
 
-		var res []*storobj.Object
+		var objs []*storobj.Object
+		var scores []float32
 		var err error
 
 		if local {
 			shard := i.Shards[shardName]
-			res, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 
 		} else {
-			res, _, err = i.remote.SearchShard(ctx, shardName, nil, limit, filters, additional)
+			objs, scores, err = i.remote.SearchShard(
+				ctx, shardName, nil, limit, filters, keywordRanking, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
-		out = append(out, res...)
+		outObjects = append(outObjects, objs...)
+		outScores = append(outScores, scores...)
 	}
 
-	if len(out) > limit {
-		out = out[:limit]
+	if keywordRanking != nil {
+		res := &inverted.RankedResults{
+			Objects: outObjects,
+			Scores:  outScores,
+		}
+		sort.Sort(res)
+		outObjects = res.Objects
 	}
 
-	return out, nil
+	if len(outObjects) > limit {
+		outObjects = outObjects[:limit]
+	}
+
+	return outObjects, nil
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -720,7 +728,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				}
 			} else {
 				res, resDists, err = i.remote.SearchShard(
-					ctx, shardName, searchVector, limit, filters, additional)
+					ctx, shardName, searchVector, limit, filters, nil, additional)
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -755,21 +763,20 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	// TODO: support BM25 on sharded search
 	if searchVector == nil {
-		res, err := shard.objectSearch(ctx, limit, filters, nil, additional)
+		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}
 
-		// no distances on non-vector searches
-		return res, nil, nil
+		return res, scores, nil
 	}
 
 	res, resDists, err := shard.localObjectVectorSearch(

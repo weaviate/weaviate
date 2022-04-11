@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -1150,7 +1151,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
-			NearVector: &traverser.NearVectorParams{
+			NearVector: &searchparams.NearVector{
 				Certainty: 0.9,
 			},
 			SearchVector:         searchVector,
@@ -1176,7 +1177,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
-			NearObject: &traverser.NearObjectParams{
+			NearObject: &searchparams.NearObject{
 				Certainty: 0.9,
 				ID:        searchObject.String(),
 			},
