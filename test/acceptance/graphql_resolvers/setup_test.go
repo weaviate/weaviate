@@ -725,9 +725,11 @@ func addTestDataArrayClasses(t *testing.T) {
 func addTestDataRansomNotes(t *testing.T) {
 	const (
 		charset = "abcdefghijklmnopqrstuvwxyz" +
-			"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
 
-		noteLength = 24
+		noteLengthMin = 4
+		noteLengthMax = 1024
+
 		batchSize  = 10
 		numBatches = 50
 	)
@@ -737,6 +739,7 @@ func addTestDataRansomNotes(t *testing.T) {
 	for i := 0; i < numBatches; i++ {
 		batch := make([]*models.Object, batchSize)
 		for j := 0; j < batchSize; j++ {
+			noteLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
 			note := make([]byte, noteLength)
 			for n := range note {
 				note[n] = charset[seededRand.Intn(len(charset))]
@@ -744,7 +747,7 @@ func addTestDataRansomNotes(t *testing.T) {
 
 			batch[j] = &models.Object{
 				Class:      "RansomNote",
-				Properties: map[string]interface{}{"contents": note},
+				Properties: map[string]interface{}{"contents": string(note)},
 			}
 		}
 
