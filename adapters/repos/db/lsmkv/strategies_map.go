@@ -171,6 +171,45 @@ type MapPair struct {
 	Tombstone bool
 }
 
+// Size() returns the exact size in bytes that will be used when Bytes() is
+// called
+func (kv MapPair) Size() int {
+	// each field uses a uint16 (2 bytes) length indicator
+	return 2 + len(kv.Key) + 2 + len(kv.Value)
+}
+
+func (kv MapPair) EncodeBytes(buf []byte) error {
+	if len(buf) != kv.Size() {
+		return errors.Errorf("buffer has size %d, but MapPair has size %d",
+			len(buf), kv.Size())
+	}
+
+	// make sure the 2 byte length indicators will never overflow:
+	if len(kv.Key) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection key must be smaller than %d",
+			math.MaxUint16)
+	}
+	keyLen := uint16(len(kv.Key))
+
+	if len(kv.Value) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection value must be smaller than %d",
+			math.MaxUint16)
+	}
+	valueLen := uint16(len(kv.Value))
+
+	offset := 0
+	binary.LittleEndian.PutUint16(buf[offset:offset+2], keyLen)
+	offset += 2
+	copy(buf[offset:], kv.Key)
+	offset += len(kv.Key)
+
+	binary.LittleEndian.PutUint16(buf[offset:offset+2], valueLen)
+	offset += 2
+	copy(buf[offset:], kv.Value)
+
+	return nil
+}
+
 func (kv MapPair) Bytes() ([]byte, error) {
 	// make sure the 2 byte length indicators will never overflow:
 	if len(kv.Key) >= math.MaxUint16 {
@@ -309,7 +348,8 @@ func (m *mapEncoder) DoMulti(kvs []MapPair) ([]value, error) {
 	out := make([]value, len(kvs))
 
 	for i, kv := range kvs {
-		v, err := kv.Bytes()
+		v := make([]byte, kv.Size())
+		err := kv.EncodeBytes(v)
 		if err != nil {
 			return nil, err
 		}
