@@ -389,7 +389,7 @@ func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 			params.Pagination = &filters.Pagination{
 				Limit: filters.LimitFlagSearchByDist,
 			}
-		} else {
+		} else if params.Pagination.Limit < 0 {
 			params.Pagination.Limit = filters.LimitFlagSearchByDist
 		}
 	}

@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -272,6 +274,31 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
+	// given
+	vectorRepo := &fakeVectorRepo{}
+	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&search.Result{ClassName: "Publication"}, nil).Once()
+	schemaManager := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
+	autoSchemaManager := &autoSchemaManager{
+		schemaManager: schemaManager,
+		vectorRepo:    vectorRepo,
+		config: config.AutoSchema{
+			Enabled:       true,
+			DefaultString: "string",
+			DefaultNumber: "number",
+			DefaultDate:   "date",
+		},
+		logger: logger,
+	}
+
+	var obj *models.Object
+
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
 func Test_autoSchemaManager_autoSchema_create(t *testing.T) {

@@ -12,6 +12,7 @@
 package test
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -34,6 +35,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (pizzas)", addTestDataPizzas)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (array class)", addTestDataArrayClasses)
+	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
 	// tests
 	t.Run("getting objects", gettingObjects)
@@ -41,6 +43,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
+	t.Run("getting objects with near fields", gettingObjectsWithNearFields)
 	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
 	t.Run("aggregates local meta with filters", localMetaWithFilters)
 	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
@@ -55,6 +58,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "Airport")
 	deleteObjectClass(t, "Company")
 	deleteObjectClass(t, "ArrayClass")
+	deleteObjectClass(t, "RansomNote")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -297,6 +301,21 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "booleans",
 				DataType: []string{"boolean[]"},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "RansomNote",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "contents",
+				DataType: []string{"string"},
 			},
 		},
 	})
@@ -701,4 +720,37 @@ func addTestDataArrayClasses(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID3)
+}
+
+func addTestDataRansomNotes(t *testing.T) {
+	const (
+		charset = "abcdefghijklmnopqrstuvwxyz" +
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+
+		noteLengthMin = 4
+		noteLengthMax = 1024
+
+		batchSize  = 10
+		numBatches = 50
+	)
+
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := 0; i < numBatches; i++ {
+		batch := make([]*models.Object, batchSize)
+		for j := 0; j < batchSize; j++ {
+			noteLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
+			note := make([]byte, noteLength)
+			for n := range note {
+				note[n] = charset[seededRand.Intn(len(charset))]
+			}
+
+			batch[j] = &models.Object{
+				Class:      "RansomNote",
+				Properties: map[string]interface{}{"contents": string(note)},
+			}
+		}
+
+		createObjectsBatch(t, batch)
+	}
 }

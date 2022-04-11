@@ -58,6 +58,10 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	object *models.Object) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+	if object == nil {
+		return fmt.Errorf(validation.ErrorMissingObject)
+	}
+
 	if len(object.Class) == 0 {
 		// stop performing auto schema
 		return fmt.Errorf(validation.ErrorMissingClass)

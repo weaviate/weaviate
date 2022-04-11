@@ -819,6 +819,88 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+							limit: 6
+							nearCustomText: {
+	            				concepts: ["c1", "c2", "c3"],
+								certainty: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+	    			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: 6},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"c1", "c2", "c3"},
+					"certainty": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+							limit: -1
+							nearCustomText: {
+	            				concepts: ["c1", "c2", "c3"],
+								certainty: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+	    			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts":  []interface{}{"c1", "c2", "c3"},
+					"certainty": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestNearVectorRanker(t *testing.T) {
@@ -860,6 +942,54 @@ func TestNearVectorRanker(t *testing.T) {
 				Certainty: 0.4,
 			},
 		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+					limit: 4  
+    				nearVector: {
+					  vector: [0.123, 0.984] 
+					  certainty: 0.1
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: 4},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.1,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+					limit: -1  
+    				nearVector: {
+					  vector: [0.123, 0.984] 
+					  certainty: 0.1
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.1,
+			},
+		}
+
 		resolver.On("GetClass", expectedParams).
 			Return([]interface{}{}, nil).Once()
 
@@ -1169,6 +1299,52 @@ func TestNearObject(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("for objects with optional certainty and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: 5
+						nearObject: {
+						  id: "some-other-uuid"
+						  certainty: 0.7
+						}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: 5},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-other-uuid",
+				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with optional certainty and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: -1
+						nearObject: {
+						  id: "some-other-uuid"
+						  certainty: 0.7
+						}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-other-uuid",
+				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestNearTextNoNoModules(t *testing.T) {
@@ -1226,8 +1402,56 @@ func TestNearObjectNoModules(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
-	t.Run("for objects with ID", func(t *testing.T) {
+	t.Run("for objects with ID and certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
+								nearObject: {
+									id: "some-uuid"
+									certainty: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-uuid",
+				Certainty: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with certainty and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								limit: 12
+								nearObject: {
+									id: "some-uuid"
+									certainty: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: 12},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &traverser.NearObjectParams{
+				ID:        "some-uuid",
+				Certainty: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with certainty and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								limit: -1
 								nearObject: {
 									id: "some-uuid"
 									certainty: 0.7
@@ -1279,6 +1503,52 @@ func TestNearVectorNoModules(t *testing.T) {
 							  vector: [0.123, 0.984] 
 								certainty: 0.4
         			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: 4
+						nearVector: {
+						  vector: [0.123, 0.984] 
+						  certainty: 0.4
+        				}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: 4},
+			NearVector: &traverser.NearVectorParams{
+				Vector:    []float32{0.123, 0.984},
+				Certainty: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional certainty and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: -1
+						nearVector: {
+						  vector: [0.123, 0.984] 
+						  certainty: 0.4
+        				}) { intField } } }`
 
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
