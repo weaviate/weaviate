@@ -76,7 +76,7 @@ func (m *OpenAIModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *OpenAIModule) InitDependency(modules []modulecapabilities.Module) error {
+func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
