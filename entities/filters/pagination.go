@@ -36,10 +36,8 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 	}
 
 	limit, limitOk := args["limit"]
-	if !limitOk {
+	if !limitOk || limit.(int) < 0 {
 		limit = LimitFlagNotSet
-	} else if limit == -1 {
-		limit = LimitFlagSearchByDist
 	}
 
 	if !offsetOk && !limitOk {

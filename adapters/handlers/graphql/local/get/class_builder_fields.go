@@ -383,14 +383,18 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 // for example, if a certainty is provided by any of the near* options,
 // and no limit was provided, weaviate will want to execute a vector
 // search by distance. it knows to do this by watching for a limit
-// flag, specicially filters.LimitFlagSearchByDistance
+// flag, specifically filters.LimitFlagSearchByDistance
 func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 	setLimit := func(params *traverser.GetParams) {
 		if params.Pagination == nil {
+			// limit was omitted entirely, implicitly
+			// indicating to do unlimited search
 			params.Pagination = &filters.Pagination{
 				Limit: filters.LimitFlagSearchByDist,
 			}
-		} else {
+		} else if params.Pagination.Limit < 0 {
+			// a negative limit was set, explicitly
+			// indicating to do unlimited search
 			params.Pagination.Limit = filters.LimitFlagSearchByDist
 		}
 	}
