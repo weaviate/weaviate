@@ -104,6 +104,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	offset := SegmentHeaderSize
 
 	var kis []keyIndex
+	pairs := newReusableMapPairs()
 
 	for {
 		// TODO: each iteration makes a massive amount of allocations, this could
@@ -114,33 +115,34 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			pairs1 := make([]MapPair, len(value1))
+			pairs.ResizeLeft(len(value1))
+			pairs.ResizeRight(len(value2))
+
 			for i, v := range value1 {
-				if err := pairs1[i].FromBytes(v.value, false); err != nil {
+				if err := pairs.left[i].FromBytes(v.value, false); err != nil {
 					return nil, err
 				}
-				pairs1[i].Tombstone = v.tombstone
+				pairs.left[i].Tombstone = v.tombstone
 			}
 
-			pairs2 := make([]MapPair, len(value2))
 			for i, v := range value2 {
-				if err := pairs2[i].FromBytes(v.value, false); err != nil {
+				if err := pairs.right[i].FromBytes(v.value, false); err != nil {
 					return nil, err
 				}
-				pairs2[i].Tombstone = v.tombstone
+				pairs.right[i].Tombstone = v.tombstone
 			}
 
 			if c.requiresSorting {
-				sort.Slice(pairs1, func(a, b int) bool {
-					return bytes.Compare(pairs1[a].Key, pairs1[b].Key) < 0
+				sort.Slice(pairs.left, func(a, b int) bool {
+					return bytes.Compare(pairs.left[a].Key, pairs.left[b].Key) < 0
 				})
-				sort.Slice(pairs2, func(a, b int) bool {
-					return bytes.Compare(pairs2[a].Key, pairs2[b].Key) < 0
+				sort.Slice(pairs.right, func(a, b int) bool {
+					return bytes.Compare(pairs.right[a].Key, pairs.right[b].Key) < 0
 				})
 			}
 
 			mergedPairs, err := newSortedMapMerger().
-				doKeepTombstones([][]MapPair{pairs1, pairs2})
+				doKeepTombstones([][]MapPair{pairs.left, pairs.right})
 			if err != nil {
 				return nil, err
 			}
