@@ -11,11 +11,11 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/usecases/traverser"
+import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractBM25
-func ExtractBM25(source map[string]interface{}) traverser.KeywordRankingParams {
-	var args traverser.KeywordRankingParams
+func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
+	var args searchparams.KeywordRanking
 
 	p, ok := source["properties"]
 	if ok {

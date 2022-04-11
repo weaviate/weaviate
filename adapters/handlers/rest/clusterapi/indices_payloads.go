@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -221,30 +222,34 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
-	filter *filters.LocalFilter, addP additional.Properties) ([]byte, error) {
+	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	addP additional.Properties) ([]byte, error) {
 	type params struct {
-		SearchVector []float32             `json:"searchVector"`
-		Limit        int                   `json:"limit"`
-		Filters      *filters.LocalFilter  `json:"filters"`
-		Additional   additional.Properties `json:"additional"`
+		SearchVector   []float32                    `json:"searchVector"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, addP}
+	par := params{vector, limit, filter, keywordRanking, addP}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float64, int,
-	*filters.LocalFilter, additional.Properties, error) {
+	*filters.LocalFilter, *searchparams.KeywordRanking, additional.Properties, error) {
 	type searchParametersPayload struct {
-		SearchVector []float32             `json:"searchVector"`
-		Certainty    float64               `json:"certainty"`
-		Limit        int                   `json:"limit"`
-		Filters      *filters.LocalFilter  `json:"filters"`
-		Additional   additional.Properties `json:"additional"`
+		SearchVector   []float32                    `json:"searchVector"`
+		Certainty      float64                      `json:"certainty"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Additional     additional.Properties        `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.Certainty, par.Limit, par.Filters, par.Additional, err
+	return par.SearchVector, par.Certainty, par.Limit,
+		par.Filters, par.KeywordRanking, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {

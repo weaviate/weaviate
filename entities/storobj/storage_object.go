@@ -551,7 +551,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 	return nil
 }
 
-// DeepCopyDangerous() creates a deep copy of the underlying Object
+// DeepCopyDangerous creates a deep copy of the underlying Object
 // WARNING: This was purpose built for the batch ref usecase and only covers
 // the situations that are required there. This means that cases which aren't
 // reflected in that usecase may still contain references. Thus the suffix

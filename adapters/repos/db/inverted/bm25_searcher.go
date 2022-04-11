@@ -29,8 +29,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -72,9 +72,9 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 
 // Object returns a list of full objects
 func (b *BM25Searcher) Object(ctx context.Context, limit int,
-	keywordRanking *traverser.KeywordRankingParams,
+	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, additional additional.Properties,
-	className schema.ClassName) ([]*storobj.Object, error) {
+	className schema.ClassName) ([]*storobj.Object, []float32, error) {
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -92,7 +92,7 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
 			keywordRanking.Properties[0], term)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		idLists[i] = ids
@@ -115,12 +115,12 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		ids.docIDs = ids.docIDs[:limit]
 	}
 
-	res, err := b.objectsByDocID(ids.IDs(), additional)
+	objs, scores, err := b.rankedObjectsByDocID(ids, additional)
 	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to objects")
+		return nil, nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
 
-	return res, nil
+	return objs, scores, nil
 }
 
 func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
@@ -240,24 +240,25 @@ func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.B
 	return pointers, nil
 }
 
-func (bm *BM25Searcher) objectsByDocID(ids []uint64,
-	additional additional.Properties) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
+func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
+	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	objs := make([]*storobj.Object, len(found.IDs()))
+	scores := make([]float32, len(found.IDs()))
 
 	bucket := bm.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return nil, errors.Errorf("objects bucket not found")
+		return nil, nil, errors.Errorf("objects bucket not found")
 	}
 
 	i := 0
 
-	for _, id := range ids {
+	for idx, id := range found.IDs() {
 		keyBuf := bytes.NewBuffer(nil)
 		binary.Write(keyBuf, binary.LittleEndian, &id)
 		docIDBytes := keyBuf.Bytes()
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if res == nil {
@@ -266,12 +267,33 @@ func (bm *BM25Searcher) objectsByDocID(ids []uint64,
 
 		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+			return nil, nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
 
-		out[i] = unmarshalled
+		objs[i], scores[i] = unmarshalled, float32(found.docIDs[idx].score)
 		i++
 	}
 
-	return out[:i], nil
+	return objs[:i], scores[:i], nil
+}
+
+// RankedResults implements sort.Interface, allowing
+// results aggregated from multiple shards to be
+// sorted according to their BM25 ranking
+type RankedResults struct {
+	Objects []*storobj.Object
+	Scores  []float32
+}
+
+func (r *RankedResults) Swap(i, j int) {
+	r.Objects[i], r.Objects[j] = r.Objects[j], r.Objects[i]
+	r.Scores[i], r.Scores[j] = r.Scores[j], r.Scores[i]
+}
+
+func (r *RankedResults) Less(i, j int) bool {
+	return r.Scores[i] > r.Scores[j]
+}
+
+func (r *RankedResults) Len() int {
+	return len(r.Scores)
 }

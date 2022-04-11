@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -49,6 +50,7 @@ type RemoteIndexIncomingRepo interface {
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
 		vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+		keywordRanking *searchparams.KeywordRanking,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -149,13 +151,15 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
 	vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil, errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingSearch(ctx, shardName, vector, certainty, limit, filters, additional)
+	return index.IncomingSearch(
+		ctx, shardName, vector, certainty, limit, filters, keywordRanking, additional)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
