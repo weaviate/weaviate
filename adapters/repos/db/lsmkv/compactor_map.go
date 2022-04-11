@@ -105,6 +105,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 
 	var kis []keyIndex
 	pairs := newReusableMapPairs()
+	me := newMapEncoder()
 
 	for {
 		// TODO: each iteration makes a massive amount of allocations, this could
@@ -147,7 +148,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				return nil, err
 			}
 
-			mergedEncoded, err := newMapEncoder().DoMulti(mergedPairs)
+			mergedEncoded, err := me.DoMultiReusable(mergedPairs)
 			if err != nil {
 				return nil, err
 			}
