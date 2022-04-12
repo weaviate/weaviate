@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -620,4 +621,80 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out.offset += n
 
 	return out, nil
+}
+
+// ParseCollectionNodeInto takes the []byte slice and parses it into the
+// specified node. It does not perform any copies and the caller must be aware
+// that memory may be shared between the two. As a result, the caller must make
+// sure that they do not modify "in" while "node" is still in use. A safer
+// alternative is to use ParseCollectionNode.
+//
+// The primary intention of this function is to provide a way to reuse buffers
+// when the lifetime is controlled tightly, for example in cursors used within
+// compactions. Use at your own risk!
+//
+// If the buffers of the provided node have enough capacity they will be
+// reused. Only if the capacity is not enogh, will an allocation occur. This
+// allocation uses 25% overhead to avoid future allocations for nodes of
+// similar size.
+//
+// As a result calling this method only makes sense if you plan on calling it
+// multiple times. Calling it just once on an unitialized node does not have
+// major advantages over calling ParseCollectionNode.
+func ParseCollectionNodeInto(in []byte, node *segmentCollectionNode) error {
+	// offset is only the local offset relative to "in". In the end we need to
+	// update the global offset.
+	offset := 0
+
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	offset += 8
+
+	resizeValuesOfCollectionNode(node, valuesLen)
+	for i := range node.values {
+		node.values[i].tombstone = in[offset] == 0x1
+		offset += 1
+
+		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		offset += 8
+
+		resizeValueOfCollectionNodeAtPos(node, i, valueLen)
+		node.values[i].value = in[offset : offset+int(valueLen)]
+		offset += int(valueLen)
+	}
+
+	keyLen := binary.LittleEndian.Uint32(in[offset : offset+4])
+	offset += 4
+
+	resizeKeyOfCollectionNode(node, keyLen)
+	node.primaryKey = in[offset : offset+int(keyLen)]
+	offset += int(keyLen)
+
+	node.offset = offset
+	return nil
+}
+
+func resizeValuesOfCollectionNode(node *segmentCollectionNode, size uint64) {
+	if cap(node.values) >= int(size) {
+		node.values = node.values[:size]
+	} else {
+		fmt.Println(size)
+		node.values = make([]value, size, int(float64(size)*1.25))
+	}
+}
+
+func resizeValueOfCollectionNodeAtPos(node *segmentCollectionNode, pos int,
+	size uint64) {
+	if cap(node.values[pos].value) >= int(size) {
+		node.values[pos].value = node.values[pos].value[:size]
+	} else {
+		node.values[pos].value = make([]byte, size, int(float64(size)*1.25))
+	}
+}
+
+func resizeKeyOfCollectionNode(node *segmentCollectionNode, size uint32) {
+	if cap(node.primaryKey) >= int(size) {
+		node.primaryKey = node.primaryKey[:size]
+	} else {
+		node.primaryKey = make([]byte, size, int(float64(size)*1.25))
+	}
 }
