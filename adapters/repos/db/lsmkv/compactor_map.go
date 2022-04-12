@@ -106,6 +106,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	var kis []keyIndex
 	pairs := newReusableMapPairs()
 	me := newMapEncoder()
+	ssm := newSortedMapMerger()
 
 	for {
 		// TODO: each iteration makes a massive amount of allocations, this could
@@ -142,8 +143,9 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				})
 			}
 
-			mergedPairs, err := newSortedMapMerger().
-				doKeepTombstones([][]MapPair{pairs.left, pairs.right})
+			ssm.reset([][]MapPair{pairs.left, pairs.right})
+			mergedPairs, err := ssm.
+				doKeepTombstonesReusable()
 			if err != nil {
 				return nil, err
 			}

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSortedDecoderRemoveTombstones(t *testing.T) {
+func Test_SortedMapMerger_RemoveTombstones(t *testing.T) {
 	t.Run("single entry, no tombstones", func(t *testing.T) {
 		m := newSortedMapMerger()
 		input1 := []MapPair{
@@ -217,5 +217,155 @@ func TestSortedDecoderRemoveTombstones(t *testing.T) {
 			},
 		}
 		assert.Equal(t, expected, actual)
+	})
+}
+
+func Test_SortedMapMerger_KeepTombstones(t *testing.T) {
+	m := newSortedMapMerger()
+
+	t.Run("multiple segments including updates, deletes in 2nd segment", func(t *testing.T) {
+		input := [][]MapPair{
+			{
+				{
+					Key:   []byte("a"),
+					Value: []byte("a1"),
+				},
+				{
+					Key:   []byte("c"),
+					Value: []byte("c1"),
+				},
+				{
+					Key:   []byte("e"),
+					Value: []byte("e1"),
+				},
+			},
+			{
+				{
+					Key:   []byte("a"),
+					Value: []byte("a2"),
+				},
+				{
+					Key:   []byte("b"),
+					Value: []byte("b2"),
+				},
+				{
+					Key:       []byte("c"),
+					Tombstone: true,
+				},
+			},
+			{
+				{
+					Key:   []byte("b"),
+					Value: []byte("b3"),
+				},
+			},
+		}
+
+		expected := []MapPair{
+			{
+				Key:   []byte("a"),
+				Value: []byte("a2"),
+			},
+			{
+				Key:   []byte("b"),
+				Value: []byte("b3"),
+			},
+			{
+				Key:       []byte("c"),
+				Tombstone: true,
+			},
+			{
+				Key:   []byte("e"),
+				Value: []byte("e1"),
+			},
+		}
+
+		t.Run("without reusable functionality - fresh state", func(t *testing.T) {
+			actual, err := m.doKeepTombstones(input)
+			require.Nil(t, err)
+
+			assert.Equal(t, expected, actual)
+		})
+
+		t.Run("with reusable functionality - fresh state", func(t *testing.T) {
+			m.reset(input)
+			actual, err := m.doKeepTombstonesReusable()
+			require.Nil(t, err)
+
+			assert.Equal(t, expected, actual)
+		})
+	})
+
+	t.Run("inverse order, deletes in 1st segment", func(t *testing.T) {
+		input := [][]MapPair{
+			{
+				{
+					Key:   []byte("b"),
+					Value: []byte("b3"),
+				},
+			},
+			{
+				{
+					Key:   []byte("a"),
+					Value: []byte("a2"),
+				},
+				{
+					Key:   []byte("b"),
+					Value: []byte("b2"),
+				},
+				{
+					Key:       []byte("c"),
+					Tombstone: true,
+				},
+			},
+			{
+				{
+					Key:   []byte("a"),
+					Value: []byte("a1"),
+				},
+				{
+					Key:   []byte("c"),
+					Value: []byte("c1"),
+				},
+				{
+					Key:   []byte("e"),
+					Value: []byte("e1"),
+				},
+			},
+		}
+
+		expected := []MapPair{
+			{
+				Key:   []byte("a"),
+				Value: []byte("a1"),
+			},
+			{
+				Key:   []byte("b"),
+				Value: []byte("b2"),
+			},
+			{
+				Key:   []byte("c"),
+				Value: []byte("c1"),
+			},
+			{
+				Key:   []byte("e"),
+				Value: []byte("e1"),
+			},
+		}
+
+		t.Run("without reusable functionality - fresh state", func(t *testing.T) {
+			actual, err := m.doKeepTombstones(input)
+			require.Nil(t, err)
+
+			assert.Equal(t, expected, actual)
+		})
+
+		t.Run("with reusable functionality - dirty state", func(t *testing.T) {
+			m.reset(input)
+			actual, err := m.doKeepTombstonesReusable()
+			require.Nil(t, err)
+
+			assert.Equal(t, expected, actual)
+		})
 	})
 }
