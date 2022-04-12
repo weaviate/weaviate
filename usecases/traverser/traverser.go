@@ -19,7 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/schema"
@@ -57,7 +56,7 @@ type VectorSearcher interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params near.ExploreParams) ([]search.Result, error)
+	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph
@@ -74,7 +73,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		vectorSearcher:   vectorSearcher,
 		explorer:         explorer,
 		schemaGetter:     schemaGetter,
-		nearParamsVector: newNewParamsVector(modulesProvider, vectorSearcher),
+		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
 	}
 }
 

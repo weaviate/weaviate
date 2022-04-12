@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
@@ -75,7 +74,7 @@ func NewExplorer(search vectorClassSearch,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
 		schemaGetter:     nil, // schemaGetter is set later
-		nearParamsVector: newNewParamsVector(modulesProvider, search),
+		nearParamsVector: newNearParamsVector(modulesProvider, search),
 	}
 }
 
@@ -339,7 +338,7 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 }
 
 func (e *Explorer) Concepts(ctx context.Context,
-	params near.ExploreParams) ([]search.Result, error) {
+	params ExploreParams) ([]search.Result, error) {
 	if err := e.validateExploreParams(params); err != nil {
 		return nil, errors.Wrap(err, "invalid params")
 	}
@@ -371,7 +370,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 	return results, nil
 }
 
-func (e *Explorer) validateExploreParams(params near.ExploreParams) error {
+func (e *Explorer) validateExploreParams(params ExploreParams) error {
 	if params.NearVector == nil && params.NearObject == nil && len(params.ModuleParams) == 0 {
 		return errors.Errorf("received no search params, one of [nearVector, nearObject] " +
 			"or module search params is required for an exploration")
@@ -387,7 +386,7 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
-	params near.ExploreParams) ([]float32, error) {
+	params ExploreParams) ([]float32, error) {
 	err := e.nearParamsVector.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
 	if err != nil {
 		return nil, err
@@ -448,7 +447,7 @@ func ExtractCertaintyFromParams(params GetParams) float64 {
 	panic("extractCertainty was called without any known params present")
 }
 
-func extractCertaintyFromExploreParams(params near.ExploreParams) float64 {
+func extractCertaintyFromExploreParams(params ExploreParams) float64 {
 	if params.NearVector != nil {
 		return params.NearVector.Certainty
 	}

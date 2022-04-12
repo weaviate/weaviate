@@ -16,8 +16,12 @@ import (
 	"github.com/semi-technologies/weaviate/modules/qna-transformers/ask"
 )
 
-func (m *QnAModule) initAsk() error {
+func (m *QnAModule) initAskSearcher() error {
 	m.searcher = ask.NewSearcher(m.nearTextDependency)
+	return nil
+}
+
+func (m *QnAModule) initAskProvider() error {
 	m.graphqlProvider = ask.New(m.askTextTransformer)
 	return nil
 }

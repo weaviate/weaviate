@@ -37,7 +37,6 @@ import (
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
@@ -81,7 +80,7 @@ type vectorRepo interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params near.ExploreParams) ([]search.Result, error)
+	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 

@@ -24,8 +24,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -85,13 +85,13 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		var nearVectorParams *near.NearVectorParams
+		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			nearVectorParams = &p
 		}
 
-		var nearObjectParams *near.NearObjectParams
+		var nearObjectParams *searchparams.NearObject
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			nearObjectParams = &p

@@ -61,10 +61,31 @@ func (m *QnAModule) Init(ctx context.Context,
 	return nil
 }
 
+func (m *QnAModule) InitExtension(modules []modulecapabilities.Module) error {
+	var textTransformer modulecapabilities.TextTransform
+	for _, module := range modules {
+		if module.Name() == m.Name() {
+			continue
+		}
+		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
+			if arg != nil && arg.TextTransformers() != nil {
+				textTransformer = arg.TextTransformers()["ask"]
+			}
+		}
+	}
+
+	m.askTextTransformer = textTransformer
+
+	if err := m.initAskProvider(); err != nil {
+		return errors.Wrap(err, "init ask provider")
+	}
+
+	return nil
+}
+
 func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 	var argument modulecapabilities.GraphQLArgument
 	var searcher modulecapabilities.VectorForParams
-	var textTransformer modulecapabilities.TextTransform
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -83,21 +104,14 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 				}
 			}
 		}
-		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
-			if arg != nil && arg.TextTransformers() != nil {
-				textTransformer = arg.TextTransformers()["ask"]
-			}
-		}
 	}
 	if argument.ExtractFunction == nil || searcher == nil {
 		return errors.New("nearText dependecy not present")
 	}
 	m.nearTextDependency = qnaadependency.New(argument, searcher)
 
-	m.askTextTransformer = textTransformer
-
-	if err := m.initAsk(); err != nil {
-		return errors.Wrap(err, "init answer")
+	if err := m.initAskSearcher(); err != nil {
+		return errors.Wrap(err, "init ask searcher")
 	}
 
 	return nil

@@ -95,7 +95,7 @@ func (b *Bucket) parseWALIntoMemtable(fname string) error {
 	b.active.commitlog.pause()
 	defer b.active.commitlog.unpause()
 
-	err := newCommitLoggerParser(fname, b.active).Do()
+	err := newCommitLoggerParser(fname, b.active, b.strategy).Do()
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		// we need to check for both EOF or UnexpectedEOF, as we don't know where
 		// the commit log got corrupted, a field ending that weset a longer

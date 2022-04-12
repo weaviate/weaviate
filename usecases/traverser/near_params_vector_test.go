@@ -18,14 +18,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 func Test_nearParamsVector_validateNearParams(t *testing.T) {
 	type args struct {
-		nearVector   *near.NearVectorParams
-		nearObject   *near.NearObjectParams
+		nearVector   *searchparams.NearVector
+		nearObject   *searchparams.NearObject
 		moduleParams map[string]interface{}
 		className    []string
 	}
@@ -48,7 +48,7 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 		{
 			name: "Should be OK, when nearVector param is set",
 			args: args{
-				nearVector:   &near.NearVectorParams{},
+				nearVector:   &searchparams.NearVector{},
 				nearObject:   nil,
 				moduleParams: nil,
 				className:    nil,
@@ -59,7 +59,7 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			name: "Should be OK, when nearObject param is set",
 			args: args{
 				nearVector:   nil,
-				nearObject:   &near.NearObjectParams{},
+				nearObject:   &searchparams.NearObject{},
 				moduleParams: nil,
 				className:    nil,
 			},
@@ -80,8 +80,8 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 		{
 			name: "Should throw error, when nearVector and nearObject is set",
 			args: args{
-				nearVector:   &near.NearVectorParams{},
-				nearObject:   &near.NearObjectParams{},
+				nearVector:   &searchparams.NearVector{},
+				nearObject:   &searchparams.NearObject{},
 				moduleParams: nil,
 				className:    nil,
 			},
@@ -91,7 +91,7 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 		{
 			name: "Should throw error, when nearVector and moduleParams is set",
 			args: args{
-				nearVector: &near.NearVectorParams{},
+				nearVector: &searchparams.NearVector{},
 				nearObject: nil,
 				moduleParams: map[string]interface{}{
 					"nearCustomText": &nearCustomTextParams{},
@@ -105,7 +105,7 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			name: "Should throw error, when nearObject and moduleParams is set",
 			args: args{
 				nearVector: nil,
-				nearObject: &near.NearObjectParams{},
+				nearObject: &searchparams.NearObject{},
 				moduleParams: map[string]interface{}{
 					"nearCustomText": &nearCustomTextParams{},
 				},
@@ -117,8 +117,8 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 		{
 			name: "Should throw error, when nearVector and nearObject and moduleParams is set",
 			args: args{
-				nearVector: &near.NearVectorParams{},
-				nearObject: &near.NearObjectParams{},
+				nearVector: &searchparams.NearVector{},
+				nearObject: &searchparams.NearObject{},
 				moduleParams: map[string]interface{}{
 					"nearCustomText": &nearCustomTextParams{},
 				},
@@ -148,8 +148,8 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 	type args struct {
 		ctx          context.Context
-		nearVector   *near.NearVectorParams
-		nearObject   *near.NearObjectParams
+		nearVector   *searchparams.NearVector
+		nearObject   *searchparams.NearObject
 		moduleParams map[string]interface{}
 		className    string
 	}
@@ -162,7 +162,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 		{
 			name: "Should get vector from nearVector",
 			args: args{
-				nearVector: &near.NearVectorParams{
+				nearVector: &searchparams.NearVector{
 					Vector: []float32{1.1, 1.0, 0.1},
 				},
 			},
@@ -172,7 +172,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 		{
 			name: "Should get vector from nearObject",
 			args: args{
-				nearObject: &near.NearObjectParams{
+				nearObject: &searchparams.NearObject{
 					ID: "uuid",
 				},
 			},
@@ -212,8 +212,8 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 
 func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 	type args struct {
-		nearVector   *near.NearVectorParams
-		nearObject   *near.NearObjectParams
+		nearVector   *searchparams.NearVector
+		nearObject   *searchparams.NearObject
 		moduleParams map[string]interface{}
 	}
 	tests := []struct {
@@ -224,7 +224,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 		{
 			name: "Should extract certainty from nearVector",
 			args: args{
-				nearVector: &near.NearVectorParams{
+				nearVector: &searchparams.NearVector{
 					Certainty: 0.88,
 				},
 			},
@@ -233,7 +233,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 		{
 			name: "Should extract certainty from nearObject",
 			args: args{
-				nearObject: &near.NearObjectParams{
+				nearObject: &searchparams.NearObject{
 					Certainty: 0.99,
 				},
 			},

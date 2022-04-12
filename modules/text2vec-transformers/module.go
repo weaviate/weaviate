@@ -77,7 +77,7 @@ func (m *TransformersModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *TransformersModule) InitDependency(modules []modulecapabilities.Module) error {
+func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue

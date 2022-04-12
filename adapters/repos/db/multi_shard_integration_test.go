@@ -34,8 +34,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -44,9 +46,7 @@ import (
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	repo, logger, dirName := setupMultiShardTest()
 	defer func() {
 		err := os.RemoveAll(dirName)
 		if err != nil {
@@ -54,14 +54,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 		}
 	}()
 
-	logger, _ := test.NewNullLogger()
-	repo := New(logger, Config{
-		RootPath: dirName, QueryMaximumResults: 10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
 	data := multiShardTestData()
 	queryVec := exampleQueryVec()
@@ -87,9 +80,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	repo, logger, dirName := setupMultiShardTest()
 	defer func() {
 		err := os.RemoveAll(dirName)
 		if err != nil {
@@ -97,15 +88,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 		}
 	}()
 
-	logger, _ := test.NewNullLogger()
-	repo := New(logger, Config{
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
 
 	data := multiShardTestData()
 	queryVec := exampleQueryVec()
@@ -167,55 +150,161 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
 }
 
-func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger) func(t *testing.T) {
-	return func(t *testing.T) {
+func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
+	repo, logger, dirName := setupMultiShardTest()
+	defer func() {
+		err := os.RemoveAll(dirName)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	className := "RacecarPosts"
+
+	t.Run("prepare", func(t *testing.T) {
 		class := &models.Class{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-			Class:               "TestClass",
+			Class:             className,
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: 60,
+			},
 			Properties: []*models.Property{
 				{
-					Name:     "boolProp",
-					DataType: []string{string(schema.DataTypeBoolean)},
-				},
-				{
-					Name:     "index",
-					DataType: []string{string(schema.DataTypeInt)},
+					Name:         "contents",
+					DataType:     []string{string(schema.DataTypeText)},
+					Tokenization: "word",
 				},
 			},
 		}
-		refClass := &models.Class{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-			Class:               "TestRefClass",
-			Properties: []*models.Property{
-				{
-					Name:     "boolProp",
-					DataType: []string{string(schema.DataTypeBoolean)},
+
+		t.Run("prepare", makeTestMultiShardSchema(repo, logger, true, class))
+	})
+
+	t.Run("insert search data", func(t *testing.T) {
+		objs := objects.BatchObjects{
+			{
+				UUID: "c39751ed-ddc2-4c9f-a45b-8b5732ddde56",
+				Object: &models.Object{
+					ID:    "c39751ed-ddc2-4c9f-a45b-8b5732ddde56",
+					Class: className,
+					Properties: map[string]interface{}{
+						"contents": "Team Lotus was a domineering force in the early 90s",
+					},
 				},
-				{
-					Name:     "toOther",
-					DataType: []string{"TestClass"},
+			},
+			{
+				UUID: "5d034311-06e1-476e-b446-1306db91d906",
+				Object: &models.Object{
+					ID:    "5d034311-06e1-476e-b446-1306db91d906",
+					Class: className,
+					Properties: map[string]interface{}{
+						"contents": "When a car becomes unserviceable, the driver must retire early from the race",
+					},
+				},
+			},
+			{
+				UUID: "01989a8c-e37f-471d-89ca-9a787dbbf5f2",
+				Object: &models.Object{
+					ID:    "01989a8c-e37f-471d-89ca-9a787dbbf5f2",
+					Class: className,
+					Properties: map[string]interface{}{
+						"contents": "A young driver is better than an old driver",
+					},
+				},
+			},
+			{
+				UUID: "392614c5-4ca4-4630-a014-61fe868a20fd",
+				Object: &models.Object{
+					ID:    "392614c5-4ca4-4630-a014-61fe868a20fd",
+					Class: className,
+					Properties: map[string]interface{}{
+						"contents": "an old driver doesn't retire early",
+					},
 				},
 			},
 		}
-		schemaGetter := &fakeSchemaGetter{shardState: multiShardState()}
+
+		_, err := repo.BatchPutObjects(context.Background(), objs)
+		require.Nil(t, err)
+	})
+
+	t.Run("ranked keyword search", func(t *testing.T) {
+		type testcase struct {
+			expectedResults []string
+			rankingParams   *searchparams.KeywordRanking
+		}
+
+		tests := []testcase{
+			{
+				rankingParams: &searchparams.KeywordRanking{
+					Query:      "driver",
+					Properties: []string{"contents"},
+				},
+				expectedResults: []string{
+					"01989a8c-e37f-471d-89ca-9a787dbbf5f2",
+					"392614c5-4ca4-4630-a014-61fe868a20fd",
+					"5d034311-06e1-476e-b446-1306db91d906",
+				},
+			},
+		}
+
+		for _, test := range tests {
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName:      className,
+				Pagination:     &filters.Pagination{Limit: 10},
+				KeywordRanking: test.rankingParams,
+			})
+			require.Nil(t, err)
+			require.Equal(t, len(test.expectedResults), len(res))
+			for i := range res {
+				assert.Equal(t, test.expectedResults[i], res[i].ID.String())
+			}
+			t.Logf("res: %+v", res)
+		}
+	})
+}
+
+func setupMultiShardTest() (*DB, *logrus.Logger, string) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+
+	logger, _ := test.NewNullLogger()
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+
+	return repo, logger, dirName
+}
+
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
+	return func(t *testing.T) {
+		var shardState *sharding.State
+		if fixedShardState {
+			shardState = fixedMultiShardState()
+		} else {
+			shardState = multiShardState()
+		}
+		schemaGetter := &fakeSchemaGetter{shardState: shardState}
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
 		migrator := NewMigrator(repo, logger)
 
 		t.Run("creating the class", func(t *testing.T) {
-			require.Nil(t,
-				migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-			require.Nil(t,
-				migrator.AddClass(context.Background(), refClass, schemaGetter.shardState))
+			for _, class := range classes {
+				require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+			}
 		})
 
 		// update schema getter so it's in sync with class
 		schemaGetter.schema = schema.Schema{
 			Objects: &models.Schema{
-				Classes: []*models.Class{class, refClass},
+				Classes: classes,
 			},
 		}
 	}
@@ -477,6 +566,41 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 	}
 
 	return out
+}
+
+func testClassesForImporting() []*models.Class {
+	return []*models.Class{
+		{
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Class:               "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "boolProp",
+					DataType: []string{string(schema.DataTypeBoolean)},
+				},
+				{
+					Name:     "index",
+					DataType: []string{string(schema.DataTypeInt)},
+				},
+			},
+		},
+		{
+			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+			Class:               "TestRefClass",
+			Properties: []*models.Property{
+				{
+					Name:     "boolProp",
+					DataType: []string{string(schema.DataTypeBoolean)},
+				},
+				{
+					Name:     "toOther",
+					DataType: []string{"TestClass"},
+				},
+			},
+		},
+	}
 }
 
 func normalize(v []float32) []float32 {

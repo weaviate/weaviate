@@ -20,7 +20,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -55,7 +54,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 
 		{
 			methodName:       "Explore",
-			additionalArgs:   []interface{}{near.ExploreParams{}},
+			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

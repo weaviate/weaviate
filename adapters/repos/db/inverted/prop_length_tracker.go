@@ -189,7 +189,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
 
 func (t *PropertyLengthTracker) canPageFit(propName []byte,
 	offset uint16, lastBucketOffset uint16) bool {
-	// lastBucketOffset represnts the end of the writable area, offset
+	// lastBucketOffset represents the end of the writable area, offset
 	// represents the start, which means we can take the delta to see // how
 	// much space is left on this page
 	spaceLeft := lastBucketOffset - offset

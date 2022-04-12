@@ -17,7 +17,6 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -28,7 +27,7 @@ import (
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser near.ExploreParams
+	expectedParamsToTraverser traverser.ExploreParams
 	resolverReturn            []search.Result
 	expectedResults           []result
 }
@@ -487,7 +486,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
@@ -523,7 +522,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 				}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{
 						"concepts":  []interface{}{"car", "best brand"},
@@ -566,7 +565,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{
@@ -616,7 +615,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{
@@ -670,7 +669,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{
@@ -738,7 +737,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearText": extractNearTextParam(map[string]interface{}{

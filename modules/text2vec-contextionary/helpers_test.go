@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
 	text2vecadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
 	text2vecadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
@@ -339,7 +338,7 @@ func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
-	principal *models.Principal, params near.ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params traverser.ExploreParams) ([]search.Result, error) {
 	args := m.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
@@ -350,7 +349,7 @@ type GetResolver interface {
 }
 
 type ExploreResolver interface {
-	Explore(ctx context.Context, principal *models.Principal, params near.ExploreParams) ([]search.Result, error)
+	Explore(ctx context.Context, principal *models.Principal, params traverser.ExploreParams) ([]search.Result, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be

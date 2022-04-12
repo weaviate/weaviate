@@ -24,6 +24,11 @@ type Module interface {
 	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
 }
 
+type ModuleExtension interface {
+	Module
+	InitExtension(modules []Module) error
+}
+
 type ModuleDependency interface {
 	Module
 	InitDependency(modules []Module) error

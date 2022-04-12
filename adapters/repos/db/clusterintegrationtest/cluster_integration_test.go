@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -279,7 +281,33 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 	})
 
-	t.Run("aggreate count", func(t *testing.T) {
+	t.Run("ranked keyword search", func(t *testing.T) {
+		for i := 0; i < numberOfObjects; i++ {
+			description := fmt.Sprintf("object %d", i)
+			keywordRanking := &searchparams.KeywordRanking{
+				Query:      description,
+				Properties: []string{"description"},
+			}
+
+			params := traverser.GetParams{
+				ClassName:      "Distributed",
+				KeywordRanking: keywordRanking,
+				Pagination:     &filters.Pagination{Limit: 100},
+			}
+
+			node := nodes[rand.Intn(len(nodes))]
+			res, err := node.repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+			require.NotEmpty(t, res)
+
+			expected := strings.Join(strings.Split(description, " "), "-")
+			received := res[0].Object().Properties.(map[string]interface{})["description"]
+			assert.Equal(t, expected, received)
+		}
+
+	})
+
+	t.Run("aggregate count", func(t *testing.T) {
 		params := aggregation.Params{
 			ClassName:        schema.ClassName("Distributed"),
 			IncludeMetaCount: true,
@@ -615,8 +643,9 @@ func class() *models.Class {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "description",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "description",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 			{
 				Name:     "other_property",

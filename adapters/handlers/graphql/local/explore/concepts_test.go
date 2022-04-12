@@ -14,8 +14,9 @@ package explore
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ import (
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser near.ExploreParams
+	expectedParamsToTraverser traverser.ExploreParams
 	resolverReturn            []search.Result
 	expectedResults           []result
 }
@@ -47,7 +48,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts": []interface{}{"car", "best brand"},
@@ -83,7 +84,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 				}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 						"concepts":  []interface{}{"car", "best brand"},
@@ -126,7 +127,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -176,7 +177,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -230,7 +231,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -298,7 +299,7 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -363,8 +364,8 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
-				NearVector: &near.NearVectorParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
 			},
@@ -395,8 +396,8 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
-				NearVector: &near.NearVectorParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
 				Limit: 17,
@@ -432,8 +433,8 @@ func Test_ResolveExplore(t *testing.T) {
 						beacon className certainty
 					}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
-				NearObject: &near.NearObjectParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
+				NearObject: &searchparams.NearObject{
 					Beacon:    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
 					Certainty: 0.7,
 				},
@@ -471,9 +472,9 @@ func Test_ResolveExplore(t *testing.T) {
 							beacon className
 						}
 			}`,
-			expectedParamsToTraverser: near.ExploreParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
-				NearObject: &near.NearObjectParams{
+				NearObject: &searchparams.NearObject{
 					ID:        "27b5213d-e152-4fea-bd63-2063d529024d",
 					Certainty: 0.7,
 				},

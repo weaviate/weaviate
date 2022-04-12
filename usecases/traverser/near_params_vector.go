@@ -20,9 +20,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/near"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 type nearParamsVector struct {
@@ -35,12 +35,12 @@ type nearParamsSearcher interface {
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 }
 
-func newNewParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {
+func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {
 	return &nearParamsVector{modulesProvider, search}
 }
 
 func (e *nearParamsVector) vectorFromParams(ctx context.Context,
-	nearVector *near.NearVectorParams, nearObject *near.NearObjectParams,
+	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className string) ([]float32, error) {
 	err := e.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
@@ -71,7 +71,8 @@ func (e *nearParamsVector) vectorFromParams(ctx context.Context,
 	panic("vectorFromParams was called without any known params present")
 }
 
-func (e *nearParamsVector) validateNearParams(nearVector *near.NearVectorParams, nearObject *near.NearObjectParams,
+func (e *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
+	nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className ...string) error {
 	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
 		return errors.Errorf("found 'nearText' and 'nearVector' and 'nearObject' parameters " +
@@ -148,7 +149,7 @@ func (e *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]fl
 }
 
 func (e *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
-	params *near.NearObjectParams) ([]float32, error) {
+	params *searchparams.NearObject) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
 	}
@@ -167,8 +168,8 @@ func (e *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	return e.findVector(ctx, id)
 }
 
-func (e *nearParamsVector) extractCertaintyFromParams(nearVector *near.NearVectorParams, nearObject *near.NearObjectParams,
-	moduleParams map[string]interface{}) float64 {
+func (e *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
+	nearObject *searchparams.NearObject, moduleParams map[string]interface{}) float64 {
 	if nearVector != nil {
 		return nearVector.Certainty
 	}
