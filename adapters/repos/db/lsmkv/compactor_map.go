@@ -23,8 +23,8 @@ import (
 type compactorMap struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorCollection
-	c2 *segmentCursorCollection
+	c1 *segmentCursorCollectionReusable
+	c2 *segmentCursorCollectionReusable
 
 	// the level matching those of the cursors
 	currentLevel        uint16
@@ -41,7 +41,7 @@ type compactorMap struct {
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
+	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
