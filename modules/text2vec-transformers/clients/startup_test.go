@@ -25,54 +25,140 @@ import (
 )
 
 func TestWaitForStartup(t *testing.T) {
-	t.Run("when the server is immediately ready", func(t *testing.T) {
+	t.Run("when common server is immediately ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
-		err := c.WaitForStartup(context.Background(), 50*time.Millisecond)
+		v := New(server.URL, server.URL, nullLogger())
+		err := v.WaitForStartup(context.Background(), 50*time.Millisecond)
 
 		assert.Nil(t, err)
 	})
 
-	t.Run("when the server is down", func(t *testing.T) {
-		c := New("http://nothing-running-at-this-url", nullLogger())
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		err := c.WaitForStartup(ctx, 50*time.Millisecond)
+	t.Run("when passage and query servers are immediately ready", func(t *testing.T) {
+		serverPassage := httptest.NewServer(&testReadyHandler{t: t})
+		serverQuery := httptest.NewServer(&testReadyHandler{t: t})
+		defer serverPassage.Close()
+		defer serverQuery.Close()
+		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		err := v.WaitForStartup(context.Background(), 50*time.Millisecond)
 
-		require.NotNil(t, err, nullLogger())
-		assert.Contains(t, err.Error(), "expired before remote was ready")
+		assert.Nil(t, err)
 	})
 
-	t.Run("when the server is alive, but not ready", func(t *testing.T) {
+	t.Run("when common server is down", func(t *testing.T) {
+		url := "http://nothing-running-at-this-url"
+		v := New(url, url, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.NotNil(t, err, nullLogger())
+		assert.Contains(t, err.Error(), "init context expired before remote was ready: send check ready request")
+	})
+
+	t.Run("when passage and query servers are down", func(t *testing.T) {
+		urlPassage := "http://nothing-running-at-this-url"
+		urlQuery := "http://nothing-running-at-this-url-either"
+		v := New(urlPassage, urlQuery, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.NotNil(t, err, nullLogger())
+		assert.Contains(t, err.Error(), "init context expired before remote was ready")
+		assert.Contains(t, err.Error(), "[passage] send check ready request")
+		assert.Contains(t, err.Error(), "[query] send check ready request")
+	})
+
+	t.Run("when common server is alive, but not ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{
 			t:         t,
 			readyTime: time.Now().Add(1 * time.Minute),
 		})
-		c := New(server.URL, nullLogger())
+		defer server.Close()
+		v := New(server.URL, server.URL, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "init context expired before remote was ready: send check ready request")
+	})
+
+	t.Run("when passage and query servers are alive, but not ready", func(t *testing.T) {
+		rt := time.Now().Add(1 * time.Minute)
+		serverPassage := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: rt,
+		})
+		serverQuery := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: rt,
+		})
+		defer serverPassage.Close()
+		defer serverQuery.Close()
+		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "init context expired before remote was ready")
+		assert.Contains(t, err.Error(), "[passage] send check ready request")
+		assert.Contains(t, err.Error(), "[query] send check ready request")
+	})
+
+	t.Run("when passage and query servers are alive, but query one is not ready", func(t *testing.T) {
+		serverPassage := httptest.NewServer(&testReadyHandler{t: t})
+		serverQuery := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: time.Now().Add(1 * time.Minute),
+		})
+		defer serverPassage.Close()
+		defer serverQuery.Close()
+		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "init context expired before remote was ready")
+		assert.NotContains(t, err.Error(), "[passage] send check ready request")
+		assert.Contains(t, err.Error(), "[query] send check ready request")
+	})
+
+	t.Run("when common server is initially not ready, but then becomes ready", func(t *testing.T) {
+		server := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: time.Now().Add(100 * time.Millisecond),
+		})
+		v := New(server.URL, server.URL, nullLogger())
 		defer server.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		err := c.WaitForStartup(ctx, 50*time.Millisecond)
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "expired before remote was ready")
+		require.Nil(t, err)
 	})
 
-	t.Run("when the server is initially not ready, but then becomes ready",
-		func(t *testing.T) {
-			server := httptest.NewServer(&testReadyHandler{
-				t:         t,
-				readyTime: time.Now().Add(100 * time.Millisecond),
-			})
-			c := New(server.URL, nullLogger())
-			defer server.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-			defer cancel()
-			err := c.WaitForStartup(ctx, 50*time.Millisecond)
-
-			require.Nil(t, err)
+	t.Run("when passage and query servers are initially not ready, but then become ready", func(t *testing.T) {
+		serverPassage := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: time.Now().Add(100 * time.Millisecond),
 		})
+		serverQuery := httptest.NewServer(&testReadyHandler{
+			t:         t,
+			readyTime: time.Now().Add(150 * time.Millisecond),
+		})
+		defer serverPassage.Close()
+		defer serverQuery.Close()
+		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := v.WaitForStartup(ctx, 50*time.Millisecond)
+
+		require.Nil(t, err)
+	})
 }
 
 type testReadyHandler struct {

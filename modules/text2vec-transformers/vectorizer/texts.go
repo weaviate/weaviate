@@ -21,7 +21,7 @@ import (
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
+	res, err := v.client.VectorizeText(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
 		PoolingStrategy: settings.PoolingStrategy(),
 	})
 	if err != nil {

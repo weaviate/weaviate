@@ -98,12 +98,25 @@ func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) 
 func (m *TransformersModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger) error {
 	// TODO: gh-1486 proper config management
-	uri := os.Getenv("TRANSFORMERS_INFERENCE_API")
-	if uri == "" {
-		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API is not set")
+	uriPassage := os.Getenv("TRANSFORMERS_PASSAGE_INFERENCE_API")
+	uriQuery := os.Getenv("TRANSFORMERS_QUERY_INFERENCE_API")
+	uriCommon := os.Getenv("TRANSFORMERS_INFERENCE_API")
+
+	switch {
+	case uriCommon != "" && (uriPassage != "" || uriQuery != ""):
+		return errors.Errorf("either variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API should be set")
+	case uriCommon == "" && uriPassage == "" && uriQuery == "":
+		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API are not set")
+	case uriCommon == "" && uriPassage != "" && uriQuery == "":
+		return errors.Errorf("required variable TRANSFORMERS_QUERY_INFERENCE_API is not set")
+	case uriCommon == "" && uriPassage == "" && uriQuery != "":
+		return errors.Errorf("required variable TRANSFORMERS_PASSAGE_INFERENCE_API is not set")
+	case uriCommon != "" && uriPassage == "" && uriQuery == "":
+		uriPassage = uriCommon
+		uriQuery = uriCommon
 	}
 
-	client := clients.New(uri, logger)
+	client := clients.New(uriPassage, uriQuery, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}
