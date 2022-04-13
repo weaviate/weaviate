@@ -99,7 +99,7 @@ func (fa *filteredAggregator) getDefaultFilter() *filters.LocalFilter {
 func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int,
 	ids helpers.AllowList) ([]uint64, error) {
 	if fa.params.Certainty <= 0 {
-		return nil, errors.New("must provide certainty with nearVector search")
+		return nil, errors.New("must provide certainty with vector search")
 	}
 
 	targetDist := float32(1-fa.params.Certainty) * 2
