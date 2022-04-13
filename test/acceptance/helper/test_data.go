@@ -6,7 +6,7 @@ import (
 )
 
 // GetRandomString returns a string comprised of random
-//samplings of charset, of length specified by caller
+// samplings of charset, of length specified by caller
 func GetRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz" +
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
