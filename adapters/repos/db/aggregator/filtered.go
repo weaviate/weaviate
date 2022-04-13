@@ -38,20 +38,34 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	// without grouping there is always exactly one group
 	out.Groups = make([]aggregation.Group, 1)
 
-	s := fa.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
-		fa.Aggregator.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
-		DocIDs(ctx, fa.params.Filters, additional.Properties{},
-			fa.params.ClassName)
-	if err != nil {
-		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+	var allowList helpers.AllowList
+	var err error
+
+	if fa.params.Filters != nil {
+		s := fa.getSchema.GetSchemaSkipAuth()
+		allowList, err = inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
+			fa.Aggregator.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
+			DocIDs(ctx, fa.params.Filters, additional.Properties{},
+				fa.params.ClassName)
+		if err != nil {
+			return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+		}
+	}
+
+	var idsList []uint64
+	if len(fa.params.SearchVector) > 0 {
+		idsList, err = fa.searchByVector(fa.params.SearchVector, fa.params.Limit, allowList)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		idsList = flattenAllowList(allowList)
 	}
 
 	if fa.params.IncludeMetaCount {
-		out.Groups[0].Count = len(ids)
+		out.Groups[0].Count = len(idsList)
 	}
 
-	idsList := flattenAllowList(ids)
 	props, err := fa.properties(ctx, idsList)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
@@ -60,6 +74,21 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups[0].Properties = props
 
 	return &out, nil
+}
+
+func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int,
+	ids helpers.AllowList) ([]uint64, error) {
+	if fa.params.Certainty <= 0 {
+		return nil, errors.New("must provide certainty with vector search")
+	}
+
+	targetDist := float32(1-fa.params.Certainty) * 2
+	idsFound, _, err := fa.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
+	if err != nil {
+		return nil, errors.Wrap(err, "aggregate search by vector")
+	}
+
+	return idsFound, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,

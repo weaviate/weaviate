@@ -245,6 +245,23 @@ func (m *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 	return arguments
 }
 
+// AggregateArguments provides GraphQL Aggregate arguments
+func (m *Provider) AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
+	arguments := map[string]*graphql.ArgumentConfig{}
+	for _, module := range m.GetAll() {
+		if m.shouldIncludeClassArgument(class, module.Name()) {
+			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
+				for name, argument := range arg.Arguments() {
+					if argument.AggregateArgumentsFunction != nil {
+						arguments[name] = argument.AggregateArgumentsFunction(class.Class)
+					}
+				}
+			}
+		}
+	}
+	return arguments
+}
+
 // ExploreArguments provides GraphQL Explore arguments
 func (m *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}

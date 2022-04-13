@@ -29,9 +29,10 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getNearImage() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     getNearImageArgumentFn,
-		ExploreArgumentsFunction: exploreNearImageArgumentFn,
-		ExtractFunction:          extractNearImageFn,
-		ValidateFunction:         validateNearImageFn,
+		GetArgumentsFunction:       getNearImageArgumentFn,
+		AggregateArgumentsFunction: aggregateNearImageArgumentFn,
+		ExploreArgumentsFunction:   exploreNearImageArgumentFn,
+		ExtractFunction:            extractNearImageFn,
+		ValidateFunction:           validateNearImageFn,
 	}
 }

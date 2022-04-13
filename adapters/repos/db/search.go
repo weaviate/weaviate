@@ -85,8 +85,8 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	certainty := extractCertaintyFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, certainty,
+	targetDist := extractDistanceFromParams(params)
+	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
 		totalLimit, params.Filters, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
@@ -101,7 +101,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
 }
 
-func extractCertaintyFromParams(params traverser.GetParams) float64 {
+func extractDistanceFromParams(params traverser.GetParams) float32 {
 	// we need to check these conditions first before calling
 	// traverser.ExtractCertaintyFromParams, because it will
 	// panic if these conditions are not met
@@ -110,7 +110,8 @@ func extractCertaintyFromParams(params traverser.GetParams) float64 {
 		return 0
 	}
 
-	return traverser.ExtractCertaintyFromParams(params)
+	certainty := traverser.ExtractCertaintyFromParams(params)
+	return float32(1-certainty) * 2
 }
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,

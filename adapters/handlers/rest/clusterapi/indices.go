@@ -72,7 +72,7 @@ type shards interface {
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
-		vector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,

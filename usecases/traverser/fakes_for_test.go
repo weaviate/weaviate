@@ -125,6 +125,11 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	return nil, nil
+}
+
 func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
 	concept *models.Object, vector []float32) error {
 	return nil

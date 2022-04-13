@@ -16,6 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 type Params struct {
@@ -25,6 +26,11 @@ type Params struct {
 	GroupBy          *filters.Path        `json:"groupBy"`
 	IncludeMetaCount bool                 `json:"includeMetaCount"`
 	Limit            *int                 `json:"limit"`
+	SearchVector     []float32
+	Certainty        float64
+	NearVector       *searchparams.NearVector
+	NearObject       *searchparams.NearObject
+	ModuleParams     map[string]interface{}
 }
 
 type ParamProperty struct {

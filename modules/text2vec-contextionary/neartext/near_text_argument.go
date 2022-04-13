@@ -22,6 +22,10 @@ func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *grap
 	return g.nearTextArgument("GetObjects", classname)
 }
 
+func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.nearTextArgument("Aggregate", classname)
+}
+
 func (g *GraphQLArgumentsProvider) exploreNearTextArgumentFn() *graphql.ArgumentConfig {
 	return g.nearTextArgument("Explore", "")
 }
