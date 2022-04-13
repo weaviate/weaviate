@@ -330,7 +330,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesD
 	return objects.NewObjectsReferencesDeleteNoContent()
 }
 
-func setupKindHandlers(api *operations.WeaviateAPI,
+func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) {
 	h := &objectHandlers{manager, logger, config, modulesProvider}

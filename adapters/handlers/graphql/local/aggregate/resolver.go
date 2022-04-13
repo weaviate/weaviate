@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -45,7 +46,7 @@ type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
 
-func makeResolveClass() graphql.FieldResolveFn {
+func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		className := schema.ClassName(p.Info.FieldName)
 		source, ok := p.Source.(map[string]interface{})
@@ -84,6 +85,26 @@ func makeResolveClass() graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		var nearVectorParams *searchparams.NearVector
+		if nearVector, ok := p.Args["nearVector"]; ok {
+			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			nearVectorParams = &p
+		}
+
+		var nearObjectParams *searchparams.NearObject
+		if nearObject, ok := p.Args["nearObject"]; ok {
+			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			nearObjectParams = &p
+		}
+
+		var moduleParams map[string]interface{}
+		if modulesProvider != nil {
+			extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+			if len(extractedParams) > 0 {
+				moduleParams = extractedParams
+			}
+		}
+
 		params := &aggregation.Params{
 			Filters:          filters,
 			ClassName:        className,
@@ -91,6 +112,9 @@ func makeResolveClass() graphql.FieldResolveFn {
 			GroupBy:          groupBy,
 			IncludeMetaCount: includeMeta,
 			Limit:            limit,
+			NearVector:       nearVectorParams,
+			NearObject:       nearObjectParams,
+			ModuleParams:     moduleParams,
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)

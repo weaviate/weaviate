@@ -73,6 +73,83 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 
+// SearchByVectorDistance wraps SearchByVector, and calls it recursively until
+// the search results contain all vector within the threshold specified by the
+// target distance.
+//
+// The maxLimit param will place an upper bound on the number of search results
+// returned. This is used in situations where the results of the method are all
+// eventually turned into objects, for example, a Get query. If the caller just
+// needs ids for sake of something like aggregation, a maxLimit of -1 can be
+// passed in to truly obtain all results from the vector index.
+func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList) ([]uint64, []float32, error) {
+	var (
+		searchParams = newSearchByDistParams(maxLimit)
+
+		resultIDs  []uint64
+		resultDist []float32
+	)
+
+	recursiveSearch := func() (bool, error) {
+		shouldContinue := false
+
+		ids, dist, err := h.SearchByVector(vector, searchParams.totalLimit, allowList)
+		if err != nil {
+			return false, errors.Wrap(err, "vector search")
+		}
+
+		// ensures the indexers aren't out of range
+		offsetCap := searchParams.offsetCapacity(ids)
+		totalLimitCap := searchParams.totalLimitCapacity(ids)
+
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+
+		if len(ids) == 0 {
+			return false, nil
+		}
+
+		lastFound := dist[len(dist)-1]
+		shouldContinue = lastFound <= targetDistance
+
+		for i := range ids {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh {
+				resultIDs = append(resultIDs, ids[i])
+				resultDist = append(resultDist, dist[i])
+			} else {
+				// as soon as we encounter a certainty which
+				// is below threshold, we can stop searching
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for shouldContinue {
+		searchParams.iterate()
+		if searchParams.maxLimitReached() {
+			h.logger.
+				WithField("action", "unlimited_vector_search").
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.maximumSearchLimit)
+			break
+		}
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return resultIDs, resultDist, nil
+}
+
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
@@ -364,4 +441,73 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	h.pools.pqResults.Put(res)
 
 	return ids, dists, nil
+}
+
+func newSearchByDistParams(maxLimit int64) *searchByDistParams {
+	initialOffset := 0
+	initialLimit := DefaultSearchByDistInitialLimit
+
+	return &searchByDistParams{
+		offset:             initialOffset,
+		limit:              initialLimit,
+		totalLimit:         initialOffset + initialLimit,
+		maximumSearchLimit: maxLimit,
+	}
+}
+
+const (
+	// DefaultSearchByDistInitialLimit :
+	// the initial limit of 100 here is an
+	// arbitrary decision, and can be tuned
+	// as needed
+	DefaultSearchByDistInitialLimit = 100
+
+	// DefaultSearchByDistLimitMultiplier :
+	// the decision to increase the limit in
+	// multiples of 10 here is an arbitrary
+	// decision, and can be tuned as needed
+	DefaultSearchByDistLimitMultiplier = 10
+)
+
+type searchByDistParams struct {
+	offset             int
+	limit              int
+	totalLimit         int
+	maximumSearchLimit int64
+}
+
+func (params *searchByDistParams) offsetCapacity(ids []uint64) int {
+	var offsetCap int
+	if params.offset < len(ids) {
+		offsetCap = params.offset
+	} else {
+		offsetCap = len(ids)
+	}
+
+	return offsetCap
+}
+
+func (params *searchByDistParams) totalLimitCapacity(ids []uint64) int {
+	var totalLimitCap int
+	if params.totalLimit < len(ids) {
+		totalLimitCap = params.totalLimit
+	} else {
+		totalLimitCap = len(ids)
+	}
+
+	return totalLimitCap
+}
+
+func (params *searchByDistParams) iterate() {
+	params.offset = params.totalLimit
+	params.limit *= DefaultSearchByDistLimitMultiplier
+	params.totalLimit = params.offset + params.limit
+}
+
+func (params *searchByDistParams) maxLimitReached() bool {
+	if params.maximumSearchLimit < 0 {
+		return true
+	}
+
+	return int64(params.totalLimit) > params.maximumSearchLimit
 }

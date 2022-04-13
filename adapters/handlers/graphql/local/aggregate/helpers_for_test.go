@@ -31,7 +31,7 @@ type mockResolver struct {
 }
 
 func newMockResolver(cfg config.Config) *mockResolver {
-	field, err := Build(&testhelper.CarSchema, cfg)
+	field, err := Build(&testhelper.CarSchema, cfg, nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

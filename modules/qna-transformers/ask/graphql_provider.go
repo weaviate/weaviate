@@ -31,9 +31,10 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getAsk() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     g.getAskArgumentFn,
-		ExploreArgumentsFunction: g.exploreAskArgumentFn,
-		ExtractFunction:          g.extractAskFn,
-		ValidateFunction:         g.validateAskFn,
+		GetArgumentsFunction:       g.getAskArgumentFn,
+		AggregateArgumentsFunction: g.aggregateAskArgumentFn,
+		ExploreArgumentsFunction:   g.exploreAskArgumentFn,
+		ExtractFunction:            g.extractAskFn,
+		ValidateFunction:           g.validateAskFn,
 	}
 }

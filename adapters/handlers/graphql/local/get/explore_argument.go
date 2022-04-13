@@ -15,62 +15,15 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
-	return &graphql.ArgumentConfig{
-		// Description: descriptions.GetExplore,
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
-				Fields: nearVectorFields(prefix),
-			},
-		),
-	}
-}
-
-func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"vector": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
-		},
-	}
+	return common_filters.NearVectorArgument("GetObjects", className)
 }
 
 func nearObjectArgument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
-	return &graphql.ArgumentConfig{
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sNearObjectInpObj", prefix),
-				Fields: nearObjectFields(prefix),
-			},
-		),
-	}
-}
-
-func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"id": &graphql.InputObjectFieldConfig{
-			Description: descriptions.ID,
-			Type:        graphql.String,
-		},
-		"beacon": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Beacon,
-			Type:        graphql.String,
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
-		},
-	}
+	return common_filters.NearObjectArgument("GetObjects", className)
 }
 
 func bm25Argument(className string) *graphql.ArgumentConfig {

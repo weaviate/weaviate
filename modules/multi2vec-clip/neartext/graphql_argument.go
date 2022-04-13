@@ -26,6 +26,10 @@ func (g *GraphQLArgumentsProvider) exploreNearTextArgumentFn() *graphql.Argument
 	return g.nearTextArgument("Explore", "")
 }
 
+func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.nearTextArgument("Aggregate", classname)
+}
+
 func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("Txt2VecC11y%s%s", prefix, className)
 	return &graphql.ArgumentConfig{

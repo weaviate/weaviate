@@ -37,18 +37,26 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (array class)", addTestDataArrayClasses)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
-	// tests
+	// get tests
 	t.Run("getting objects", gettingObjects)
 	t.Run("getting objects with filters", gettingObjectsWithFilters)
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
 	t.Run("getting objects with near fields", gettingObjectsWithNearFields)
+
+	// aggregate tests
 	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
 	t.Run("aggregates local meta with filters", localMetaWithFilters)
 	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
 	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
 	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
+	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
+	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
+	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
+	t.Run("aggregates local meta with where and nearVector nearMedia", localMetaWithWhereAndNearVectorFilters)
+	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
+	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -279,7 +287,12 @@ func addTestSchema(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class:      "CustomVectorClass",
 		Vectorizer: "none",
-		Properties: []*models.Property{},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
 	})
 
 	createObjectClass(t, &models.Class{
@@ -658,11 +671,14 @@ func addTestDataPizzas(t *testing.T) {
 }
 
 func addTestDataCVC(t *testing.T) {
-	// add one object indivdually
+	// add one object individually
 	createObject(t, &models.Object{
 		Class:  "CustomVectorClass",
 		ID:     cvc1,
 		Vector: []float32{1.1, 1.1, 1.1},
+		Properties: map[string]interface{}{
+			"name": "Ford",
+		},
 	})
 
 	assertGetObjectEventually(t, cvc1)
@@ -672,11 +688,17 @@ func addTestDataCVC(t *testing.T) {
 			Class:  "CustomVectorClass",
 			ID:     cvc2,
 			Vector: []float32{1.1, 1.1, 0.1},
+			Properties: map[string]interface{}{
+				"name": "Tesla",
+			},
 		},
 		{
 			Class:  "CustomVectorClass",
 			ID:     cvc3,
 			Vector: []float32{1.1, 0, 0},
+			Properties: map[string]interface{}{
+				"name": "Mercedes",
+			},
 		},
 	})
 	assertGetObjectEventually(t, cvc3)
@@ -724,9 +746,6 @@ func addTestDataArrayClasses(t *testing.T) {
 
 func addTestDataRansomNotes(t *testing.T) {
 	const (
-		charset = "abcdefghijklmnopqrstuvwxyz" +
-			"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-
 		noteLengthMin = 4
 		noteLengthMax = 1024
 
@@ -740,14 +759,11 @@ func addTestDataRansomNotes(t *testing.T) {
 		batch := make([]*models.Object, batchSize)
 		for j := 0; j < batchSize; j++ {
 			noteLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
-			note := make([]byte, noteLength)
-			for n := range note {
-				note[n] = charset[seededRand.Intn(len(charset))]
-			}
+			note := helper.GetRandomString(noteLength)
 
 			batch[j] = &models.Object{
 				Class:      "RansomNote",
-				Properties: map[string]interface{}{"contents": string(note)},
+				Properties: map[string]interface{}{"contents": note},
 			}
 		}
 

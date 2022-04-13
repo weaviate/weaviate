@@ -199,25 +199,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	kindsManager := objects.NewManager(appState.Locks,
+	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
-	batchKindsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
+	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 
-	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager)
+	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
+	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	setupSchemaHandlers(api, schemaManager)
-	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
-	setupKindBatchHandlers(api, batchKindsManager)
+	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
+	setupObjectBatchHandlers(api, batchObjectsManager)
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)

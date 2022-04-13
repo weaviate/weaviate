@@ -18,6 +18,9 @@ import (
 // GetArgumentsFn generates get graphql config for a given classname
 type GetArgumentsFn = func(classname string) *graphql.ArgumentConfig
 
+// AggregateArgumentsFn generates aggregate graphql config for a given classname
+type AggregateArgumentsFn = func(classname string) *graphql.ArgumentConfig
+
 // ExploreArgumentsFn generates explore graphql config
 type ExploreArgumentsFn = func() *graphql.ArgumentConfig
 
@@ -35,10 +38,11 @@ type ValidateFn = func(param interface{}) error
 // GraphQLArgument defines all the needed settings / methods
 // to add a module specific graphql argument
 type GraphQLArgument struct {
-	GetArgumentsFunction     GetArgumentsFn
-	ExploreArgumentsFunction ExploreArgumentsFn
-	ExtractFunction          ExtractFn
-	ValidateFunction         ValidateFn
+	GetArgumentsFunction       GetArgumentsFn
+	AggregateArgumentsFunction AggregateArgumentsFn
+	ExploreArgumentsFunction   ExploreArgumentsFn
+	ExtractFunction            ExtractFn
+	ValidateFunction           ValidateFn
 }
 
 // GraphQLArguments defines the capabilities of modules to add their

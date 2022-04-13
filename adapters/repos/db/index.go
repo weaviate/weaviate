@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -689,7 +690,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	certainty float64, limit int, filters *filters.LocalFilter,
+	dist float32, limit int, filters *filters.LocalFilter,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -701,7 +702,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	// the case we have to adjust how we calculate the outpout capacity
 	var shardCap int
 	if limit < 0 {
-		shardCap = len(shardNames) * defaultSearchByDistInitialLimit
+		shardCap = len(shardNames) * hnsw.DefaultSearchByDistInitialLimit
 	} else {
 		shardCap = len(shardNames) * limit
 	}
@@ -721,8 +722,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			if local {
 				shard := i.Shards[shardName]
-				res, resDists, err = shard.localObjectVectorSearch(
-					ctx, searchVector, certainty, limit, filters, additional, false)
+				res, resDists, err = shard.objectVectorSearch(
+					ctx, searchVector, dist, limit, filters, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -762,7 +763,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, certainty float64, limit int, filters *filters.LocalFilter,
+	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
@@ -779,8 +780,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return res, scores, nil
 	}
 
-	res, resDists, err := shard.localObjectVectorSearch(
-		ctx, searchVector, certainty, limit, filters, additional, false)
+	res, resDists, err := shard.objectVectorSearch(
+		ctx, searchVector, distance, limit, filters, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
