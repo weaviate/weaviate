@@ -39,17 +39,17 @@ func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearc
 	return &nearParamsVector{modulesProvider, search}
 }
 
-func (e *nearParamsVector) vectorFromParams(ctx context.Context,
+func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className string) ([]float32, error) {
-	err := e.validateNearParams(nearVector, nearObject, moduleParams, className)
+	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(moduleParams) == 1 {
 		for name, value := range moduleParams {
-			return e.vectorFromModules(ctx, className, name, value)
+			return v.vectorFromModules(ctx, className, name, value)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (e *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		vector, err := e.vectorFromNearObjectParams(ctx, nearObject)
+		vector, err := v.vectorFromNearObjectParams(ctx, nearObject)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
@@ -71,7 +71,7 @@ func (e *nearParamsVector) vectorFromParams(ctx context.Context,
 	panic("vectorFromParams was called without any known params present")
 }
 
-func (e *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
+func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
 	nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className ...string) error {
 	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
@@ -94,7 +94,7 @@ func (e *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 			"which are conflicting, choose one instead")
 	}
 
-	if e.modulesProvider != nil {
+	if v.modulesProvider != nil {
 		if len(moduleParams) > 1 {
 			params := []string{}
 			for p := range moduleParams {
@@ -106,12 +106,12 @@ func (e *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 
 		for name, value := range moduleParams {
 			if len(className) == 1 {
-				err := e.modulesProvider.ValidateSearchParam(name, value, className[0])
+				err := v.modulesProvider.ValidateSearchParam(name, value, className[0])
 				if err != nil {
 					return err
 				}
 			} else {
-				err := e.modulesProvider.CrossClassValidateSearchParam(name, value)
+				err := v.modulesProvider.CrossClassValidateSearchParam(name, value)
 				if err != nil {
 					return err
 				}
@@ -122,11 +122,11 @@ func (e *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 	return nil
 }
 
-func (e *nearParamsVector) vectorFromModules(ctx context.Context,
+func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	className, paramName string, paramValue interface{}) ([]float32, error) {
-	if e.modulesProvider != nil {
-		vector, err := e.modulesProvider.VectorFromSearchParam(ctx,
-			className, paramName, paramValue, e.findVector,
+	if v.modulesProvider != nil {
+		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
+			className, paramName, paramValue, v.findVector,
 		)
 		if err != nil {
 			return nil, errors.Errorf("vectorize params: %v", err)
@@ -136,8 +136,8 @@ func (e *nearParamsVector) vectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func (e *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := e.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+func (v *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
+	res, err := v.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (e *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]fl
 	return res.Vector, nil
 }
 
-func (e *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
+func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
@@ -165,10 +165,10 @@ func (e *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		id = ref.TargetID
 	}
 
-	return e.findVector(ctx, id)
+	return v.findVector(ctx, id)
 }
 
-func (e *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
+func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
 	nearObject *searchparams.NearObject, moduleParams map[string]interface{}) float64 {
 	if nearVector != nil {
 		return nearVector.Certainty
@@ -179,13 +179,13 @@ func (e *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 	}
 
 	if len(moduleParams) == 1 {
-		return e.extractCertaintyFromModuleParams(moduleParams)
+		return v.extractCertaintyFromModuleParams(moduleParams)
 	}
 
 	panic("extractCertainty was called without any known params present")
 }
 
-func (e *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
+func (v *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
 	for _, param := range moduleParams {
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
 			return nearParam.GetCertainty()
