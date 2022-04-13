@@ -803,103 +803,102 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 
 func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 	t.Run("with nearObject", func(t *testing.T) {
-
-	})
-	result := AssertGraphQL(t, helper.RootAuth, `
-		{
-			Aggregate{
-				City (
-					groupBy: "population"
-					where: {
-						valueBoolean: true,
-						operator: Equal,
-						path: ["isCapital"]
-					}
-					nearObject: {
-						id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
-						certainty: 0.7
-					}
-				){
-					meta {
-						count
-					}
-					isCapital {
-						count
-						percentageFalse
-						percentageTrue
-						totalFalse
-						totalTrue
-						type
-					}
-					population {
-						mean
-						count
-						maximum
-						minimum
-						sum
-						type
-					}
-					inCountry {
-						pointingTo
-						type
-					}
-					name {
-						topOccurrences {
-							occurs
-							value
+		result := AssertGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate{
+					City (
+						groupBy: "population"
+						where: {
+							valueBoolean: true,
+							operator: Equal,
+							path: ["isCapital"]
 						}
-						type
-						count
+						nearObject: {
+							id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+							certainty: 0.7
+						}
+					){
+						meta {
+							count
+						}
+						isCapital {
+							count
+							percentageFalse
+							percentageTrue
+							totalFalse
+							totalTrue
+							type
+						}
+						population {
+							mean
+							count
+							maximum
+							minimum
+							sum
+							type
+						}
+						inCountry {
+							pointingTo
+							type
+						}
+						name {
+							topOccurrences {
+								occurs
+								value
+							}
+							type
+							count
+						}
 					}
 				}
 			}
-		}
-	`)
+		`)
 
-	t.Run("meta count", func(t *testing.T) {
-		meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
-		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("1")
-		assert.Equal(t, expected, count)
-	})
+		t.Run("meta count", func(t *testing.T) {
+			meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			expected := json.Number("1")
+			assert.Equal(t, expected, count)
+		})
 
-	t.Run("boolean props", func(t *testing.T) {
-		isCapital := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["isCapital"]
-		expected := map[string]interface{}{
-			"count":           json.Number("1"),
-			"percentageTrue":  json.Number("1"),
-			"percentageFalse": json.Number("0"),
-			"totalTrue":       json.Number("1"),
-			"totalFalse":      json.Number("0"),
-			"type":            "boolean",
-		}
-		assert.Equal(t, expected, isCapital)
-	})
+		t.Run("boolean props", func(t *testing.T) {
+			isCapital := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["isCapital"]
+			expected := map[string]interface{}{
+				"count":           json.Number("1"),
+				"percentageTrue":  json.Number("1"),
+				"percentageFalse": json.Number("0"),
+				"totalTrue":       json.Number("1"),
+				"totalFalse":      json.Number("0"),
+				"type":            "boolean",
+			}
+			assert.Equal(t, expected, isCapital)
+		})
 
-	t.Run("ref prop", func(t *testing.T) {
-		inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
-		expected := map[string]interface{}{
-			"pointingTo": []interface{}{"Country"},
-			"type":       "cref",
-		}
-		assert.Equal(t, expected, inCountry)
-	})
+		t.Run("ref prop", func(t *testing.T) {
+			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
+			expected := map[string]interface{}{
+				"pointingTo": []interface{}{"Country"},
+				"type":       "cref",
+			}
+			assert.Equal(t, expected, inCountry)
+		})
 
-	t.Run("string prop", func(t *testing.T) {
-		name := result.Get("Aggregate", "City").
-			AsSlice()[0].(map[string]interface{})["name"].(map[string]interface{})
-		typeField := name["type"]
-		topOccurrences := name["topOccurrences"]
+		t.Run("string prop", func(t *testing.T) {
+			name := result.Get("Aggregate", "City").
+				AsSlice()[0].(map[string]interface{})["name"].(map[string]interface{})
+			typeField := name["type"]
+			topOccurrences := name["topOccurrences"]
 
-		assert.Equal(t, "string", typeField)
+			assert.Equal(t, "string", typeField)
 
-		expectedTopOccurrences := []interface{}{
-			map[string]interface{}{
-				"value":  "Berlin",
-				"occurs": json.Number("1"),
-			},
-		}
-		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+			expectedTopOccurrences := []interface{}{
+				map[string]interface{}{
+					"value":  "Berlin",
+					"occurs": json.Number("1"),
+				},
+			}
+			assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+		})
 	})
 
 	t.Run("with nearText", func(t *testing.T) {
