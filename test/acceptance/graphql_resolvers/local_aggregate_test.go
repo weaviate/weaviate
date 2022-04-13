@@ -960,32 +960,6 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 			assert.Equal(t, expected, count)
 		})
 
-		t.Run("boolean props", func(t *testing.T) {
-			isCapital := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["isCapital"]
-			expected := map[string]interface{}{
-				"count":           json.Number("1"),
-				"percentageTrue":  json.Number("1"),
-				"percentageFalse": json.Number("0"),
-				"totalTrue":       json.Number("1"),
-				"totalFalse":      json.Number("0"),
-				"type":            "boolean",
-			}
-			assert.Equal(t, expected, isCapital)
-		})
-
-		t.Run("int/number props", func(t *testing.T) {
-			population := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["population"]
-			expected := map[string]interface{}{
-				"count":   json.Number("1"),
-				"maximum": json.Number("3470000"),
-				"mean":    json.Number("3470000"),
-				"minimum": json.Number("3470000"),
-				"sum":     json.Number("3470000"),
-				"type":    "int",
-			}
-			assert.Equal(t, expected, population)
-		})
-
 		t.Run("ref prop", func(t *testing.T) {
 			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
 			expected := map[string]interface{}{
@@ -993,23 +967,6 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 				"type":       "cref",
 			}
 			assert.Equal(t, expected, inCountry)
-		})
-
-		t.Run("string prop", func(t *testing.T) {
-			name := result.Get("Aggregate", "City").
-				AsSlice()[0].(map[string]interface{})["name"].(map[string]interface{})
-			typeField := name["type"]
-			topOccurrences := name["topOccurrences"]
-
-			assert.Equal(t, "string", typeField)
-
-			expectedTopOccurrences := []interface{}{
-				map[string]interface{}{
-					"value":  "Berlin",
-					"occurs": json.Number("1"),
-				},
-			}
-			assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
 		})
 	})
 }

@@ -34,7 +34,7 @@ func NearVectorArgument(argumentPrefix, className string) *graphql.ArgumentConfi
 func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"vector": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
+			Description: descriptions.Vector,
 			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
 		},
 		"certainty": &graphql.InputObjectFieldConfig{

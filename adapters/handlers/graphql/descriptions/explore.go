@@ -21,6 +21,7 @@ const (
 	Limit                = "Limit the results set (usually fewer results mean faster queries)"
 	Offset               = "Offset of the results set (usually fewer results mean faster queries)"
 	Certainty            = "Desired Certainty. The higher the value the stricter the search becomes, the lower the value the fuzzier the search becomes"
+	Vector               = "Target vector to be used in kNN search"
 	Force                = "The force to apply for a particular movements. Must be between 0 and 1 where 0 is equivalent to no movement and 1 is equivalent to largest movement possible"
 	ClassName            = "Name of the Class"
 	ID                   = "Concept identifier in the uuid format"
