@@ -721,7 +721,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	}
 
 	var err error
-	multiSearch := len(shardNames) > 1
 
 	out := make([]*storobj.Object, 0, shardCap)
 	dists := make([]float32, 0, shardCap)
@@ -749,7 +748,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
-				multiSearch = true
 			}
 
 			m.Lock()
@@ -765,7 +763,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	if multiSearch {
+	if len(shardNames) > 1 {
 		out, dists, err = sorter.New(i.getSchema.GetSchemaSkipAuth()).Sort(out, dists, limit, nil, false, true)
 		if err != nil {
 			return nil, nil, err
