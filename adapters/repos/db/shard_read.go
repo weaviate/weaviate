@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -283,6 +284,11 @@ func (s *Shard) objectsByDocID(ids []uint64,
 func (s *Shard) objectList(ctx context.Context, limit int,
 	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
+
+	if len(sort) > 0 {
+		return s.sortedObjectList(ctx, limit, sort, additional)
+	}
+
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
@@ -300,6 +306,105 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 	// sort herer objects
 
 	return out[:i], nil
+}
+
+type docIDAndStringValue struct {
+	docID uint64
+	value string
+}
+
+func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
+	additional additional.Properties) ([]*storobj.Object, error) {
+	prop := sort[0].Path[0]
+	order := sort[0].Order
+
+	// assumption text prop
+
+	i := 0
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+
+	candidates := make([]docIDAndStringValue, 0, limit)
+	before := time.Now()
+
+	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
+		docID, err := storobj.DocIDFromBinary(v)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarhsal doc id of item %d", i)
+		}
+
+		propValue, success, _ := storobj.ParseAndExtractTextProp(v, prop)
+		if !success {
+			continue
+		}
+
+		value := propValue[0]
+
+		if currentIsBetterThanWorstElement(candidates, limit, value, order) {
+			candidates = addToCandidates(candidates, limit, docIDAndStringValue{docID: docID, value: value}, order)
+		}
+	}
+	cursor.Close()
+
+	fmt.Printf("entire search took %s\n for %d elements\n", time.Since(before), limit)
+
+	docIDs := make([]uint64, len(candidates))
+	for i, cand := range candidates {
+		docIDs[i] = cand.docID
+	}
+
+	return s.objectsByDocID(docIDs, additional)
+}
+
+func currentIsBetterThanWorstElement(candidates []docIDAndStringValue, limit int,
+	curr string, order string) bool {
+	if len(candidates) < limit {
+		return true
+	}
+
+	target := candidates[len(candidates)-1].value
+	if order == "asc" {
+		if curr < target {
+			return true
+		}
+	} else {
+		if curr > target {
+			return true
+		}
+	}
+
+	return false
+}
+
+func addToCandidates(candidates []docIDAndStringValue, limit int,
+	newEntry docIDAndStringValue, order string) []docIDAndStringValue {
+	if len(candidates) == 0 {
+		return []docIDAndStringValue{newEntry}
+	}
+
+	pos := -1
+	for i, cand := range candidates {
+		pos = i
+		if order == "asc" {
+			if newEntry.value <= cand.value {
+				break
+			}
+		} else {
+			if newEntry.value >= cand.value {
+				break
+			}
+		}
+	}
+
+	// fmt.Printf("target pos is %d for %v\n", pos, newEntry.value[:20])
+
+	if len(candidates) < limit {
+		candidates = append(candidates[:pos+1], candidates[pos:len(candidates)]...)
+	} else {
+		candidates = append(candidates[:pos+1], candidates[pos:len(candidates)-1]...)
+	}
+	candidates[pos] = newEntry
+
+	return candidates
 }
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
