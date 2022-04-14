@@ -83,7 +83,7 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-  local-transformers-dpr)
+  local-transformers-passage-query)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
