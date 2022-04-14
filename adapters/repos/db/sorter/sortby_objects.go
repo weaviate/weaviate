@@ -21,7 +21,7 @@ type sortByObjects struct {
 	distances []float32
 	property  string
 	dataType  []string
-	sortBy
+	sortBy    sortBy
 }
 
 func newSortByObjects(objects []*storobj.Object, distances []float32, property, order string, dataType []string) sortByObjects {
@@ -34,13 +34,13 @@ func (s sortByObjects) Len() int {
 
 func (s sortByObjects) Swap(i, j int) {
 	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
-	if s.distances != nil {
+	if len(s.distances) > 0 {
 		s.distances[i], s.distances[j] = s.distances[j], s.distances[i]
 	}
 }
 
 func (s sortByObjects) Less(i, j int) bool {
-	return s.sortBy.lessBy(s.getProperty(i), s.getProperty(j), s.getDataType())
+	return s.sortBy.compare(s.getProperty(i), s.getProperty(j), s.getDataType())
 }
 
 func (s sortByObjects) getProperty(i int) interface{} {

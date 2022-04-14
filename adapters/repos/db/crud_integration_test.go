@@ -85,6 +85,10 @@ func TestCRUD(t *testing.T) {
 				Name:     "refProp",
 				DataType: []string{"TheBestThingClass"},
 			},
+			{
+				Name:     "phone",
+				DataType: []string{string(schema.DataTypePhoneNumber)},
+			},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -734,59 +738,170 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("sorting all objects", func(t *testing.T) {
-		tests := []struct {
-			name        string
-			sort        []filters.Sort
-			expectedIDs []strfmt.UUID
+		// prepare
+		thingID1 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000001")
+		thingID2 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000002")
+		thingID3 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000003")
+		thingID4 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000004")
+		actionID1 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b100001")
+		actionID2 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b100002")
+		actionID3 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b100003")
+		testData := []struct {
+			id         strfmt.UUID
+			className  string
+			stringProp string
+			phone      uint64
+			longitude  float32
 		}{
 			{
-				name:        "by stringProp asc",
-				sort:        []filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
-				expectedIDs: []strfmt.UUID{actionID, thingID},
+				id:         thingID1,
+				className:  "TheBestThingClass",
+				stringProp: "a very short text",
+				phone:      1234900,
+				longitude:  10,
 			},
 			{
-				name:        "by stringProp desc",
-				sort:        []filters.Sort{{Path: []string{"stringProp"}, Order: "desc"}},
-				expectedIDs: []strfmt.UUID{thingID, actionID},
+				id:         thingID2,
+				className:  "TheBestThingClass",
+				stringProp: "zebra lives in Zoo",
+				phone:      1234800,
+				longitude:  111,
 			},
 			{
-				name:        "by phone asc",
-				sort:        []filters.Sort{{Path: []string{"phone"}, Order: "asc"}},
-				expectedIDs: []strfmt.UUID{actionID, thingID},
+				id:         thingID3,
+				className:  "TheBestThingClass",
+				stringProp: "the best thing class",
+				phone:      1234910,
+				longitude:  2,
 			},
 			{
-				name:        "by phone desc",
-				sort:        []filters.Sort{{Path: []string{"phone"}, Order: "desc"}},
-				expectedIDs: []strfmt.UUID{thingID, actionID},
+				id:         thingID4,
+				className:  "TheBestThingClass",
+				stringProp: "car",
+				phone:      1234901,
+				longitude:  11,
 			},
 			{
-				name:        "by location asc",
-				sort:        []filters.Sort{{Path: []string{"location"}, Order: "asc"}},
-				expectedIDs: []strfmt.UUID{actionID, thingID},
+				id:         actionID1,
+				className:  "TheBestActionClass",
+				stringProp: "a very short text",
+				phone:      1234000,
+				longitude:  10,
 			},
 			{
-				name:        "by location desc",
-				sort:        []filters.Sort{{Path: []string{"location"}, Order: "desc"}},
-				expectedIDs: []strfmt.UUID{thingID, actionID},
+				id:         actionID2,
+				className:  "TheBestActionClass",
+				stringProp: "zebra lives in Zoo",
+				phone:      1234002,
+				longitude:  5,
 			},
 			{
-				name:        "by stringProp and location asc",
-				sort:        []filters.Sort{{Path: []string{"stringProp", "location"}, Order: "asc"}},
-				expectedIDs: []strfmt.UUID{actionID, thingID},
+				id:         actionID3,
+				className:  "TheBestActionClass",
+				stringProp: "fossil fuels",
+				phone:      1234010,
+				longitude:  6,
+			},
+		}
+		for _, td := range testData {
+			object := &models.Object{
+				CreationTimeUnix:   1565612833990,
+				LastUpdateTimeUnix: 1000001,
+				ID:                 td.id,
+				Class:              td.className,
+				Properties: map[string]interface{}{
+					"stringProp": td.stringProp,
+					"phone": &models.PhoneNumber{
+						CountryCode:            49,
+						DefaultCountry:         "DE",
+						Input:                  fmt.Sprintf("0171 %d", td.phone),
+						Valid:                  true,
+						InternationalFormatted: fmt.Sprintf("+49 171 %d", td.phone),
+						National:               td.phone,
+						NationalFormatted:      fmt.Sprintf("0171 %d", td.phone),
+					},
+					"location": &models.GeoCoordinates{
+						Latitude:  ptFloat32(1),
+						Longitude: ptFloat32(td.longitude),
+					},
+				},
+			}
+			vector := []float32{1.1, 1.3, 1.5, 1.4}
+			err := repo.PutObject(context.Background(), object, vector)
+			assert.Nil(t, err)
+		}
+		// run sorting tests
+		tests := []struct {
+			name              string
+			sort              []filters.Sort
+			expectedThingIDs  []strfmt.UUID
+			expectedActionIDs []strfmt.UUID
+		}{
+			{
+				name:              "by stringProp asc",
+				sort:              []filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID1, thingID4, thingID, thingID3, thingID2},
+				expectedActionIDs: []strfmt.UUID{actionID1, actionID3, actionID, actionID2},
+			},
+			{
+				name:              "by stringProp desc",
+				sort:              []filters.Sort{{Path: []string{"stringProp"}, Order: "desc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID2, thingID3, thingID, thingID4, thingID1},
+				expectedActionIDs: []strfmt.UUID{actionID2, actionID, actionID3, actionID1},
+			},
+			{
+				name:              "by phone asc",
+				sort:              []filters.Sort{{Path: []string{"phone"}, Order: "asc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID, thingID2, thingID1, thingID4, thingID3},
+				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
+			},
+			{
+				name:              "by phone desc",
+				sort:              []filters.Sort{{Path: []string{"phone"}, Order: "desc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID3, thingID4, thingID1, thingID2, thingID},
+				expectedActionIDs: []strfmt.UUID{actionID3, actionID2, actionID1, actionID},
+			},
+			{
+				name:              "by location asc",
+				sort:              []filters.Sort{{Path: []string{"location"}, Order: "asc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID3, thingID, thingID1, thingID4, thingID2},
+				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
+			},
+			{
+				name:              "by location desc",
+				sort:              []filters.Sort{{Path: []string{"location"}, Order: "desc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID2, thingID4, thingID1, thingID3, thingID},
+				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
+			},
+			{
+				name:              "by stringProp and location asc",
+				sort:              []filters.Sort{{Path: []string{"stringProp", "location"}, Order: "asc"}},
+				expectedThingIDs:  []strfmt.UUID{thingID, thingID3, thingID1, thingID4, thingID2},
+				expectedActionIDs: []strfmt.UUID{actionID1, actionID3, actionID, actionID2},
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				res, err := repo.ObjectSearch(context.Background(), 0, 100, tt.sort, nil, additional.Properties{Vector: true})
+				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true})
 				require.Nil(t, err)
-				require.Len(t, res, len(tt.expectedIDs))
+				require.Len(t, res, 9)
 
-				ids := make([]strfmt.UUID, len(res))
+				var thingIds, actionIds []strfmt.UUID
 				for i := range res {
-					ids[i] = res[i].ID
+					if res[i].ClassName == "TheBestThingClass" {
+						thingIds = append(thingIds, res[i].ID)
+					} else {
+						actionIds = append(actionIds, res[i].ID)
+					}
 				}
-				assert.EqualValues(t, ids, tt.expectedIDs, "ids dont match")
+				assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids dont match")
+				assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids dont match")
 			})
+		}
+		// clean up
+		for _, td := range testData {
+			err := repo.DeleteObject(context.Background(), td.className, td.id)
+			assert.Nil(t, err)
 		}
 	})
 

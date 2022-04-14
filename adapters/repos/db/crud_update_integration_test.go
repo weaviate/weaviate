@@ -106,7 +106,7 @@ func TestUpdateJourney(t *testing.T) {
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
-		res, err := repo.ObjectSearch(context.Background(), 0, 100, nil,
+		res, err := repo.ObjectSearch(context.Background(), 0, 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: op,
@@ -119,7 +119,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, additional.Properties{})
+			}, nil, additional.Properties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}

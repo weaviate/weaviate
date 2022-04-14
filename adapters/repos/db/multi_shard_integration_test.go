@@ -350,8 +350,8 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), 0, limit, nil, filters,
-					additional.Properties{})
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
+					nil, additional.Properties{})
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)
@@ -562,7 +562,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 			}
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					res, err := repo.ObjectSearch(context.Background(), 0, 1000, test.sort, nil,
+					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
 						additional.Properties{})
 					require.Nil(t, err)
 					if len(test.expectedIndexes) > 0 {

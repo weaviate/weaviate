@@ -76,7 +76,6 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	var out []*storobj.Object
 	// we assume that when retrieving objects, we can not tolerate duplicates as
 	// they would have a direct impact on the user
 	if err := pv.fetchDocIDs(f, limit, false); err != nil {
@@ -88,94 +87,46 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	data, err := f.byteDataByDocID(pointers.docIDs)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to byte data")
+	if len(sort) > 0 {
+		return f.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
 	}
 
-	_, data, err = f.sort(pointers.docIDs, data, sort, className)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to byte data")
-	}
+	return f.allObjectsByDocID(pointers.IDs(), limit, additional)
+}
 
+func (f *Searcher) allObjectsByDocID(ids []uint64, limit int,
+	additional additional.Properties) ([]*storobj.Object, error) {
 	// cutoff if required, e.g. after merging unlimted filters
-	// if len(pointers.docIDs) > limit {
-	// 	pointers.docIDs = pointers.docIDs[:limit]
-	// }
-	if len(data) > limit {
-		data = data[:limit]
+	docIDs := ids
+	if len(docIDs) > limit {
+		docIDs = docIDs[:limit]
 	}
 
-	res, err := f.byteDataToObjects(data, additional)
-	// res, err := f.objectsByDocID(pointers.IDs(), additional)
+	res, err := f.objectsByDocID(docIDs, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
-
-	out = res
-	return out, nil
+	return res, nil
 }
 
-func (f *Searcher) sort(docIDs []uint64, data [][]byte, sort []filters.Sort, className schema.ClassName) ([]uint64, [][]byte, error) {
-	docIDs, data, err := sorter.New(f.schema).SortDocIDs(docIDs, data, sort, className)
+func (f *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
+	additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+	docIDs, err := f.sort(ctx, limit, sort, ids, additional, className)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "sort doc ids")
+		return nil, errors.Wrap(err, "sort doc ids")
 	}
-	return docIDs, data, nil
+	return f.objectsByDocID(docIDs, additional)
 }
 
-func (f *Searcher) byteDataToObjects(data [][]byte,
+func (f *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+	additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+	return sorter.NewLSMSorter(f.store, f.schema, className).
+		SortDocIDs(ctx, limit, sort, docIDs, additional)
+}
+
+func (f *Searcher) objectsByDocID(ids []uint64,
 	additional additional.Properties) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(data))
-	for i := range data {
-		unmarshalled, err := storobj.FromBinaryOptional(data[i], additional)
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
-		}
-
-		out[i] = unmarshalled
-	}
-	return out, nil
-}
-
-// func (f *Searcher) objectsByDocID(ids []uint64,
-// 	additional additional.Properties) ([]*storobj.Object, error) {
-// 	out := make([]*storobj.Object, len(ids))
-
-// 	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
-// 	if bucket == nil {
-// 		return nil, errors.Errorf("objects bucket not found")
-// 	}
-
-// 	i := 0
-
-// 	for _, id := range ids {
-// 		keyBuf := bytes.NewBuffer(nil)
-// 		binary.Write(keyBuf, binary.LittleEndian, &id)
-// 		docIDBytes := keyBuf.Bytes()
-// 		res, err := bucket.GetBySecondary(0, docIDBytes)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		if res == nil {
-// 			continue
-// 		}
-
-// 		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
-// 		if err != nil {
-// 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
-// 		}
-
-// 		out[i] = unmarshalled
-// 		i++
-// 	}
-
-// 	return out[:i], nil
-// }
-
-func (f *Searcher) byteDataByDocID(ids []uint64) ([][]byte, error) {
-	out := make([][]byte, len(ids))
+	out := make([]*storobj.Object, len(ids))
 
 	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -197,7 +148,12 @@ func (f *Searcher) byteDataByDocID(ids []uint64) ([][]byte, error) {
 			continue
 		}
 
-		out[i] = res
+		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
 		i++
 	}
 

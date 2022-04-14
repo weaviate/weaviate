@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -416,6 +417,132 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		assert.Equal(t, count, len(res))
 	})
 
+	t.Run("sort by", func(t *testing.T) {
+		getPhoneNumber := func(a search.Result) *float64 {
+			prop := a.Object().Properties.(map[string]interface{})["phone_property"]
+			if phoneNumber, ok := prop.(*models.PhoneNumber); ok {
+				phoneStr := fmt.Sprintf("%v%v", phoneNumber.CountryCode, phoneNumber.National)
+				if phone, err := strconv.ParseFloat(phoneStr, 64); err == nil {
+					return &phone
+				}
+			}
+			return nil
+		}
+		getDate := func(a search.Result) *time.Time {
+			asString := a.Object().Properties.(map[string]interface{})["date_property"].(string)
+			if date, err := time.Parse(time.RFC3339, asString); err == nil {
+				return &date
+			}
+			return nil
+		}
+		testData := []struct {
+			name      string
+			sort      []filters.Sort
+			compareFn func(a, b search.Result) bool
+		}{
+			{
+				name: "description asc",
+				sort: []filters.Sort{{Path: []string{"description"}, Order: "asc"}},
+				compareFn: func(a, b search.Result) bool {
+					descriptionA := a.Object().Properties.(map[string]interface{})["description"].(string)
+					descriptionB := b.Object().Properties.(map[string]interface{})["description"].(string)
+					return strings.ToLower(descriptionA) <= strings.ToLower(descriptionB)
+				},
+			},
+			{
+				name: "description desc",
+				sort: []filters.Sort{{Path: []string{"description"}, Order: "desc"}},
+				compareFn: func(a, b search.Result) bool {
+					descriptionA := a.Object().Properties.(map[string]interface{})["description"].(string)
+					descriptionB := b.Object().Properties.(map[string]interface{})["description"].(string)
+					return strings.ToLower(descriptionA) >= strings.ToLower(descriptionB)
+				},
+			},
+			{
+				name: "date_property asc",
+				sort: []filters.Sort{{Path: []string{"date_property"}, Order: "asc"}},
+				compareFn: func(a, b search.Result) bool {
+					datePropA, datePropB := getDate(a), getDate(b)
+					if datePropA != nil && datePropB != nil {
+						return datePropA.Before(*datePropB)
+					}
+					return false
+				},
+			},
+			{
+				name: "date_property desc",
+				sort: []filters.Sort{{Path: []string{"date_property"}, Order: "desc"}},
+				compareFn: func(a, b search.Result) bool {
+					datePropA, datePropB := getDate(a), getDate(b)
+					if datePropA != nil && datePropB != nil {
+						return datePropA.After(*datePropB)
+					}
+					return false
+				},
+			},
+			{
+				name: "int_property asc",
+				sort: []filters.Sort{{Path: []string{"int_property"}, Order: "asc"}},
+				compareFn: func(a, b search.Result) bool {
+					intPropertyA := a.Object().Properties.(map[string]interface{})["int_property"].(float64)
+					intPropertyB := b.Object().Properties.(map[string]interface{})["int_property"].(float64)
+					return intPropertyA <= intPropertyB
+				},
+			},
+			{
+				name: "int_property desc",
+				sort: []filters.Sort{{Path: []string{"int_property"}, Order: "desc"}},
+				compareFn: func(a, b search.Result) bool {
+					intPropertyA := a.Object().Properties.(map[string]interface{})["int_property"].(float64)
+					intPropertyB := b.Object().Properties.(map[string]interface{})["int_property"].(float64)
+					return intPropertyA >= intPropertyB
+				},
+			},
+			{
+				name: "phone_property asc",
+				sort: []filters.Sort{{Path: []string{"phone_property"}, Order: "asc"}},
+				compareFn: func(a, b search.Result) bool {
+					phoneA, phoneB := getPhoneNumber(a), getPhoneNumber(b)
+					if phoneA != nil && phoneB != nil {
+						return *phoneA <= *phoneB
+					}
+					return false
+				},
+			},
+			{
+				name: "phone_property desc",
+				sort: []filters.Sort{{Path: []string{"phone_property"}, Order: "desc"}},
+				compareFn: func(a, b search.Result) bool {
+					phoneA, phoneB := getPhoneNumber(a), getPhoneNumber(b)
+					if phoneA != nil && phoneB != nil {
+						return *phoneA >= *phoneB
+					}
+					return false
+				},
+			},
+		}
+		for _, td := range testData {
+			t.Run(td.name, func(t *testing.T) {
+				params := traverser.GetParams{
+					ClassName:  "Distributed",
+					Sort:       td.sort,
+					Pagination: &filters.Pagination{Limit: 100},
+				}
+
+				node := nodes[rand.Intn(len(nodes))]
+				res, err := node.repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.NotEmpty(t, res)
+
+				if len(res) > 1 {
+					for i := 1; i < len(res); i++ {
+						assert.True(t, td.compareFn(res[i-1], res[i]))
+					}
+				}
+			})
+		}
+	})
+
 	t.Run("delete a third of the data from random nodes", func(t *testing.T) {
 		for i, obj := range data {
 			if i%3 != 0 {
@@ -659,6 +786,14 @@ func class() *models.Class {
 				Name:     "date_array_property",
 				DataType: []string{string(schema.DataTypeDateArray)},
 			},
+			{
+				Name:     "int_property",
+				DataType: []string{string(schema.DataTypeInt)},
+			},
+			{
+				Name:     "phone_property",
+				DataType: []string{string(schema.DataTypePhoneNumber)},
+			},
 		},
 	}
 }
@@ -699,6 +834,7 @@ func exampleData(size int) []*models.Object {
 		}
 
 		timestamp := time.Unix(0, 0).Add(time.Duration(i) * time.Hour)
+		phoneNumber := uint64(1000000 + rand.Intn(10000))
 
 		out[i] = &models.Object{
 			Class: "Distributed",
@@ -707,6 +843,16 @@ func exampleData(size int) []*models.Object {
 				"description":         fmt.Sprintf("object-%d", i),
 				"date_property":       timestamp,
 				"date_array_property": []interface{}{timestamp},
+				"int_property":        rand.Intn(1000),
+				"phone_property": &models.PhoneNumber{
+					CountryCode:            49,
+					DefaultCountry:         "DE",
+					Input:                  fmt.Sprintf("0171 %d", phoneNumber),
+					Valid:                  true,
+					InternationalFormatted: fmt.Sprintf("+49 171 %d", phoneNumber),
+					National:               phoneNumber,
+					NationalFormatted:      fmt.Sprintf("0171 %d", phoneNumber),
+				},
 			},
 			Vector: vec,
 		}

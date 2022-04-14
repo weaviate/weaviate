@@ -116,7 +116,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 0, 10, nil,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -129,7 +129,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -137,7 +137,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := repo.ObjectSearch(context.Background(), 0, 10, nil,
+			res, err := repo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -150,7 +150,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -201,7 +201,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object by id through filter", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 0, 10, nil,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -214,7 +214,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -222,7 +222,7 @@ func TestRestartJourney(t *testing.T) {
 		})
 
 		t.Run("find object through regular inverted index", func(t *testing.T) {
-			res, err := newRepo.ObjectSearch(context.Background(), 0, 10, nil,
+			res, err := newRepo.ObjectSearch(context.Background(), 0, 10,
 				&filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -235,7 +235,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",

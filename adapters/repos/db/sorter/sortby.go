@@ -25,7 +25,7 @@ type sortBy struct {
 	comparator
 }
 
-func (s sortBy) lessBy(i, j interface{}, dataType schema.DataType) bool {
+func (s sortBy) compare(i, j interface{}, dataType schema.DataType) bool {
 	switch dataType {
 	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob:
 		a, b := s.asString(i), s.asString(j)

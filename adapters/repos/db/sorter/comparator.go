@@ -11,7 +11,10 @@
 
 package sorter
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type comparator struct {
 	order string
@@ -20,9 +23,9 @@ type comparator struct {
 func (s comparator) compareString(a, b *string) bool {
 	if a != nil && b != nil {
 		if s.order == "desc" {
-			return *a > *b
+			return strings.ToLower(*a) > strings.ToLower(*b)
 		}
-		return *a < *b
+		return strings.ToLower(*a) < strings.ToLower(*b)
 	}
 	return s.handleNil(a == nil, b == nil)
 }

@@ -105,12 +105,7 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		WithField("event", "merge_scores_of_terms").
 		Debugf("merge score of all terms took %s", took)
 
-	// TODO: we can probably do this way smarter in a way that we immediately
-	// skip anything worse the the current worst candidate
 	ids = b.sort(ids)
-	// sort.Slice(ids.docIDs, func(a, b int) bool {
-	// 	return ids.docIDs[a].score > ids.docIDs[b].score
-	// })
 
 	if len(ids.docIDs) > limit {
 		ids.docIDs = ids.docIDs[:limit]

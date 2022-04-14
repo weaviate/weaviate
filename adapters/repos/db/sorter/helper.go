@@ -15,11 +15,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-type sorterClassHelper struct {
+type classHelper struct {
 	schema schema.Schema
 }
 
-func (s *sorterClassHelper) getDataType(className, property string) []string {
+func (s *classHelper) getDataType(className, property string) []string {
 	var dataType []string
 	class := s.schema.GetClass(schema.ClassName(className))
 	for _, prop := range class.Properties {
@@ -30,7 +30,7 @@ func (s *sorterClassHelper) getDataType(className, property string) []string {
 	return dataType
 }
 
-func (s *sorterClassHelper) getOrder(order string) string {
+func (s *classHelper) getOrder(order string) string {
 	switch order {
 	case "asc", "desc":
 		return order
