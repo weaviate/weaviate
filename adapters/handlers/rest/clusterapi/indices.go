@@ -462,7 +462,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, distance, limit, filters, keywordRanking, sort, additional, err := IndicesPayloads.SearchParams.
+		vector, certainty, limit, filters, keywordRanking, sort, additional, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -471,7 +471,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, distance, limit, filters, keywordRanking, sort, additional)
+			vector, certainty, limit, filters, keywordRanking, sort, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

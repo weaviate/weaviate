@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package sorter
+package db
 
 import (
 	"sort"
@@ -42,7 +42,7 @@ func newDistancesSorter() *sortObjectsByDistance {
 }
 
 func (s *sortObjectsByDistance) sort(objects []*storobj.Object, distances []float32) ([]*storobj.Object, []float32) {
-	sbd := sortByScores{objects, distances}
+	sbd := sortByDistances{objects, distances}
 	sort.Sort(sbd)
 	return sbd.objects, sbd.scores
 }

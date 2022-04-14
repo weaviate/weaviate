@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -23,9 +22,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/multi"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -176,7 +177,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, additional)
+		objs, err := s.objectList(ctx, limit, sort, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -188,7 +189,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -227,6 +228,18 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	}
 
 	hnswTook := time.Since(beforeVector)
+
+	var sortTook uint64
+	if len(sort) > 0 {
+		beforeSort := time.Now()
+		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort, additional,
+			s.index.Config.ClassName, ids, dists)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "vector search sort")
+		}
+		sortTook = uint64(time.Since(beforeSort))
+	}
+
 	beforeObjects := time.Now()
 
 	objs, err := s.objectsByDocID(ids, additional)
@@ -240,6 +253,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 			"inverted_took":         uint64(invertedTook),
 			"hnsw_took":             uint64(hnswTook),
 			"retrieve_objects_took": uint64(objectsTook),
+			"sort_took":             uint64(sortTook),
 		}).Trace("completed filtered vector search")
 
 	return objs, dists, nil
@@ -282,12 +296,23 @@ func (s *Shard) objectsByDocID(ids []uint64,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, limit)
-
+	sort []filters.Sort, additional additional.Properties,
+	className schema.ClassName) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
-		return s.sortedObjectList(ctx, limit, sort, additional)
+		docIDs, err := s.sortedObjectList(ctx, limit, sort, additional, className)
+		if err != nil {
+			return nil, err
+		}
+		return s.objectsByDocID(docIDs, additional)
 	}
+
+	return s.allObjectList(ctx, limit, additional, className)
+}
+
+func (s *Shard) allObjectList(ctx context.Context, limit int,
+	additional additional.Properties,
+	className schema.ClassName) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, limit)
 
 	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
@@ -303,108 +328,28 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		i++
 	}
 
-	// sort herer objects
-
 	return out[:i], nil
 }
 
-type docIDAndStringValue struct {
-	docID uint64
-	value string
-}
-
 func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
-	additional additional.Properties) ([]*storobj.Object, error) {
-	prop := sort[0].Path[0]
-	order := sort[0].Order
-
-	// assumption text prop
-
-	i := 0
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-
-	candidates := make([]docIDAndStringValue, 0, limit)
-	before := time.Now()
-
-	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-		docID, err := storobj.DocIDFromBinary(v)
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal doc id of item %d", i)
-		}
-
-		propValue, success, _ := storobj.ParseAndExtractTextProp(v, prop)
-		if !success {
-			continue
-		}
-
-		value := propValue[0]
-
-		if currentIsBetterThanWorstElement(candidates, limit, value, order) {
-			candidates = addToCandidates(candidates, limit, docIDAndStringValue{docID: docID, value: value}, order)
-		}
+	additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
+	docIDs, err := lsmSorter.Sort(ctx, limit, sort, additional)
+	if err != nil {
+		return nil, errors.Wrap(err, "sort object list")
 	}
-	cursor.Close()
-
-	fmt.Printf("entire search took %s\n for %d elements\n", time.Since(before), limit)
-
-	docIDs := make([]uint64, len(candidates))
-	for i, cand := range candidates {
-		docIDs[i] = cand.docID
-	}
-
-	return s.objectsByDocID(docIDs, additional)
+	return docIDs, nil
 }
 
-func currentIsBetterThanWorstElement(candidates []docIDAndStringValue, limit int,
-	curr string, order string) bool {
-	if len(candidates) < limit {
-		return true
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	additional additional.Properties, className schema.ClassName,
+	docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
+	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
+	sortedDocIDs, sortedDists, err := lsmSorter.SortDocIDsAndDists(ctx, limit, sort, docIDs, dists, additional)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "sort objects with distances")
 	}
-
-	target := candidates[len(candidates)-1].value
-	if order == "asc" {
-		if curr < target {
-			return true
-		}
-	} else {
-		if curr > target {
-			return true
-		}
-	}
-
-	return false
-}
-
-func addToCandidates(candidates []docIDAndStringValue, limit int,
-	newEntry docIDAndStringValue, order string) []docIDAndStringValue {
-	if len(candidates) == 0 {
-		return []docIDAndStringValue{newEntry}
-	}
-
-	pos := -1
-	for i, cand := range candidates {
-		pos = i
-		if order == "asc" {
-			if newEntry.value <= cand.value {
-				break
-			}
-		} else {
-			if newEntry.value >= cand.value {
-				break
-			}
-		}
-	}
-
-	// fmt.Printf("target pos is %d for %v\n", pos, newEntry.value[:20])
-
-	if len(candidates) < limit {
-		candidates = append(candidates[:pos+1], candidates[pos:len(candidates)]...)
-	} else {
-		candidates = append(candidates[:pos+1], candidates[pos:len(candidates)-1]...)
-	}
-	candidates[pos] = newEntry
-
-	return candidates
+	return sortedDocIDs, sortedDists, nil
 }
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,

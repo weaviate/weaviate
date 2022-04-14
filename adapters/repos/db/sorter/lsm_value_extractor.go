@@ -20,62 +20,36 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-type sortByDocIDs struct {
-	docIDs   []uint64
-	data     [][]byte
-	property string
-	dataType []string
-	sortBy
+type lsmPropertyExtractor struct {
+	className   schema.ClassName
+	classHelper *classHelper
+	property    string
 }
 
-func newSortByDocIDs(docIDs []uint64, data [][]byte, property, order string, dataType []string) sortByDocIDs {
-	return sortByDocIDs{docIDs, data, property, dataType, sortBy{comparator{order}}}
-}
-
-func (s sortByDocIDs) Len() int {
-	return len(s.docIDs)
-}
-
-func (s sortByDocIDs) Swap(i, j int) {
-	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
-	s.data[i], s.data[j] = s.data[j], s.data[i]
-}
-
-func (s sortByDocIDs) Less(i, j int) bool {
-	return s.sortBy.lessBy(s.getProperty(i), s.getProperty(j), s.getDataType())
-}
-
-func (s sortByDocIDs) getDataType() schema.DataType {
-	if len(s.dataType) > 0 {
-		return schema.DataType(s.dataType[0])
-	}
-	return ""
-}
-
-func (s sortByDocIDs) getProperty(i int) interface{} {
-	prop, success, _ := storobj.ParseAndExtractTextProp(s.data[i], s.property)
+func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
+	prop, success, _ := storobj.ParseAndExtractTextProp(v, e.property)
 	if success {
-		switch s.getDataType() {
+		switch e.getDataType() {
 		case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob:
 			return prop[0]
 		case schema.DataTypeStringArray, schema.DataTypeTextArray:
 			return prop
 		case schema.DataTypeNumber, schema.DataTypeInt:
-			return s.mustExtractNumber(prop)[0]
+			return e.mustExtractNumber(prop)[0]
 		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-			return s.mustExtractNumber(prop)
+			return e.mustExtractNumber(prop)
 		case schema.DataTypeDate:
 			return prop[0]
 		case schema.DataTypeDateArray:
 			return prop
 		case schema.DataTypeBoolean:
-			return s.mustExtractBool(prop)[0]
+			return e.mustExtractBool(prop)[0]
 		case schema.DataTypeBooleanArray:
-			return s.mustExtractBool(prop)
+			return e.mustExtractBool(prop)
 		case schema.DataTypePhoneNumber:
-			return s.mustExtractPhoneNumber(prop)
+			return e.mustExtractPhoneNumber(prop)
 		case schema.DataTypeGeoCoordinates:
-			return s.mustExtractGeoCoordinates(prop)
+			return e.mustExtractGeoCoordinates(prop)
 		default:
 			return nil
 		}
@@ -83,7 +57,7 @@ func (s sortByDocIDs) getProperty(i int) interface{} {
 	return nil
 }
 
-func (s sortByDocIDs) mustExtractNumber(value []string) []float64 {
+func (e *lsmPropertyExtractor) mustExtractNumber(value []string) []float64 {
 	numbers := make([]float64, len(value))
 	for i := range value {
 		number, err := strconv.ParseFloat(value[i], 64)
@@ -95,7 +69,7 @@ func (s sortByDocIDs) mustExtractNumber(value []string) []float64 {
 	return numbers
 }
 
-func (s sortByDocIDs) mustExtractBool(value []string) []bool {
+func (e *lsmPropertyExtractor) mustExtractBool(value []string) []bool {
 	bools := make([]bool, len(value))
 	for i := range value {
 		bools[i] = value[i] == "true"
@@ -103,7 +77,7 @@ func (s sortByDocIDs) mustExtractBool(value []string) []bool {
 	return bools
 }
 
-func (s sortByDocIDs) mustExtractPhoneNumber(value []string) *models.PhoneNumber {
+func (e *lsmPropertyExtractor) mustExtractPhoneNumber(value []string) *models.PhoneNumber {
 	var phoneNumber *models.PhoneNumber
 	if len(value) == 1 {
 		if err := json.Unmarshal([]byte(value[0]), &phoneNumber); err != nil {
@@ -113,7 +87,7 @@ func (s sortByDocIDs) mustExtractPhoneNumber(value []string) *models.PhoneNumber
 	return phoneNumber
 }
 
-func (s sortByDocIDs) mustExtractGeoCoordinates(value []string) *models.GeoCoordinates {
+func (e *lsmPropertyExtractor) mustExtractGeoCoordinates(value []string) *models.GeoCoordinates {
 	var geoCoordinates *models.GeoCoordinates
 	if len(value) == 1 {
 		if err := json.Unmarshal([]byte(value[0]), &geoCoordinates); err != nil {
@@ -121,4 +95,12 @@ func (s sortByDocIDs) mustExtractGeoCoordinates(value []string) *models.GeoCoord
 		}
 	}
 	return geoCoordinates
+}
+
+func (e *lsmPropertyExtractor) getDataType() schema.DataType {
+	dataType := e.classHelper.getDataType(e.className.String(), e.property)
+	if len(dataType) > 0 {
+		return schema.DataType(dataType[0])
+	}
+	return ""
 }

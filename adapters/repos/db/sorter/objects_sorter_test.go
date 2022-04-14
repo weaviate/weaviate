@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
-func Test_sorterImpl_sort(t *testing.T) {
+func Test_objectsSorter(t *testing.T) {
 	type args struct {
 		property string
 		order    string

@@ -12,51 +12,118 @@
 package sorter
 
 import (
-	"sort"
+	"context"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
+	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-type sorterImpl struct {
-	sorterClassHelper *sorterClassHelper
-	objects           []*storobj.Object
-	distances         []float32
+type Sorter interface {
+	Sort(objects []*storobj.Object, distances []float32,
+		limit int, sort []filters.Sort) ([]*storobj.Object, []float32, error)
 }
 
-func newObjectsSorter(schema schema.Schema, objects []*storobj.Object, distances []float32) *sorterImpl {
-	return &sorterImpl{&sorterClassHelper{schema}, objects, distances}
+type sorterHelper struct {
+	schema schema.Schema
 }
 
-func (s *sorterImpl) sort(property, order string) ([]*storobj.Object, []float32) {
-	if len(s.objects) > 0 {
-		dataType := s.sorterClassHelper.getDataType(s.objects[0].Object.Class, property)
-		sortOrder := s.sorterClassHelper.getOrder(order)
-		sorter := newSortByObjects(s.objects, s.distances, property, sortOrder, dataType)
-		sort.Sort(sorter)
-		return sorter.objects, sorter.distances
+func New(schema schema.Schema) Sorter {
+	return sorterHelper{schema}
+}
+
+func (s sorterHelper) Sort(objects []*storobj.Object,
+	scores []float32, limit int, sort []filters.Sort) ([]*storobj.Object, []float32, error) {
+	objs, scrs := objects, scores
+	for j := range sort {
+		for k := range sort[j].Path {
+			objs, scrs = newObjectsSorter(s.schema, objs, scrs).
+				sort(sort[j].Path[k], sort[j].Order)
+		}
 	}
-	return s.objects, s.distances
-}
-
-type sorterDocIdsImpl struct {
-	sorterClassHelper *sorterClassHelper
-	docIDs            []uint64
-	values            [][]byte
-	className         schema.ClassName
-}
-
-func newDocIDsSorter(schema schema.Schema, docIDs []uint64, values [][]byte, className schema.ClassName) *sorterDocIdsImpl {
-	return &sorterDocIdsImpl{&sorterClassHelper{schema}, docIDs, values, className}
-}
-
-func (s *sorterDocIdsImpl) sort(property, order string) ([]uint64, [][]byte) {
-	if len(s.docIDs) > 0 {
-		dataType := s.sorterClassHelper.getDataType(s.className.String(), property)
-		sortOrder := s.sorterClassHelper.getOrder(order)
-		sorter := newSortByDocIDs(s.docIDs, s.values, property, sortOrder, dataType)
-		sort.Sort(sorter)
-		return sorter.docIDs, sorter.data
+	// return and if necessary cut off results
+	if limit > 0 && len(objs) > limit {
+		if scrs != nil {
+			return objs[:limit], scrs[:limit], nil
+		}
+		return objs[:limit], nil, nil
 	}
-	return s.docIDs, s.values
+	return objs, scrs, nil
+}
+
+type LSMSorter interface {
+	Sort(ctx context.Context, limit int, sort []filters.Sort,
+		additional additional.Properties) ([]uint64, error)
+	SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
+		additional additional.Properties) ([]uint64, error)
+	SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+		ids []uint64, dists []float32, additional additional.Properties) ([]uint64, []float32, error)
+}
+
+type lsmSorterImpl struct {
+	store     *lsmkv.Store
+	schema    schema.Schema
+	className schema.ClassName
+}
+
+func NewLSMSorter(store *lsmkv.Store, schema schema.Schema, className schema.ClassName) LSMSorter {
+	return &lsmSorterImpl{store, schema, className}
+}
+
+func (s *lsmSorterImpl) Sort(ctx context.Context, limit int, sort []filters.Sort, additional additional.Properties) ([]uint64, error) {
+	var docIDs []uint64
+	var err error
+	i := 0
+	for j := range sort {
+		for k := range sort[j].Path {
+			if i > 0 {
+				lsmSorter := newLSMStoreSorter(s.store, s.schema, s.className, sort[j].Path[k], sort[j].Order)
+				docIDs, err = lsmSorter.sortDocIDs(ctx, limit, additional, docIDs)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				lsmSorter := newLSMStoreSorter(s.store, s.schema, s.className, sort[j].Path[k], sort[j].Order)
+				docIDs, err = lsmSorter.sort(ctx, limit, additional)
+				if err != nil {
+					return nil, err
+				}
+			}
+			i++
+		}
+	}
+	return docIDs, nil
+}
+
+func (s *lsmSorterImpl) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64, additional additional.Properties) ([]uint64, error) {
+	docIDs := ids
+	var err error
+	for j := range sort {
+		for k := range sort[j].Path {
+			lsmSorter := newLSMStoreSorter(s.store, s.schema, s.className, sort[j].Path[k], sort[j].Order)
+			docIDs, err = lsmSorter.sortDocIDs(ctx, limit, additional, docIDs)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return docIDs, nil
+}
+
+func (s *lsmSorterImpl) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	ids []uint64, dists []float32, additional additional.Properties) ([]uint64, []float32, error) {
+	docIDs, distances := ids, dists
+	var err error
+	for j := range sort {
+		for k := range sort[j].Path {
+			lsmSorter := newLSMStoreSorter(s.store, s.schema, s.className, sort[j].Path[k], sort[j].Order)
+			docIDs, distances, err = lsmSorter.sortDocIDsAndDists(ctx, limit, additional, docIDs, distances)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return docIDs, distances, nil
 }

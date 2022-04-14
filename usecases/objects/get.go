@@ -118,7 +118,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
 		return nil, NewErrInternal("list objects: %v", err)
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		m.getSort(sort, order), nil, additional)
+		nil, m.getSort(sort, order), additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}

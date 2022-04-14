@@ -71,8 +71,8 @@ type VectorRepo interface {
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
-	ObjectSearch(ctx context.Context, offset, limit int, sort []filters.Sort,
-		filters *filters.LocalFilter, additional additional.Properties) (search.Results, error)
+	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
+		sort []filters.Sort, additional additional.Properties) (search.Results, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	AddReference(ctx context.Context, className string,
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
