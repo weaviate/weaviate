@@ -40,8 +40,8 @@ func TestGetMeta(t *testing.T) {
 	})
 
 	t.Run("when passage and query servers are providing meta", func(t *testing.T) {
-		serverPassage := httptest.NewServer(&testMetaHandler{t: t, modelType: "dpr-passage"})
-		serverQuery := httptest.NewServer(&testMetaHandler{t: t, modelType: "dpr-query"})
+		serverPassage := httptest.NewServer(&testMetaHandler{t: t, modelType: "passage"})
+		serverQuery := httptest.NewServer(&testMetaHandler{t: t, modelType: "query"})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
 		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
@@ -90,7 +90,7 @@ func (h *testMetaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *testMetaHandler) metaInfo() string {
 	switch h.modelType {
-	case "dpr-passage":
+	case "passage":
 		return `{
               "model": {
                 "return_dict": true,
@@ -169,7 +169,7 @@ func (h *testMetaHandler) metaInfo() string {
                 "position_embedding_type": "absolute"
               }
             }`
-	case "dpr-query":
+	case "query":
 		return `{
               "model": {
                 "return_dict": true,
