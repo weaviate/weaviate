@@ -77,7 +77,12 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 
 		limit, err := extractLimit(p.Args)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract limits: %s", err)
+			return nil, fmt.Errorf("could not extract limit: %s", err)
+		}
+
+		objectLimit, err := extractObjectLimit(p.Args)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract objectLimit: %s", err)
 		}
 
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
@@ -112,9 +117,15 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			GroupBy:          groupBy,
 			IncludeMetaCount: includeMeta,
 			Limit:            limit,
+			ObjectLimit:      objectLimit,
 			NearVector:       nearVectorParams,
 			NearObject:       nearObjectParams,
 			ModuleParams:     moduleParams,
+		}
+
+		// we might support objectLimit without nearMedia filters later, e.g. with sort
+		if params.ObjectLimit != nil && !areNearMediaFiltersIncluded(params) {
+			return nil, fmt.Errorf("objectLimit can only be used with a near<Media> filter")
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
@@ -234,10 +245,24 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 
 	limitInt, ok := limit.(int)
 	if !ok {
-		return nil, fmt.Errorf("limit must be a int, instead got: %#v", limit)
+		return nil, fmt.Errorf("limit must be an int, instead got: %#v", limit)
 	}
 
 	return &limitInt, nil
+}
+
+func extractObjectLimit(args map[string]interface{}) (*int, error) {
+	objectLimit, ok := args["objectLimit"]
+	if !ok {
+		return nil, nil
+	}
+
+	objectLimitInt, ok := objectLimit.(int)
+	if !ok {
+		return nil, fmt.Errorf("objectLimit must be an int, instead got: %#v", objectLimit)
+	}
+
+	return &objectLimitInt, nil
 }
 
 func extractLimitFromArgs(args []*ast.Argument) *int {
@@ -254,4 +279,10 @@ func extractLimitFromArgs(args []*ast.Argument) *int {
 	}
 
 	return nil
+}
+
+func areNearMediaFiltersIncluded(params *aggregation.Params) bool {
+	return params.NearObject != nil ||
+		params.NearVector != nil ||
+		len(params.ModuleParams) > 0
 }
