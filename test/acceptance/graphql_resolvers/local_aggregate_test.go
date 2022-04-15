@@ -13,6 +13,7 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -967,6 +968,169 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 				"type":       "cref",
 			}
 			assert.Equal(t, expected, inCountry)
+		})
+	})
+}
+
+func localMetaWithObjectLimit(t *testing.T) {
+	t.Run("with nearObject and certainty", func(t *testing.T) {
+		objectLimit := 1
+		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+			{
+				Aggregate{
+					City (
+						objectLimit: %d
+						nearObject: {
+							id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+							certainty: 0.7
+						}
+					){
+						meta {
+							count
+						}
+					}
+				}
+			}
+		`, objectLimit))
+
+		t.Run("validate objectLimit functions as expected", func(t *testing.T) {
+			res := result.Get("Aggregate", "City").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			assert.Equal(t, json.Number(fmt.Sprint(objectLimit)), count)
+		})
+	})
+
+	t.Run("with nearObject and no certainty", func(t *testing.T) {
+		objectLimit := 2
+		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+			{
+				Aggregate{
+					City (
+						objectLimit: %d
+						nearObject: {
+							id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+						}
+					){
+						meta {
+							count
+						}
+					}
+				}
+			}
+		`, objectLimit))
+
+		t.Run("validate objectLimit functions as expected", func(t *testing.T) {
+			res := result.Get("Aggregate", "City").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			assert.Equal(t, json.Number(fmt.Sprint(objectLimit)), count)
+		})
+	})
+
+	t.Run("with nearText and no certainty, where filter and groupBy", func(t *testing.T) {
+		objectLimit := 1
+		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+			{
+				Aggregate {
+					City (
+					groupBy: "population"
+					where: {
+						valueBoolean: true,
+						operator: Equal,
+						path: ["isCapital"]
+					}
+					objectLimit: %d
+					nearText: {
+						concepts: ["Amsterdam"]
+						certainty: 0.9
+					}
+					){
+						meta {
+							count
+						}
+						isCapital {
+							count
+							percentageFalse
+							percentageTrue
+							totalFalse
+							totalTrue
+							type
+						}
+						population {
+							mean
+							count
+							maximum
+							minimum
+							sum
+							type
+						}
+						inCountry {
+							pointingTo
+							type
+						}
+						name {
+							topOccurrences {
+								occurs
+								value
+							}
+							type
+							count
+						}
+					}
+				}
+			}
+		`, objectLimit))
+
+		t.Run("meta count", func(t *testing.T) {
+			meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			expected := json.Number("1")
+			assert.Equal(t, expected, count)
+		})
+
+		t.Run("ref prop", func(t *testing.T) {
+			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
+			expected := map[string]interface{}{
+				"pointingTo": []interface{}{"Country"},
+				"type":       "cref",
+			}
+			assert.Equal(t, expected, inCountry)
+		})
+	})
+
+	t.Run("with nearObject and certainty, where filter", func(t *testing.T) {
+		objectLimit := 1
+		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+			{
+				Aggregate{
+					City (
+						where: {
+							valueBoolean: true,
+							operator: Equal,
+							path: ["isCapital"]
+						}
+						objectLimit: %d
+						nearObject: {
+							id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+						}
+					){
+						meta {
+							count
+						}
+					}
+				}
+			}
+		`, objectLimit))
+
+		t.Run("validate objectLimit functions as expected", func(t *testing.T) {
+			res := result.Get("Aggregate", "City").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			assert.Equal(t, json.Number(fmt.Sprint(objectLimit)), count)
 		})
 	})
 }
