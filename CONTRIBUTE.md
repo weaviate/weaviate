@@ -29,7 +29,7 @@ If you create a pull request without smart commits, the pull request will be [sq
 
 ### Running Weaviate without database
 
-If you work on Weaviate but not need a database. You can run Weaviate like this: `./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 --config="dummy"`
+If you work on Weaviate but don't need a database. You can run Weaviate like this: `./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 --config="dummy"`
 
 ### Contributor License Agreement
 
