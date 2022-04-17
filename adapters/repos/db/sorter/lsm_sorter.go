@@ -33,9 +33,9 @@ type docIDAndValue struct {
 type lsmSorter struct {
 	store             *lsmkv.Store
 	className         schema.ClassName
-	sorterClassHelper classHelper
+	classHelper       *classHelper
 	property, order   string
-	sorter            sortBy
+	sorter            *sortBy
 	propertyExtractor *lsmPropertyExtractor
 }
 
@@ -43,11 +43,11 @@ func newLSMStoreSorter(store *lsmkv.Store, schema schema.Schema, className schem
 	return &lsmSorter{
 		store:             store,
 		className:         className,
-		sorterClassHelper: classHelper{schema},
+		classHelper:       newClassHelper(schema),
 		property:          property,
 		order:             order,
-		sorter:            sortBy{comparator{order}},
-		propertyExtractor: &lsmPropertyExtractor{className, &classHelper{schema}, property},
+		sorter:            newSortBy(newComparator(order)),
+		propertyExtractor: newPropertyExtractor(className, newClassHelper(schema), property),
 	}
 }
 
@@ -209,7 +209,7 @@ func (s *lsmSorter) getPropertyValue(v []byte, property string) interface{} {
 }
 
 func (s *lsmSorter) compare(curr, target interface{}) bool {
-	dataType := s.sorterClassHelper.getDataType(s.className.String(), s.property)
+	dataType := s.classHelper.getDataType(s.className.String(), s.property)
 	if len(dataType) > 0 {
 		return s.sorter.compare(curr, target, schema.DataType(dataType[0]))
 	}

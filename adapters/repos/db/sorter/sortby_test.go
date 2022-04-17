@@ -129,11 +129,11 @@ func Test_sortBy_compare(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := sortBy{comparator{"asc"}}
+			s := newSortBy(newComparator("asc"))
 			if got := s.compare(tt.args.i, tt.args.j, tt.args.dataType); got != tt.want.asc {
 				t.Errorf("sortBy.compare(asc) = %v, want %v", got, tt.want.asc)
 			}
-			s = sortBy{comparator{"desc"}}
+			s = newSortBy(newComparator("desc"))
 			if got := s.compare(tt.args.i, tt.args.j, tt.args.dataType); got != tt.want.desc {
 				t.Errorf("sortBy.compare(desc) = %v, want %v", got, tt.want.desc)
 			}

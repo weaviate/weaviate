@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -686,12 +685,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if keywordRanking != nil {
-		res := &inverted.RankedResults{
-			Objects: outObjects,
-			Scores:  outScores,
-		}
-		res = i.sortRankedResults(res)
-		outObjects = res.Objects
+		outObjects, _ = i.sortKeywordRanking(outObjects, outScores)
 	}
 
 	if len(outObjects) > limit {
@@ -701,9 +695,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, nil
 }
 
-func (i *Index) sortRankedResults(res *inverted.RankedResults) *inverted.RankedResults {
-	sort.Sort(res)
-	return res
+func (i *Index) sortKeywordRanking(objects []*storobj.Object,
+	scores []float32) ([]*storobj.Object, []float32) {
+	return newScoresSorter().sort(objects, scores)
 }
 
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
