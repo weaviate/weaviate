@@ -21,14 +21,14 @@ import (
 func Test_comparator_compare_functions(t *testing.T) {
 	t.Run("compare string asc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "asc"}
+		cmp := newComparator("asc")
 		a := "bee"
 		b := "action"
 		// when
-		res2values := sorter.compareString(&a, &b)
-		resFirstValueNil := sorter.compareString(nil, &b)
-		resSecondValueNil := sorter.compareString(&a, nil)
-		resNilValues := sorter.compareString(nil, nil)
+		res2values := cmp.compareString(&a, &b)
+		resFirstValueNil := cmp.compareString(nil, &b)
+		resSecondValueNil := cmp.compareString(&a, nil)
+		resNilValues := cmp.compareString(nil, nil)
 		// then
 		assert.False(t, res2values)
 		assert.True(t, resFirstValueNil)
@@ -38,14 +38,14 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare string desc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "desc"}
+		cmp := newComparator("desc")
 		a := "bee"
 		b := "action"
 		// when
-		res2values := sorter.compareString(&a, &b)
-		resFirstValueNil := sorter.compareString(nil, &b)
-		resSecondValueNil := sorter.compareString(&a, nil)
-		resNilValues := sorter.compareString(nil, nil)
+		res2values := cmp.compareString(&a, &b)
+		resFirstValueNil := cmp.compareString(nil, &b)
+		resSecondValueNil := cmp.compareString(&a, nil)
+		resNilValues := cmp.compareString(nil, nil)
 		// then
 		assert.True(t, res2values)
 		assert.False(t, resFirstValueNil)
@@ -55,14 +55,14 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare float64 asc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "asc"}
+		cmp := newComparator("asc")
 		a := float64(100)
 		b := float64(-100)
 		// when
-		res2values := sorter.compareFloat64(&a, &b)
-		resFirstValueNil := sorter.compareFloat64(nil, &b)
-		resSecondValueNil := sorter.compareFloat64(&a, nil)
-		resNilValues := sorter.compareFloat64(nil, nil)
+		res2values := cmp.compareFloat64(&a, &b)
+		resFirstValueNil := cmp.compareFloat64(nil, &b)
+		resSecondValueNil := cmp.compareFloat64(&a, nil)
+		resNilValues := cmp.compareFloat64(nil, nil)
 		// then
 		assert.False(t, res2values)
 		assert.True(t, resFirstValueNil)
@@ -72,14 +72,14 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare float64 desc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "desc"}
+		cmp := newComparator("desc")
 		a := float64(100)
 		b := float64(-100)
 		// when
-		res2values := sorter.compareFloat64(&a, &b)
-		resFirstValueNil := sorter.compareFloat64(nil, &b)
-		resSecondValueNil := sorter.compareFloat64(&a, nil)
-		resNilValues := sorter.compareFloat64(nil, nil)
+		res2values := cmp.compareFloat64(&a, &b)
+		resFirstValueNil := cmp.compareFloat64(nil, &b)
+		resSecondValueNil := cmp.compareFloat64(&a, nil)
+		resNilValues := cmp.compareFloat64(nil, nil)
 		// then
 		assert.True(t, res2values)
 		assert.False(t, resFirstValueNil)
@@ -89,16 +89,16 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare date asc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "asc"}
-		a, err := sortBy{}.parseDate("2000-01-01T00:00:00+02:00")
+		cmp := newComparator("asc")
+		a, err := newSortBy(cmp).parseDate("2000-01-01T00:00:00+02:00")
 		require.Nil(t, err)
-		b, err := sortBy{}.parseDate("1900-01-01T00:00:00+02:00")
+		b, err := newSortBy(cmp).parseDate("1900-01-01T00:00:00+02:00")
 		require.Nil(t, err)
 		// when
-		res2values := sorter.compareDate(&a, &b)
-		resFirstValueNil := sorter.compareDate(nil, &b)
-		resSecondValueNil := sorter.compareDate(&a, nil)
-		resNilValues := sorter.compareDate(nil, nil)
+		res2values := cmp.compareDate(&a, &b)
+		resFirstValueNil := cmp.compareDate(nil, &b)
+		resSecondValueNil := cmp.compareDate(&a, nil)
+		resNilValues := cmp.compareDate(nil, nil)
 		// then
 		assert.False(t, res2values)
 		assert.True(t, resFirstValueNil)
@@ -108,16 +108,16 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare date desc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "desc"}
-		a, err := sortBy{}.parseDate("2000-01-01T00:00:00+02:00")
+		cmp := newComparator("desc")
+		a, err := newSortBy(cmp).parseDate("2000-01-01T00:00:00+02:00")
 		require.Nil(t, err)
-		b, err := sortBy{}.parseDate("1900-01-01T00:00:00+02:00")
+		b, err := newSortBy(cmp).parseDate("1900-01-01T00:00:00+02:00")
 		require.Nil(t, err)
 		// when
-		res2values := sorter.compareDate(&a, &b)
-		resFirstValueNil := sorter.compareDate(nil, &b)
-		resSecondValueNil := sorter.compareDate(&a, nil)
-		resNilValues := sorter.compareDate(nil, nil)
+		res2values := cmp.compareDate(&a, &b)
+		resFirstValueNil := cmp.compareDate(nil, &b)
+		resSecondValueNil := cmp.compareDate(&a, nil)
+		resNilValues := cmp.compareDate(nil, nil)
 		// then
 		assert.True(t, res2values)
 		assert.False(t, resFirstValueNil)
@@ -127,14 +127,14 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare bool asc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "asc"}
+		cmp := newComparator("asc")
 		a := false
 		b := false
 		// when
-		res2values := sorter.compareBool(&a, &b)
-		resFirstValueNil := sorter.compareBool(nil, &b)
-		resSecondValueNil := sorter.compareBool(&a, nil)
-		resNilValues := sorter.compareBool(nil, nil)
+		res2values := cmp.compareBool(&a, &b)
+		resFirstValueNil := cmp.compareBool(nil, &b)
+		resSecondValueNil := cmp.compareBool(&a, nil)
+		resNilValues := cmp.compareBool(nil, nil)
 		// then
 		assert.False(t, res2values)
 		assert.True(t, resFirstValueNil)
@@ -144,14 +144,14 @@ func Test_comparator_compare_functions(t *testing.T) {
 
 	t.Run("compare bool desc", func(t *testing.T) {
 		// given
-		sorter := comparator{order: "desc"}
+		cmp := newComparator("desc")
 		a := false
 		b := false
 		// when
-		res2values := sorter.compareBool(&a, &b)
-		resFirstValueNil := sorter.compareBool(nil, &b)
-		resSecondValueNil := sorter.compareBool(&a, nil)
-		resNilValues := sorter.compareBool(nil, nil)
+		res2values := cmp.compareBool(&a, &b)
+		resFirstValueNil := cmp.compareBool(nil, &b)
+		resSecondValueNil := cmp.compareBool(&a, nil)
+		resNilValues := cmp.compareBool(nil, nil)
 		// then
 		assert.True(t, res2values)
 		assert.False(t, resFirstValueNil)

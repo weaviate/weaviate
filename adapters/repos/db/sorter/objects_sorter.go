@@ -25,7 +25,7 @@ type objectsSorter struct {
 }
 
 func newObjectsSorter(schema schema.Schema, objects []*storobj.Object, distances []float32) *objectsSorter {
-	return &objectsSorter{&classHelper{schema}, objects, distances}
+	return &objectsSorter{newClassHelper(schema), objects, distances}
 }
 
 func (s *objectsSorter) sort(property, order string) ([]*storobj.Object, []float32) {

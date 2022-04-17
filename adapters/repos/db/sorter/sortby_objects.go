@@ -24,26 +24,26 @@ type sortByObjects struct {
 	sortBy    sortBy
 }
 
-func newSortByObjects(objects []*storobj.Object, distances []float32, property, order string, dataType []string) sortByObjects {
-	return sortByObjects{objects, distances, property, dataType, sortBy{comparator{order}}}
+func newSortByObjects(objects []*storobj.Object, distances []float32, property, order string, dataType []string) *sortByObjects {
+	return &sortByObjects{objects, distances, property, dataType, sortBy{newComparator(order)}}
 }
 
-func (s sortByObjects) Len() int {
+func (s *sortByObjects) Len() int {
 	return len(s.objects)
 }
 
-func (s sortByObjects) Swap(i, j int) {
+func (s *sortByObjects) Swap(i, j int) {
 	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 	if len(s.distances) > 0 {
 		s.distances[i], s.distances[j] = s.distances[j], s.distances[i]
 	}
 }
 
-func (s sortByObjects) Less(i, j int) bool {
+func (s *sortByObjects) Less(i, j int) bool {
 	return s.sortBy.compare(s.getProperty(i), s.getProperty(j), s.getDataType())
 }
 
-func (s sortByObjects) getProperty(i int) interface{} {
+func (s *sortByObjects) getProperty(i int) interface{} {
 	properties := s.objects[i].Properties()
 	propertiesMap, ok := properties.(map[string]interface{})
 	if ok {
@@ -52,7 +52,7 @@ func (s sortByObjects) getProperty(i int) interface{} {
 	return nil
 }
 
-func (s sortByObjects) getDataType() schema.DataType {
+func (s *sortByObjects) getDataType() schema.DataType {
 	if len(s.dataType) > 0 {
 		return schema.DataType(s.dataType[0])
 	}

@@ -26,6 +26,11 @@ type lsmPropertyExtractor struct {
 	property    string
 }
 
+func newPropertyExtractor(className schema.ClassName,
+	classHelper *classHelper, property string) *lsmPropertyExtractor {
+	return &lsmPropertyExtractor{className, classHelper, property}
+}
+
 func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
 	prop, success, _ := storobj.ParseAndExtractTextProp(v, e.property)
 	if success {

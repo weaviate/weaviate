@@ -22,15 +22,15 @@ type sortByDistances struct {
 	scores  []float32
 }
 
-func (sbd sortByDistances) Len() int {
+func (sbd *sortByDistances) Len() int {
 	return len(sbd.objects)
 }
 
-func (sbd sortByDistances) Less(i, j int) bool {
+func (sbd *sortByDistances) Less(i, j int) bool {
 	return sbd.scores[i] < sbd.scores[j]
 }
 
-func (sbd sortByDistances) Swap(i, j int) {
+func (sbd *sortByDistances) Swap(i, j int) {
 	sbd.scores[i], sbd.scores[j] = sbd.scores[j], sbd.scores[i]
 	sbd.objects[i], sbd.objects[j] = sbd.objects[j], sbd.objects[i]
 }
@@ -42,7 +42,7 @@ func newDistancesSorter() *sortObjectsByDistance {
 }
 
 func (s *sortObjectsByDistance) sort(objects []*storobj.Object, distances []float32) ([]*storobj.Object, []float32) {
-	sbd := sortByDistances{objects, distances}
+	sbd := &sortByDistances{objects, distances}
 	sort.Sort(sbd)
 	return sbd.objects, sbd.scores
 }

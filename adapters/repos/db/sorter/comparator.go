@@ -20,7 +20,11 @@ type comparator struct {
 	order string
 }
 
-func (s comparator) compareString(a, b *string) bool {
+func newComparator(order string) *comparator {
+	return &comparator{order}
+}
+
+func (s *comparator) compareString(a, b *string) bool {
 	if a != nil && b != nil {
 		if s.order == "desc" {
 			return strings.ToLower(*a) > strings.ToLower(*b)
@@ -30,7 +34,7 @@ func (s comparator) compareString(a, b *string) bool {
 	return s.handleNil(a == nil, b == nil)
 }
 
-func (s comparator) compareFloat64(a, b *float64) bool {
+func (s *comparator) compareFloat64(a, b *float64) bool {
 	if a != nil && b != nil {
 		if s.order == "desc" {
 			return *a > *b
@@ -40,7 +44,7 @@ func (s comparator) compareFloat64(a, b *float64) bool {
 	return s.handleNil(a == nil, b == nil)
 }
 
-func (s comparator) compareDate(a, b *time.Time) bool {
+func (s *comparator) compareDate(a, b *time.Time) bool {
 	if a != nil && b != nil {
 		if s.order == "desc" {
 			return a.After(*b)
@@ -50,7 +54,7 @@ func (s comparator) compareDate(a, b *time.Time) bool {
 	return s.handleNil(a == nil, b == nil)
 }
 
-func (s comparator) compareBool(a, b *bool) bool {
+func (s *comparator) compareBool(a, b *bool) bool {
 	if a != nil && b != nil {
 		if s.order == "desc" {
 			return !*a || *b
@@ -60,7 +64,7 @@ func (s comparator) compareBool(a, b *bool) bool {
 	return s.handleNil(a == nil, b == nil)
 }
 
-func (s comparator) handleNil(a, b bool) bool {
+func (s *comparator) handleNil(a, b bool) bool {
 	if a && b {
 		return false
 	}

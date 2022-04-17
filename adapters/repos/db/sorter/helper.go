@@ -19,6 +19,10 @@ type classHelper struct {
 	schema schema.Schema
 }
 
+func newClassHelper(schema schema.Schema) *classHelper {
+	return &classHelper{schema}
+}
+
 func (s *classHelper) getDataType(className, property string) []string {
 	var dataType []string
 	class := s.schema.GetClass(schema.ClassName(className))

@@ -22,10 +22,14 @@ import (
 )
 
 type sortBy struct {
-	comparator
+	comparator *comparator
 }
 
-func (s sortBy) compare(i, j interface{}, dataType schema.DataType) bool {
+func newSortBy(comparator *comparator) *sortBy {
+	return &sortBy{comparator}
+}
+
+func (s *sortBy) compare(i, j interface{}, dataType schema.DataType) bool {
 	switch dataType {
 	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob:
 		a, b := s.asString(i), s.asString(j)
@@ -63,7 +67,7 @@ func (s sortBy) compare(i, j interface{}, dataType schema.DataType) bool {
 	}
 }
 
-func (s sortBy) asString(prop interface{}) *string {
+func (s *sortBy) asString(prop interface{}) *string {
 	if prop != nil {
 		if asString, ok := prop.(string); ok {
 			return &asString
@@ -72,7 +76,7 @@ func (s sortBy) asString(prop interface{}) *string {
 	return nil
 }
 
-func (s sortBy) asStringArray(prop interface{}) *string {
+func (s *sortBy) asStringArray(prop interface{}) *string {
 	if prop != nil {
 		if arr, ok := prop.([]string); ok && len(arr) > 0 {
 			var sb strings.Builder
@@ -86,7 +90,7 @@ func (s sortBy) asStringArray(prop interface{}) *string {
 	return nil
 }
 
-func (s sortBy) asNumber(prop interface{}) *float64 {
+func (s *sortBy) asNumber(prop interface{}) *float64 {
 	if prop != nil {
 		if asNumber, ok := prop.(float64); ok {
 			return &asNumber
@@ -95,7 +99,7 @@ func (s sortBy) asNumber(prop interface{}) *float64 {
 	return nil
 }
 
-func (s sortBy) asNumberArray(prop interface{}) *float64 {
+func (s *sortBy) asNumberArray(prop interface{}) *float64 {
 	if prop != nil {
 		if arr, ok := prop.([]float64); ok && len(arr) > 0 {
 			var res float64
@@ -108,7 +112,7 @@ func (s sortBy) asNumberArray(prop interface{}) *float64 {
 	return nil
 }
 
-func (s sortBy) asDate(prop interface{}) *time.Time {
+func (s *sortBy) asDate(prop interface{}) *time.Time {
 	if asString := s.asString(prop); asString != nil {
 		if date, err := s.parseDate(*asString); err == nil {
 			return &date
@@ -117,7 +121,7 @@ func (s sortBy) asDate(prop interface{}) *time.Time {
 	return nil
 }
 
-func (s sortBy) asDateArray(prop interface{}) *time.Time {
+func (s *sortBy) asDateArray(prop interface{}) *time.Time {
 	if prop != nil {
 		if arr, ok := prop.([]string); ok && len(arr) > 0 {
 			var res int64
@@ -133,7 +137,7 @@ func (s sortBy) asDateArray(prop interface{}) *time.Time {
 	return nil
 }
 
-func (s sortBy) asBool(prop interface{}) *bool {
+func (s *sortBy) asBool(prop interface{}) *bool {
 	if prop != nil {
 		if asBool, ok := prop.(bool); ok {
 			return &asBool
@@ -142,7 +146,7 @@ func (s sortBy) asBool(prop interface{}) *bool {
 	return nil
 }
 
-func (s sortBy) asBoolArray(prop interface{}) *bool {
+func (s *sortBy) asBoolArray(prop interface{}) *bool {
 	if prop != nil {
 		if arr, ok := prop.([]bool); ok && len(arr) > 0 {
 			res := false
@@ -155,7 +159,7 @@ func (s sortBy) asBoolArray(prop interface{}) *bool {
 	return nil
 }
 
-func (s sortBy) asPhoneNumber(prop interface{}) *float64 {
+func (s *sortBy) asPhoneNumber(prop interface{}) *float64 {
 	if prop != nil {
 		if phoneNumber, ok := prop.(*models.PhoneNumber); ok {
 			phoneStr := fmt.Sprintf("%v%v", phoneNumber.CountryCode, phoneNumber.National)
@@ -167,7 +171,7 @@ func (s sortBy) asPhoneNumber(prop interface{}) *float64 {
 	return nil
 }
 
-func (s sortBy) asGeoCoordinate(prop interface{}) *float64 {
+func (s *sortBy) asGeoCoordinate(prop interface{}) *float64 {
 	if prop != nil {
 		if geoCoordinates, ok := prop.(*models.GeoCoordinates); ok {
 			if longitude := geoCoordinates.Longitude; longitude != nil {
@@ -179,6 +183,6 @@ func (s sortBy) asGeoCoordinate(prop interface{}) *float64 {
 	return nil
 }
 
-func (s sortBy) parseDate(in string) (time.Time, error) {
+func (s *sortBy) parseDate(in string) (time.Time, error) {
 	return time.Parse(time.RFC3339, in)
 }
