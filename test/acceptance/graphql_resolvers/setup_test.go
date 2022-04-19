@@ -123,6 +123,10 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
+	// City class has only one vectorizable field: "name"
+	// the rest of the fields are explicitly set to skip vectorization
+	// to not to downgrade the certainty result on which the aggregate
+	// tests are based on.
 	createObjectClass(t, &models.Class{
 		Class: "City",
 		ModuleConfig: map[string]interface{}{
@@ -134,46 +138,101 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "name",
 				DataType: []string{"string"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": false,
+					},
+				},
 			},
 			{
 				Name:     "inCountry",
 				DataType: []string{"Country"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "population",
 				DataType: []string{"int"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "location",
 				DataType: []string{"geoCoordinates"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "isCapital",
 				DataType: []string{"boolean"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "cityArea",
 				DataType: []string{"number"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "cityRights",
 				DataType: []string{"date"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "timezones",
 				DataType: []string{"string[]"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "museums",
 				DataType: []string{"text[]"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "history",
 				DataType: []string{"text"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 			{
 				Name:     "phoneNumber",
 				DataType: []string{"phoneNumber"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"skip": true,
+					},
+				},
 			},
 		},
 	})
