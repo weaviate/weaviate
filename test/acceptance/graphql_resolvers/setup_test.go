@@ -56,6 +56,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
 	t.Run("aggregates local meta with where and nearVector nearMedia", localMetaWithWhereAndNearVectorFilters)
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
+	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
