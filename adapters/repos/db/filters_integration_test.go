@@ -1126,6 +1126,8 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 			name        string
 			sort        []filters.Sort
 			expectedIDs []strfmt.UUID
+			wantErr     bool
+			errMessage  string
 		}
 		tests := []test{
 			{
@@ -1243,16 +1245,27 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 			{
 				name: "modelName and horsepower asc",
 				sort: []filters.Sort{
-					buildSortFilter([]string{"modelName", "horsepower"}, "asc"),
+					buildSortFilter([]string{"modelName"}, "asc"),
+					buildSortFilter([]string{"horsepower"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
 				name: "horsepower and modelName asc",
 				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "asc"),
+					buildSortFilter([]string{"modelName"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "horsepower and modelName asc invalid sort",
+				sort: []filters.Sort{
 					buildSortFilter([]string{"horsepower", "modelName"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+				expectedIDs: nil,
+				wantErr:     true,
+				errMessage:  "sort object list: sorting by reference not supported, path must have exactly one argument",
 			},
 		}
 		for _, test := range tests {
@@ -1263,14 +1276,19 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					Sort:       test.sort,
 				}
 				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, len(test.expectedIDs))
+				if test.wantErr {
+					require.NotNil(t, err)
+					require.Contains(t, err.Error(), test.errMessage)
+				} else {
+					require.Nil(t, err)
+					require.Len(t, res, len(test.expectedIDs))
 
-				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
-				for pos, concept := range res {
-					ids[pos] = concept.ID
+					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					for pos, concept := range res {
+						ids[pos] = concept.ID
+					}
+					assert.EqualValues(t, ids, test.expectedIDs, "ids dont match")
 				}
-				assert.EqualValues(t, ids, test.expectedIDs, "ids dont match")
 			})
 		}
 	}

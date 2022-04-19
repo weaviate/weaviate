@@ -56,7 +56,7 @@ func (s *lsmSorter) sort(ctx context.Context, limit int, additional additional.P
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
-	candidates := make([]docIDAndValue, 0, limit)
+	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
 
 	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
 		docID, err := storobj.DocIDFromBinary(v)
@@ -82,7 +82,7 @@ func (s *lsmSorter) sortDocIDs(ctx context.Context, limit int, additional additi
 		return nil, errors.Errorf("objects bucket not found")
 	}
 
-	candidates := make([]docIDAndValue, 0, limit)
+	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
 
 	for _, id := range ids {
 		keyBuf := bytes.NewBuffer(nil)
