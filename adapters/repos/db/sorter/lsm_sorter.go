@@ -115,7 +115,7 @@ func (s *lsmSorter) sortDocIDsAndDists(ctx context.Context, limit int, additiona
 		return nil, nil, errors.Errorf("objects bucket not found")
 	}
 
-	candidates := make([]docIDAndValue, 0, limit)
+	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
 
 	for i := range ids {
 		keyBuf := bytes.NewBuffer(nil)
@@ -143,6 +143,13 @@ func (s *lsmSorter) sortDocIDsAndDists(ctx context.Context, limit int, additiona
 	return docIDs, distances, nil
 }
 
+func (s *lsmSorter) getLimit(limit int) int {
+	if limit < 0 {
+		return 0
+	}
+	return limit
+}
+
 func (s *lsmSorter) toDocIDs(candidates []docIDAndValue) []uint64 {
 	docIDs := make([]uint64, len(candidates))
 	for i := range candidates {
@@ -161,7 +168,7 @@ func (s *lsmSorter) toDists(candidates []docIDAndValue) []float32 {
 
 func (s *lsmSorter) currentIsBetterThanWorstElement(candidates []docIDAndValue,
 	limit int, curr interface{}, order string) bool {
-	if len(candidates) < limit {
+	if s.getLimit(limit) == 0 || len(candidates) < limit {
 		return true
 	}
 	target := candidates[len(candidates)-1].value
@@ -185,7 +192,7 @@ func (s *lsmSorter) addToCandidates(candidates []docIDAndValue,
 	if pos == -1 {
 		candidates = append(candidates, newEntry)
 	} else {
-		if len(candidates) < limit {
+		if s.getLimit(limit) == 0 || len(candidates) < limit {
 			candidates = append(candidates[:pos+1], candidates[pos:]...)
 		} else {
 			candidates = append(candidates[:pos+1], candidates[pos:len(candidates)-1]...)
