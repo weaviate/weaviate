@@ -517,16 +517,17 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 				expectedBoolProps      []bool
 				expectedStringProps    []string
 				expectedTextArrayProps [][]string
+				constainsErrorMsgs     []string
 			}
 			tests := []test{
 				{
-					name:            "index desc",
-					sort:            []filters.Sort{{Path: []string{"index"}, Order: "desc"}},
+					name:            "indexProp desc",
+					sort:            []filters.Sort{{Path: []string{"indexProp"}, Order: "desc"}},
 					expectedIndexes: []float64{19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
 				},
 				{
-					name:            "index asc",
-					sort:            []filters.Sort{{Path: []string{"index"}, Order: "asc"}},
+					name:            "indexProp asc",
+					sort:            []filters.Sort{{Path: []string{"indexProp"}, Order: "asc"}},
 					expectedIndexes: []float64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19},
 				},
 				{
@@ -559,30 +560,70 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}},
 					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
 				},
+				{
+					name:            "index property doesn't exist in testrefclass",
+					sort:            []filters.Sort{{Path: []string{"index"}, Order: "desc"}},
+					expectedIndexes: nil,
+					constainsErrorMsgs: []string{
+						"no such prop with name 'index' found in class 'TestRefClass' in the schema. " +
+							"Check your schema files for which properties in this class are available",
+					},
+				},
+				{
+					name:            "non existent property in all classes",
+					sort:            []filters.Sort{{Path: []string{"nonexistentproperty"}, Order: "desc"}},
+					expectedIndexes: nil,
+					constainsErrorMsgs: []string{
+						"no such prop with name 'nonexistentproperty' found in class 'TestClass' in the schema. " +
+							"Check your schema files for which properties in this class are available",
+						"no such prop with name 'nonexistentproperty' found in class 'TestRefClass' in the schema. " +
+							"Check your schema files for which properties in this class are available",
+					},
+				},
+				{
+					name:            "ref prop",
+					sort:            []filters.Sort{{Path: []string{"toOther"}, Order: "desc"}},
+					expectedIndexes: nil,
+					constainsErrorMsgs: []string{
+						"search: search index testclass: sort parameter at position 0: " +
+							"no such prop with name 'toOther' found in class 'TestClass' in the schema. " +
+							"Check your schema files for which properties in this class are available, " +
+							"search index testrefclass: sort parameter at position 0: " +
+							"sorting by reference not supported, " +
+							"property \"toOther\" is a ref prop to the class \"TestClass\"",
+					},
+				},
 			}
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
 						additional.Properties{})
-					require.Nil(t, err)
-					if len(test.expectedIndexes) > 0 {
-						for i := range res {
-							assert.Equal(t, test.expectedIndexes[i], getIndex(res[i]))
+					if len(test.constainsErrorMsgs) > 0 {
+						require.NotNil(t, err)
+						for _, errorMsg := range test.constainsErrorMsgs {
+							assert.Contains(t, err.Error(), errorMsg)
 						}
-					}
-					if len(test.expectedBoolProps) > 0 {
-						for i := range res {
-							assert.Equal(t, test.expectedBoolProps[i], getBoolProp(res[i]))
+					} else {
+						require.Nil(t, err)
+						if len(test.expectedIndexes) > 0 {
+							for i := range res {
+								assert.Equal(t, test.expectedIndexes[i], getIndex(res[i]))
+							}
 						}
-					}
-					if len(test.expectedStringProps) > 0 {
-						for i := range res {
-							assert.Equal(t, test.expectedStringProps[i], getStringProp(res[i]))
+						if len(test.expectedBoolProps) > 0 {
+							for i := range res {
+								assert.Equal(t, test.expectedBoolProps[i], getBoolProp(res[i]))
+							}
 						}
-					}
-					if len(test.expectedTextArrayProps) > 0 {
-						for i := range res {
-							assert.EqualValues(t, test.expectedTextArrayProps[i], getTextArrayProp(res[i]))
+						if len(test.expectedStringProps) > 0 {
+							for i := range res {
+								assert.Equal(t, test.expectedStringProps[i], getStringProp(res[i]))
+							}
+						}
+						if len(test.expectedTextArrayProps) > 0 {
+							for i := range res {
+								assert.EqualValues(t, test.expectedTextArrayProps[i], getTextArrayProp(res[i]))
+							}
 						}
 					}
 				})
@@ -617,6 +658,7 @@ func multiShardTestData() []*models.Object {
 			Properties: map[string]interface{}{
 				"boolProp":      i%2 == 0,
 				"index":         i,
+				"indexProp":     i,
 				"stringProp":    fmt.Sprintf("s%02d", i),
 				"textArrayProp": []string{fmt.Sprintf("s%02d", i), fmt.Sprintf("%02d", i)},
 			},
@@ -704,6 +746,10 @@ func testClassesForImporting() []*models.Class {
 					DataType: []string{string(schema.DataTypeInt)},
 				},
 				{
+					Name:     "indexProp",
+					DataType: []string{string(schema.DataTypeInt)},
+				},
+				{
 					Name:     "stringProp",
 					DataType: []string{string(schema.DataTypeString)},
 				},
@@ -725,6 +771,18 @@ func testClassesForImporting() []*models.Class {
 				{
 					Name:     "toOther",
 					DataType: []string{"TestClass"},
+				},
+				{
+					Name:     "indexProp",
+					DataType: []string{string(schema.DataTypeInt)},
+				},
+				{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+				{
+					Name:     "textArrayProp",
+					DataType: []string{string(schema.DataTypeTextArray)},
 				},
 			},
 		},
