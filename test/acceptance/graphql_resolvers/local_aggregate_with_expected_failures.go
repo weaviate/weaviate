@@ -255,4 +255,30 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 		require.Len(t, result, 1)
 		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
 	})
+
+	t.Run("objectLimit passed with no nearMedia", func(t *testing.T) {
+		result := ErrorGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate{
+					CustomVectorClass(objectLimit: 1){
+						meta {
+							count
+						}
+						name {
+							topOccurrences {
+								occurs
+								value
+							}
+							type
+							count
+						}
+					}
+				}
+			}
+		`)
+
+		require.NotEmpty(t, result)
+		require.Len(t, result, 1)
+		assert.True(t, strings.Contains(result[0].Message, "objectLimit can only be used with a near<Media> filter"))
+	})
 }

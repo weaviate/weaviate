@@ -26,6 +26,7 @@ type Params struct {
 	GroupBy          *filters.Path        `json:"groupBy"`
 	IncludeMetaCount bool                 `json:"includeMetaCount"`
 	Limit            *int                 `json:"limit"`
+	ObjectLimit      *int                 `json:"objectLimit"`
 	SearchVector     []float32
 	Certainty        float64
 	NearVector       *searchparams.NearVector
