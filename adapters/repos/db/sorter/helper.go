@@ -24,14 +24,39 @@ func newClassHelper(schema schema.Schema) *classHelper {
 }
 
 func (s *classHelper) getDataType(className, property string) []string {
-	var dataType []string
 	class := s.schema.GetClass(schema.ClassName(className))
 	for _, prop := range class.Properties {
 		if prop.Name == property {
-			dataType = prop.DataType
+			return prop.DataType
 		}
 	}
-	return dataType
+	return nil
+}
+
+func (s *classHelper) propertyExists(className, property string) bool {
+	dataType := s.getDataType(className, property)
+	if dataType == nil {
+		return false
+	}
+	return true
+}
+
+func (s *classHelper) isDataTypeSupported(dataType []string) bool {
+	if len(dataType) == 1 {
+		switch schema.DataType(dataType[0]) {
+		case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob,
+			schema.DataTypeStringArray, schema.DataTypeTextArray,
+			schema.DataTypeNumber, schema.DataTypeInt,
+			schema.DataTypeNumberArray, schema.DataTypeIntArray,
+			schema.DataTypeDate, schema.DataTypeDateArray,
+			schema.DataTypeBoolean, schema.DataTypeBooleanArray,
+			schema.DataTypePhoneNumber, schema.DataTypeGeoCoordinates:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func (s *classHelper) getOrder(order string) string {
