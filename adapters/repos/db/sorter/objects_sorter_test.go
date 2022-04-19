@@ -209,7 +209,7 @@ func Test_objectsSorter(t *testing.T) {
 				sorterCitySchemaObjects(),
 				sorterCitySchemaDistances(),
 			)
-			gotObjs, gotDists := s.sort(tt.args.property, tt.args.order)
+			gotObjs, gotDists := s.sort([]string{tt.args.property}, tt.args.order)
 			if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
 				t.Errorf("sorterImpl.sort() objects got = %v, want %v",
 					getCityNames(gotObjs), getCityNames(tt.wantObjs))
@@ -228,7 +228,7 @@ func Test_objectsSorter(t *testing.T) {
 				sorterCitySchemaObjects(),
 				nil,
 			)
-			gotObjs, gotDists := s.sort(tt.args.property, tt.args.order)
+			gotObjs, gotDists := s.sort([]string{tt.args.property}, tt.args.order)
 			if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
 				t.Errorf("sorterImpl.sort() objects got = %v, want %v",
 					getCityNames(gotObjs), getCityNames(tt.wantObjs))

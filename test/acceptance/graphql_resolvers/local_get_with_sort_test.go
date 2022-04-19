@@ -324,9 +324,10 @@ func gettingObjectsWithSort(t *testing.T) {
 			expected []interface{}
 		}{
 			{
-				name: "sort by name and population asc",
+				name: "sort by population and name asc",
 				sort: []string{
-					buildSort([]string{"name", "population"}, "asc"),
+					buildSort([]string{"population"}, "asc"),
+					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
 					map[string]interface{}{"name": "Null Island"},
@@ -343,17 +344,18 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"population"}, "desc"),
 				},
 				expected: []interface{}{
-					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Rotterdam"},
 				},
 			},
 			{
-				name: "sort by name and population desc",
+				name: "sort by population abd name desc",
 				sort: []string{
-					buildSort([]string{"name", "population"}, "desc"),
+					buildSort([]string{"population"}, "desc"),
+					buildSort([]string{"name"}, "desc"),
 				},
 				expected: []interface{}{
 					map[string]interface{}{"name": "Berlin"},
@@ -364,9 +366,11 @@ func gettingObjectsWithSort(t *testing.T) {
 				},
 			},
 			{
-				name: "sort by name and population and phoneNumber asc",
+				name: "sort by phoneNumber and population and name asc",
 				sort: []string{
-					buildSort([]string{"name", "population", "phoneNumber"}, "asc"),
+					buildSort([]string{"phoneNumber"}, "asc"),
+					buildSort([]string{"population"}, "asc"),
+					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
 					map[string]interface{}{"name": "Null Island"},

@@ -874,8 +874,11 @@ func TestCRUD(t *testing.T) {
 				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
 			},
 			{
-				name:              "by stringProp and location asc",
-				sort:              []filters.Sort{{Path: []string{"stringProp", "location"}, Order: "asc"}},
+				name: "by location and stringProp asc",
+				sort: []filters.Sort{
+					{Path: []string{"location"}, Order: "asc"},
+					{Path: []string{"stringProp"}, Order: "asc"},
+				},
 				expectedThingIDs:  []strfmt.UUID{thingID, thingID3, thingID1, thingID4, thingID2},
 				expectedActionIDs: []strfmt.UUID{actionID1, actionID3, actionID, actionID2},
 			},

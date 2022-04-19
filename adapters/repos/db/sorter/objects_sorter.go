@@ -28,8 +28,9 @@ func newObjectsSorter(schema schema.Schema, objects []*storobj.Object, distances
 	return &objectsSorter{newClassHelper(schema), objects, distances}
 }
 
-func (s *objectsSorter) sort(property, order string) ([]*storobj.Object, []float32) {
-	if len(s.objects) > 0 {
+func (s *objectsSorter) sort(path []string, order string) ([]*storobj.Object, []float32) {
+	if len(s.objects) > 0 && len(path) == 1 {
+		property := path[0]
 		dataType := s.sorterClassHelper.getDataType(s.objects[0].Object.Class, property)
 		sortOrder := s.sorterClassHelper.getOrder(order)
 		sorter := newSortByObjects(s.objects, s.distances, property, sortOrder, dataType)
