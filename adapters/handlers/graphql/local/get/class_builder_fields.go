@@ -212,6 +212,7 @@ func buildGetClassField(classObject *graphql.Object,
 				Type:        graphql.Int,
 			},
 
+			"sort":       sortArgument(class.Class),
 			"nearVector": nearVectorArgument(class.Class),
 			"nearObject": nearObjectArgument(class.Class),
 			"where":      whereArgument(class.Class),
@@ -323,6 +324,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
+		var sort []filters.Sort
+		if sortArg, ok := p.Args["sort"]; ok {
+			sort = filters.ExtractSortFromArgs(sortArg.([]interface{}))
+		}
+
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -361,6 +367,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			ClassName:            className,
 			Pagination:           pagination,
 			Properties:           properties,
+			Sort:                 sort,
 			NearVector:           nearVectorParams,
 			NearObject:           nearObjectParams,
 			Group:                group,

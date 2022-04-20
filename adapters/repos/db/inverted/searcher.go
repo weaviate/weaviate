@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -68,14 +69,13 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 
 // Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int,
-	filter *filters.LocalFilter, additional additional.Properties,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
-	var out []*storobj.Object
 	// we assume that when retrieving objects, we can not tolerate duplicates as
 	// they would have a direct impact on the user
 	if err := pv.fetchDocIDs(f, limit, false); err != nil {
@@ -87,18 +87,41 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	// cutoff if required, e.g. after merging unlimted filters
-	if len(pointers.docIDs) > limit {
-		pointers.docIDs = pointers.docIDs[:limit]
+	if len(sort) > 0 {
+		return f.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
 	}
 
-	res, err := f.objectsByDocID(pointers.IDs(), additional)
+	return f.allObjectsByDocID(pointers.IDs(), limit, additional)
+}
+
+func (f *Searcher) allObjectsByDocID(ids []uint64, limit int,
+	additional additional.Properties) ([]*storobj.Object, error) {
+	// cutoff if required, e.g. after merging unlimted filters
+	docIDs := ids
+	if len(docIDs) > limit {
+		docIDs = docIDs[:limit]
+	}
+
+	res, err := f.objectsByDocID(docIDs, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
+	return res, nil
+}
 
-	out = res
-	return out, nil
+func (f *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
+	additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+	docIDs, err := f.sort(ctx, limit, sort, ids, additional, className)
+	if err != nil {
+		return nil, errors.Wrap(err, "sort doc ids")
+	}
+	return f.objectsByDocID(docIDs, additional)
+}
+
+func (f *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+	additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+	return sorter.NewLSMSorter(f.store, f.schema, className).
+		SortDocIDs(ctx, limit, sort, docIDs, additional)
 }
 
 func (f *Searcher) objectsByDocID(ids []uint64,

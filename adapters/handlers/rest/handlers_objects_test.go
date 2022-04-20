@@ -682,7 +682,7 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Pri
 	return class, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ additional.Properties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
 	return f.getObjectsReturn, nil
 }
 

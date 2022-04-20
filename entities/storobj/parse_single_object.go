@@ -20,49 +20,47 @@ import (
 )
 
 func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, error) {
-	propsBytes, err := extractPropsBytes(data)
-	if err != nil {
-		return nil, false, err
-	}
-
-	val, t, _, err := jsonparser.Get(propsBytes, propName)
-	if err != nil {
-		return nil, false, err
-	}
-
 	vals := []string{}
-	if t == jsonparser.Array {
-		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			vals = append(vals, string(value))
-		})
-	} else {
-		vals = append(vals, string(val))
+	err := parseAndExtractValueProp(data, propName, func(value []byte) {
+		vals = append(vals, string(value))
+	})
+	if err != nil {
+		return nil, false, err
 	}
-
 	return vals, true, nil
 }
 
 func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bool, error) {
-	propsBytes, err := extractPropsBytes(data)
+	vals := []float64{}
+	err := parseAndExtractValueProp(data, propName, func(value []byte) {
+		vals = append(vals, mustExtractNumber(value))
+	})
 	if err != nil {
 		return nil, false, err
+	}
+	return vals, true, nil
+}
+
+func parseAndExtractValueProp(data []byte, propName string, valueFn func(value []byte)) error {
+	propsBytes, err := extractPropsBytes(data)
+	if err != nil {
+		return err
 	}
 
 	val, t, _, err := jsonparser.Get(propsBytes, propName)
 	if err != nil {
-		return nil, false, err
+		return err
 	}
 
-	vals := []float64{}
 	if t == jsonparser.Array {
 		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			vals = append(vals, mustExtractNumber(value))
+			valueFn(value)
 		})
 	} else {
-		vals = append(vals, mustExtractNumber(val))
+		valueFn(val)
 	}
 
-	return vals, true, nil
+	return nil
 }
 
 func mustExtractNumber(value []byte) float64 {

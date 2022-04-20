@@ -9,10 +9,9 @@
 //  CONTACT: hello@semi.technology
 //
 
-package inverted
+package db
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -21,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBM25Searcher_RankedResults(t *testing.T) {
+func Test_SortBy_Scores(t *testing.T) {
 	type testcase struct {
 		testName      string
 		givenObjects  []*storobj.Object
@@ -68,15 +67,9 @@ func TestBM25Searcher_RankedResults(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.testName, func(t *testing.T) {
-			res := &RankedResults{
-				Objects: test.givenObjects,
-				Scores:  test.givenScores,
-			}
-
-			sort.Sort(res)
-
-			for i := range res.Objects {
-				assert.Equal(t, test.expectedOrder[i], res.Objects[i].ID().String())
+			objects, _ := newScoresSorter().sort(test.givenObjects, test.givenScores)
+			for i := range objects {
+				assert.Equal(t, test.expectedOrder[i], objects[i].ID().String())
 			}
 		})
 	}

@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -638,8 +638,8 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	return ok, nil
 }
 
-func (i *Index) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -657,14 +657,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 
 		if local {
 			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 
 		} else {
 			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, additional)
+				ctx, shardName, nil, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
@@ -673,13 +673,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 		outScores = append(outScores, scores...)
 	}
 
-	if keywordRanking != nil {
-		res := &inverted.RankedResults{
-			Objects: outObjects,
-			Scores:  outScores,
+	if len(sort) > 0 {
+		if len(shardNames) > 1 {
+			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
+			if err != nil {
+				return nil, errors.Wrap(err, "sort")
+			}
+			return sortedObjs, nil
 		}
-		sort.Sort(res)
-		outObjects = res.Objects
+		return outObjects, nil
+	}
+
+	if keywordRanking != nil {
+		outObjects, _ = i.sortKeywordRanking(outObjects, outScores)
 	}
 
 	if len(outObjects) > limit {
@@ -689,9 +695,20 @@ func (i *Index) objectSearch(ctx context.Context, limit int,
 	return outObjects, nil
 }
 
+func (i *Index) sortKeywordRanking(objects []*storobj.Object,
+	scores []float32) ([]*storobj.Object, []float32) {
+	return newScoresSorter().sort(objects, scores)
+}
+
+func (i *Index) sort(objects []*storobj.Object, scores []float32,
+	sort []filters.Sort, limit int) ([]*storobj.Object, []float32, error) {
+	return sorter.New(i.getSchema.GetSchemaSkipAuth()).
+		Sort(objects, scores, limit, sort)
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -723,13 +740,13 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if local {
 				shard := i.Shards[shardName]
 				res, resDists, err = shard.objectVectorSearch(
-					ctx, searchVector, dist, limit, filters, additional)
+					ctx, searchVector, dist, limit, filters, sort, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
 			} else {
 				res, resDists, err = i.remote.SearchShard(
-					ctx, shardName, searchVector, limit, filters, nil, additional)
+					ctx, shardName, searchVector, limit, filters, nil, sort, additional)
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -752,19 +769,22 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return out, dists, nil
 	}
 
-	sbd := sortObjsByDist{out, dists}
-	sort.Sort(sbd)
-	if len(sbd.objects) > limit {
-		sbd.objects = sbd.objects[:limit]
-		sbd.distances = sbd.distances[:limit]
+	if len(shardNames) > 1 && len(sort) > 0 {
+		return i.sort(out, dists, sort, limit)
 	}
 
-	return sbd.objects, sbd.distances, nil
+	out, dists = newDistancesSorter().sort(out, dists)
+	if len(out) > limit {
+		out = out[:limit]
+		dists = dists[:limit]
+	}
+
+	return out, dists, nil
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
@@ -772,7 +792,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	if searchVector == nil {
-		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, additional)
+		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}
@@ -781,7 +801,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.objectVectorSearch(
-		ctx, searchVector, distance, limit, filters, additional)
+		ctx, searchVector, distance, limit, filters, sort, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

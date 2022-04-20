@@ -119,7 +119,7 @@ func TestUpdateJourney(t *testing.T) {
 						Value: value,
 					},
 				},
-			}, additional.Properties{})
+			}, nil, additional.Properties{})
 		require.Nil(t, err)
 		return extractPropValues(res, "name")
 	}
