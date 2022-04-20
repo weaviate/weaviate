@@ -58,8 +58,8 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, err := idx.objectSearch(ctx, totalLimit,
-		params.Filters, params.KeywordRanking, params.AdditionalProperties)
+	res, err := idx.objectSearch(ctx, totalLimit, params.Filters,
+		params.KeywordRanking, params.Sort, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -87,7 +87,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, targetDist,
-		totalLimit, params.Filters, params.AdditionalProperties)
+		totalLimit, params.Filters, params.Sort, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -134,7 +134,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			defer wg.Done()
 
 			res, _, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, emptyAdditional)
+				ctx, vector, 0, totalLimit, filters, nil, emptyAdditional)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -171,34 +171,34 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	return db.getSearchResults(found, offset, limit), nil
 }
 
-func (d *DB) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	additional additional.Properties) (search.Results, error) {
-	return d.objectSearch(ctx, offset, limit, filters, additional)
+func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
+	filters *filters.LocalFilter, sort []filters.Sort, additional additional.Properties) (search.Results, error) {
+	return d.objectSearch(ctx, offset, limit, filters, sort, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties) (search.Results, error) {
-	var found search.Results
+	var found []*storobj.Object
 
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, err := index.objectSearch(ctx, totalLimit, filters, nil, additional)
+		res, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
-		found = append(found, storobj.SearchResults(res, additional)...)
+		found = append(found, res...)
 		if len(found) >= totalLimit {
 			// we are done
 			break
 		}
 	}
 
-	return d.getSearchResults(found, offset, limit), nil
+	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,

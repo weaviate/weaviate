@@ -1567,6 +1567,83 @@ func TestNearVectorNoModules(t *testing.T) {
 	})
 }
 
+func TestSort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resolver *mockResolver
+	}{
+		{
+			name:     "with modules",
+			resolver: newMockResolver(),
+		},
+		{
+			name:     "with no modules",
+			resolver: newMockResolverWithNoModules(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("simple sort", func(t *testing.T) {
+				query := `{ Get { SomeAction(sort:[{
+										path: ["path"] order: asc
+									}]) { intField } } }`
+
+				expectedParams := traverser.GetParams{
+					ClassName:  "SomeAction",
+					Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+					Sort:       []filters.Sort{{Path: []string{"path"}, Order: "asc"}},
+				}
+
+				tt.resolver.On("GetClass", expectedParams).
+					Return([]interface{}{}, nil).Once()
+
+				tt.resolver.AssertResolve(t, query)
+			})
+
+			t.Run("simple sort with two paths", func(t *testing.T) {
+				query := `{ Get { SomeAction(sort:[{
+										path: ["path1", "path2"] order: desc
+									}]) { intField } } }`
+
+				expectedParams := traverser.GetParams{
+					ClassName:  "SomeAction",
+					Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+					Sort:       []filters.Sort{{Path: []string{"path1", "path2"}, Order: "desc"}},
+				}
+
+				tt.resolver.On("GetClass", expectedParams).
+					Return([]interface{}{}, nil).Once()
+
+				tt.resolver.AssertResolve(t, query)
+			})
+
+			t.Run("simple sort with two sort filters", func(t *testing.T) {
+				query := `{ Get { SomeAction(sort:[{
+										path: ["first1", "first2", "first3", "first4"] order: asc
+									} {
+										path: ["second1"] order: desc
+									}]) { intField } } }`
+
+				expectedParams := traverser.GetParams{
+					ClassName:  "SomeAction",
+					Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+					Sort: []filters.Sort{
+						{Path: []string{"first1", "first2", "first3", "first4"}, Order: "asc"},
+						{Path: []string{"second1"}, Order: "desc"},
+					},
+				}
+
+				tt.resolver.On("GetClass", expectedParams).
+					Return([]interface{}{}, nil).Once()
+
+				tt.resolver.AssertResolve(t, query)
+			})
+		})
+	}
+}
+
 func ptFloat32(in float32) *float32 {
 	return &in
 }
