@@ -580,19 +580,6 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 							"Check your schema files for which properties in this class are available",
 					},
 				},
-				{
-					name:            "ref prop",
-					sort:            []filters.Sort{{Path: []string{"toOther"}, Order: "desc"}},
-					expectedIndexes: nil,
-					constainsErrorMsgs: []string{
-						"search: search index testclass: sort parameter at position 0: " +
-							"no such prop with name 'toOther' found in class 'TestClass' in the schema. " +
-							"Check your schema files for which properties in this class are available, " +
-							"search index testrefclass: sort parameter at position 0: " +
-							"sorting by reference not supported, " +
-							"property \"toOther\" is a ref prop to the class \"TestClass\"",
-					},
-				},
 			}
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {

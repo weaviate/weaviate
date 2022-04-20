@@ -177,14 +177,12 @@ func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
 }
 
 func (d *DB) objectSearch(ctx context.Context, offset, limit int,
-	localFilters *filters.LocalFilter, sort []filters.Sort,
+	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties) (search.Results, error) {
 	var found []*storobj.Object
 
-	if len(sort) > 0 {
-		if err := d.validateSort(sort); err != nil {
-			return nil, errors.Wrap(err, "search")
-		}
+	if err := d.validateSort(sort); err != nil {
+		return nil, errors.Wrap(err, "search")
 	}
 
 	totalLimit := offset + limit
@@ -192,7 +190,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	// painfully slow on large schemas
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, err := index.objectSearch(ctx, totalLimit, localFilters, nil, sort, additional)
+		res, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
