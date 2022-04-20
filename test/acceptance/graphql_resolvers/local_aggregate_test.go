@@ -897,8 +897,12 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 					"value":  "Berlin",
 					"occurs": json.Number("1"),
 				},
+				map[string]interface{}{
+					"value":  "Amsterdam",
+					"occurs": json.Number("1"),
+				},
 			}
-			assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+			assert.Subset(t, expectedTopOccurrences, topOccurrences)
 		})
 	})
 
