@@ -257,4 +257,8 @@ func TestRestartJourney(t *testing.T) {
 				res[0].Schema.(map[string]interface{})["description"])
 		})
 	})
+
+	t.Run("shutdown", func(t *testing.T) {
+		require.Nil(t, newRepo.Shutdown(context.Background()))
+	})
 }
