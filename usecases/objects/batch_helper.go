@@ -14,8 +14,11 @@ package objects
 import "strings"
 
 // determine which field values not to return
-func determineResponseFields(fields []*string) map[string]int {
-	fieldsToKeep := map[string]int{"class": 0, "properties": 0, "creationtimeunix": 0, "key": 0, "id": 0}
+func determineResponseFields(fields []*string) map[string]struct{} {
+	fieldsToKeep := map[string]struct{}{
+		"class": {}, "properties": {}, "creationTimeUnix": {},
+		"lastUpdateTimeUnix": {}, "key": {}, "id": {},
+	}
 
 	if len(fields) > 0 {
 		// check if "ALL" option is provided
@@ -26,11 +29,11 @@ func determineResponseFields(fields []*string) map[string]int {
 			}
 		}
 
-		fieldsToKeep = make(map[string]int)
+		fieldsToKeep = make(map[string]struct{})
 		// iterate over the provided fields
 		for _, field := range fields {
 			fieldToKeep := strings.ToLower(*field)
-			fieldsToKeep[fieldToKeep] = 0
+			fieldsToKeep[fieldToKeep] = struct{}{}
 		}
 	}
 
