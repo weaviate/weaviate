@@ -199,7 +199,7 @@ func testCtx() context.Context {
 	return ctx
 }
 
-func testShard(ctx context.Context) *Shard {
+func testShard(ctx context.Context) (*Shard, *Index) {
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 
 	shardState := singleShardState()
@@ -208,17 +208,22 @@ func testShard(ctx context.Context) *Shard {
 	idx := &Index{
 		Config:                IndexConfig{RootPath: dirName, ClassName: schema.ClassName("TestShardClass")},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
-		vectorIndexUserConfig: hnsw.UserConfig{CleanupIntervalSeconds: 1},
+		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
+		Shards:                map[string]*Shard{},
 	}
 
-	shd, err := NewShard(ctx, "testshard", idx)
+	shardName := shardState.AllPhysicalShards()[0]
+
+	shd, err := NewShard(ctx, shardName, idx)
 	if err != nil {
 		panic(err)
 	}
 
-	return shd
+	idx.Shards[shardName] = shd
+
+	return shd, idx
 }
 
 func testObject() *storobj.Object {

@@ -33,9 +33,16 @@ import (
 
 func TestShard_UpdateStatus(t *testing.T) {
 	ctx := testCtx()
-	shd := testShard(ctx)
+	shd, idx := testShard(ctx)
 
 	amount := 10
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.index.Config.RootPath)
 
 	t.Run("insert data into shard", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
@@ -65,9 +72,11 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err = shd.putObject(ctx, testObject())
 		require.Nil(t, err)
 	})
+
+	require.Nil(t, idx.drop())
 }
 
-func TestReadOnlyShard_HaltCompaction(t *testing.T) {
+func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	amount := 10000
 	sizePerValue := 8
 	bucketName := "testbucket"
@@ -75,7 +84,7 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	shd := testShard(context.Background())
+	shd, idx := testShard(context.Background())
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -141,6 +150,12 @@ func TestReadOnlyShard_HaltCompaction(t *testing.T) {
 		}
 	})
 
-	t.Logf("drop shard")
-	require.Nil(t, shd.drop(true))
+	t.Run("update shard status to ready", func(t *testing.T) {
+		err := shd.updateStatus(storagestate.StatusReady.String())
+		require.Nil(t, err)
+
+		time.Sleep(time.Second)
+	})
+
+	require.Nil(t, idx.drop())
 }

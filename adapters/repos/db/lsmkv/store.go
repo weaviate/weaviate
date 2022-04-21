@@ -89,7 +89,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 func (s *Store) Shutdown(ctx context.Context) error {
 	for name, bucket := range s.bucketsByName {
 		if err := bucket.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shtudown bucket %q", name)
+			return errors.Wrapf(err, "shutdown bucket %q", name)
 		}
 	}
 
