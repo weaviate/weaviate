@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
@@ -171,7 +172,7 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 	})
 
 	t.Run("get testObject with timestamp filters", func(t *testing.T) {
-		createTimeFilter := &filters.LocalFilter{
+		createTimeStringFilter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
@@ -185,7 +186,7 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 			},
 		}
 
-		updateTimeFilter := &filters.LocalFilter{
+		updateTimeStringFilter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
@@ -199,10 +200,38 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 			},
 		}
 
+		createTimeDateFilter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    "TestClass",
+					Property: "_creationTimeUnix",
+				},
+				Value: &filters.Value{
+					Value: msToRFC3339(now),
+					Type:  dtDate,
+				},
+			},
+		}
+
+		updateTimeDateFilter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    "TestClass",
+					Property: "_lastUpdateTimeUnix",
+				},
+				Value: &filters.Value{
+					Value: msToRFC3339(now),
+					Type:  dtDate,
+				},
+			},
+		}
+
 		res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    createTimeFilter,
+			Filters:    createTimeStringFilter,
 		})
 		require.Nil(t, err)
 		assert.Len(t, res1, 1)
@@ -211,10 +240,59 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 		res2, err := repo.ClassSearch(context.Background(), traverser.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
-			Filters:    updateTimeFilter,
+			Filters:    updateTimeStringFilter,
 		})
 		require.Nil(t, err)
 		assert.Len(t, res2, 1)
 		assert.Equal(t, testID, res2[0].ID)
+
+		res3, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    createTimeDateFilter,
+		})
+		require.Nil(t, err)
+		assert.Len(t, res3, 1)
+		assert.Equal(t, testID, res3[0].ID)
+
+		res4, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    updateTimeDateFilter,
+		})
+		require.Nil(t, err)
+		assert.Len(t, res4, 1)
+		assert.Equal(t, testID, res4[0].ID)
 	})
+}
+
+func msToRFC3339(ms int64) time.Time {
+	sec, ns := splitMilliTimestamp(ms)
+	return time.Unix(sec, ns)
+}
+
+// splitMilliTimestamp allows us to take a timestamp
+// in unix epoch milliseconds, and split it into the
+// needed seconds/nanoseconds required by `time.Unix`.
+// once weaviate supports go version >= 1.17, we can
+// remove this func and just pass `ms` to `time.UnixMilli`
+func splitMilliTimestamp(ms int64) (sec int64, ns int64) {
+	// remove 3 least significant digits of `ms`
+	// so we end up with the seconds/nanoseconds
+	// needed to convert to RFC3339 formatted
+	// timestamp.
+	for i := int64(0); i < 3; i++ {
+		ns += int64(math.Pow(float64(10), float64(i))) * (ms % 10)
+		ms /= 10
+	}
+
+	// after removing 3 least significant digits,
+	// ms now represents the timestamp in seconds
+	sec = ms
+
+	// the least 3 significant digits only represent
+	// milliseconds, and need to be converted to nano
+	ns *= 1e6
+
+	return
 }
