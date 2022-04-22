@@ -64,6 +64,7 @@ type Config struct {
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
 	DiskUse                 DiskUse        `json:"disk_use" yaml:"disk_use"`
+	IndexByTimestamps       bool           `json:"index_by_timestamps" yaml:"index_by_timestamps"`
 }
 
 type moduleProvider interface {

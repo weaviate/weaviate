@@ -166,6 +166,14 @@ func FromEnv(config *Config) error {
 		config.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
 	}
 
+	if v := os.Getenv("INDEX_BY_TIMESTAMPS"); v != "" {
+		asBool, err := strconv.ParseBool(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse INDEX_BY_TIMESTAMPS as bool")
+		}
+		config.IndexByTimestamps = asBool
+	}
+
 	return nil
 }
 
