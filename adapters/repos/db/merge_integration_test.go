@@ -128,12 +128,15 @@ func Test_MergingObjects(t *testing.T) {
 	sourceID := strfmt.UUID("8738ddd5-a0ed-408d-a5d6-6f818fd56be6")
 
 	t.Run("add objects", func(t *testing.T) {
+		now := time.Now().UnixNano() / int64(time.Millisecond)
 		err := repo.PutObject(context.Background(), &models.Object{
 			ID:    sourceID,
 			Class: "MergeTestSource",
 			Properties: map[string]interface{}{
 				"string": "only the string prop set",
 			},
+			CreationTimeUnix:   now,
+			LastUpdateTimeUnix: now,
 		}, []float32{0.5})
 		require.Nil(t, err)
 
@@ -151,6 +154,18 @@ func Test_MergingObjects(t *testing.T) {
 		}
 	})
 
+	var lastUpdateTimeUnix int64
+
+	t.Run("fetch original object's update timestamp", func(t *testing.T) {
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
+			LastUpdateTimeUnix: true,
+		})
+		require.Nil(t, err)
+
+		lastUpdateTimeUnix = source.Object().LastUpdateTimeUnix
+		require.NotEmpty(t, lastUpdateTimeUnix)
+	})
+
 	t.Run("merge other previously unset properties into it", func(t *testing.T) {
 		md := objects.MergeDocument{
 			Class: "MergeTestSource",
@@ -164,10 +179,20 @@ func Test_MergingObjects(t *testing.T) {
 				},
 				"text": "some text",
 			},
+			UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
 		}
 
 		err := repo.Merge(context.Background(), md)
 		assert.Nil(t, err)
+	})
+
+	t.Run("compare merge object's update time with original", func(t *testing.T) {
+		source, err := repo.ObjectByID(context.Background(), sourceID, nil, additional.Properties{
+			LastUpdateTimeUnix: true,
+		})
+		require.Nil(t, err)
+
+		assert.Greater(t, source.Object().LastUpdateTimeUnix, lastUpdateTimeUnix)
 	})
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
@@ -192,7 +217,7 @@ func Test_MergingObjects(t *testing.T) {
 		assert.Equal(t, expectedSchema, schema)
 	})
 
-	t.Run("trying to merge from unexisting index", func(t *testing.T) {
+	t.Run("trying to merge from non-existing index", func(t *testing.T) {
 		md := objects.MergeDocument{
 			Class: "WrongClass",
 			ID:    sourceID,
