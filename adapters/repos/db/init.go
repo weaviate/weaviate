@@ -56,6 +56,7 @@ func (d *DB) init(ctx context.Context) error {
 				DiskUseWarningPercentage:  d.config.DiskUseWarningPercentage,
 				DiskUseReadOnlyPercentage: d.config.DiskUseReadOnlyPercentage,
 				QueryMaximumResults:       d.config.QueryMaximumResults,
+				IndexByTimestamps:         d.config.IndexByTimestamps,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),

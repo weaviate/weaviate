@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -245,14 +246,63 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(helpers.PropertyNameID),
+		helpers.BucketFromPropNameLSM(traverser.InternalPropID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(helpers.PropertyNameID),
+		helpers.HashBucketFromPropNameLSM(traverser.InternalPropID),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addTimestampProperties(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
+		return err
+	}
+	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(traverser.InternalPropCreationTimeUnix),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(traverser.InternalPropCreationTimeUnix),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(traverser.InternalPropLastUpdateTimeUnix),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(traverser.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err

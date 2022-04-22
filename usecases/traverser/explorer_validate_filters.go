@@ -19,6 +19,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
+const (
+	InternalPropBackwardsCompatID  = "id"
+	InternalPropID                 = "_id"
+	InternalPropCreationTimeUnix   = "_creationTimeUnix"
+	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
+)
+
 func (e *Explorer) validateFilters(filters *filters.LocalFilter) error {
 	if filters == nil {
 		return nil
@@ -51,14 +58,8 @@ func (e *Explorer) validateClause(sch schema.Schema, clause *filters.Clause) err
 	className := clause.On.GetInnerMost().Class
 	propName := clause.On.GetInnerMost().Property
 
-	if propName == "id" {
-		// special case for the uuid search
-		if clause.Value.Type == schema.DataTypeString {
-			return nil
-		}
-
-		return errors.Errorf("using special path [\"id\"] to filter by uuid: " +
-			"must use \"valueString\" to specify the id")
+	if IsInternalProperty(propName) {
+		return validateInternalPropertyClause(propName, clause)
 	}
 
 	class := sch.FindClassByName(className)
@@ -113,4 +114,36 @@ func mergeErrs(errs []error) error {
 	}
 
 	return errors.Errorf("%s", strings.Join(msgs, ", "))
+}
+
+func IsInternalProperty(propName schema.PropertyName) bool {
+	switch propName {
+	case InternalPropBackwardsCompatID,
+		InternalPropID,
+		InternalPropCreationTimeUnix,
+		InternalPropLastUpdateTimeUnix:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateInternalPropertyClause(propName schema.PropertyName, clause *filters.Clause) error {
+	switch propName {
+	case InternalPropBackwardsCompatID, InternalPropID:
+		if clause.Value.Type == schema.DataTypeString {
+			return nil
+		}
+		return errors.Errorf(
+			`using ["_id"] to filter by uuid: must use "valueString" to specify the id`)
+	case InternalPropCreationTimeUnix, InternalPropLastUpdateTimeUnix:
+		if clause.Value.Type == schema.DataTypeDate ||
+			clause.Value.Type == schema.DataTypeString {
+			return nil
+		}
+		return errors.Errorf(
+			`using ["%s"] to filter by timestamp: must use "valueString" or "valueDate"`, propName)
+	default:
+		return errors.Errorf("unsupported internal property: %s", propName)
+	}
 }

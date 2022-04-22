@@ -138,6 +138,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
 		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
+		IndexByTimestamps:         appState.ServerConfig.Config.IndexByTimestamps,
 	}, remoteIndexClient, appState.Cluster) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo

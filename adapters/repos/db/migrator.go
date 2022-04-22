@@ -37,6 +37,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
 			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
+			IndexByTimestamps:         m.db.config.IndexByTimestamps,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -51,6 +52,13 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	err = idx.addUUIDProperty(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "extend idx '%s' with uuid property", idx.ID())
+	}
+
+	if m.db.config.IndexByTimestamps {
+		err = idx.addTimestampProperties(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with timestamp properties", idx.ID())
+		}
 	}
 
 	for _, prop := range class.Properties {
