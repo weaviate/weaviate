@@ -102,16 +102,20 @@ func (m *TransformersModule) initVectorizer(ctx context.Context,
 	uriQuery := os.Getenv("TRANSFORMERS_QUERY_INFERENCE_API")
 	uriCommon := os.Getenv("TRANSFORMERS_INFERENCE_API")
 
-	switch {
-	case uriCommon != "" && (uriPassage != "" || uriQuery != ""):
-		return errors.Errorf("either variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API should be set")
-	case uriCommon == "" && uriPassage == "" && uriQuery == "":
-		return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API are not set")
-	case uriCommon == "" && uriPassage != "" && uriQuery == "":
-		return errors.Errorf("required variable TRANSFORMERS_QUERY_INFERENCE_API is not set")
-	case uriCommon == "" && uriPassage == "" && uriQuery != "":
-		return errors.Errorf("required variable TRANSFORMERS_PASSAGE_INFERENCE_API is not set")
-	case uriCommon != "" && uriPassage == "" && uriQuery == "":
+	if uriCommon == "" {
+		if uriPassage == "" && uriQuery == "" {
+			return errors.Errorf("required variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API are not set")
+		}
+		if uriPassage != "" && uriQuery == "" {
+			return errors.Errorf("required variable TRANSFORMERS_QUERY_INFERENCE_API is not set")
+		}
+		if uriPassage == "" && uriQuery != "" {
+			return errors.Errorf("required variable TRANSFORMERS_PASSAGE_INFERENCE_API is not set")
+		}
+	} else {
+		if uriPassage != "" || uriQuery != "" {
+			return errors.Errorf("either variable TRANSFORMERS_INFERENCE_API or both variables TRANSFORMERS_PASSAGE_INFERENCE_API and TRANSFORMERS_QUERY_INFERENCE_API should be set")
+		}
 		uriPassage = uriCommon
 		uriQuery = uriCommon
 	}
