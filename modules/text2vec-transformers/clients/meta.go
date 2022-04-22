@@ -14,8 +14,10 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -50,48 +52,40 @@ func (v *vectorizer) allMetaInfoFns() map[string]metaInfoFn {
 }
 
 func (v *vectorizer) metaInfoAll(metaInfoFns map[string]metaInfoFn) (map[string]interface{}, error) {
-	type nameMeta struct {
+	type nameMetaErr struct {
 		name string
 		meta map[string]interface{}
-	}
-	type nameErr struct {
-		name string
 		err  error
 	}
 
 	var wg sync.WaitGroup
-	chMeta := make(chan nameMeta, len(metaInfoFns))
-	chErr := make(chan nameErr, len(metaInfoFns))
-
+	ch := make(chan nameMetaErr, len(metaInfoFns))
 	for name, metaInfo := range metaInfoFns {
 		wg.Add(1)
 		go func(name string, metaInfo metaInfoFn) {
 			defer wg.Done()
-			if meta, err := metaInfo(); err == nil {
-				chMeta <- nameMeta{name, meta}
-			} else {
-				chErr <- nameErr{name, err}
-			}
+			meta, err := metaInfo()
+			ch <- nameMetaErr{name, meta, err}
 		}(name, metaInfo)
 	}
 	wg.Wait()
-	close(chMeta)
-	close(chErr)
+	close(ch)
 
-	if len(chErr) > 0 {
-		ne := <-chErr
-		combinedErr := errors.Errorf("[%s] %v", ne.name, ne.err.Error())
-		for ne := range chErr {
-			combinedErr = errors.Wrapf(combinedErr, "[%s] %v", ne.name, ne.err.Error())
+	metas := map[string]interface{}{}
+	var errs []string
+	for nme := range ch {
+		if nme.err != nil {
+			errs = append(errs, fmt.Sprintf("[%s] %v", nme.name, nme.err.Error()))
 		}
-		return nil, combinedErr
+		if nme.meta != nil {
+			metas[nme.name] = nme.meta
+		}
 	}
 
-	result := map[string]interface{}{}
-	for nm := range chMeta {
-		result[nm.name] = nm.meta
+	if len(errs) > 0 {
+		return nil, errors.Errorf(strings.Join(errs, ", "))
 	}
-	return result, nil
+	return metas, nil
 }
 
 func (v *vectorizer) metaInfo(url func(string) string) (map[string]interface{}, error) {
@@ -105,6 +99,9 @@ func (v *vectorizer) metaInfo(url func(string) string) (map[string]interface{}, 
 		return nil, errors.Wrap(err, "send GET meta request")
 	}
 	defer res.Body.Close()
+	if !(res.StatusCode >= http.StatusOK && res.StatusCode < http.StatusMultipleChoices) {
+		return nil, errors.Errorf("unexpected status code '%d' of meta request", res.StatusCode)
+	}
 
 	bodyBytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {

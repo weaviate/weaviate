@@ -68,6 +68,21 @@ func TestGetMeta(t *testing.T) {
 		assert.NotNil(t, queryID2Label["0"])
 		assert.NotNil(t, queryID2Label["1"])
 	})
+
+	t.Run("when passage and query servers are unavailable", func(t *testing.T) {
+		rt := time.Now().Add(time.Hour)
+		serverPassage := httptest.NewServer(&testMetaHandler{t: t, modelType: "passage", readyTime: rt})
+		serverQuery := httptest.NewServer(&testMetaHandler{t: t, modelType: "query", readyTime: rt})
+		defer serverPassage.Close()
+		defer serverQuery.Close()
+		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		meta, err := v.MetaInfo()
+
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "[passage] unexpected status code '503' of meta request")
+		assert.Contains(t, err.Error(), "[query] unexpected status code '503' of meta request")
+		assert.Nil(t, meta)
+	})
 }
 
 type testMetaHandler struct {
@@ -83,6 +98,7 @@ func (h *testMetaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if time.Since(h.readyTime) < 0 {
 		w.WriteHeader(http.StatusServiceUnavailable)
+		return
 	}
 
 	w.Write([]byte(h.metaInfo()))
