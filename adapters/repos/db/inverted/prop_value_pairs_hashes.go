@@ -43,7 +43,7 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	if pv.operator.OnValue() {
 		if pv.prop == traverser.InternalPropBackwardsCompatID {
 			// the user-specified ID is considered legacy. we
-			// support backwards compatability with this prop
+			// support backwards compatibility with this prop
 			pv.prop = traverser.InternalPropID
 			pv.hasFrequency = false
 		}

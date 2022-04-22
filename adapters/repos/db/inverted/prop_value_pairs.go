@@ -43,7 +43,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == traverser.InternalPropBackwardsCompatID {
 			// the user-specified ID is considered legacy. we
-			// support backwards compatability with this prop
+			// support backwards compatibility with this prop
 			id = helpers.BucketFromPropNameLSM(traverser.InternalPropID)
 			pv.prop = traverser.InternalPropID
 			pv.hasFrequency = false
