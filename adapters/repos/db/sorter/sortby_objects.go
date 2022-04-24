@@ -48,6 +48,14 @@ func (s *sortByObjects) getProperty(i int) interface{} {
 		// special case for "id" property
 		return s.objects[i].ID().String()
 	}
+	if s.property == "_creationTimeUnix" {
+		// special case for "_creationTimeUnix" property
+		return float64(s.objects[i].CreationTimeUnix())
+	}
+	if s.property == "_lastUpdateTimeUnix" {
+		// special case for "_lastUpdateTimeUnix" property
+		return float64(s.objects[i].LastUpdateTimeUnix())
+	}
 	properties := s.objects[i].Properties()
 	propertiesMap, ok := properties.(map[string]interface{})
 	if ok {

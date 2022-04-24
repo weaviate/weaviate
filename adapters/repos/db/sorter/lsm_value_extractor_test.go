@@ -27,8 +27,8 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 	obj := storobj.FromObject(
 		&models.Object{
 			Class:              className,
-			CreationTimeUnix:   123456,
-			LastUpdateTimeUnix: 56789,
+			CreationTimeUnix:   900000000001,
+			LastUpdateTimeUnix: 900000000002,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			Properties: map[string]interface{}{
 				"stringProp":      "string",
@@ -72,6 +72,16 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 			name:     "id",
 			property: "id",
 			want:     "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		},
+		{
+			name:     "_creationTimeUnix",
+			property: "_creationTimeUnix",
+			want:     float64(900000000001),
+		},
+		{
+			name:     "_lastUpdateTimeUnix",
+			property: "_lastUpdateTimeUnix",
+			want:     float64(900000000002),
 		},
 		{
 			name:     "stringProp",

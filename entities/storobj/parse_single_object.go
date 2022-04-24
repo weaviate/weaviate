@@ -12,6 +12,7 @@
 package storobj
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strconv"
 
@@ -23,6 +24,12 @@ import (
 func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, error) {
 	if propName == "id" || propName == "_id" {
 		return extractID(data)
+	}
+	if propName == "_creationTimeUnix" {
+		return extractCreationTimeUnix(data)
+	}
+	if propName == "_lastUpdateTimeUnix" {
+		return extractLastUpdateTimeUnix(data)
 	}
 	return ParseAndExtractTextProp(data, propName)
 }
@@ -90,6 +97,33 @@ func extractID(data []byte) ([]string, bool, error) {
 		return []string{uuidParsed.String()}, true, nil
 	}
 	return nil, false, errors.New("id property not found")
+}
+
+func extractCreationTimeUnix(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1 + 16
+	end := start + 8
+	if len(data) > end {
+		return extractTimeUnix(data[start:end], "_creationTimeUnix")
+	}
+	return nil, false, errors.New("_creationTimeUnix property not found")
+}
+
+func extractLastUpdateTimeUnix(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1 + 16 + 8
+	end := start + 8
+	if len(data) > end {
+		return extractTimeUnix(data[start:end], "_lastUpdateTimeUnix")
+	}
+	return nil, false, errors.New("_lastUpdateTimeUnix property not found")
+}
+
+func extractTimeUnix(data []byte, propertyName string) ([]string, bool, error) {
+	var timeUnix int64
+	r := bytes.NewReader(data)
+	if err := binary.Read(r, binary.LittleEndian, &timeUnix); err != nil {
+		return nil, false, errors.Errorf("cannot parse %s property", propertyName)
+	}
+	return []string{strconv.FormatInt(timeUnix, 10)}, true, nil
 }
 
 func extractPropsBytes(data []byte) ([]byte, error) {
