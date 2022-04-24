@@ -35,7 +35,7 @@ func New(client Client) *Vectorizer {
 type Client interface {
 	VectorizeObject(ctx context.Context, input string,
 		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeText(ctx context.Context, input string,
+	VectorizeQuery(ctx context.Context, input string,
 		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
