@@ -45,7 +45,7 @@ func (v *vectorizer) VectorizeObject(ctx context.Context, input string,
 	return v.vectorize(ctx, input, config, v.urlPassage)
 }
 
-func (v *vectorizer) VectorizeText(ctx context.Context, input string,
+func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, config, v.urlQuery)
 }

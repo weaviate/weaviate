@@ -33,7 +33,7 @@ func (c *fakeClient) VectorizeObject(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeClient) VectorizeText(ctx context.Context,
+func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	return c.VectorizeObject(ctx, text, cfg)
 }
