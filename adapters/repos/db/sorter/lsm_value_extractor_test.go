@@ -69,6 +69,11 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 		want     interface{}
 	}{
 		{
+			name:     "id",
+			property: "id",
+			want:     "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		},
+		{
 			name:     "stringProp",
 			property: "stringProp",
 			want:     "string",

@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -200,6 +201,30 @@ func Test_objectsSorter(t *testing.T) {
 			wantObjs:  []*storobj.Object{cityWroclaw, cityBerlin, cityAmsterdam, cityNewYork, cityNil2, cityNil},
 			wantDists: []float32{0.1, 0.2, 0.4, 0.3, 0.0, 0.0},
 		},
+		{
+			name:      "sort by special id property asc",
+			args:      args{"id", "asc"},
+			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
+			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
+		},
+		{
+			name:      "sort by special id property desc",
+			args:      args{"id", "desc"},
+			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
+			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
+		},
+		{
+			name:      "sort by special _id property asc",
+			args:      args{"_id", "asc"},
+			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
+			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
+		},
+		{
+			name:      "sort by special _id property desc",
+			args:      args{"_id", "desc"},
+			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
+			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
+		},
 	}
 	// test with distances
 	for _, tt := range tests {
@@ -355,6 +380,7 @@ var (
 	cityWroclaw = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("f10018a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name":            "Wroclaw",
 				"country":         "Poland",
@@ -382,6 +408,7 @@ var (
 	cityBerlin = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("b06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name":            "Berlin",
 				"country":         "Germany",
@@ -409,6 +436,7 @@ var (
 	cityNewYork = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("e06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name":            "New York",
 				"country":         "USA",
@@ -436,6 +464,7 @@ var (
 	cityAmsterdam = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("a06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name":            "Amsterdam",
 				"country":         "The Netherlands",
@@ -463,6 +492,7 @@ var (
 	cityNil = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("f00018a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name": "Nil",
 			},
@@ -471,6 +501,7 @@ var (
 	cityNil2 = &storobj.Object{
 		Object: models.Object{
 			Class: "City",
+			ID:    strfmt.UUID("f00028a7-ad67-4774-a9ac-86a04df51cb6"),
 			Properties: map[string]interface{}{
 				"name": "Nil2",
 			},

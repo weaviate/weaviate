@@ -41,7 +41,7 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 	// validate current
 	path, order := sort.Path, sort.Order
 
-	if order != "asc" && order != "desc" {
+	if len(order) > 0 && order != "asc" && order != "desc" {
 		return errors.Errorf(`invalid order parameter, `+
 			`possible values are: ["asc", "desc"] not: "%s"`, order)
 	}
@@ -54,6 +54,11 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 		if class == nil {
 			return errors.Errorf("class %q does not exist in schema",
 				className)
+		}
+
+		if path[0] == "id" {
+			// special case for the uuid search
+			return nil
 		}
 
 		propName := schema.PropertyName(path[0])
