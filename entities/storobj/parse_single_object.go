@@ -16,8 +16,16 @@ import (
 	"strconv"
 
 	"github.com/buger/jsonparser"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
+
+func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, error) {
+	if propName == "id" || propName == "_id" {
+		return extractID(data)
+	}
+	return ParseAndExtractTextProp(data, propName)
+}
 
 func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, error) {
 	vals := []string{}
@@ -69,6 +77,19 @@ func mustExtractNumber(value []byte) float64 {
 		panic("not a float64")
 	}
 	return number
+}
+
+func extractID(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1
+	end := start + 16
+	if len(data) > end {
+		uuidParsed, err := uuid.FromBytes(data[start:end])
+		if err != nil {
+			return nil, false, errors.New("cannot parse id property")
+		}
+		return []string{uuidParsed.String()}, true, nil
+	}
+	return nil, false, errors.New("id property not found")
 }
 
 func extractPropsBytes(data []byte) ([]byte, error) {

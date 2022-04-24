@@ -25,6 +25,10 @@ func newClassHelper(schema schema.Schema) *classHelper {
 
 func (s *classHelper) getDataType(className, property string) []string {
 	class := s.schema.GetClass(schema.ClassName(className))
+	if property == "id" || property == "_id" {
+		// handle special ID property
+		return []string{string(schema.DataTypeString)}
+	}
 	for _, prop := range class.Properties {
 		if prop.Name == property {
 			return prop.DataType

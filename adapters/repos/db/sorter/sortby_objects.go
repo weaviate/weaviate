@@ -44,6 +44,10 @@ func (s *sortByObjects) Less(i, j int) bool {
 }
 
 func (s *sortByObjects) getProperty(i int) interface{} {
+	if s.property == "id" || s.property == "_id" {
+		// special case for "id" property
+		return s.objects[i].ID().String()
+	}
 	properties := s.objects[i].Properties()
 	propertiesMap, ok := properties.(map[string]interface{})
 	if ok {
