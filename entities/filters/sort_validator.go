@@ -56,22 +56,23 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 				className)
 		}
 
-		if path[0] == "id" {
-			// special case for the uuid search
+		switch path[0] {
+		case "id", "_id", "_creationTimeUnix", "_lastUpdateTimeUnix":
+			// handle internal properties
+			return nil
+		default:
+			propName := schema.PropertyName(path[0])
+			prop, err := sch.GetProperty(className, propName)
+			if err != nil {
+				return err
+			}
+
+			if schema.IsRefDataType(prop.DataType) {
+				return errors.Errorf("sorting by reference not supported, "+
+					"property %q is a ref prop to the class %q", propName, prop.DataType[0])
+			}
 			return nil
 		}
-
-		propName := schema.PropertyName(path[0])
-		prop, err := sch.GetProperty(className, propName)
-		if err != nil {
-			return err
-		}
-
-		if schema.IsRefDataType(prop.DataType) {
-			return errors.Errorf("sorting by reference not supported, "+
-				"property %q is a ref prop to the class %q", propName, prop.DataType[0])
-		}
-		return nil
 	default:
 		return errors.New("sorting by reference not supported, " +
 			"path must have exactly one argument")

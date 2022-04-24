@@ -38,6 +38,10 @@ func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
 			// handle special ID property
 			return prop[0]
 		}
+		if e.property == "_creationTimeUnix" || e.property == "_lastUpdateTimeUnix" {
+			// handle special _creationTimeUnix and _lastUpdateTimeUnix property
+			return e.mustExtractNumber(prop)[0]
+		}
 		switch e.getDataType() {
 		case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob:
 			return prop[0]

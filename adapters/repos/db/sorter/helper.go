@@ -29,6 +29,9 @@ func (s *classHelper) getDataType(className, property string) []string {
 		// handle special ID property
 		return []string{string(schema.DataTypeString)}
 	}
+	if property == "_creationTimeUnix" || property == "_lastUpdateTimeUnix" {
+		return []string{string(schema.DataTypeInt)}
+	}
 	for _, prop := range class.Properties {
 		if prop.Name == property {
 			return prop.DataType
