@@ -15,6 +15,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +56,9 @@ func TestWaitForStartup(t *testing.T) {
 
 		require.NotNil(t, err, nullLogger())
 		assert.Contains(t, err.Error(), "init context expired before remote was ready: send check ready request")
+		assertContainsEither(t, err.Error(), "dial tcp", "context deadline exceeded")
+		assert.NotContains(t, err.Error(), "[passage]")
+		assert.NotContains(t, err.Error(), "[query]")
 	})
 
 	t.Run("when passage and query servers are down", func(t *testing.T) {
@@ -65,15 +70,15 @@ func TestWaitForStartup(t *testing.T) {
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err, nullLogger())
-		assert.Contains(t, err.Error(), "init context expired before remote was ready")
-		assert.Contains(t, err.Error(), "[passage] send check ready request")
-		assert.Contains(t, err.Error(), "[query] send check ready request")
+		assert.Contains(t, err.Error(), "[passage] init context expired before remote was ready: send check ready request")
+		assert.Contains(t, err.Error(), "[query] init context expired before remote was ready: send check ready request")
+		assertContainsEither(t, err.Error(), "dial tcp", "context deadline exceeded")
 	})
 
 	t.Run("when common server is alive, but not ready", func(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{
 			t:         t,
-			readyTime: time.Now().Add(1 * time.Minute),
+			readyTime: time.Now().Add(time.Hour),
 		})
 		defer server.Close()
 		v := New(server.URL, server.URL, nullLogger())
@@ -82,11 +87,14 @@ func TestWaitForStartup(t *testing.T) {
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "init context expired before remote was ready: send check ready request")
+		assert.Contains(t, err.Error(), "init context expired before remote was ready")
+		assertContainsEither(t, err.Error(), "not ready: status 503", "context deadline exceeded")
+		assert.NotContains(t, err.Error(), "[passage]")
+		assert.NotContains(t, err.Error(), "[query]")
 	})
 
 	t.Run("when passage and query servers are alive, but not ready", func(t *testing.T) {
-		rt := time.Now().Add(1 * time.Minute)
+		rt := time.Now().Add(time.Hour)
 		serverPassage := httptest.NewServer(&testReadyHandler{
 			t:         t,
 			readyTime: rt,
@@ -103,9 +111,9 @@ func TestWaitForStartup(t *testing.T) {
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "init context expired before remote was ready")
-		assert.Contains(t, err.Error(), "[passage] send check ready request")
-		assert.Contains(t, err.Error(), "[query] send check ready request")
+		assert.Contains(t, err.Error(), "[passage] init context expired before remote was ready")
+		assert.Contains(t, err.Error(), "[query] init context expired before remote was ready")
+		assertContainsEither(t, err.Error(), "not ready: status 503", "context deadline exceeded")
 	})
 
 	t.Run("when passage and query servers are alive, but query one is not ready", func(t *testing.T) {
@@ -122,9 +130,9 @@ func TestWaitForStartup(t *testing.T) {
 		err := v.WaitForStartup(ctx, 50*time.Millisecond)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "init context expired before remote was ready")
-		assert.NotContains(t, err.Error(), "[passage] send check ready request")
-		assert.Contains(t, err.Error(), "[query] send check ready request")
+		assert.Contains(t, err.Error(), "[query] init context expired before remote was ready")
+		assertContainsEither(t, err.Error(), "not ready: status 503", "context deadline exceeded")
+		assert.NotContains(t, err.Error(), "[passage]")
 	})
 
 	t.Run("when common server is initially not ready, but then becomes ready", func(t *testing.T) {
@@ -173,12 +181,17 @@ func (f *testReadyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if time.Since(f.readyTime) < 0 {
 		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusNoContent)
 	}
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func assertContainsEither(t *testing.T, str string, contains ...string) {
+	reg := regexp.MustCompile(strings.Join(contains, "|"))
+	assert.Regexp(t, reg, str)
 }

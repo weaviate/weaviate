@@ -23,50 +23,30 @@ import (
 	"github.com/pkg/errors"
 )
 
-type metaInfoFn func() (map[string]interface{}, error)
-
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
-	metaInfoFns := v.allMetaInfoFns()
-
-	switch len(metaInfoFns) {
-	case 0:
-		return nil, errors.Errorf("no metaInfo callback configured")
-	case 1:
-		for _, singleMetaInfo := range metaInfoFns {
-			return singleMetaInfo()
-		}
-	}
-	return v.metaInfoAll(metaInfoFns)
-}
-
-func (v *vectorizer) allMetaInfoFns() map[string]metaInfoFn {
-	if v.originPassage != v.originQuery {
-		return map[string]metaInfoFn{
-			"passage": func() (map[string]interface{}, error) { return v.metaInfo(v.urlPassage) },
-			"query":   func() (map[string]interface{}, error) { return v.metaInfo(v.urlQuery) },
-		}
-	}
-	return map[string]metaInfoFn{
-		"common": func() (map[string]interface{}, error) { return v.metaInfo(v.urlPassage) },
-	}
-}
-
-func (v *vectorizer) metaInfoAll(metaInfoFns map[string]metaInfoFn) (map[string]interface{}, error) {
 	type nameMetaErr struct {
 		name string
 		meta map[string]interface{}
 		err  error
 	}
 
+	endpoints := map[string]string{}
+	if v.originPassage != v.originQuery {
+		endpoints["passage"] = v.urlPassage("/meta")
+		endpoints["query"] = v.urlQuery("/meta")
+	} else {
+		endpoints[""] = v.urlPassage("/meta")
+	}
+
 	var wg sync.WaitGroup
-	ch := make(chan nameMetaErr, len(metaInfoFns))
-	for name, metaInfo := range metaInfoFns {
+	ch := make(chan nameMetaErr, len(endpoints))
+	for serviceName, endpoint := range endpoints {
 		wg.Add(1)
-		go func(name string, metaInfo metaInfoFn) {
+		go func(serviceName string, endpoint string) {
 			defer wg.Done()
-			meta, err := metaInfo()
-			ch <- nameMetaErr{name, meta, err}
-		}(name, metaInfo)
+			meta, err := v.metaInfo(endpoint)
+			ch <- nameMetaErr{serviceName, meta, err}
+		}(serviceName, endpoint)
 	}
 	wg.Wait()
 	close(ch)
@@ -75,7 +55,11 @@ func (v *vectorizer) metaInfoAll(metaInfoFns map[string]metaInfoFn) (map[string]
 	var errs []string
 	for nme := range ch {
 		if nme.err != nil {
-			errs = append(errs, fmt.Sprintf("[%s] %v", nme.name, nme.err.Error()))
+			prefix := ""
+			if nme.name != "" {
+				prefix = "[" + nme.name + "] "
+			}
+			errs = append(errs, fmt.Sprintf("%s%v", prefix, nme.err.Error()))
 		}
 		if nme.meta != nil {
 			metas[nme.name] = nme.meta
@@ -85,11 +69,16 @@ func (v *vectorizer) metaInfoAll(metaInfoFns map[string]metaInfoFn) (map[string]
 	if len(errs) > 0 {
 		return nil, errors.Errorf(strings.Join(errs, ", "))
 	}
+	if len(metas) == 1 {
+		for _, meta := range metas {
+			return meta.(map[string]interface{}), nil
+		}
+	}
 	return metas, nil
 }
 
-func (v *vectorizer) metaInfo(url func(string) string) (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url("/meta"), nil)
+func (v *vectorizer) metaInfo(endpoint string) (map[string]interface{}, error) {
+	req, err := http.NewRequestWithContext(context.Background(), "GET", endpoint, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "create GET meta request")
 	}
