@@ -19,9 +19,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
@@ -95,7 +95,7 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 		return nil, errors.Wrap(err, "marshal id prop")
 	}
 	return &Property{
-		Name:         traverser.InternalPropID,
+		Name:         filters.InternalPropID,
 		HasFrequency: false,
 		Items: []Countable{
 			{
@@ -106,8 +106,8 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 }
 
 func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Property, error) {
-	createTime, createTimeOK := input[traverser.InternalPropCreationTimeUnix]
-	updateTime, updateTimeOK := input[traverser.InternalPropLastUpdateTimeUnix]
+	createTime, createTimeOK := input[filters.InternalPropCreationTimeUnix]
+	updateTime, updateTimeOK := input[filters.InternalPropLastUpdateTimeUnix]
 
 	var props []Property
 	if createTimeOK {
@@ -116,7 +116,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 			return nil, errors.Wrap(err, "analyze create timestamp prop")
 		}
 		props = append(props, Property{
-			Name:  traverser.InternalPropCreationTimeUnix,
+			Name:  filters.InternalPropCreationTimeUnix,
 			Items: []Countable{{Data: b}},
 		})
 	}
@@ -127,7 +127,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 			return nil, errors.Wrap(err, "analyze update timestamp prop")
 		}
 		props = append(props, Property{
-			Name:  traverser.InternalPropLastUpdateTimeUnix,
+			Name:  filters.InternalPropLastUpdateTimeUnix,
 			Items: []Countable{{Data: b}},
 		})
 	}

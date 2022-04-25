@@ -173,6 +173,11 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 	return batch, args.Error(0)
 }
 
+func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams) (BatchDeleteResult, error) {
+	args := f.Called(params)
+	return args.Get(0).(BatchDeleteResult), args.Error(1)
+}
+
 func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {
 	args := f.Called(merge)
 	return args.Error(0)

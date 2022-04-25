@@ -15,9 +15,9 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
@@ -40,8 +40,8 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		if schemaMap == nil {
 			schemaMap = make(map[string]interface{})
 		}
-		schemaMap[traverser.InternalPropCreationTimeUnix] = object.Object.CreationTimeUnix
-		schemaMap[traverser.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
+		schemaMap[filters.InternalPropCreationTimeUnix] = object.Object.CreationTimeUnix
+		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
 	return inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())

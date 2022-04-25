@@ -569,6 +569,54 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			assert.Equal(t, expected, actual)
 		}
 	})
+
+	t.Run("batch delete the remaining 2/3 of data", func(t *testing.T) {
+		getParams := func(className string, dryRun bool) objects.BatchDeleteParams {
+			return objects.BatchDeleteParams{
+				ClassName: schema.ClassName(className),
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLike,
+						Value: &filters.Value{
+							Value: "*",
+							Type:  schema.DataTypeString,
+						},
+						On: &filters.Path{
+							Property: "id",
+						},
+					},
+				},
+				DryRun: dryRun,
+				Output: "verbose",
+			}
+		}
+		performClassSearch := func(repo *db.DB, className string) ([]search.Result, error) {
+			return repo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 10000},
+			})
+		}
+		node := nodes[rand.Intn(len(nodes))]
+		className := "Distributed"
+		// get the initial count of the objects
+		res, err := performClassSearch(node.repo, className)
+		require.Nil(t, err)
+		beforeDelete := len(res)
+		require.True(t, beforeDelete > 0)
+		// dryRun == false, perform actual delete
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(),
+			getParams(className, false))
+		require.Nil(t, err)
+		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+		for _, batchRes := range batchDeleteRes.Objects {
+			require.Nil(t, batchRes.Err)
+		}
+		// check that every object is deleted
+		res, err = performClassSearch(node.repo, className)
+		require.Nil(t, err)
+		require.Equal(t, 0, len(res))
+	})
 }
 
 func setupDirectory() (string, func()) {
