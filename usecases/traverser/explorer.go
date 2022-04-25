@@ -96,6 +96,10 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
+	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
+		return nil, errors.Wrap(err, "invalid 'sort' filter")
+	}
+
 	if params.KeywordRanking != nil {
 		return e.getClassKeywordBased(ctx, params)
 	}

@@ -24,87 +24,11 @@ import (
 
 func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 	className := "MyFavoriteClass"
-	sch := schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class: className,
-					Properties: []*models.Property{
-						{
-							Name:     "stringProp",
-							DataType: []string{string(schema.DataTypeString)},
-						},
-						{
-							Name:     "textProp",
-							DataType: []string{string(schema.DataTypeText)},
-						},
-						{
-							Name:     "stringPropArray",
-							DataType: []string{string(schema.DataTypeStringArray)},
-						},
-						{
-							Name:     "textPropArray",
-							DataType: []string{string(schema.DataTypeTextArray)},
-						},
-						{
-							Name:     "intProp",
-							DataType: []string{string(schema.DataTypeInt)},
-						},
-						{
-							Name:     "numberProp",
-							DataType: []string{string(schema.DataTypeNumber)},
-						},
-						{
-							Name:     "intPropArray",
-							DataType: []string{string(schema.DataTypeIntArray)},
-						},
-						{
-							Name:     "numberPropArray",
-							DataType: []string{string(schema.DataTypeNumberArray)},
-						},
-						{
-							Name:     "boolProp",
-							DataType: []string{string(schema.DataTypeBoolean)},
-						},
-						{
-							Name:     "boolPropArray",
-							DataType: []string{string(schema.DataTypeBooleanArray)},
-						},
-						{
-							Name:     "dateProp",
-							DataType: []string{string(schema.DataTypeDate)},
-						},
-						{
-							Name:     "datePropArray",
-							DataType: []string{string(schema.DataTypeDateArray)},
-						},
-						{
-							Name:     "phoneProp",
-							DataType: []string{string(schema.DataTypePhoneNumber)},
-						},
-						{
-							Name:     "geoProp",
-							DataType: []string{string(schema.DataTypeGeoCoordinates)},
-						},
-						{
-							Name:     "emptyStringProp",
-							DataType: []string{string(schema.DataTypeString)},
-						},
-						{
-							Name:     "crefProp",
-							DataType: []string{string(schema.DataTypeCRef)},
-						},
-					},
-				},
-			},
-		},
-	}
-
 	obj := storobj.FromObject(
 		&models.Object{
 			Class:              className,
-			CreationTimeUnix:   123456,
-			LastUpdateTimeUnix: 56789,
+			CreationTimeUnix:   900000000001,
+			LastUpdateTimeUnix: 900000000002,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			Properties: map[string]interface{}{
 				"stringProp":      "string",
@@ -144,6 +68,21 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 		property string
 		want     interface{}
 	}{
+		{
+			name:     "id",
+			property: "id",
+			want:     "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		},
+		{
+			name:     "_creationTimeUnix",
+			property: "_creationTimeUnix",
+			want:     float64(900000000001),
+		},
+		{
+			name:     "_lastUpdateTimeUnix",
+			property: "_lastUpdateTimeUnix",
+			want:     float64(900000000002),
+		},
 		{
 			name:     "stringProp",
 			property: "stringProp",
@@ -243,7 +182,7 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newPropertyExtractor(schema.ClassName(className), newClassHelper(sch), tt.property)
+			e := newPropertyExtractor(schema.ClassName(className), newClassHelper(getMyFavoriteClassSchemaForTests()), tt.property)
 			if got := e.getProperty(asBinary); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("lsmPropertyExtractor.getProperty() = %v, want %v", got, tt.want)
 			}
