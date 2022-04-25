@@ -45,6 +45,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 	t.Run("getting objects with additional props", gettingObjectsWithAdditionalProps)
 	t.Run("getting objects with near fields", gettingObjectsWithNearFields)
+	t.Run("getting objects with sort", gettingObjectsWithSort)
 
 	// aggregate tests
 	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
@@ -59,7 +60,6 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
-	t.Run("sorting objects", gettingObjectsWithSort)
 
 	// tear down
 	deleteObjectClass(t, "Person")

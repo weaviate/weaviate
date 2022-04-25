@@ -24,14 +24,20 @@ func newClassHelper(schema schema.Schema) *classHelper {
 }
 
 func (s *classHelper) getDataType(className, property string) []string {
-	var dataType []string
 	class := s.schema.GetClass(schema.ClassName(className))
+	if property == "id" || property == "_id" {
+		// handle special ID property
+		return []string{string(schema.DataTypeString)}
+	}
+	if property == "_creationTimeUnix" || property == "_lastUpdateTimeUnix" {
+		return []string{string(schema.DataTypeInt)}
+	}
 	for _, prop := range class.Properties {
 		if prop.Name == property {
-			dataType = prop.DataType
+			return prop.DataType
 		}
 	}
-	return dataType
+	return nil
 }
 
 func (s *classHelper) getOrder(order string) string {

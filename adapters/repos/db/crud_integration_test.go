@@ -832,10 +832,11 @@ func TestCRUD(t *testing.T) {
 		}
 		// run sorting tests
 		tests := []struct {
-			name              string
-			sort              []filters.Sort
-			expectedThingIDs  []strfmt.UUID
-			expectedActionIDs []strfmt.UUID
+			name               string
+			sort               []filters.Sort
+			expectedThingIDs   []strfmt.UUID
+			expectedActionIDs  []strfmt.UUID
+			constainsErrorMsgs []string
 		}{
 			{
 				name:              "by stringProp asc",
@@ -862,43 +863,45 @@ func TestCRUD(t *testing.T) {
 				expectedActionIDs: []strfmt.UUID{actionID3, actionID2, actionID1, actionID},
 			},
 			{
-				name:              "by location asc",
-				sort:              []filters.Sort{{Path: []string{"location"}, Order: "asc"}},
-				expectedThingIDs:  []strfmt.UUID{thingID3, thingID, thingID1, thingID4, thingID2},
-				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
-			},
-			{
-				name:              "by location desc",
-				sort:              []filters.Sort{{Path: []string{"location"}, Order: "desc"}},
-				expectedThingIDs:  []strfmt.UUID{thingID2, thingID4, thingID1, thingID3, thingID},
-				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
-			},
-			{
-				name: "by location and stringProp asc",
+				name: "by phone and stringProp asc",
 				sort: []filters.Sort{
-					{Path: []string{"location"}, Order: "asc"},
+					{Path: []string{"phone"}, Order: "asc"},
 					{Path: []string{"stringProp"}, Order: "asc"},
 				},
-				expectedThingIDs:  []strfmt.UUID{thingID, thingID3, thingID1, thingID4, thingID2},
-				expectedActionIDs: []strfmt.UUID{actionID1, actionID3, actionID, actionID2},
+				expectedThingIDs:  []strfmt.UUID{thingID, thingID2, thingID1, thingID4, thingID3},
+				expectedActionIDs: []strfmt.UUID{actionID, actionID1, actionID2, actionID3},
+			},
+			{
+				name: "by location asc",
+				sort: []filters.Sort{{Path: []string{"location"}, Order: "asc"}},
+				constainsErrorMsgs: []string{"search: search index thebestactionclass: sort parameter at position 0: " +
+					"no such prop with name 'location' found in class 'TheBestActionClass' in the schema. " +
+					"Check your schema files for which properties in this class are available"},
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				res, err := repo.ObjectSearch(context.Background(), 0, 100, nil, tt.sort, additional.Properties{Vector: true})
-				require.Nil(t, err)
-				require.Len(t, res, 9)
-
-				var thingIds, actionIds []strfmt.UUID
-				for i := range res {
-					if res[i].ClassName == "TheBestThingClass" {
-						thingIds = append(thingIds, res[i].ID)
-					} else {
-						actionIds = append(actionIds, res[i].ID)
+				if len(tt.constainsErrorMsgs) > 0 {
+					require.NotNil(t, err)
+					for _, errorMsg := range tt.constainsErrorMsgs {
+						assert.Contains(t, err.Error(), errorMsg)
 					}
+				} else {
+					require.Nil(t, err)
+					require.Len(t, res, 9)
+
+					var thingIds, actionIds []strfmt.UUID
+					for i := range res {
+						if res[i].ClassName == "TheBestThingClass" {
+							thingIds = append(thingIds, res[i].ID)
+						} else {
+							actionIds = append(actionIds, res[i].ID)
+						}
+					}
+					assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids dont match")
+					assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids dont match")
 				}
-				assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids dont match")
-				assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids dont match")
 			})
 		}
 		// clean up

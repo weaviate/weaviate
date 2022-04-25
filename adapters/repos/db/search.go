@@ -181,6 +181,10 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	additional additional.Properties) (search.Results, error) {
 	var found []*storobj.Object
 
+	if err := d.validateSort(sort); err != nil {
+		return nil, errors.Wrap(err, "search")
+	}
+
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
@@ -199,6 +203,24 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	}
 
 	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
+}
+
+func (d *DB) validateSort(sort []filters.Sort) error {
+	if len(sort) > 0 {
+		var errorMsgs []string
+		for _, index := range d.indices {
+			err := filters.ValidateSort(d.schemaGetter.GetSchemaSkipAuth(),
+				index.Config.ClassName, sort)
+			if err != nil {
+				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
+				errorMsgs = append(errorMsgs, errorMsg)
+			}
+		}
+		if len(errorMsgs) > 0 {
+			return errors.Errorf("%s", strings.Join(errorMsgs, ", "))
+		}
+	}
+	return nil
 }
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,

@@ -32,8 +32,16 @@ func newPropertyExtractor(className schema.ClassName,
 }
 
 func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
-	prop, success, _ := storobj.ParseAndExtractTextProp(v, e.property)
+	prop, success, _ := storobj.ParseAndExtractProperty(v, e.property)
 	if success {
+		if e.property == "id" || e.property == "_id" {
+			// handle special ID property
+			return prop[0]
+		}
+		if e.property == "_creationTimeUnix" || e.property == "_lastUpdateTimeUnix" {
+			// handle special _creationTimeUnix and _lastUpdateTimeUnix property
+			return e.mustExtractNumber(prop)[0]
+		}
 		switch e.getDataType() {
 		case schema.DataTypeString, schema.DataTypeText, schema.DataTypeBlob:
 			return prop[0]
