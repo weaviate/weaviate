@@ -370,6 +370,16 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
+func (f *fakeRemoteClient) FindDocIDs(ctx context.Context, hostName, indexName, shardName string,
+	filters *filters.LocalFilter) ([]uint64, error) {
+	return nil, nil
+}
+
+func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
+	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {

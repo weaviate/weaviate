@@ -12,15 +12,13 @@
 package filters
 
 import (
-	"strings"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 func ValidateSort(sch schema.Schema, className schema.ClassName, sort []Sort) error {
 	if len(sort) == 0 {
-		return nil
+		return errors.New("empty sort")
 	}
 
 	var errs []error
@@ -55,35 +53,22 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 			return errors.Errorf("class %q does not exist in schema",
 				className)
 		}
-
-		switch path[0] {
-		case "id", "_id", "_creationTimeUnix", "_lastUpdateTimeUnix":
+		propName := schema.PropertyName(path[0])
+		if IsInternalProperty(propName) {
 			// handle internal properties
 			return nil
-		default:
-			propName := schema.PropertyName(path[0])
-			prop, err := sch.GetProperty(className, propName)
-			if err != nil {
-				return err
-			}
-
-			if schema.IsRefDataType(prop.DataType) {
-				return errors.Errorf("sorting by reference not supported, "+
-					"property %q is a ref prop to the class %q", propName, prop.DataType[0])
-			}
-			return nil
 		}
+		prop, err := sch.GetProperty(className, propName)
+		if err != nil {
+			return err
+		}
+		if schema.IsRefDataType(prop.DataType) {
+			return errors.Errorf("sorting by reference not supported, "+
+				"property %q is a ref prop to the class %q", propName, prop.DataType[0])
+		}
+		return nil
 	default:
 		return errors.New("sorting by reference not supported, " +
 			"path must have exactly one argument")
 	}
-}
-
-func mergeErrs(errs []error) error {
-	msgs := make([]string, len(errs))
-	for i, err := range errs {
-		msgs[i] = err.Error()
-	}
-
-	return errors.Errorf("%s", strings.Join(msgs, ", "))
 }

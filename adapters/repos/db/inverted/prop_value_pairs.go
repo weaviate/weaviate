@@ -18,7 +18,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type propValuePair struct {
@@ -41,11 +40,11 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 	tolerateDuplicates bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
-		if pv.prop == traverser.InternalPropBackwardsCompatID {
+		if pv.prop == filters.InternalPropBackwardsCompatID {
 			// the user-specified ID is considered legacy. we
 			// support backwards compatibility with this prop
-			id = helpers.BucketFromPropNameLSM(traverser.InternalPropID)
-			pv.prop = traverser.InternalPropID
+			id = helpers.BucketFromPropNameLSM(filters.InternalPropID)
+			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
 		b := s.store.Bucket(id)
