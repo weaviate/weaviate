@@ -48,7 +48,7 @@ func (s *Shard) initProperties() error {
 		return errors.Wrap(err, "init id property")
 	}
 
-	if s.index.Config.IndexByTimestamps {
+	if s.index.invertedIndexConfig.IndexTimestamps {
 		if err := s.addTimestampProperties(context.TODO()); err != nil {
 			return errors.Wrap(err, "init timestamp properties")
 		}

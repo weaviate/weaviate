@@ -36,7 +36,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
 	}
 
-	if s.index.Config.IndexByTimestamps {
+	if s.index.invertedIndexConfig.IndexTimestamps {
 		if schemaMap == nil {
 			schemaMap = make(map[string]interface{})
 		}

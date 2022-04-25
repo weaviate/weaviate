@@ -216,7 +216,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze and cleanup previous")
 	}
 
-	if s.index.Config.IndexByTimestamps {
+	if s.index.invertedIndexConfig.IndexTimestamps {
 		// update the inverted timestamp indices as well
 		err = s.addIndexedTimestampsToProps(object, &props)
 		if err != nil {

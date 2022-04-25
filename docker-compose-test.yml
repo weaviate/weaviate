@@ -17,7 +17,6 @@ services:
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
       ENABLE_MODULES: text2vec-contextionary
-      INDEX_BY_TIMESTAMPS: true
   contextionary:
     image: semitechnologies/contextionary:en0.16.0-v1.0.2
     ports:

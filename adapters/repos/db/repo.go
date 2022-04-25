@@ -67,7 +67,6 @@ type Config struct {
 	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
-	IndexByTimestamps         bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

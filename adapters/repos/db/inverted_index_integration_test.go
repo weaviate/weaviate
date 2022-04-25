@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //go:build integrationTest
 // +build integrationTest
 
@@ -40,7 +51,6 @@ func TestAddClass_IndexByTimestamps(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-		IndexByTimestamps:         true,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)
@@ -50,9 +60,15 @@ func TestAddClass_IndexByTimestamps(t *testing.T) {
 
 	t.Run("add class", func(t *testing.T) {
 		class := &models.Class{
-			Class:               "TestClass",
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
+			Class:             "TestClass",
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: 60,
+				Stopwords: &models.StopwordConfig{
+					Preset: "none",
+				},
+				IndexTimestamps: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -95,9 +111,15 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 	}()
 
 	class := &models.Class{
-		Class:               "TestClass",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
+		Class:             "TestClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords: &models.StopwordConfig{
+				Preset: "none",
+			},
+			IndexTimestamps: true,
+		},
 		Properties: []*models.Property{
 			{
 				Name:         "name",
@@ -119,7 +141,6 @@ func TestGetClass_IndexByTimestamps(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-		IndexByTimestamps:         true,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{})
 	repo.SetSchemaGetter(schemaGetter)

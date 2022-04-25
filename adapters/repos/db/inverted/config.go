@@ -43,6 +43,7 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 	var conf schema.InvertedIndexConfig
 
 	conf.CleanupIntervalSeconds = iicm.CleanupIntervalSeconds
+	conf.IndexTimestamps = iicm.IndexTimestamps
 
 	if iicm.Bm25 == nil {
 		conf.BM25.K1 = float64(config.DefaultBM25k1)
