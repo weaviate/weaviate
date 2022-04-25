@@ -35,7 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddClass_IndexByTimestamps(t *testing.T) {
+func TestIndexByTimestamps_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
@@ -102,7 +102,7 @@ func TestAddClass_IndexByTimestamps(t *testing.T) {
 	})
 }
 
-func TestGetClass_IndexByTimestamps(t *testing.T) {
+func TestIndexByTimestamps_GetClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
