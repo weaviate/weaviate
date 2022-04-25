@@ -14,107 +14,82 @@ package clients
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-type checkReadyFn func() error
-
 func (v *vectorizer) WaitForStartup(initCtx context.Context,
-	interval time.Duration) error {
-	t := time.Tick(interval)
-	expired := initCtx.Done()
+	interval time.Duration,
+) error {
+	endpoints := map[string]string{}
+	if v.originPassage != v.originQuery {
+		endpoints["passage"] = v.urlPassage("/.well-known/ready")
+		endpoints["query"] = v.urlQuery("/.well-known/ready")
+	} else {
+		endpoints[""] = v.urlPassage("/.well-known/ready")
+	}
 
+	ch := make(chan error, len(endpoints))
+	var wg sync.WaitGroup
+	for serviceName, endpoint := range endpoints {
+		wg.Add(1)
+		go func(serviceName string, endpoint string) {
+			defer wg.Done()
+			if err := v.waitFor(initCtx, interval, endpoint, serviceName); err != nil {
+				ch <- err
+			}
+		}(serviceName, endpoint)
+	}
+	wg.Wait()
+	close(ch)
+
+	if len(ch) > 0 {
+		var errs []string
+		for err := range ch {
+			errs = append(errs, err.Error())
+		}
+		return errors.Errorf(strings.Join(errs, ", "))
+	}
+	return nil
+}
+
+func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, endpoint string, serviceName string) error {
+	tick := time.Tick(interval)
+	expired := initCtx.Done()
 	var lastErr error
-	checkReadyFns := v.allCheckReadyFns(initCtx)
-	initalLen := len(checkReadyFns)
+	prefix := ""
+	if serviceName != "" {
+		prefix = "[" + serviceName + "] "
+	}
+
 	for {
 		select {
-		case <-t:
-			switch len(checkReadyFns) {
-			case 0:
-				return errors.Errorf("no checkReady callback configured")
-			case 1:
-				for name, checkReady := range checkReadyFns {
-					lastErr = checkReady()
-					if lastErr != nil && initalLen != 1 {
-						lastErr = errors.Errorf("[%s] %v", name, lastErr.Error())
-					}
-				}
-			default:
-				checkReadyFns, lastErr = v.checkReadyAll(checkReadyFns)
-			}
-
+		case <-tick:
+			lastErr = v.checkReady(initCtx, endpoint, serviceName)
 			if lastErr == nil {
 				return nil
 			}
 			v.logger.
 				WithField("action", "transformer_remote_wait_for_startup").
-				WithError(lastErr).Warnf("transformer remote inference service not ready")
+				WithError(lastErr).Warnf("%stransformer remote inference service not ready", prefix)
 		case <-expired:
-			return errors.Wrapf(lastErr, "init context expired before remote was ready")
+			return errors.Wrapf(lastErr, "%sinit context expired before remote was ready", prefix)
 		}
 	}
 }
 
-func (v *vectorizer) allCheckReadyFns(initCtx context.Context) map[string]checkReadyFn {
-	if v.originPassage != v.originQuery {
-		return map[string]checkReadyFn{
-			"passage": func() error { return v.checkReady(initCtx, v.urlPassage) },
-			"query":   func() error { return v.checkReady(initCtx, v.urlQuery) },
-		}
-	}
-	return map[string]checkReadyFn{
-		"common": func() error { return v.checkReady(initCtx, v.urlPassage) },
-	}
-}
-
-// check all callbacks for ready, returns ones that are not ready and combined error
-func (v *vectorizer) checkReadyAll(checkReadyFns map[string]checkReadyFn) (map[string]checkReadyFn, error) {
-	type nameErr struct {
-		name string
-		err  error
-	}
-
-	var wg sync.WaitGroup
-	ch := make(chan nameErr, len(checkReadyFns))
-
-	for name, checkReady := range checkReadyFns {
-		wg.Add(1)
-		go func(name string, checkReady checkReadyFn) {
-			defer wg.Done()
-			if err := checkReady(); err != nil {
-				ch <- nameErr{name, err}
-			}
-		}(name, checkReady)
-	}
-	wg.Wait()
-	close(ch)
-
-	checkReadyAgainFns := map[string]checkReadyFn{}
-	if len(ch) > 0 {
-		ne := <-ch
-		combinedErr := errors.Errorf("[%s] %v", ne.name, ne.err.Error())
-		checkReadyAgainFns[ne.name] = checkReadyFns[ne.name]
-		for ne := range ch {
-			combinedErr = errors.Wrapf(combinedErr, "[%s] %v", ne.name, ne.err.Error())
-			checkReadyAgainFns[ne.name] = checkReadyFns[ne.name]
-		}
-		return checkReadyAgainFns, combinedErr
-	}
-	return checkReadyAgainFns, nil
-}
-
-func (v *vectorizer) checkReady(initCtx context.Context, url func(string) string) error {
+func (v *vectorizer) checkReady(initCtx context.Context, endpoint string, serviceName string) error {
 	// spawn a new context (derived on the overall context) which is used to
 	// consider an individual request timed out
+	// due to parent timeout being superior over request's one, request can be cancelled by parent timeout
+	// resulting in "send check ready request" even if service is responding with non 2xx http code
 	requestCtx, cancel := context.WithTimeout(initCtx, 500*time.Millisecond)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
-		url("/.well-known/ready"), nil)
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return errors.Wrap(err, "create check ready request")
 	}
