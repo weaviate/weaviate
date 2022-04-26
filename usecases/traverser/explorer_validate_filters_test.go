@@ -328,8 +328,9 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 				name: "filter by id with wrong type",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"id"},
 					schema.DataTypeInt, "foo"),
-				expectedError: errors.Errorf("invalid 'where' filter: using special path " +
-					"[\"id\"] to filter by uuid: must use \"valueString\" to specify the id"),
+				expectedError: errors.Errorf(
+					"invalid 'where' filter: using [\"_id\"] to filter by uuid: " +
+						"must use \"valueString\" to specify the id"),
 			},
 		},
 	}

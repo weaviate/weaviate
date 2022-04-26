@@ -91,7 +91,8 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 }
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
+	fieldsToKeep map[string]struct{}) {
 	defer wg.Done()
 
 	var id strfmt.UUID
@@ -130,8 +131,13 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if _, ok := fieldsToKeep["properties"]; ok {
 		object.Properties = concept.Properties
 	}
-	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
-		object.CreationTimeUnix = unixNow()
+
+	now := unixNow()
+	if _, ok := fieldsToKeep["creationTimeUnix"]; ok {
+		object.CreationTimeUnix = now
+	}
+	if _, ok := fieldsToKeep["lastUpdateTimeUnix"]; ok {
+		object.LastUpdateTimeUnix = now
 	}
 
 	err = validation.New(s, b.exists, b.config).Object(ctx, object)

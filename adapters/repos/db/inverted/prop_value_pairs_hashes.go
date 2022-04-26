@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (pv *propValuePair) cacheable() bool {
@@ -40,8 +41,10 @@ func (pv *propValuePair) cacheable() bool {
 
 func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	if pv.operator.OnValue() {
-		if pv.prop == "id" {
-			pv.prop = helpers.PropertyNameID
+		if pv.prop == traverser.InternalPropBackwardsCompatID {
+			// the user-specified ID is considered legacy. we
+			// support backwards compatibility with this prop
+			pv.prop = traverser.InternalPropID
 			pv.hasFrequency = false
 		}
 

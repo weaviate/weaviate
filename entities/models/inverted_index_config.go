@@ -33,6 +33,9 @@ type InvertedIndexConfig struct {
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
+	// Index each object by its internal timestamps
+	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
+
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
 }

@@ -53,6 +53,13 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return errors.Wrapf(err, "extend idx '%s' with uuid property", idx.ID())
 	}
 
+	if class.InvertedIndexConfig.IndexTimestamps {
+		err = idx.addTimestampProperties(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with timestamp properties", idx.ID())
+		}
+	}
+
 	for _, prop := range class.Properties {
 		if prop.IndexInverted != nil && !*prop.IndexInverted {
 			continue

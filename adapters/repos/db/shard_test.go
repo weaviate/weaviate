@@ -33,7 +33,8 @@ import (
 
 func TestShard_UpdateStatus(t *testing.T) {
 	ctx := testCtx()
-	shd, idx := testShard(ctx)
+	className := "TestClass"
+	shd, idx := testShard(ctx, className)
 
 	amount := 10
 
@@ -46,7 +47,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 
 	t.Run("insert data into shard", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
-			obj := testObject()
+			obj := testObject(className)
 
 			err := shd.putObject(ctx, obj)
 			require.Nil(t, err)
@@ -61,7 +62,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject())
+		err = shd.putObject(ctx, testObject(className))
 		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
 	})
 
@@ -69,7 +70,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 		err := shd.updateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject())
+		err = shd.putObject(ctx, testObject(className))
 		require.Nil(t, err)
 	})
 
@@ -84,7 +85,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	shd, idx := testShard(context.Background())
+	shd, idx := testShard(context.Background(), "TestClass")
 
 	defer func(path string) {
 		err := os.RemoveAll(path)

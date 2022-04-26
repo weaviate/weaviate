@@ -15,14 +15,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -213,7 +216,16 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze and cleanup previous")
 	}
 
+	if s.index.invertedIndexConfig.IndexTimestamps {
+		// update the inverted timestamp indices as well
+		err = s.addIndexedTimestampsToProps(object, &props)
+		if err != nil {
+			return errors.Wrap(err, "add indexed timestamps to props")
+		}
+	}
+
 	before := time.Now()
+
 	err = s.extendInvertedIndicesLSM(props, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
@@ -223,6 +235,33 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	if err := s.addPropLengths(props); err != nil {
 		return errors.Wrap(err, "store field length values for props")
 	}
+
+	return nil
+}
+
+// addIndexedTimestampsToProps ensures that writes are indexed
+// by internal timestamps
+func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
+	createTime, err := json.Marshal(object.CreationTimeUnix())
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal _creationTimeUnix")
+	}
+
+	updateTime, err := json.Marshal(object.LastUpdateTimeUnix())
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal _lastUpdateTimeUnix")
+	}
+
+	*props = append(*props,
+		inverted.Property{
+			Name:  traverser.InternalPropCreationTimeUnix,
+			Items: []inverted.Countable{{Data: createTime}},
+		},
+		inverted.Property{
+			Name:  traverser.InternalPropLastUpdateTimeUnix,
+			Items: []inverted.Countable{{Data: updateTime}},
+		},
+	)
 
 	return nil
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build (integrationTest && !race)
+//go:build integrationTest && !race
 // +build integrationTest,!race
 
 package hnsw

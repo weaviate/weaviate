@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
@@ -34,12 +36,21 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		return nil, errors.Wrap(err, "analyze props")
 	}
 
-	property, err := a.analyzeIDProp(uuid)
+	idProp, err := a.analyzeIDProp(uuid)
 	if err != nil {
 		return nil, errors.Wrap(err, "analyze uuid prop")
 	}
+	properties = append(properties, *idProp)
 
-	properties = append(properties, *property)
+	tsProps, err := a.analyzeTimestampProps(input)
+	if err != nil {
+		return nil, errors.Wrap(err, "analyze timestamp props")
+	}
+	// tsProps will be nil here if weaviate is
+	// not setup to index by timestamps
+	if tsProps != nil {
+		properties = append(properties, tsProps...)
+	}
 
 	return properties, nil
 }
@@ -84,7 +95,7 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 		return nil, errors.Wrap(err, "marshal id prop")
 	}
 	return &Property{
-		Name:         helpers.PropertyNameID,
+		Name:         traverser.InternalPropID,
 		HasFrequency: false,
 		Items: []Countable{
 			{
@@ -92,6 +103,36 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 			},
 		},
 	}, nil
+}
+
+func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Property, error) {
+	createTime, createTimeOK := input[traverser.InternalPropCreationTimeUnix]
+	updateTime, updateTimeOK := input[traverser.InternalPropLastUpdateTimeUnix]
+
+	var props []Property
+	if createTimeOK {
+		b, err := json.Marshal(createTime)
+		if err != nil {
+			return nil, errors.Wrap(err, "analyze create timestamp prop")
+		}
+		props = append(props, Property{
+			Name:  traverser.InternalPropCreationTimeUnix,
+			Items: []Countable{{Data: b}},
+		})
+	}
+
+	if updateTimeOK {
+		b, err := json.Marshal(updateTime)
+		if err != nil {
+			return nil, errors.Wrap(err, "analyze update timestamp prop")
+		}
+		props = append(props, Property{
+			Name:  traverser.InternalPropLastUpdateTimeUnix,
+			Items: []Countable{{Data: b}},
+		})
+	}
+
+	return props, nil
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,

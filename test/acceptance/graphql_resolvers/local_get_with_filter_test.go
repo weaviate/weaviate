@@ -345,7 +345,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 	})
 
-	t.Run("with filtering with id", func(t *testing.T) {
+	t.Run("with filtering by id", func(t *testing.T) {
 		// this is the journey test for gh-1088
 
 		query := `
@@ -377,5 +377,81 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, airport)
+	})
+
+	t.Run("with filtering by timestamps", func(t *testing.T) {
+		query := `
+			{
+				Get {
+					Airport {
+						_additional {
+							id
+							creationTimeUnix
+							lastUpdateTimeUnix
+						}
+					}
+				}
+			}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		airport := result.Get("Get", "Airport").AsSlice()[0]
+		additional := airport.(map[string]interface{})["_additional"]
+		targetID := additional.(map[string]interface{})["id"].(string)
+		targetCreationTime := additional.(map[string]interface{})["creationTimeUnix"].(string)
+		targetUpdateTime := additional.(map[string]interface{})["lastUpdateTimeUnix"].(string)
+
+		t.Run("creationTimeUnix", func(t *testing.T) {
+			query := fmt.Sprintf(`
+				{
+					Get {
+						Airport(
+							where: {
+								path: ["_creationTimeUnix"]
+								operator: Equal
+								valueString: "%s"
+							}
+						)
+						{
+							_additional {
+								id
+							}
+						}
+					}
+				}
+			`, targetCreationTime)
+
+			result := AssertGraphQL(t, helper.RootAuth, query)
+			airport := result.Get("Get", "Airport").AsSlice()[0]
+			additional := airport.(map[string]interface{})["_additional"]
+			resultID := additional.(map[string]interface{})["id"].(string)
+			assert.Equal(t, targetID, resultID)
+		})
+
+		t.Run("lastUpdateTimeUnix", func(t *testing.T) {
+			query := fmt.Sprintf(`
+				{
+					Get {
+						Airport(
+							where: {
+								path: ["_lastUpdateTimeUnix"]
+								operator: Equal
+								valueString: "%s"
+							}
+						)
+						{
+							_additional {
+								id
+							}
+						}
+					}
+				}
+			`, targetUpdateTime)
+
+			result := AssertGraphQL(t, helper.RootAuth, query)
+			airport := result.Get("Get", "Airport").AsSlice()[0]
+			additional := airport.(map[string]interface{})["_additional"]
+			resultID := additional.(map[string]interface{})["id"].(string)
+			assert.Equal(t, targetID, resultID)
+		})
 	})
 }
