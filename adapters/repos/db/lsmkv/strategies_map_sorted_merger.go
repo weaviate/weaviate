@@ -72,6 +72,25 @@ func (s *sortedMapMerger) doKeepTombstones(segments [][]MapPair) ([]MapPair, err
 	return s.output[:i], nil
 }
 
+// same as .doKeepTombstone() but requires initialization from the outside and
+// can thus reuse state from previous rounds without having to allocate again.
+// must be pre-faced by a call of reset()
+func (s *sortedMapMerger) doKeepTombstonesReusable() ([]MapPair, error) {
+	i := 0
+	for {
+		match, ok := s.findSegmentWithLowestKey()
+		if !ok {
+			break
+		}
+
+		s.output[i] = match
+		i++
+	}
+
+	return s.output[:i], nil
+}
+
+// init is automatically called by .do() or .doKeepTombstones()
 func (s *sortedMapMerger) init(segments [][]MapPair) error {
 	s.input = segments
 
@@ -88,6 +107,42 @@ func (s *sortedMapMerger) init(segments [][]MapPair) error {
 		maxOutput += len(seg)
 	}
 	s.output = make([]MapPair, maxOutput)
+
+	return nil
+}
+
+// reset can be manually called if sharing allocated state is desired, such as
+// with .doKeepTombstonesReusable()
+func (s *sortedMapMerger) reset(segments [][]MapPair) error {
+	s.input = segments
+
+	if cap(s.offsets) >= len(segments) {
+		s.offsets = s.offsets[:len(segments)]
+
+		// it existed before so we need to reset all offsets to 0
+		for i := range s.offsets {
+			s.offsets[i] = 0
+		}
+	} else {
+		s.offsets = make([]int, len(segments), int(float64(len(segments))*1.25))
+	}
+
+	// The maximum output is the sum of all the input segments if there are only
+	// unique keys and zero tombstones. If there are duplicate keys (i.e.
+	// updates) or tombstones, we will slice off some elements of the output
+	// later, but this way we can be sure each index will always be initialized
+	// correctly
+	maxOutput := 0
+	for _, seg := range segments {
+		maxOutput += len(seg)
+	}
+
+	if cap(s.output) >= maxOutput {
+		s.output = s.output[:maxOutput]
+		// no need to reset any values as all of them will be overridden anyway
+	} else {
+		s.output = make([]MapPair, maxOutput, int(float64(maxOutput)*1.25))
+	}
 
 	return nil
 }

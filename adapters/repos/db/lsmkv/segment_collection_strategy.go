@@ -95,3 +95,11 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 
 	return ParseCollectionNode(r)
 }
+
+func (i *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
+	if len(in) == 0 {
+		return NotFound
+	}
+
+	return ParseCollectionNodeInto(in, node)
+}
