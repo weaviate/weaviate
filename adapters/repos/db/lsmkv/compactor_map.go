@@ -23,8 +23,8 @@ import (
 type compactorMap struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorCollection
-	c2 *segmentCursorCollection
+	c1 *segmentCursorCollectionReusable
+	c2 *segmentCursorCollectionReusable
 
 	// the level matching those of the cursors
 	currentLevel        uint16
@@ -41,7 +41,7 @@ type compactorMap struct {
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
+	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
@@ -104,48 +104,49 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	offset := SegmentHeaderSize
 
 	var kis []keyIndex
+	pairs := newReusableMapPairs()
+	me := newMapEncoder()
+	ssm := newSortedMapMerger()
 
 	for {
-		// TODO: each iteration makes a massive amount of allocations, this could
-		// probably be made more efficiently if all the [][]MapPair, etc would be
-		// reused
-
 		if key1 == nil && key2 == nil {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			pairs1 := make([]MapPair, len(value1))
+			pairs.ResizeLeft(len(value1))
+			pairs.ResizeRight(len(value2))
+
 			for i, v := range value1 {
-				if err := pairs1[i].FromBytes(v.value, false); err != nil {
+				if err := pairs.left[i].FromBytes(v.value, false); err != nil {
 					return nil, err
 				}
-				pairs1[i].Tombstone = v.tombstone
+				pairs.left[i].Tombstone = v.tombstone
 			}
 
-			pairs2 := make([]MapPair, len(value2))
 			for i, v := range value2 {
-				if err := pairs2[i].FromBytes(v.value, false); err != nil {
+				if err := pairs.right[i].FromBytes(v.value, false); err != nil {
 					return nil, err
 				}
-				pairs2[i].Tombstone = v.tombstone
+				pairs.right[i].Tombstone = v.tombstone
 			}
 
 			if c.requiresSorting {
-				sort.Slice(pairs1, func(a, b int) bool {
-					return bytes.Compare(pairs1[a].Key, pairs1[b].Key) < 0
+				sort.Slice(pairs.left, func(a, b int) bool {
+					return bytes.Compare(pairs.left[a].Key, pairs.left[b].Key) < 0
 				})
-				sort.Slice(pairs2, func(a, b int) bool {
-					return bytes.Compare(pairs2[a].Key, pairs2[b].Key) < 0
+				sort.Slice(pairs.right, func(a, b int) bool {
+					return bytes.Compare(pairs.right[a].Key, pairs.right[b].Key) < 0
 				})
 			}
 
-			mergedPairs, err := newSortedMapMerger().
-				doKeepTombstones([][]MapPair{pairs1, pairs2})
+			ssm.reset([][]MapPair{pairs.left, pairs.right})
+			mergedPairs, err := ssm.
+				doKeepTombstonesReusable()
 			if err != nil {
 				return nil, err
 			}
 
-			mergedEncoded, err := newMapEncoder().DoMulti(mergedPairs)
+			mergedEncoded, err := me.DoMultiReusable(mergedPairs)
 			if err != nil {
 				return nil, err
 			}

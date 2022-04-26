@@ -334,3 +334,19 @@ func mustEncode(kvs []MapPair) []value {
 
 	return res
 }
+
+func Test_MapPair_EncodingBytes(t *testing.T) {
+	kv := MapPair{
+		Key:   []byte("hello-world-key1"),
+		Value: []byte("this is the value ;-)"),
+	}
+
+	control, err := kv.Bytes()
+	assert.Nil(t, err)
+
+	encoded := make([]byte, kv.Size())
+	err = kv.EncodeBytes(encoded)
+	assert.Nil(t, err)
+
+	assert.Equal(t, control, encoded)
+}
