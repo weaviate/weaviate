@@ -133,6 +133,16 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 	return nil
 }
 
+func (i *Index) addTimestampProperties(ctx context.Context) error {
+	for name, shard := range i.Shards {
+		if err := shard.addTimestampProperties(ctx); err != nil {
+			return errors.Wrapf(err, "add timestamp properties to shard %q", name)
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig) error {
 	// an updated is not specific to one shard, but rather all

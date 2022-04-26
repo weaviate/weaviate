@@ -33,7 +33,6 @@ func (d *DB) init(ctx context.Context) error {
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
-
 			invertedConfig := class.InvertedIndexConfig
 			if invertedConfig == nil {
 				// for backward compatibility, this field was introduced in v1.0.4,

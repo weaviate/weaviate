@@ -13,15 +13,10 @@ package helpers
 
 import "fmt"
 
-const (
-	PropertyNameID = "_id"
-)
-
 var (
-	ObjectsBucket    []byte = []byte("objects")
-	ObjectsBucketLSM        = "objects"
-	DocIDBucket      []byte = []byte("doc_ids")
-	DocIDBucketLSM          = "doc_ids"
+	ObjectsBucket    = []byte("objects")
+	ObjectsBucketLSM = "objects"
+	DocIDBucket      = []byte("doc_ids")
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name

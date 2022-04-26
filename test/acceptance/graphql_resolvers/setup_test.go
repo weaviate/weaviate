@@ -245,6 +245,13 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords: &models.StopwordConfig{
+				Preset: "en",
+			},
+			IndexTimestamps: true,
+		},
 		Properties: []*models.Property{
 			{
 				Name:     "code",

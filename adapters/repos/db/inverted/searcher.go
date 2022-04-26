@@ -15,7 +15,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -29,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Searcher struct {
@@ -243,8 +246,8 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	// we are on a value element
 
-	if fs.onIDProp(props[0]) {
-		return fs.extractIDProp(filter.Value.Value, filter.Operator)
+	if fs.onInternalProp(props[0]) {
+		return fs.extractInternalProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
 	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
@@ -348,6 +351,19 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 	}, nil
 }
 
+func (fs *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
+	operator filters.Operator) (*propValuePair, error) {
+	switch propName {
+	case traverser.InternalPropBackwardsCompatID, traverser.InternalPropID:
+		return fs.extractIDProp(value, operator)
+	case traverser.InternalPropCreationTimeUnix, traverser.InternalPropLastUpdateTimeUnix:
+		return extractTimestampProp(propName, propType, value, operator)
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract internal prop, unsupported internal prop '%s'", propName)
+	}
+}
+
 func (fs *Searcher) extractIDProp(value interface{},
 	operator filters.Operator) (*propValuePair, error) {
 	v, ok := value.(string)
@@ -358,7 +374,45 @@ func (fs *Searcher) extractIDProp(value interface{},
 	return &propValuePair{
 		value:        []byte(v),
 		hasFrequency: false,
-		prop:         helpers.PropertyNameID,
+		prop:         traverser.InternalPropID,
+		operator:     operator,
+	}, nil
+}
+
+func extractTimestampProp(propName string, propType schema.DataType, value interface{},
+	operator filters.Operator) (*propValuePair, error) {
+	if propType != schema.DataTypeDate && propType != schema.DataTypeString {
+		return nil, fmt.Errorf(
+			"failed to extract internal prop, unsupported type %T for prop %s", value, propName)
+	}
+
+	var valResult []byte
+	// if propType is a `valueDate`, we need to convert
+	// it to ms before fetching. this is the format by
+	// which our timestamps are indexed
+	if propType == schema.DataTypeDate {
+		v, ok := value.(time.Time)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be time.Time, got %T", value)
+		}
+
+		b, err := json.Marshal(v.UnixNano() / int64(time.Millisecond))
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract internal prop: %s", err)
+		}
+		valResult = b
+	} else {
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got %T", value)
+		}
+		valResult = []byte(v)
+	}
+
+	return &propValuePair{
+		value:        valResult,
+		hasFrequency: false,
+		prop:         propName,
 		operator:     operator,
 	}, nil
 }
@@ -442,8 +496,8 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
-func (fs *Searcher) onIDProp(propName string) bool {
-	return propName == helpers.PropertyNameID || propName == "id"
+func (fs *Searcher) onInternalProp(propName string) bool {
+	return traverser.IsInternalProperty(schema.PropertyName(propName))
 }
 
 func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {

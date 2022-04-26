@@ -204,6 +204,7 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
+	next.Object.LastUpdateTimeUnix = merge.UpdateTime
 	next.SetProperties(properties)
 
 	return next

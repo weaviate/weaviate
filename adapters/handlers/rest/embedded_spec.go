@@ -2133,6 +2133,10 @@ func init() {
           "type": "number",
           "format": "int"
         },
+        "indexTimestamps": {
+          "description": "Index each object by its internal timestamps",
+          "type": "boolean"
+        },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         }
@@ -5050,6 +5054,10 @@ func init() {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "indexTimestamps": {
+          "description": "Index each object by its internal timestamps",
+          "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"

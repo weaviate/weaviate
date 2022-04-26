@@ -513,6 +513,60 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 	})
+
+	t.Run("when objects are indexed by timestamps", func(t *testing.T) {
+		schema := map[string]interface{}{
+			"description":         "pretty ok if you ask me",
+			"_creationTimeUnix":   1650551406404,
+			"_lastUpdateTimeUnix": 1650551406404,
+		}
+
+		uuid := strfmt.UUID("2609f1bc-7693-48f3-b531-6ddc52cd2501")
+		props := []*models.Property{
+			{
+				Name:         "description",
+				DataType:     []string{"text"},
+				Tokenization: "word",
+			},
+		}
+
+		res, err := a.Object(schema, props, uuid)
+		require.Nil(t, err)
+		require.Len(t, res, 4)
+
+		expected := []Property{
+			{
+				Name: "description",
+				Items: []Countable{
+					{Data: []byte("pretty"), TermFrequency: 1},
+					{Data: []byte("ok"), TermFrequency: 1},
+					{Data: []byte("if"), TermFrequency: 1},
+					{Data: []byte("you"), TermFrequency: 1},
+					{Data: []byte("ask"), TermFrequency: 1},
+					{Data: []byte("me"), TermFrequency: 1},
+				},
+				HasFrequency: true,
+			},
+			{
+				Name:  "_id",
+				Items: []Countable{{Data: []byte("2609f1bc-7693-48f3-b531-6ddc52cd2501")}},
+			},
+			{
+				Name:  "_creationTimeUnix",
+				Items: []Countable{{Data: []byte("1650551406404")}},
+			},
+			{
+				Name:  "_lastUpdateTimeUnix",
+				Items: []Countable{{Data: []byte("1650551406404")}},
+			},
+		}
+
+		for i := range res {
+			assert.Equal(t, expected[i].Name, res[i].Name)
+			assert.Equal(t, expected[i].HasFrequency, res[i].HasFrequency)
+			assert.ElementsMatch(t, expected[i].Items, res[i].Items)
+		}
+	})
 }
 
 func mustGetByteIntNumber(in int) []byte {
