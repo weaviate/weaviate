@@ -109,10 +109,6 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	ssm := newSortedMapMerger()
 
 	for {
-		// TODO: each iteration makes a massive amount of allocations, this could
-		// probably be made more efficiently if all the [][]MapPair, etc would be
-		// reused
-
 		if key1 == nil && key2 == nil {
 			break
 		}

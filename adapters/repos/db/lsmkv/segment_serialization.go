@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -634,7 +633,7 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // compactions. Use at your own risk!
 //
 // If the buffers of the provided node have enough capacity they will be
-// reused. Only if the capacity is not enogh, will an allocation occur. This
+// reused. Only if the capacity is not enough, will an allocation occur. This
 // allocation uses 25% overhead to avoid future allocations for nodes of
 // similar size.
 //
@@ -677,7 +676,8 @@ func resizeValuesOfCollectionNode(node *segmentCollectionNode, size uint64) {
 	if cap(node.values) >= int(size) {
 		node.values = node.values[:size]
 	} else {
-		fmt.Println(size)
+		// Allocate with 25% overhead to reduce chance of having to do multiple
+		// allocations sequentially.
 		node.values = make([]value, size, int(float64(size)*1.25))
 	}
 }
@@ -687,6 +687,8 @@ func resizeValueOfCollectionNodeAtPos(node *segmentCollectionNode, pos int,
 	if cap(node.values[pos].value) >= int(size) {
 		node.values[pos].value = node.values[pos].value[:size]
 	} else {
+		// Allocate with 25% overhead to reduce chance of having to do multiple
+		// allocations sequentially.
 		node.values[pos].value = make([]byte, size, int(float64(size)*1.25))
 	}
 }
@@ -695,6 +697,8 @@ func resizeKeyOfCollectionNode(node *segmentCollectionNode, size uint32) {
 	if cap(node.primaryKey) >= int(size) {
 		node.primaryKey = node.primaryKey[:size]
 	} else {
+		// Allocate with 25% overhead to reduce chance of having to do multiple
+		// allocations sequentially.
 		node.primaryKey = make([]byte, size, int(float64(size)*1.25))
 	}
 }
