@@ -50,3 +50,11 @@ services:
     image: semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-multilingual-v1-783f3f9
     ports:
       - "8005:8080"
+  t2v-transformers-passage:
+    image: semitechnologies/transformers-inference:facebook-dpr-ctx_encoder-single-nq-base
+    ports: 
+      - "8006:8080"
+  t2v-transformers-query:
+    image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
+    ports: 
+      - "8007:8080"

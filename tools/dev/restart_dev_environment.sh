@@ -10,7 +10,10 @@ ADDITIONAL_SERVICES=()
 if [[ "$*" == *--keycloak* ]]; then
   ADDITIONAL_SERVICES+=('keycloak')
 fi
-if [[ "$*" == *--transformers* ]]; then
+if [[ "$*" == *--transformers-passage-query* ]]; then
+  ADDITIONAL_SERVICES+=('t2v-transformers-passage')
+  ADDITIONAL_SERVICES+=('t2v-transformers-query')
+elif [[ "$*" == *--transformers* ]]; then
   ADDITIONAL_SERVICES+=('t2v-transformers')
 else 
   ADDITIONAL_SERVICES+=('contextionary')
@@ -54,7 +57,10 @@ if [[ "$*" == *--keycloak* ]]; then
   ./tools/dev/keycloak/import_users.sh
 fi
 
-if [[ "$*" == *--transformers* ]]; then
+if [[ "$*" == *--transformers-passage-query* ]]; then
+  echo "You have specified the --transformers-passage-query option. Starting up"
+  echo "the t2v-transformers-passage and t2v-transformers-query model containers"
+elif [[ "$*" == *--transformers* ]]; then
   echo "You have specified the --transformers option. Starting up"
   echo "the text2vec-transformers model container"
 fi
