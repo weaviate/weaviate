@@ -262,6 +262,14 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			if params.AdditionalProperties.Certainty {
 				additionalProperties["certainty"] = 1 - normalizedDist
 			}
+
+			if params.AdditionalProperties.Distance {
+				additionalProperties["distance"] = res.Dist
+			}
+
+			if params.AdditionalProperties.Score {
+				additionalProperties["score"] = -res.Dist
+			}
 		}
 
 		if params.AdditionalProperties.ID {
