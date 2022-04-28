@@ -103,6 +103,7 @@ const (
 	DefaultVectorCacheMaxObjects  = 2000000
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
+	DefaultDistanceMetric         = "cosine"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -138,7 +139,7 @@ func (c *UserConfig) SetDefaults() {
 	c.DynamicEFMin = DefaultDynamicEFMin
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
-	c.Distance = "cosine"
+	c.Distance = DefaultDistanceMetric
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
