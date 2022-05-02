@@ -993,3 +993,96 @@ func (i *Index) notifyReady() {
 		shd.notifyReady()
 	}
 }
+
+func (i *Index) findDocIDs(ctx context.Context,
+	filters *filters.LocalFilter) (map[string][]uint64, error) {
+	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
+	shardNames := shardState.AllPhysicalShards()
+
+	results := make(map[string][]uint64)
+	for _, shardName := range shardNames {
+		local := shardState.IsShardLocal(shardName)
+
+		var err error
+		var res []uint64
+		if !local {
+			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
+		} else {
+			shard := i.Shards[shardName]
+			res, err = shard.findDocIDs(ctx, filters)
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+
+		results[shardName] = res
+	}
+
+	return results, nil
+}
+
+func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
+	filters *filters.LocalFilter) ([]uint64, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, errors.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	docIDs, err := shard.findDocIDs(ctx, filters)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return docIDs, nil
+}
+
+func (i *Index) batchDeleteObjects(ctx context.Context,
+	shardDocIDs map[string][]uint64, dryRun bool) (objects.BatchSimpleObjects, error) {
+	type result struct {
+		objs objects.BatchSimpleObjects
+	}
+
+	wg := &sync.WaitGroup{}
+	ch := make(chan result, len(shardDocIDs))
+	for shardName, docIDs := range shardDocIDs {
+		wg.Add(1)
+		go func(shardName string, docIDs []uint64) {
+			defer wg.Done()
+
+			local := i.getSchema.
+				ShardingState(i.Config.ClassName.String()).
+				IsShardLocal(shardName)
+
+			var objs objects.BatchSimpleObjects
+			if !local {
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+			} else {
+				shard := i.Shards[shardName]
+				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+			}
+			ch <- result{objs}
+		}(shardName, docIDs)
+	}
+
+	wg.Wait()
+	close(ch)
+
+	var out objects.BatchSimpleObjects
+	for res := range ch {
+		out = append(out, res.objs...)
+	}
+
+	return out, nil
+}
+
+func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
+	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return objects.BatchSimpleObjects{
+			objects.BatchSimpleObject{Err: errors.Errorf("shard %q does not exist locally", shardName)},
+		}
+	}
+
+	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}

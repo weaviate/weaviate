@@ -901,6 +901,121 @@
       ],
       "type": "object"
     },
+    "BatchDelete": {
+      "type": "object",
+      "properties": {
+        "match": {
+          "description": "Outlines how to find the objects to be deleted.",
+          "type": "object",
+          "properties": {
+            "class": {
+              "description": "Class (name) which objects will be deleted.",
+              "type": "string",
+              "example": "City"
+            },
+            "where": {
+              "description": "Filter to limit the objects to be deleted.",
+              "type": "object",
+              "$ref": "#/definitions/WhereFilter"
+            }
+          }
+        },
+        "output": {
+          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "type": "string",
+          "default": "minimal"
+        },
+        "dryRun": {
+          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "BatchDeleteResponse": {
+      "description": "Delete Objects response.",
+      "type": "object",
+      "properties": {
+        "match": {
+          "description": "Outlines how to find the objects to be deleted.",
+          "type": "object",
+          "properties": {
+            "class": {
+              "description": "Class (name) which objects will be deleted.",
+              "type": "string",
+              "example": "City"
+            },
+            "where": {
+              "description": "Filter to limit the objects to be deleted.",
+              "type": "object",
+              "$ref": "#/definitions/WhereFilter"
+            }
+          }
+        },
+        "output": {
+          "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+          "type": "string",
+          "default": "minimal"
+        },
+        "dryRun": {
+          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "type": "boolean",
+          "default": false
+        },
+        "results": {
+          "type": "object",
+          "properties": {
+            "matches": {
+              "description": "How many objects were matched by the filter.",
+              "type": "number",
+              "format": "int64",
+              "x-omitempty": false
+            },
+            "limit": {
+              "description": "The most amount of objects that can be deleted in a single query, equals QUERY_MAXIMUM_RESULTS.",
+              "type": "number",
+              "format": "int64",
+              "x-omitempty": false
+            },
+            "successful": {
+              "description": "How many objects were successfully deleted in this round.",
+              "type": "number",
+              "format": "int64",
+              "x-omitempty": false
+            },
+            "failed": {
+              "description": "How many objects should have been deleted but could not be deleted.",
+              "type": "number",
+              "format": "int64",
+              "x-omitempty": false
+            },
+            "objects": {
+              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be ommitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+              "type": "array",
+              "items": {
+                "description": "Results for this specific Object.",
+                "format": "object",
+                "properties": {
+                  "id": {
+                    "description": "ID of the Object.",
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "default": "SUCCESS",
+                    "enum": ["SUCCESS", "DRYRUN", "FAILED"]
+                  },
+                  "errors": {
+                    "$ref": "#/definitions/ErrorResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "ObjectsListResponse": {
       "description": "List of Objects.",
       "properties": {
@@ -1901,6 +2016,54 @@
           }
         },
         "summary": "Creates new Objects based on a Object template as a batch.",
+        "tags": ["batch", "objects"],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "delete": {
+        "description": "Delete Objects in bulk that match a certain filter.",
+        "operationId": "batch.objects.delete",
+        "x-serviceIds": ["weaviate.local.manipulate"],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BatchDelete"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "schema": {
+              "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Deletes Objects based on a match filter as a batch.",
         "tags": ["batch", "objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false

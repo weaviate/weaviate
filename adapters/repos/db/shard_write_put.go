@@ -23,9 +23,9 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -254,11 +254,11 @@ func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inv
 
 	*props = append(*props,
 		inverted.Property{
-			Name:  traverser.InternalPropCreationTimeUnix,
+			Name:  filters.InternalPropCreationTimeUnix,
 			Items: []inverted.Countable{{Data: createTime}},
 		},
 		inverted.Property{
-			Name:  traverser.InternalPropLastUpdateTimeUnix,
+			Name:  filters.InternalPropLastUpdateTimeUnix,
 			Items: []inverted.Countable{{Data: updateTime}},
 		},
 	)

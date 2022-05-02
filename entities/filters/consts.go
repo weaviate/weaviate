@@ -9,16 +9,11 @@
 //  CONTACT: hello@semi.technology
 //
 
-package traverser
+package filters
 
-import (
-	"github.com/semi-technologies/weaviate/entities/filters"
+const (
+	InternalPropBackwardsCompatID  = "id"
+	InternalPropID                 = "_id"
+	InternalPropCreationTimeUnix   = "_creationTimeUnix"
+	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
 )
-
-func (e *Explorer) validateFilters(filter *filters.LocalFilter) error {
-	if filter == nil {
-		return nil
-	}
-	sch := e.schemaGetter.GetSchemaSkipAuth()
-	return filters.ValidateFilters(sch, filter)
-}

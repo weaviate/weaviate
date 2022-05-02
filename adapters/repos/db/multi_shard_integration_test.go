@@ -79,6 +79,8 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	})
 
 	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
+
+	t.Run("batch delete", makeTestBatchDeleteAllObjects(repo))
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
@@ -150,6 +152,8 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	})
 
 	t.Run("verify refs", makeTestRetrieveRefClass(repo, data, refData))
+
+	t.Run("batch delete", makeTestBatchDeleteAllObjects(repo))
 }
 
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
@@ -615,6 +619,75 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		performDelete := func(t *testing.T, className string) {
+			getParams := func(className string, dryRun bool) objects.BatchDeleteParams {
+				return objects.BatchDeleteParams{
+					ClassName: schema.ClassName(className),
+					Filters: &filters.LocalFilter{
+						Root: &filters.Clause{
+							Operator: filters.OperatorLike,
+							Value: &filters.Value{
+								Value: "*",
+								Type:  schema.DataTypeString,
+							},
+							On: &filters.Path{
+								Property: "id",
+							},
+						},
+					},
+					DryRun: dryRun,
+					Output: "verbose",
+				}
+			}
+			performClassSearch := func(className string) ([]search.Result, error) {
+				return repo.ClassSearch(context.Background(), traverser.GetParams{
+					ClassName:  className,
+					Pagination: &filters.Pagination{Limit: 10000},
+				})
+			}
+			// get the initial count of the objects
+			res, err := performClassSearch(className)
+			require.Nil(t, err)
+			beforeDelete := len(res)
+			require.True(t, beforeDelete > 0)
+			// dryRun == true
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				getParams(className, true))
+			require.Nil(t, err)
+			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			// check that every object is preserved (not deleted)
+			res, err = performClassSearch(className)
+			require.Nil(t, err)
+			require.Equal(t, beforeDelete, len(res))
+			// dryRun == false, perform actual delete
+			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(),
+				getParams(className, false))
+			require.Nil(t, err)
+			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			// check that every object is deleted
+			res, err = performClassSearch(className)
+			require.Nil(t, err)
+			require.Equal(t, 0, len(res))
+		}
+		t.Run("batch delete TestRefClass", func(t *testing.T) {
+			performDelete(t, "TestRefClass")
+		})
+		t.Run("batch delete TestClass", func(t *testing.T) {
+			performDelete(t, "TestClass")
 		})
 	}
 }
