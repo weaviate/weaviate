@@ -18,11 +18,11 @@
 
 1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
     * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
-    * Easy to integrate in your current architecture, with full CRUD support like you're used to from other OSS databases.
+    * Easy to integrate into your current architecture, with full CRUD support like you're used to from other OSS databases.
     * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
 2. **Data Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
-    * Weaviate has a modular setup that allows to use your own ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
+    * Weaviate has a modular setup that allows you to use your ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
     * Weaviate takes care of the scalability, so that you don't have to.
     * Deploy and maintain ML models in production reliably and efficiently.
 
@@ -46,13 +46,12 @@ Weaviate makes it easy to use state-of-the-art ML models while giving you the sc
    <br><sub></sub>
 
 * **Any media type with Weaviate Modules**<br>
-  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
+  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for you - or import your own vectors.
 
 * **Combine vector and scalar search**<br>
-  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for a third party object storage. 
-
+  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for third party object storage.
 * **Real-time and persistent**<br>
-Weaviate let’s you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
+Weaviate lets you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
 
 * **Horizontal Scalability**<br>
   Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Multi-Node sharding since `v1.8.0`, Replication under development) 
