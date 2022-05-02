@@ -52,6 +52,7 @@ func Test_Batch(t *testing.T) {
 
 	t.Run("gql results order", batchJourney)
 	t.Run("gql results order", gqlResultsOrder)
+	t.Run("batch delete", batchDeleteJourney)
 
 	deleteObjectClass(t, "BulkTest")
 	deleteObjectClass(t, "BulkTestSource")

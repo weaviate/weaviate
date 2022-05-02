@@ -54,6 +54,10 @@ type RemoteIndexIncomingRepo interface {
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
+	IncomingFindDocIDs(ctx context.Context, shardName string,
+		filters *filters.LocalFilter) ([]uint64, error)
+	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
+		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
 }
 
 type RemoteIndexIncoming struct {
@@ -170,4 +174,25 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params)
+}
+
+func (rii *RemoteIndexIncoming) FindDocIDs(ctx context.Context, indexName, shardName string,
+	filters *filters.LocalFilter) ([]uint64, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingFindDocIDs(ctx, shardName, filters)
+}
+
+func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
+	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		err := errors.Errorf("local index %q not found", indexName)
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	return index.IncomingDeleteObjectBatch(ctx, shardName, docIDs, dryRun)
 }
