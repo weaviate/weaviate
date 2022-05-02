@@ -1034,6 +1034,33 @@ func localMetaWithObjectLimit(t *testing.T) {
 		})
 	})
 
+	t.Run("with nearObject and very low certainty, no objectLimit", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate {
+    				RansomNote(
+      					nearText: {
+							concepts: ["abc"]
+							certainty: 0.0001
+      					}
+    				) {
+					  meta {
+						count
+					  }
+   					}
+  				}
+			}
+		`)
+
+		t.Run("validate nearMedia runs unlimited without objectLimit", func(t *testing.T) {
+			res := result.Get("Aggregate", "RansomNote").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			assert.Equal(t, json.Number("500"), count)
+		})
+	})
+
 	t.Run("with nearText and no certainty, where filter and groupBy", func(t *testing.T) {
 		objectLimit := 1
 		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`

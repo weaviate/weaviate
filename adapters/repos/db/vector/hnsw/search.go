@@ -506,7 +506,7 @@ func (params *searchByDistParams) iterate() {
 
 func (params *searchByDistParams) maxLimitReached() bool {
 	if params.maximumSearchLimit < 0 {
-		return true
+		return false
 	}
 
 	return int64(params.totalLimit) > params.maximumSearchLimit
