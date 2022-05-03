@@ -49,8 +49,8 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 		}
 		b := s.store.Bucket(id)
 
-		if b == nil && pv.prop == filters.InternalPropCreationTimeUnix ||
-			pv.prop == filters.InternalPropLastUpdateTimeUnix {
+		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
 			return errors.Errorf("timestamps must be indexed to be filterable! " +
 				"add `indexTimestaps: true` to the invertedIndexConfig")
 		}
