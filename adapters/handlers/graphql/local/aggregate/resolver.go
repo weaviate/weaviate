@@ -81,6 +81,9 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 		}
 
 		objectLimit, err := extractObjectLimit(p.Args)
+		if objectLimit != nil && *objectLimit <= 0 {
+			return nil, fmt.Errorf("objectLimit must be a positive integer")
+		}
 		if err != nil {
 			return nil, fmt.Errorf("could not extract objectLimit: %s", err)
 		}
