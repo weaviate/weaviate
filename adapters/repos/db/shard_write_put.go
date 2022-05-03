@@ -74,6 +74,13 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
+	// on occasion, objects are updated which
+	// do not have vector embeddings. in this
+	// case, there is nothing to update here.
+	if len(vector) == 0 {
+		return nil
+	}
+
 	if status.docIDChanged {
 		if err := s.vectorIndex.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
