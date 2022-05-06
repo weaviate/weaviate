@@ -28,8 +28,8 @@ func (l *Memtable) newMapCursor() innerCursorMap {
 	// get away with the full-flattening and a linear search. Let's not optimize
 	// prematurely.
 
-	l.RLock()
-	defer l.RUnlock()
+	l.Lock()
+	defer l.Unlock()
 
 	data := l.keyMap.flattenInOrder()
 

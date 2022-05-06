@@ -143,8 +143,12 @@ func (l *Memtable) flushDataSet(f io.Writer) ([]keyIndex, error) {
 }
 
 func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
+	l.Lock()
 	flat := l.keyMap.flattenInOrder()
+	l.Unlock()
 
+	l.RLock()
+	defer l.RUnlock()
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
 	asMulti := make([]*binarySearchNodeMulti, len(flat))

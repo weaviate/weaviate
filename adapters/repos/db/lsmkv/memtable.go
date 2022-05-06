@@ -198,8 +198,8 @@ func (l *Memtable) getMap(key []byte) ([]MapPair, error) {
 			StrategyMapCollection)
 	}
 
-	l.RLock()
-	defer l.RUnlock()
+	l.Lock()
+	defer l.Unlock()
 
 	v, err := l.keyMap.get(key)
 	if err != nil {
