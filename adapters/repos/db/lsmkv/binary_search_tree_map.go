@@ -121,9 +121,10 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 	// the values are sorted on read for performance reasons, the assumption is
 	// that while a memtable is open writes a much more common, thus we write map
 	// KVs unsorted and only sort/dedup them on read.
-	n.values = sortAndDedupValues(n.values)
-
-	right = append([]*binarySearchNodeMap{n}, right...)
+	right = append([]*binarySearchNodeMap{{
+		key:    n.key,
+		values: sortAndDedupValues(n.values),
+	}}, right...)
 	return append(left, right...)
 }
 
@@ -131,22 +132,23 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 // removes redundancies (from updates or deletes after previous inserts) using
 // a simple deduplication process.
 func sortAndDedupValues(in []MapPair) []MapPair {
+	out := make([]MapPair, len(in))
+	copy(out, in)
+
 	// use SliceStable so that we keep the insert order on duplicates. This is
 	// important because otherwise we can't dedup them correctly if we don't know
 	// in which order they came in.
-	sort.SliceStable(in, func(a, b int) bool {
-		return bytes.Compare(in[a].Key, in[b].Key) < 0
+	sort.SliceStable(out, func(a, b int) bool {
+		return bytes.Compare(out[a].Key, out[b].Key) < 0
 	})
 
 	// now deduping is as simple as looking one key ahead - if it's the same key
 	// simply skip the current element. Meaning "out" will be a subset of
 	// (sorted) "in".
-	out := make([]MapPair, len(in))
-
 	outIndex := 0
-	for inIndex, pair := range in {
+	for inIndex, pair := range out {
 		// look ahead
-		if inIndex+1 < len(in) && bytes.Equal(in[inIndex+1].Key, pair.Key) {
+		if inIndex+1 < len(out) && bytes.Equal(out[inIndex+1].Key, pair.Key) {
 			continue
 		}
 
