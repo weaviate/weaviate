@@ -1,7 +1,10 @@
 package distancer
 
 import (
+	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 	"github.com/stretchr/testify/assert"
@@ -18,32 +21,69 @@ func L2PureGo(a, b []float32) float32 {
 	return sum
 }
 
-func Test_L2_DistanceImplementation_Simple_32(t *testing.T) {
-	length := 32
-	x := make([]float32, length)
-	y := make([]float32, length)
-	for i := range x {
-		x[i] = 2.0
-		y[i] = 1.0
+func Test_L2_DistanceImplementation(t *testing.T) {
+	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
+
+	for _, length := range lengths {
+		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
+			x := make([]float32, length)
+			y := make([]float32, length)
+			for i := range x {
+				x[i] = rand.Float32()
+				y[i] = rand.Float32()
+			}
+
+			control := L2PureGo(x, y)
+			asmResult := asm.L2(x, y)
+
+			assert.InEpsilon(t, control, asmResult, 0.01)
+		})
 	}
-
-	control := L2PureGo(x, y)
-	asmResult := asm.L2(x, y)
-
-	assert.Equal(t, control, asmResult)
 }
 
-func Test_L2_DistanceImplementation_Simple_35(t *testing.T) {
-	length := 35
-	x := make([]float32, length)
-	y := make([]float32, length)
-	for i := range x {
-		x[i] = 2.0
-		y[i] = 1.0
+func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
+	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
+
+	for _, length := range lengths {
+		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
+			x := make([]float32, length)
+			y := make([]float32, length)
+			for i := range x {
+				x[i] = -rand.Float32()
+				y[i] = rand.Float32()
+			}
+
+			control := L2PureGo(x, y)
+			asmResult := asm.L2(x, y)
+
+			assert.InEpsilon(t, control, asmResult, 0.01)
+		})
 	}
+}
 
-	control := L2PureGo(x, y)
-	asmResult := asm.L2(x, y)
+func Benchmark_L2_PureGo_VS_AVX(b *testing.B) {
+	rand.Seed(time.Now().UnixNano())
+	lengths := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	for _, length := range lengths {
+		b.Run(fmt.Sprintf("vector dim=%d", length), func(b *testing.B) {
+			x := make([]float32, length)
+			y := make([]float32, length)
+			for i := range x {
+				x[i] = -rand.Float32()
+				y[i] = rand.Float32()
+			}
 
-	assert.Equal(t, control, asmResult)
+			b.Run("pure go", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					L2PureGo(x, y)
+				}
+			})
+
+			b.Run("asm AVX", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2(x, y)
+				}
+			})
+		})
+	}
 }
