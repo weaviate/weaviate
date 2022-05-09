@@ -7,7 +7,6 @@ var l2SquaredImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 
 	for i := range a {
 		diff := a[i] - b[i]
-
 		sum += diff * diff
 	}
 
