@@ -41,7 +41,6 @@ func (h *hnsw) Delete(id uint64) error {
 	// one. Otherwise we'd insert the next id and have only one possible node to
 	// connect it to (the entrypoint). With that one being tombstoned, the new
 	// node would be guaranteed to have zero edges
-	denyList := h.tombstonesAsDenyList()
 
 	node := h.nodeByID(id)
 	if node == nil {
@@ -50,6 +49,7 @@ func (h *hnsw) Delete(id uint64) error {
 	}
 
 	if h.getEntrypoint() == id {
+		denyList := h.tombstonesAsDenyList()
 		if h.isOnlyNode(node, denyList) {
 			if err := h.reset(); err != nil {
 				return errors.Wrap(err, "reset index")

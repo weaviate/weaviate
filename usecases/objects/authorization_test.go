@@ -89,7 +89,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "objects/foo",
 		},
 
-		// list kinds
+		// list objects
 		{
 			methodName:       "GetObjects",
 			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
@@ -97,7 +97,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "objects",
 		},
 
-		// reference on kinds
+		// reference on objects
 		{
 			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
@@ -185,6 +185,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			additionalArgs:   []interface{}{[]*models.BatchReference{}},
 			expectedVerb:     "update",
 			expectedResource: "batch/*",
+		},
+
+		{
+			methodName:       "DeleteObjects",
+			additionalArgs:   []interface{}{&models.BatchDeleteMatch{}, (*bool)(nil), (*string)(nil)},
+			expectedVerb:     "delete",
+			expectedResource: "batch/objects",
 		},
 	}
 

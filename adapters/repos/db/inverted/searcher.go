@@ -31,7 +31,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Searcher struct {
@@ -354,9 +353,9 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 func (fs *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
 	operator filters.Operator) (*propValuePair, error) {
 	switch propName {
-	case traverser.InternalPropBackwardsCompatID, traverser.InternalPropID:
+	case filters.InternalPropBackwardsCompatID, filters.InternalPropID:
 		return fs.extractIDProp(value, operator)
-	case traverser.InternalPropCreationTimeUnix, traverser.InternalPropLastUpdateTimeUnix:
+	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
 		return extractTimestampProp(propName, propType, value, operator)
 	default:
 		return nil, fmt.Errorf(
@@ -374,7 +373,7 @@ func (fs *Searcher) extractIDProp(value interface{},
 	return &propValuePair{
 		value:        []byte(v),
 		hasFrequency: false,
-		prop:         traverser.InternalPropID,
+		prop:         filters.InternalPropID,
 		operator:     operator,
 	}, nil
 }
@@ -497,7 +496,7 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 }
 
 func (fs *Searcher) onInternalProp(propName string) bool {
-	return traverser.IsInternalProperty(schema.PropertyName(propName))
+	return filters.IsInternalProperty(schema.PropertyName(propName))
 }
 
 func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {

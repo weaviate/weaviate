@@ -18,7 +18,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type propValuePair struct {
@@ -41,14 +40,21 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 	tolerateDuplicates bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
-		if pv.prop == traverser.InternalPropBackwardsCompatID {
+		if pv.prop == filters.InternalPropBackwardsCompatID {
 			// the user-specified ID is considered legacy. we
 			// support backwards compatibility with this prop
-			id = helpers.BucketFromPropNameLSM(traverser.InternalPropID)
-			pv.prop = traverser.InternalPropID
+			id = helpers.BucketFromPropNameLSM(filters.InternalPropID)
+			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
 		b := s.store.Bucket(id)
+
+		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
+			return errors.Errorf("timestamps must be indexed to be filterable! " +
+				"add `indexTimestaps: true` to the invertedIndexConfig")
+		}
+
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
 			// served by the inverted index, but propagated to a secondary index in

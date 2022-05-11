@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -29,6 +30,9 @@ import (
 )
 
 func Test_Explorer_GetClass_WithFilters(t *testing.T) {
+	valueNameFromDataType := func(dt schema.DataType) string {
+		return "value" + strings.ToUpper(string(dt[0])) + string(dt[1:])
+	}
 	log, _ := test.NewNullLogger()
 	type test struct {
 		name          string

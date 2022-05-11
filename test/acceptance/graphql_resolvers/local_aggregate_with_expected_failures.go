@@ -48,7 +48,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	t.Run("with nearObject, no certainty", func(t *testing.T) {
@@ -78,7 +80,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	t.Run("with nearText, no certainty", func(t *testing.T) {
@@ -108,7 +112,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	// with where
@@ -145,7 +151,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	t.Run("with nearObject, where filter, no certainty", func(t *testing.T) {
@@ -199,7 +207,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	t.Run("with nearText, where filter, no certainty", func(t *testing.T) {
@@ -253,7 +263,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "must provide certainty with vector search"))
+		assert.True(t, strings.Contains(result[0].Message,
+			"must provide certainty or objectLimit with vector search"),
+			"unexpected error message: %s", result[0].Message)
 	})
 
 	t.Run("objectLimit passed with no nearMedia", func(t *testing.T) {
