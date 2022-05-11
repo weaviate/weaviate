@@ -47,7 +47,7 @@ func addHandleRoot(next http.Handler) http.Handler {
 			w.Header().Add("Location", "/v1")
 			w.WriteHeader(http.StatusMovedPermanently)
 			w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
-				`"https://www.semi.technology/documentation/weaviate/current/"}}`))
+				`"https://weaviate.io/developers/weaviate/current/"}}`))
 			return
 		}
 

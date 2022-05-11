@@ -1034,6 +1034,63 @@ func localMetaWithObjectLimit(t *testing.T) {
 		})
 	})
 
+	t.Run("with nearObject and very low certainty, no objectLimit", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate {
+    				RansomNote(
+      					nearText: {
+							concepts: ["abc"]
+							certainty: 0.0001
+      					}
+    				) {
+					  meta {
+						count
+					  }
+   					}
+  				}
+			}
+		`)
+
+		t.Run("validate nearMedia runs unlimited without objectLimit", func(t *testing.T) {
+			res := result.Get("Aggregate", "RansomNote").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			assert.Equal(t, json.Number("500"), count)
+		})
+	})
+
+	t.Run("with nearObject and high certainty (few results), high objectLimit", func(t *testing.T) {
+		result := AssertGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate {
+    				RansomNote(
+      					nearText: {
+							concepts: ["abc"]
+							certainty: 0.7 # should return about 6 elements
+      					}
+						  objectLimit:100,
+    				) {
+					  meta {
+						count
+					  }
+   					}
+  				}
+			}
+		`)
+
+		t.Run("validate fewer than objectLimit elements are returned", func(t *testing.T) {
+			res := result.Get("Aggregate", "RansomNote").AsSlice()
+			require.Len(t, res, 1)
+			meta := res[0].(map[string]interface{})["meta"]
+			count := meta.(map[string]interface{})["count"]
+			countParsed, err := count.(json.Number).Int64()
+			require.Nil(t, err)
+			assert.Less(t, countParsed, int64(100))
+		})
+	})
+
 	t.Run("with nearText and no certainty, where filter and groupBy", func(t *testing.T) {
 		objectLimit := 1
 		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`

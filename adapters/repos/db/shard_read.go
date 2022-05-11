@@ -364,3 +364,71 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 
 	return list, nil
 }
+
+func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return "", errors.Errorf("objects bucket not found")
+	}
+
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	docIDBytes := keyBuf.Bytes()
+	res, err := bucket.GetBySecondary(0, docIDBytes)
+	if err != nil {
+		return "", err
+	}
+
+	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
+	if err != nil {
+		return "", err
+	}
+
+	return strfmt.UUID(prop[0]), nil
+}
+
+func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	var docID uint64
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	existing, err := bucket.Get([]byte(idBytes))
+	if err != nil {
+		return errors.Wrap(err, "unexpected error on previous lookup")
+	}
+
+	if existing == nil {
+		// nothing to do
+		return nil
+	}
+
+	// we need the doc ID so we can clean up inverted indices currently
+	// pointing to this object
+	docID, err = storobj.DocIDFromBinary(existing)
+	if err != nil {
+		return errors.Wrap(err, "get existing doc id from object binary")
+	}
+
+	err = bucket.Delete(idBytes)
+	if err != nil {
+		return errors.Wrap(err, "delete object from bucket")
+	}
+
+	err = s.cleanupInvertedIndexOnDelete(existing, docID)
+	if err != nil {
+		return errors.Wrap(err, "delete object from bucket")
+	}
+
+	// in-mem
+	// TODO: do we still need this?
+	s.deletedDocIDs.Add(docID)
+
+	if err := s.vectorIndex.Delete(docID); err != nil {
+		return errors.Wrap(err, "delete from vector index")
+	}
+
+	return nil
+}

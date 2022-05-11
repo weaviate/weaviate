@@ -106,6 +106,17 @@ func Test_MergingObjects(t *testing.T) {
 						},
 					},
 				},
+				{
+					Class:               "MergeTestNoVector",
+					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					InvertedIndexConfig: invertedConfig(),
+					Properties: []*models.Property{
+						{
+							Name:     "foo",
+							DataType: []string{"string"},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -126,6 +137,7 @@ func Test_MergingObjects(t *testing.T) {
 	target3 := strfmt.UUID("81982705-8b1e-4228-b84c-911818d7ee85")
 	target4 := strfmt.UUID("7f69c263-17f4-4529-a54d-891a7c008ca4")
 	sourceID := strfmt.UUID("8738ddd5-a0ed-408d-a5d6-6f818fd56be6")
+	noVecID := strfmt.UUID("b4933761-88b2-4666-856d-298eb1ad0a59")
 
 	t.Run("add objects", func(t *testing.T) {
 		now := time.Now().UnixNano() / int64(time.Millisecond)
@@ -152,6 +164,17 @@ func Test_MergingObjects(t *testing.T) {
 			}, []float32{0.5})
 			require.Nil(t, err)
 		}
+
+		err = repo.PutObject(context.Background(), &models.Object{
+			ID:    noVecID,
+			Class: "MergeTestNoVector",
+			Properties: map[string]interface{}{
+				"foo": "bar",
+			},
+			CreationTimeUnix:   now,
+			LastUpdateTimeUnix: now,
+		}, nil)
+		require.Nil(t, err)
 	})
 
 	var lastUpdateTimeUnix int64
@@ -167,6 +190,11 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("merge other previously unset properties into it", func(t *testing.T) {
+		// give the lastUpdateTimeUnix time to be different.
+		// on some machines this may not be needed, but for
+		// faster processors, the difference is undetectable
+		time.Sleep(time.Millisecond)
+
 		md := objects.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,
@@ -327,5 +355,24 @@ func Test_MergingObjects(t *testing.T) {
 		}
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
+	})
+
+	t.Run("merge object with no vector", func(t *testing.T) {
+		err = repo.Merge(context.Background(), objects.MergeDocument{
+			Class:           "MergeTestNoVector",
+			ID:              noVecID,
+			PrimitiveSchema: map[string]interface{}{"foo": "baz"},
+		})
+		require.Nil(t, err)
+
+		orig, err := repo.ObjectByID(context.Background(), noVecID, nil, additional.Properties{})
+		require.Nil(t, err)
+
+		expectedSchema := map[string]interface{}{
+			"foo": "baz",
+			"id":  noVecID,
+		}
+
+		assert.Equal(t, expectedSchema, orig.Schema)
 	})
 }

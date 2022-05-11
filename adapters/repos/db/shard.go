@@ -29,10 +29,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -259,14 +259,14 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(traverser.InternalPropID),
+		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(traverser.InternalPropID),
+		helpers.HashBucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
@@ -292,13 +292,13 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(traverser.InternalPropCreationTimeUnix),
+		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(traverser.InternalPropCreationTimeUnix),
+		helpers.HashBucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
@@ -309,13 +309,13 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(traverser.InternalPropLastUpdateTimeUnix),
+		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 	err = s.store.CreateOrLoadBucket(ctx,
-		helpers.HashBucketFromPropNameLSM(traverser.InternalPropLastUpdateTimeUnix),
+		helpers.HashBucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err

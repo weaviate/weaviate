@@ -89,51 +89,51 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name:              "view complete schema",
 						Href:              fmt.Sprintf("%s/v1/schema", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
 					},
 					{
 						Name:              "CRUD schema",
 						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
 					},
 					{
 						Name:              "CRUD objects",
 						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/objects.html",
 					},
 					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/contextual-classification.html,https://www.semi.technology/documentation/weaviate/current/features/knn-classification.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/modules/text2vec-contextionary.html#contextual-classification,https://weaviate.io/developers/weaviate/current/restful-api-references/classification.html#knn-classification",
 					},
 					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/live", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#liveness",
 					},
 					{
 						Name:              "check if Weaviate is ready (returns 200 on GET when ready)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/ready", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#readiness",
 					},
 					{
 						Name:              "view link to openid configuration (returns 404 on GET if no openid is configured)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#openid-configuration",
 					},
 
 					// TODO: part of the text2vec-contextionary module
 					{
 						Name:              "search contextionary for concepts (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/concepts/:concept", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
 					},
 
 					// TODO: part of the text2vec-contextionary module
 					{
 						Name:              "extend contextionary with custom extensions (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/extensions", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
 					},
 				},
 			}

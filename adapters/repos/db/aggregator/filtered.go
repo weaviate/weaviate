@@ -89,13 +89,31 @@ func (fa *filteredAggregator) vectorSearch(allow helpers.AllowList) (ids []uint6
 }
 
 func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, error) {
-	idsFound, _, err := fa.vectorIndex.SearchByVector(searchVector, *limit, ids)
-	return idsFound, err
+	idsFound, dists, err := fa.vectorIndex.SearchByVector(searchVector, *limit, ids)
+	if err != nil {
+		return idsFound, err
+	}
+
+	if fa.params.Certainty > 0 {
+		targetDist := float32(1-fa.params.Certainty) * 2
+
+		i := 0
+		for _, dist := range dists {
+			if dist > targetDist {
+				break
+			}
+			i++
+		}
+
+		return idsFound[:i], nil
+
+	}
+	return idsFound, nil
 }
 
 func (fa *filteredAggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, error) {
 	if fa.params.Certainty <= 0 {
-		return nil, errors.New("must provide certainty with vector search")
+		return nil, errors.New("must provide certainty or objectLimit with vector search")
 	}
 
 	targetDist := float32(1-fa.params.Certainty) * 2
