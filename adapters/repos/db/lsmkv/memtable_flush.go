@@ -143,7 +143,9 @@ func (l *Memtable) flushDataSet(f io.Writer) ([]keyIndex, error) {
 }
 
 func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
+	l.RLock()
 	flat := l.keyMap.flattenInOrder()
+	l.RUnlock()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
