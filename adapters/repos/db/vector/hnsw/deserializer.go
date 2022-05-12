@@ -409,7 +409,7 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 		return err
 	}
 
-	if int(id) > len(res.Nodes) {
+	if int(id) >= len(res.Nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
