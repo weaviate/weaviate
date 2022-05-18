@@ -377,6 +377,15 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
+	// to ensure that all commitlog entries are written to disk.
+	// otherwise in some cases the tombstone cleanup process'
+	// 'RemoveTombstone' entry is not picked up on restarts
+	// resulting in perpetually attempting to remove a tombstone
+	// which doesn't actually exist anymore
+	if err := s.vectorIndex.Flush(); err != nil {
+		return errors.Wrap(err, "flush vector index commitlog")
+	}
+
 	return s.store.Shutdown(ctx)
 }
 

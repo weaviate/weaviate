@@ -140,8 +140,8 @@ type objectInsertStatus struct {
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
-// didn't exist before, we will get a new docID from the central counter.
-// Otherwise, we will will reuse the previous docID and mark this as an update
+// didn't exist before), we will get a new docID from the central counter.
+// Otherwise, we will reuse the previous docID and mark this as an update
 func (s *Shard) determineInsertStatus(previous []byte,
 	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
