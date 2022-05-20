@@ -310,6 +310,31 @@ func gettingObjectsWithNearFields(t *testing.T) {
 	})
 }
 
+func gettingObjectsWithNearFieldsMultiShard(t *testing.T) {
+	t.Run("nearText: results limited by certainty with multi shard", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				MultiShard(
+					nearText: {
+						certainty: 0.1
+						concepts: ["multi shard"]
+					}
+				) {
+					_additional {
+						id
+					}
+				}
+			}
+		}
+		`
+
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		notes := result.Get("Get", "MultiShard").AsSlice()
+		require.Equal(t, len(notes), 3)
+	})
+}
+
 func getOneExistingID(t *testing.T, className string) string {
 	query := fmt.Sprintf("{Get {%s(limit: 1) {_additional {id}}}}", className)
 	result := AssertGraphQL(t, helper.RootAuth, query).Result.(map[string]interface{})
