@@ -253,12 +253,22 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			// Dist is between 0..2, we need to reduce to the user space of 0..1
 			normalizedDist := res.Dist / 2
 			certainty := ExtractCertaintyFromParams(params)
-			if 1-(normalizedDist) < float32(certainty) {
+			if 1-(normalizedDist) < float32(certainty) && 1-normalizedDist >= 0 {
+				// TODO: Clean this up. The >= check is so that this logic does not run
+				// non-cosine distance.
 				continue
 			}
 
 			if params.AdditionalProperties.Certainty {
 				additionalProperties["certainty"] = 1 - normalizedDist
+			}
+
+			if params.AdditionalProperties.Distance {
+				additionalProperties["distance"] = res.Dist
+			}
+
+			if params.AdditionalProperties.Score {
+				additionalProperties["score"] = -res.Dist
 			}
 		}
 

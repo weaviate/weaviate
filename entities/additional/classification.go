@@ -30,4 +30,6 @@ type Properties struct {
 	CreationTimeUnix   bool                   `json:"creationTimeUnix"`
 	LastUpdateTimeUnix bool                   `json:"lastUpdateTimeUnix"`
 	ModuleParams       map[string]interface{} `json:"moduleParams"`
+	Distance           bool                   `json:"distance"`
+	Score              bool                   `json:"score"`
 }

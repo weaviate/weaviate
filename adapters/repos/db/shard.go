@@ -90,6 +90,19 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
+
+		var distProv distancer.Provider
+
+		switch hnswUserConfig.Distance {
+		case "", "cosine":
+			distProv = distancer.NewDotProductProvider()
+		case "l2-squared":
+			distProv = distancer.NewL2SquaredProvider()
+		default:
+			return nil, errors.Errorf("unrecognized distance metric %q,"+
+				"choose one of [\"cosine\", \"l2-squared\"]", hnswUserConfig.Distance)
+		}
+
 		vi, err := hnsw.New(hnsw.Config{
 			Logger:   index.logger,
 			RootPath: s.index.Config.RootPath,
@@ -112,7 +125,7 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 					index.logger)
 			},
 			VectorForIDThunk: s.vectorByIndexID,
-			DistanceProvider: distancer.NewDotProductProvider(),
+			DistanceProvider: distProv,
 		}, hnswUserConfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
