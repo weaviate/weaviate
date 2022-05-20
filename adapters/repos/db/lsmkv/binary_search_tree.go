@@ -168,6 +168,7 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 		n.value = nil
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
+		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
