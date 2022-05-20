@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,5 +109,25 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 		expectedNetAdditions := expectedFirstNetAdd + expectedSecondNetAdd
 
 		require.Equal(t, expectedNetAdditions, netAdditions)
+	})
+
+	// test to assure multiple tombstone nodes are not created when same value is added and deleted multiple times
+	// https://semi-technology.atlassian.net/browse/WEAVIATE-31
+	t.Run("consecutive adding and deleting value does not multiply nodes", func(t *testing.T) {
+		tree := &binarySearchTree{}
+
+		key := []byte(uuid.New().String())
+		value := make([]byte, 100)
+		rand.Read(value)
+
+		for i := 0; i < 10; i++ {
+			tree.insert(key, value, nil)
+			tree.setTombstone(key, nil)
+		}
+
+		flat := tree.flattenInOrder()
+
+		require.Equal(t, 1, len(flat))
+		require.True(t, flat[0].tombstone)
 	})
 }
