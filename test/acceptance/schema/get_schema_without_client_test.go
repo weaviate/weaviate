@@ -48,6 +48,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfMin":           float64(100),
 					"dynamicEfMax":           float64(500),
 					"dynamicEfFactor":        float64(8),
+					"distance":               "cosine",
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),

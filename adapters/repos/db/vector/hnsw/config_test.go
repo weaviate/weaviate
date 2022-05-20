@@ -107,6 +107,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 
@@ -125,6 +126,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 
@@ -141,6 +143,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           json.Number("18"),
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
+				"distance":               "l2-squared",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -153,6 +156,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Skip:                   true,
+				Distance:               "l2-squared",
 			},
 		},
 
@@ -181,6 +185,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 	}
