@@ -784,7 +784,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	}
 
 	out, dists = newDistancesSorter().sort(out, dists)
-	if len(out) > limit {
+	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 		dists = dists[:limit]
 	}
