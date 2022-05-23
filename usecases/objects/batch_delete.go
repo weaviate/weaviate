@@ -99,16 +99,14 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
 	}
 
-	ec := &errorCompounder{}
-
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		ec.add(errors.Wrap(err, "failed to parse where filter"))
+		return nil, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
 	err = filters.ValidateFilters(s, filter)
 	if err != nil {
-		ec.add(errors.Wrap(err, "invalid where filter"))
+		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}
 
 	dryRunParam := false
@@ -122,13 +120,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		case OutputMinimal, OutputVerbose:
 			outputParam = *output
 		default:
-			ec.add(errors.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
-				*output, OutputMinimal, OutputVerbose))
+			return nil, fmt.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
+				*output, OutputMinimal, OutputVerbose)
 		}
-	}
-
-	if ec.toError() != nil {
-		return nil, ec.toError()
 	}
 
 	params := &BatchDeleteParams{
