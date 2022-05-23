@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
@@ -87,27 +88,27 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, errors.New("empty match.where clause")
 	}
 
-	ec := &errorCompounder{}
-
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
-	ec.add(err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema: %s", err)
+	}
 
 	class := s.FindClassByName(schema.ClassName(match.Class))
 	if class == nil {
-		ec.add(errors.Errorf("class: %v doesn't exist", match.Class))
+		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
 	}
+
+	ec := &errorCompounder{}
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		ec.add(errors.Wrap(err, "invalid where"))
+		ec.add(errors.Wrap(err, "failed to parse where filter"))
 	}
 
-	if class != nil {
-		err = filters.ValidateFilters(s, filter)
-		if err != nil {
-			ec.add(errors.Wrap(err, "invalid where"))
-		}
+	err = filters.ValidateFilters(s, filter)
+	if err != nil {
+		ec.add(errors.Wrap(err, "invalid where filter"))
 	}
 
 	dryRunParam := false
