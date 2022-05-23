@@ -165,7 +165,6 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 			assert.Equal(t, test.expectedError, err.Error())
 		}
 	})
-
 }
 
 func ptBool(b bool) *bool {
