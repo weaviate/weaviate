@@ -80,6 +80,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Object) (*search.Result, error) {
+	if updated == nil {
+		return nil, fmt.Errorf("object to update not provided in request")
+	}
+
 	if updated.Class == "" {
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
