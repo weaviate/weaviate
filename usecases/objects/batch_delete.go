@@ -98,13 +98,13 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		ec.add(errors.Errorf("class: %v doesn't exist", match.Class))
 	}
 
-	filter, err := filterext.Parse(match.Where)
+	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
 		ec.add(errors.Wrap(err, "invalid where"))
 	}
 
 	if class != nil {
-		err = filters.ValidateFiltersWithClassName(s, class.Class, filter)
+		err = filters.ValidateFilters(s, filter)
 		if err != nil {
 			ec.add(errors.Wrap(err, "invalid where"))
 		}
