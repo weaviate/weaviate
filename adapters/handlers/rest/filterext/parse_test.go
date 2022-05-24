@@ -179,7 +179,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -285,7 +285,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -334,7 +334,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -436,7 +436,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})

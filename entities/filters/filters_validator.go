@@ -22,23 +22,16 @@ func ValidateFilters(sch schema.Schema, filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
-	return validateClause(sch, "", filters.Root)
+	return validateClause(sch, filters.Root)
 }
 
-func ValidateFiltersWithClassName(sch schema.Schema, className string, filters *LocalFilter) error {
-	if filters == nil {
-		return errors.New("empty where")
-	}
-	return validateClause(sch, className, filters.Root)
-}
-
-func validateClause(sch schema.Schema, withClassName string, clause *Clause) error {
+func validateClause(sch schema.Schema, clause *Clause) error {
 	// check if nested
 	if clause.Operands != nil {
 		var errs []error
 
 		for i, child := range clause.Operands {
-			if err := validateClause(sch, withClassName, &child); err != nil {
+			if err := validateClause(sch, &child); err != nil {
 				errs = append(errs, errors.Wrapf(err, "child operand at position %d", i))
 			}
 		}
@@ -53,9 +46,6 @@ func validateClause(sch schema.Schema, withClassName string, clause *Clause) err
 	// validate current
 
 	className := clause.On.GetInnerMost().Class
-	if len(withClassName) > 0 {
-		className = schema.ClassName(withClassName)
-	}
 	propName := clause.On.GetInnerMost().Property
 
 	if IsInternalProperty(propName) {

@@ -22,6 +22,11 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 
+const (
+	TypeKNN        = "knn"
+	TypeContextual = "text2vec-contextionary-contextual"
+)
+
 type Validator struct {
 	schema  schema.Schema
 	errors  *errorCompounder
@@ -180,7 +185,7 @@ func (v *Validator) typeText2vecContextionaryContextual() bool {
 		return false
 	}
 
-	return v.subject.Type == "text2vec-contextionary-contextual"
+	return v.subject.Type == TypeContextual
 }
 
 func (v *Validator) typeKNN() bool {
@@ -188,7 +193,7 @@ func (v *Validator) typeKNN() bool {
 		return true
 	}
 
-	return v.subject.Type == "knn"
+	return v.subject.Type == TypeKNN
 }
 
 type errorCompounder struct {
