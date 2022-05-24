@@ -158,7 +158,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	// asynchronously trigger the classification
-	filters, err := extractFilters(params)
+	filters, err := c.extractFilters(params)
 	if err != nil {
 		return nil, err
 	}
@@ -168,31 +168,59 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	return &params, nil
 }
 
-func extractFilters(params models.Classification) (Filters, error) {
+func (c *Classifier) extractFilters(params models.Classification) (Filters, error) {
 	if params.Filters == nil {
 		return classificationFilters{}, nil
 	}
 
-	source, err := filterext.Parse(params.Filters.SourceWhere)
+	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %v", err)
 	}
 
-	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere)
+	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
 	}
 
-	target, err := filterext.Parse(params.Filters.TargetWhere)
+	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %v", err)
 	}
 
-	return classificationFilters{
+	filters := classificationFilters{
 		source:      source,
 		trainingSet: trainingSet,
 		target:      target,
-	}, nil
+	}
+
+	if err = c.validateFilters(&params, &filters); err != nil {
+		return nil, err
+	}
+
+	return filters, nil
+}
+
+func (c *Classifier) validateFilters(params *models.Classification, filters *classificationFilters) (err error) {
+	if params.Type == TypeKNN {
+		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Source()); err != nil {
+			return fmt.Errorf("invalid sourceWhere: %s", err)
+		}
+		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.TrainingSet()); err != nil {
+			return fmt.Errorf("invalid trainingSetWhere: %s", err)
+		}
+	}
+
+	if params.Type == TypeContextual {
+		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Source()); err != nil {
+			return fmt.Errorf("invalid sourceWhere: %s", err)
+		}
+		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Target()); err != nil {
+			return fmt.Errorf("invalid targetWhere: %s", err)
+		}
+	}
+
+	return
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

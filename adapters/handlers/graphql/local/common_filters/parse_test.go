@@ -272,3 +272,7 @@ func TestExtractOperandFailsIfPathPresent(t *testing.T) {
 	query := `{ SomeAction(where: { path:["should", "not", "be", "present"], operator: And  })}`
 	resolver.AssertFailToResolve(t, query)
 }
+
+func ptFloat32(in float32) *float32 {
+	return &in
+}

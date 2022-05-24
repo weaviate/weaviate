@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
@@ -87,27 +88,25 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, errors.New("empty match.where clause")
 	}
 
-	ec := &errorCompounder{}
-
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
-	ec.add(err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema: %s", err)
+	}
 
 	class := s.FindClassByName(schema.ClassName(match.Class))
 	if class == nil {
-		ec.add(errors.Errorf("class: %v doesn't exist", match.Class))
+		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
 	}
 
-	filter, err := filterext.Parse(match.Where)
+	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		ec.add(errors.Wrap(err, "invalid where"))
+		return nil, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
-	if class != nil {
-		err = filters.ValidateFiltersWithClassName(s, class.Class, filter)
-		if err != nil {
-			ec.add(errors.Wrap(err, "invalid where"))
-		}
+	err = filters.ValidateFilters(s, filter)
+	if err != nil {
+		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}
 
 	dryRunParam := false
@@ -121,13 +120,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		case OutputMinimal, OutputVerbose:
 			outputParam = *output
 		default:
-			ec.add(errors.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
-				*output, OutputMinimal, OutputVerbose))
+			return nil, fmt.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
+				*output, OutputMinimal, OutputVerbose)
 		}
-	}
-
-	if ec.toError() != nil {
-		return nil, ec.toError()
 	}
 
 	params := &BatchDeleteParams{
