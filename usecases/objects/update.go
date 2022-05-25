@@ -45,7 +45,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalObject, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+	originalObject, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
