@@ -399,6 +399,8 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "flush vector index commitlog")
 	}
 
+	s.vectorIndex.Shutdown()
+
 	return s.store.Shutdown(ctx)
 }
 
