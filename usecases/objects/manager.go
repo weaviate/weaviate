@@ -69,6 +69,10 @@ type authorizer interface {
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
+
+	// Object returns object of the specified class giving by its id
+	Object(ctx context.Context, className string, id strfmt.UUID, props search.SelectProperties,
+		additional additional.Properties) (*search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
@@ -90,7 +94,8 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer VectorizerProvider, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider) *Manager {
+	modulesProvider ModulesProvider,
+) *Manager {
 	return &Manager{
 		config:             config,
 		locks:              locks,

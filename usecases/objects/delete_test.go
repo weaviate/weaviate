@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -23,76 +24,61 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func Test_Delete_Action(t *testing.T) {
+func Test_DeleteObjectsWithSameId(t *testing.T) {
 	var (
-		manager    *Manager
-		vectorRepo *fakeVectorRepo
+		cls = "MyClass"
+		id  = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 	)
 
-	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
-			ClassName: "MyAction",
-		}, nil).Once()
-		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
-		schemaManager := &fakeSchemaManager{}
-		locks := &fakeLocks{}
-		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
-		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			vectorRepo, getFakeModulesProvider())
-	}
+	manager, vectorRepo := newDeleteDependency()
+	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
+		ClassName: cls,
+	}, nil).Once()
+	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+	vectorRepo.On("DeleteObject", cls, id).Return(nil).Once()
 
-	reset()
-
-	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-
-	vectorRepo.On("DeleteObject", "MyAction", id).Return(nil).Once()
-
-	ctx := context.Background()
-	err := manager.DeleteObject(ctx, nil, id)
-
+	err := manager.DeleteObject(context.Background(), nil, "", id)
 	assert.Nil(t, err)
-
 	vectorRepo.AssertExpectations(t)
 }
 
-func Test_Delete_Thing(t *testing.T) {
+func Test_DeleteObject(t *testing.T) {
 	var (
-		manager    *Manager
-		vectorRepo *fakeVectorRepo
+		cls         = "MyClass"
+		id          = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+		errNotFound = errors.New("object not found")
 	)
 
-	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
-			ClassName: "MyThing",
-		}, nil).Once()
-		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
-		schemaManager := &fakeSchemaManager{}
-		locks := &fakeLocks{}
-		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
-		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			vectorRepo, getFakeModulesProvider())
-	}
+	manager, repo := newDeleteDependency()
+	repo.On("DeleteObject", cls, id).Return(nil).Once()
 
-	reset()
-
-	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-
-	vectorRepo.On("DeleteObject", "MyThing", id).Return(nil).Once()
-
-	ctx := context.Background()
-	err := manager.DeleteObject(ctx, nil, id)
+	err := manager.DeleteObject(context.Background(), nil, cls, id)
 
 	assert.Nil(t, err)
+	repo.AssertExpectations(t)
 
-	vectorRepo.AssertExpectations(t)
+	// delete same object again
+	repo.On("DeleteObject", cls, id).Return(errNotFound).Once()
+
+	err = manager.DeleteObject(context.Background(), nil, cls, id)
+	if _, ok := err.(ErrInternal); !ok {
+		t.Errorf("error type got: %T want: ErrInternal", err)
+	}
+	repo.AssertExpectations(t)
+}
+
+func newDeleteDependency() (*Manager, *fakeVectorRepo) {
+	vectorRepo := new(fakeVectorRepo)
+	logger, _ := test.NewNullLogger()
+	vecProvider := fakeVectorizerProvider{new(fakeVectorizer)}
+	manager := NewManager(
+		new(fakeLocks),
+		new(fakeSchemaManager),
+		new(config.WeaviateConfig),
+		logger,
+		new(fakeAuthorizer),
+		&vecProvider,
+		vectorRepo,
+		getFakeModulesProvider())
+	return manager, vectorRepo
 }

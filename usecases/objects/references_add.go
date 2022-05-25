@@ -44,7 +44,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 func (m *Manager) addObjectReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 	// get object to see if it exists
-	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+	objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
 		return err
 	}
