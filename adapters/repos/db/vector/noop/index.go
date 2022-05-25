@@ -53,3 +53,5 @@ func (i *Index) Drop() error {
 func (i *Index) Flush() error {
 	return nil
 }
+
+func (i *Index) Shutdown() {}
