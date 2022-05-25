@@ -21,8 +21,15 @@ import (
 )
 
 // DeleteObject Class Instance from the conncected DB
-func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
-	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("objects/%s", id.String()))
+//
+// if class == "" it will delete all object with same id regardless of the class name.
+// This is due to backward compatibility reasons and should be removed in the future
+func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID) error {
+	path := fmt.Sprintf("objects/%s/%s", class, id)
+	if class == "" {
+		path = fmt.Sprintf("objects/%s", id)
+	}
+	err := m.authorizer.Authorize(principal, "delete", path)
 	if err != nil {
 		return err
 	}
@@ -33,9 +40,19 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.deleteObjectFromRepo(ctx, id)
+	if class == "" { // deprecated
+		return m.deleteObjectFromRepo(ctx, id)
+	}
+	err = m.vectorRepo.DeleteObject(ctx, class, id)
+	if err != nil {
+		return NewErrInternal("could not delete object from vector repo: %v", err)
+	}
+	return nil
 }
 
+// deleteObjectFromRepo deletes objects with same id and different classes.
+//
+// Deprecated
 func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) error {
 	// There might be a situation to have UUIDs which are not unique across classes.
 	// Added loop in order to delete all of the objects with given UUID across all classes.
@@ -43,7 +60,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 	// https://github.com/semi-technologies/weaviate/issues/1836
 	deleteCounter := 0
 	for {
-		objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 		if err != nil {
 			_, ok := err.(ErrNotFound)
 			if ok {

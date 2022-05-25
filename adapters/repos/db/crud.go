@@ -45,8 +45,7 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	return nil
 }
 
-func (d *DB) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID) error {
+func (d *DB) DeleteObject(ctx context.Context, className string, id strfmt.UUID) error {
 	idx := d.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", className)
@@ -123,6 +122,28 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	}
 
 	return d.enrichRefsForSingle(ctx, result, props, additional)
+}
+
+// Object gets object with id from index of specified class.
+func (d *DB) Object(ctx context.Context, className string,
+	id strfmt.UUID, props search.SelectProperties,
+	adds additional.Properties) (r *search.Result, err error) {
+	idx := d.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, fmt.Errorf("index not found for class %s", className)
+	}
+
+	obj, err := idx.objectByID(ctx, id, props, adds)
+	if err != nil {
+		return nil, errors.Wrapf(err, "search index %s", idx.ID())
+	}
+	if obj != nil {
+		r = obj.SearchResult(adds)
+	}
+	if r == nil {
+		return nil, nil
+	}
+	return d.enrichRefsForSingle(ctx, r, props, adds)
 }
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,

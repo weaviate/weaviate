@@ -751,6 +751,124 @@ func init() {
         ]
       }
     },
+    "/objects/{className}/{id}": {
+      "get": {
+        "description": "Get a single data object",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "operationId": "objects.class.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ]
+      },
+      "delete": {
+        "description": "Delete a single data object.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete object based on its class and UUID.",
+        "operationId": "objects.class.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      }
+    },
     "/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
@@ -759,6 +877,7 @@ func init() {
         ],
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "operationId": "objects.get",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -880,6 +999,7 @@ func init() {
         ],
         "summary": "Delete an Object based on its UUID.",
         "operationId": "objects.delete",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3754,6 +3874,127 @@ func init() {
         ]
       }
     },
+    "/objects/{className}/{id}": {
+      "get": {
+        "description": "Get a single data object",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "operationId": "objects.class.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+            "name": "include",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ]
+      },
+      "delete": {
+        "description": "Delete a single data object.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete object based on its class and UUID.",
+        "operationId": "objects.class.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      }
+    },
     "/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
@@ -3762,6 +4003,7 @@ func init() {
         ],
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "operationId": "objects.get",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3886,6 +4128,7 @@ func init() {
         ],
         "summary": "Delete an Object based on its UUID.",
         "operationId": "objects.delete",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",

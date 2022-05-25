@@ -142,6 +142,15 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 	return args.Bool(0), args.Error(1)
 }
 
+func (f *fakeVectorRepo) Object(ctx context.Context, cls string,
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	args := f.Called(cls, id, props, additional)
+	if args.Get(0) != nil {
+		return args.Get(0).(*search.Result), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id, props, additional)
