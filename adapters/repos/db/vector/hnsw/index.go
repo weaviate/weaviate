@@ -122,6 +122,7 @@ type CommitLogger interface {
 	Reset() error
 	Drop() error
 	Flush() error
+	Shutdown()
 }
 
 type BufferedLinksLogger interface {
@@ -536,6 +537,12 @@ func (h *hnsw) Drop() error {
 		h.cancel <- struct{}{}
 	}
 	return nil
+}
+
+func (h *hnsw) Shutdown() {
+	h.cancel <- struct{}{}
+	h.commitLog.Shutdown()
+	h.cache.drop()
 }
 
 func (h *hnsw) Flush() error {
