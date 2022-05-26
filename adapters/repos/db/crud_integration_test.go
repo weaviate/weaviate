@@ -94,7 +94,7 @@ func TestCRUD(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
 		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
+		QueryMaximumResults:       10,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 	}, &fakeRemoteClient{},
@@ -1070,6 +1070,150 @@ func TestCRUD(t *testing.T) {
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
+	})
+
+	t.Run("ensure referenced class searches are not limited", func(t *testing.T) {
+		numThings := int(repo.config.QueryMaximumResults * 10)
+		createdActionIDs := make([]strfmt.UUID, numThings)
+		createdThingIDs := make([]strfmt.UUID, numThings)
+
+		t.Run("add new action objects", func(t *testing.T) {
+			actionBatch := make([]objects.BatchObject, numThings)
+			for i := 0; i < len(createdActionIDs); i++ {
+				newID := strfmt.UUID(uuid.NewString())
+				actionBatch[i] = objects.BatchObject{
+					UUID: newID,
+					Object: &models.Object{
+						ID:    newID,
+						Class: "TheBestActionClass",
+						Properties: map[string]interface{}{
+							"stringProp": fmt.Sprintf("action#%d", i),
+						},
+					},
+				}
+				createdActionIDs[i] = newID
+			}
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch)
+			require.Len(t, batchObjResp, numThings)
+			require.Nil(t, err)
+			for _, r := range batchObjResp {
+				require.Nil(t, r.Err)
+			}
+		})
+
+		t.Run("add more thing objects to reference", func(t *testing.T) {
+			thingBatch := make([]objects.BatchObject, numThings)
+			for i := 0; i < len(createdThingIDs); i++ {
+				newID := strfmt.UUID(uuid.NewString())
+				thingBatch[i] = objects.BatchObject{
+					UUID: newID,
+					Object: &models.Object{
+						ID:    newID,
+						Class: "TheBestThingClass",
+						Properties: map[string]interface{}{
+							"stringProp": fmt.Sprintf("thing#%d", i),
+						},
+					},
+				}
+				createdThingIDs[i] = newID
+			}
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch)
+			require.Len(t, batchObjResp, numThings)
+			require.Nil(t, err)
+			for _, r := range batchObjResp {
+				require.Nil(t, r.Err)
+			}
+		})
+
+		t.Run("reference each thing from an action", func(t *testing.T) {
+			refBatch := make([]objects.BatchReference, numThings)
+			for i := range refBatch {
+				ref := objects.BatchReference{
+					From: &crossref.RefSource{
+						Local:    true,
+						PeerName: "localhost",
+						Class:    "TheBestActionClass",
+						Property: schema.PropertyName("refProp"),
+						TargetID: createdActionIDs[i],
+					},
+					To: &crossref.Ref{
+						Local:    true,
+						PeerName: "localhost",
+						TargetID: createdThingIDs[i],
+					},
+				}
+				refBatch[i] = ref
+			}
+			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch)
+			require.Nil(t, err)
+			require.Len(t, batchRefResp, numThings)
+			for _, r := range batchRefResp {
+				require.Nil(t, r.Err)
+			}
+		})
+
+		t.Run("query every action for its referenced thing", func(t *testing.T) {
+			for i := range createdActionIDs {
+				resp, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+					ClassName:            "TheBestActionClass",
+					Pagination:           &filters.Pagination{Limit: 5},
+					AdditionalProperties: additional.Properties{ID: true},
+					Properties: search.SelectProperties{
+						{
+							Name: "refProp",
+							Refs: []search.SelectClass{
+								{
+									ClassName: "TheBestThingClass",
+									RefProperties: search.SelectProperties{
+										{
+											Name:        "stringProp",
+											IsPrimitive: true,
+										},
+									},
+								},
+							},
+						},
+					},
+					Filters: &filters.LocalFilter{
+						Root: &filters.Clause{
+							Operator: filters.OperatorAnd,
+							Operands: []filters.Clause{
+								{
+									Operator: filters.OperatorEqual,
+									On: &filters.Path{
+										Class:    "TheBestActionClass",
+										Property: "stringProp",
+									},
+									Value: &filters.Value{
+										Value: fmt.Sprintf("action#%d", i),
+										Type:  dtString,
+									},
+								},
+								{
+									Operator: filters.OperatorLike,
+									On: &filters.Path{
+										Class:    "TheBestActionClass",
+										Property: "refProp",
+										Child: &filters.Path{
+											Class:    "TheBestThingClass",
+											Property: "stringProp",
+										},
+									},
+									Value: &filters.Value{
+										Value: "thing#*",
+										Type:  dtString,
+									},
+								},
+							},
+						},
+					},
+				})
+
+				require.Nil(t, err)
+				require.Len(t, resp, 1)
+				assert.Len(t, resp[0].Schema.(map[string]interface{})["refProp"], 1)
+			}
+		})
 	})
 }
 

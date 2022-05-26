@@ -698,7 +698,16 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects, _ = i.sortKeywordRanking(outObjects, outScores)
 	}
 
-	if len(outObjects) > limit {
+	// if this search was caused by a reference property
+	// search, we should not limit the number of results.
+	// for example, if the query contains a where filter
+	// whose operator is `And`, and one of the operands
+	// contains a path to a reference prop, the ClassSearch
+	// caused by such a ref prop being limited can cause
+	// the `And` to return no results where results would
+	// be expected. we won't know that unless we search
+	// and return all referenced object properties.
+	if !additional.ReferenceQuery && len(outObjects) > limit {
 		outObjects = outObjects[:limit]
 	}
 
@@ -726,7 +735,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	m := &sync.Mutex{}
 
 	// a limit of -1 is used to signal a search by distance. if that is
-	// the case we have to adjust how we calculate the outpout capacity
+	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
 	if limit < 0 {
 		shardCap = len(shardNames) * hnsw.DefaultSearchByDistInitialLimit
