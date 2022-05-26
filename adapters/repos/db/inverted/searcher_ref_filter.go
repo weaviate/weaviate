@@ -18,10 +18,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -73,8 +75,12 @@ func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, erro
 			// implementation, so using a 10x as high value should be safe. However,
 			// we might come back to reduce this number in case this leads to
 			// unexpected performance issues
-			Limit: r.classSearcher.GetQueryMaximumResults(),
+			Limit: int(config.DefaultQueryMaximumResults),
 		},
+		// set this to indicate that this is a sub-query, so we do not need
+		// to perform the same search limits cutoff check that we do with
+		// the root query
+		AdditionalProperties: additional.Properties{ReferenceQuery: true},
 	}, nil
 }
 
