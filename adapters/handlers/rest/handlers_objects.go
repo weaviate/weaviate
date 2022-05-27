@@ -197,7 +197,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		})
 }
 
-func (h *objectHandlers) updateObject(params objects.ObjectsUpdateParams,
+func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
@@ -249,6 +249,31 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	}
 
 	return objects.NewObjectsClassDeleteNoContent()
+}
+
+func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
+	principal *models.Principal) middleware.Responder {
+	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return objects.NewObjectsClassPutForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case usecasesObjects.ErrInvalidUserInput:
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return objects.NewObjectsClassPutInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	propertiesMap, ok := object.Properties.(map[string]interface{})
+	if ok {
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
+	}
+
+	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
 func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
@@ -374,7 +399,7 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 	api.ObjectsObjectsListHandler = objects.
 		ObjectsListHandlerFunc(h.getObjects)
 	api.ObjectsObjectsUpdateHandler = objects.
-		ObjectsUpdateHandlerFunc(h.updateObject)
+		ObjectsUpdateHandlerFunc(h.updateObjectDeprecated)
 	api.ObjectsObjectsPatchHandler = objects.
 		ObjectsPatchHandlerFunc(h.patchObject)
 	api.ObjectsObjectsReferencesCreateHandler = objects.

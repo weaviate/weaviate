@@ -364,7 +364,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					updateObjectReturn: test.object,
 				}
 				h := &objectHandlers{manager: fakeManager}
-				res := h.updateObject(objects.ObjectsUpdateParams{
+				res := h.updateObjectDeprecated(objects.ObjectsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
@@ -580,7 +580,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					updateObjectReturn: test.object,
 				}
 				h := &objectHandlers{manager: fakeManager}
-				res := h.updateObject(objects.ObjectsUpdateParams{
+				res := h.updateObjectDeprecated(objects.ObjectsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
