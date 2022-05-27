@@ -97,6 +97,7 @@ func Test_Objects(t *testing.T) {
 	t.Run("adding objects", addingObjects)
 	t.Run("removing objects", removingObjects)
 	t.Run("object references", objectReferences)
+	t.Run("updating objects deprecated", updateObjectsDeprecated)
 	t.Run("updating objects", updateObjects)
 
 	// tear down
@@ -115,4 +116,9 @@ func deleteObjectClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
+}
+
+func deleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	return helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 }
