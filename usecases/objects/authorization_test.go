@@ -72,9 +72,15 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Object)(nil)},
+			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), (*models.Object)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "objects/foo",
+		},
+		{ // deprecated by the one above
+			methodName:       "UpdateObject",
+			additionalArgs:   []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
+			expectedVerb:     "update",
+			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "MergeObject",
