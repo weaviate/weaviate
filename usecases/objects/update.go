@@ -20,12 +20,16 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// UpdateObject Class Instance to the connected DB. If the class contains a network
-// ref, it has a side-effect on the schema: The schema will be updated to
+// UpdateObject updates object of class.
+// If the class contains a network ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal, id strfmt.UUID,
-	class *models.Object) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
+func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
+	class string, id strfmt.UUID, updates *models.Object) (*models.Object, error) {
+	path := fmt.Sprintf("objects/%s/%s", class, id)
+	if class == "" {
+		path = fmt.Sprintf("objects/%s", id)
+	}
+	err := m.authorizer.Authorize(principal, "update", path)
 	if err != nil {
 		return nil, err
 	}
@@ -36,28 +40,28 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, id, class)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, class *models.Object) (*models.Object, error) {
-	if id != class.ID {
+	class string, id strfmt.UUID, updates *models.Object) (*models.Object, error) {
+	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalObject, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
+	obj, err := m.getObjectFromRepo(ctx, class, id, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
 
 	m.logger.
 		WithField("object", "kinds_update_requested").
-		WithField("original", originalObject).
-		WithField("updated", class).
+		WithField("original", obj).
+		WithField("updated", updates).
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateObject(ctx, principal, class)
+	err = m.validateObject(ctx, principal, updates)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -66,13 +70,13 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 	// otherwise it is lost. This is because `class` is unmarshaled
 	// directly from the request body, therefore `CreationTimeUnix`
 	// inherits the zero value.
-	class.CreationTimeUnix = originalObject.Created
-	class.LastUpdateTimeUnix = m.timeSource.Now()
+	updates.CreationTimeUnix = obj.Created
+	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorizeAndPutObject(ctx, class, principal)
+	err = m.vectorizeAndPutObject(ctx, updates, principal)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	return class, nil
+	return updates, nil
 }

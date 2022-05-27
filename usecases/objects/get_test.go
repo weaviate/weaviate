@@ -972,16 +972,18 @@ func ptInt64(in int64) *int64 {
 
 type fakeGetManager struct {
 	*Manager
-	repo      *fakeVectorRepo
-	extender  *fakeExtender
-	projector *fakeProjector
+	repo       *fakeVectorRepo
+	extender   *fakeExtender
+	projector  *fakeProjector
+	vectorizer *fakeVectorizer
 }
 
 func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	r := fakeGetManager{
-		repo:      new(fakeVectorRepo),
-		extender:  new(fakeExtender),
-		projector: new(fakeProjector),
+		repo:       new(fakeVectorRepo),
+		extender:   new(fakeExtender),
+		projector:  new(fakeProjector),
+		vectorizer: new(fakeVectorizer),
 	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
@@ -992,7 +994,7 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	cfg.Config.QueryMaximumResults = 200
 	authorizer := &fakeAuthorizer{}
 	logger, _ := test.NewNullLogger()
-	vecProvider := &fakeVectorizerProvider{new(fakeVectorizer)}
+	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, r.repo, mProvider)
 	return r
