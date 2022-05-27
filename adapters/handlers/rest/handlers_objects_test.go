@@ -368,7 +368,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsUpdateOK)
+				parsed, ok := res.(*objects.ObjectsClassPutOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -527,6 +527,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 
 	t.Run("update object", func(t *testing.T) {
+		cls := "MyClass"
 		type test struct {
 			name           string
 			object         *models.Object
@@ -536,23 +537,23 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		tests := []test{
 			{
 				name:           "without props - noaction changes",
-				object:         &models.Object{Class: "Foo", Properties: nil},
-				expectedResult: &models.Object{Class: "Foo", Properties: nil},
+				object:         &models.Object{Class: cls, Properties: nil},
+				expectedResult: &models.Object{Class: cls, Properties: nil},
 			},
 			{
 				name: "without ref props - noaction changes",
-				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
+				object: &models.Object{Class: cls, Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
-				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
+				expectedResult: &models.Object{Class: cls, Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 				}},
 			},
 			{
 				name: "with a ref prop - no origin configured",
-				object: &models.Object{Class: "Foo", Properties: map[string]interface{}{
+				object: &models.Object{Class: cls, Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -561,7 +562,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 						},
 					},
 				}},
-				expectedResult: &models.Object{Class: "Foo", Properties: map[string]interface{}{
+				expectedResult: &models.Object{Class: cls, Properties: map[string]interface{}{
 					"name":           "hello world",
 					"numericalField": 134,
 					"someRef": models.MultipleRef{
@@ -580,11 +581,13 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					updateObjectReturn: test.object,
 				}
 				h := &objectHandlers{manager: fakeManager}
-				res := h.updateObjectDeprecated(objects.ObjectsUpdateParams{
-					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+				res := h.updateObject(objects.ObjectsClassPutParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects/123", nil),
 					Body:        test.object,
+					ID:          "123",
+					ClassName:   cls,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsUpdateOK)
+				parsed, ok := res.(*objects.ObjectsClassPutOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -763,8 +766,8 @@ func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int6
 	return f.getObjectsReturn, nil
 }
 
-func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, object *models.Object) (*models.Object, error) {
-	return object, nil
+func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, updates *models.Object) (*models.Object, error) {
+	return updates, nil
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Object) error {
