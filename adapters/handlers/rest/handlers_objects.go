@@ -46,10 +46,11 @@ type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties) (*models.Object, error)
-	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
-	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
-	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error
+	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
+
+	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
+	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
@@ -197,29 +198,14 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		})
 }
 
-func (h *objectHandlers) updateObject(params objects.ObjectsUpdateParams,
+func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return objects.NewObjectsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case usecasesObjects.ErrInvalidUserInput:
-			return objects.NewObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return objects.NewObjectsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
+	ps := objects.ObjectsClassPutParams{
+		HTTPRequest: params.HTTPRequest,
+		Body:        params.Body,
+		ID:          params.ID,
 	}
-
-	propertiesMap, ok := object.Properties.(map[string]interface{})
-	if ok {
-		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
-	}
-
-	return objects.NewObjectsUpdateOK().WithPayload(object)
+	return h.updateObject(ps, principal)
 }
 
 func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeleteParams,
@@ -249,6 +235,31 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	}
 
 	return objects.NewObjectsClassDeleteNoContent()
+}
+
+func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
+	principal *models.Principal) middleware.Responder {
+	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ClassName, params.ID, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return objects.NewObjectsClassPutForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case usecasesObjects.ErrInvalidUserInput:
+			return objects.NewObjectsClassPutUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return objects.NewObjectsClassPutInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	propertiesMap, ok := object.Properties.(map[string]interface{})
+	if ok {
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
+	}
+
+	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
 func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
@@ -373,8 +384,10 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsHeadHandlerFunc(h.headObject)
 	api.ObjectsObjectsListHandler = objects.
 		ObjectsListHandlerFunc(h.getObjects)
+	api.ObjectsObjectsClassPutHandler = objects.
+		ObjectsClassPutHandlerFunc(h.updateObject)
 	api.ObjectsObjectsUpdateHandler = objects.
-		ObjectsUpdateHandlerFunc(h.updateObject)
+		ObjectsUpdateHandlerFunc(h.updateObjectDeprecated)
 	api.ObjectsObjectsPatchHandler = objects.
 		ObjectsPatchHandlerFunc(h.patchObject)
 	api.ObjectsObjectsReferencesCreateHandler = objects.

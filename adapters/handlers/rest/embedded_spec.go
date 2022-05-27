@@ -816,6 +816,75 @@ func init() {
           "weaviate.local.query"
         ]
       },
+      "put": {
+        "description": "Update an individual data object based on its class and uuid.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update a class object based on its uuid",
+        "operationId": "objects.class.put",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
       "delete": {
         "description": "Delete a single data object.",
         "tags": [
@@ -936,6 +1005,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID.",
         "operationId": "objects.update",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3942,6 +4012,75 @@ func init() {
           "weaviate.local.query"
         ]
       },
+      "put": {
+        "description": "Update an individual data object based on its class and uuid.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update a class object based on its uuid",
+        "operationId": "objects.class.put",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
       "delete": {
         "description": "Delete a single data object.",
         "tags": [
@@ -4065,6 +4204,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID.",
         "operationId": "objects.update",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",

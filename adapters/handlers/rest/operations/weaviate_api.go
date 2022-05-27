@@ -96,6 +96,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsClassGetHandler: objects.ObjectsClassGetHandlerFunc(func(params objects.ObjectsClassGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassGet has not yet been implemented")
 		}),
+		ObjectsObjectsClassPutHandler: objects.ObjectsClassPutHandlerFunc(func(params objects.ObjectsClassPutParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsClassPut has not yet been implemented")
+		}),
 		ObjectsObjectsCreateHandler: objects.ObjectsCreateHandlerFunc(func(params objects.ObjectsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsCreate has not yet been implemented")
 		}),
@@ -233,6 +236,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsClassDeleteHandler objects.ObjectsClassDeleteHandler
 	// ObjectsObjectsClassGetHandler sets the operation handler for the objects class get operation
 	ObjectsObjectsClassGetHandler objects.ObjectsClassGetHandler
+	// ObjectsObjectsClassPutHandler sets the operation handler for the objects class put operation
+	ObjectsObjectsClassPutHandler objects.ObjectsClassPutHandler
 	// ObjectsObjectsCreateHandler sets the operation handler for the objects create operation
 	ObjectsObjectsCreateHandler objects.ObjectsCreateHandler
 	// ObjectsObjectsDeleteHandler sets the operation handler for the objects delete operation
@@ -382,6 +387,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsClassGetHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassGetHandler")
+	}
+	if o.ObjectsObjectsClassPutHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsClassPutHandler")
 	}
 	if o.ObjectsObjectsCreateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsCreateHandler")
@@ -593,6 +601,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/objects/{className}/{id}"] = objects.NewObjectsClassGet(o.context, o.ObjectsObjectsClassGetHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/objects/{className}/{id}"] = objects.NewObjectsClassPut(o.context, o.ObjectsObjectsClassPutHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
