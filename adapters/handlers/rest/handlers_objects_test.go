@@ -310,7 +310,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
-	t.Run("update object", func(t *testing.T) {
+	t.Run("update object deprecated", func(t *testing.T) {
 		type test struct {
 			name           string
 			object         *models.Object
@@ -532,6 +532,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			name           string
 			object         *models.Object
 			expectedResult *models.Object
+			err            error
 		}
 
 		tests := []test{
@@ -573,12 +574,25 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					},
 				}},
 			},
+			{
+				name: "error forbbiden",
+				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
+			},
+			{
+				name: "use case err not found",
+				err:  usecasesObjects.ErrInvalidUserInput{},
+			},
+			{
+				name: "unknown error",
+				err:  stderrors.New("any error"),
+			},
 		}
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
 					updateObjectReturn: test.object,
+					updateObjectErr:    test.err,
 				}
 				h := &objectHandlers{manager: fakeManager}
 				res := h.updateObject(objects.ObjectsClassPutParams{
@@ -588,6 +602,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					ClassName:   cls,
 				}, nil)
 				parsed, ok := res.(*objects.ObjectsClassPutOK)
+				if test.err != nil {
+					require.False(t, ok)
+					return
+				}
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -735,6 +753,7 @@ type fakeManager struct {
 	addObjectReturn    *models.Object
 	getObjectsReturn   []*models.Object
 	updateObjectReturn *models.Object
+	updateObjectErr    error
 	deleteObjectReturn error
 }
 
@@ -767,7 +786,7 @@ func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int6
 }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, updates *models.Object) (*models.Object, error) {
-	return updates, nil
+	return updates, f.updateObjectErr
 }
 
 func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Object) error {
