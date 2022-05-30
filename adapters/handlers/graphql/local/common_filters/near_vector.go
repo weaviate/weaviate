@@ -4,20 +4,18 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
 
 package common_filters
 
-import (
-	"github.com/semi-technologies/weaviate/usecases/traverser"
-)
+import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractNearVector arguments, such as "vector" and "certainty"
-func ExtractNearVector(source map[string]interface{}) traverser.NearVectorParams {
-	var args traverser.NearVectorParams
+func ExtractNearVector(source map[string]interface{}) searchparams.NearVector {
+	var args searchparams.NearVector
 
 	// vector is a required argument, so we don't need to check for its existing
 	vector := source["vector"].([]interface{})

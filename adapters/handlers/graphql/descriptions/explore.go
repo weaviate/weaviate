@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -21,6 +21,7 @@ const (
 	Limit                = "Limit the results set (usually fewer results mean faster queries)"
 	Offset               = "Offset of the results set (usually fewer results mean faster queries)"
 	Certainty            = "Desired Certainty. The higher the value the stricter the search becomes, the lower the value the fuzzier the search becomes"
+	Vector               = "Target vector to be used in kNN search"
 	Force                = "The force to apply for a particular movements. Must be between 0 and 1 where 0 is equivalent to no movement and 1 is equivalent to largest movement possible"
 	ClassName            = "Name of the Class"
 	ID                   = "Concept identifier in the uuid format"

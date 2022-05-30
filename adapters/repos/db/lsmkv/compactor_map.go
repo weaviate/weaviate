@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"sort"
 
 	"github.com/pkg/errors"
 )
@@ -22,8 +23,8 @@ import (
 type compactorMap struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorCollection
-	c2 *segmentCursorCollection
+	c1 *segmentCursorCollectionReusable
+	c2 *segmentCursorCollectionReusable
 
 	// the level matching those of the cursors
 	currentLevel        uint16
@@ -33,11 +34,15 @@ type compactorMap struct {
 	bufw *bufio.Writer
 
 	scratchSpacePath string
+
+	// for backward-compatibility with states where the disk state for maps was
+	// not guaranteed to be sorted yet
+	requiresSorting bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
-	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string) *compactorMap {
+	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
+	scratchSpacePath string, requiresSorting bool) *compactorMap {
 	return &compactorMap{
 		c1:                  c1,
 		c2:                  c2,
@@ -46,6 +51,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		currentLevel:        level,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
+		requiresSorting:     requiresSorting,
 	}
 }
 
@@ -98,19 +104,49 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 	offset := SegmentHeaderSize
 
 	var kis []keyIndex
+	pairs := newReusableMapPairs()
+	me := newMapEncoder()
+	ssm := newSortedMapMerger()
 
 	for {
 		if key1 == nil && key2 == nil {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			values := append(value1, value2...)
-			valuesMerged, err := newMapDecoder().DoPartial(values)
+			pairs.ResizeLeft(len(value1))
+			pairs.ResizeRight(len(value2))
+
+			for i, v := range value1 {
+				if err := pairs.left[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs.left[i].Tombstone = v.tombstone
+			}
+
+			for i, v := range value2 {
+				if err := pairs.right[i].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				pairs.right[i].Tombstone = v.tombstone
+			}
+
+			if c.requiresSorting {
+				sort.Slice(pairs.left, func(a, b int) bool {
+					return bytes.Compare(pairs.left[a].Key, pairs.left[b].Key) < 0
+				})
+				sort.Slice(pairs.right, func(a, b int) bool {
+					return bytes.Compare(pairs.right[a].Key, pairs.right[b].Key) < 0
+				})
+			}
+
+			ssm.reset([][]MapPair{pairs.left, pairs.right})
+			mergedPairs, err := ssm.
+				doKeepTombstonesReusable()
 			if err != nil {
 				return nil, err
 			}
 
-			mergedEncoded, err := newMapEncoder().DoMulti(valuesMerged)
+			mergedEncoded, err := me.DoMultiReusable(mergedPairs)
 			if err != nil {
 				return nil, err
 			}

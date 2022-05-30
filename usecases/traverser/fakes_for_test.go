@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -123,6 +123,11 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 
 type fakeVectorRepo struct {
 	mock.Mock
+}
+
+func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	return nil, nil
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,

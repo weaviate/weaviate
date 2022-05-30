@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -103,17 +104,17 @@ func Test_GetAction(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ActionClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", 0, 20, mock.Anything, mock.Anything,
+		vectorRepo.On("ObjectSearch", 0, 20, mock.Anything, mock.Anything, mock.Anything,
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ActionClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -121,7 +122,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -131,17 +132,17 @@ func Test_GetAction(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ActionClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", 7, 2, mock.Anything, mock.Anything,
+		vectorRepo.On("ObjectSearch", 7, 2, mock.Anything, mock.Anything, mock.Anything,
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ActionClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -150,7 +151,7 @@ func Test_GetAction(t *testing.T) {
 		}
 
 		res, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(7), ptInt64(2), additional.Properties{})
+			ptInt64(7), ptInt64(2), nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -159,7 +160,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(201), ptInt64(2), additional.Properties{})
+			ptInt64(201), ptInt64(2), nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -168,7 +169,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(0), ptInt64(202), additional.Properties{})
+			ptInt64(0), ptInt64(202), nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -177,7 +178,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(150), ptInt64(150), additional.Properties{})
+			ptInt64(150), ptInt64(150), nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -233,14 +234,14 @@ func Test_GetAction(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -258,7 +259,7 @@ func Test_GetAction(t *testing.T) {
 					Additional: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -284,23 +285,23 @@ func Test_GetAction(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -311,7 +312,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -319,7 +320,7 @@ func Test_GetAction(t *testing.T) {
 						Additional: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -329,7 +330,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -344,16 +345,16 @@ func Test_GetAction(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ActionClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -366,7 +367,7 @@ func Test_GetAction(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ActionClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -379,7 +380,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
@@ -388,6 +389,188 @@ func Test_GetAction(t *testing.T) {
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
+		})
+	})
+
+	t.Run("sort props", func(t *testing.T) {
+		t.Run("sort=foo,number&order=asc,desc", func(t *testing.T) {
+			reset()
+			id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+			sort := "foo,number"
+			asc := "asc,desc"
+			expectedSort := []filters.Sort{
+				{Path: []string{"foo"}, Order: "asc"},
+				{Path: []string{"number"}, Order: "desc"},
+			}
+
+			result := []search.Result{
+				{
+					ID:        id,
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+				mock.Anything).Return(result, nil).Once()
+			projectorFake.multi = []search.Result{
+				{
+					ID:        id,
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+
+			expected := []*models.Object{
+				{
+					ID:    id,
+					Class: "ActionClass",
+					Properties: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+					VectorWeights: (map[string]string)(nil),
+				},
+			}
+
+			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				&sort, &asc, additional.Properties{})
+			require.Nil(t, err)
+			assert.Equal(t, expected, res)
+		})
+
+		t.Run("sort=foo,number,prop1,prop2&order=desc", func(t *testing.T) {
+			reset()
+			id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+			sort := "foo,number,prop1,prop2"
+			asc := "desc"
+			expectedSort := []filters.Sort{
+				{Path: []string{"foo"}, Order: "desc"},
+				{Path: []string{"number"}, Order: "asc"},
+				{Path: []string{"prop1"}, Order: "asc"},
+				{Path: []string{"prop2"}, Order: "asc"},
+			}
+
+			result := []search.Result{
+				{
+					ID:        id,
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+				mock.Anything).Return(result, nil).Once()
+			projectorFake.multi = []search.Result{
+				{
+					ID:        id,
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+
+			expected := []*models.Object{
+				{
+					ID:    id,
+					Class: "ActionClass",
+					Properties: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+					VectorWeights: (map[string]string)(nil),
+				},
+			}
+
+			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				&sort, &asc, additional.Properties{})
+			require.Nil(t, err)
+			assert.Equal(t, expected, res)
+		})
+
+		t.Run("sort=foo,number", func(t *testing.T) {
+			reset()
+			sort := "foo,number"
+			expectedSort := []filters.Sort{
+				{Path: []string{"foo"}, Order: "asc"},
+				{Path: []string{"number"}, Order: "asc"},
+			}
+			result := []search.Result{
+				{
+					ID:        "uuid",
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+				mock.Anything).Return(result, nil).Once()
+
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				&sort, nil, additional.Properties{})
+			require.Nil(t, err)
+		})
+
+		t.Run("sort=foo,number,prop", func(t *testing.T) {
+			reset()
+			sort := "foo,number,prop"
+			expectedSort := []filters.Sort{
+				{Path: []string{"foo"}, Order: "asc"},
+				{Path: []string{"number"}, Order: "asc"},
+				{Path: []string{"prop"}, Order: "asc"},
+			}
+			result := []search.Result{
+				{
+					ID:        "uuid",
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+				mock.Anything).Return(result, nil).Once()
+
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				&sort, nil, additional.Properties{})
+			require.Nil(t, err)
+		})
+
+		t.Run("order=asc", func(t *testing.T) {
+			reset()
+			order := "asc"
+			var expectedSort []filters.Sort
+			result := []search.Result{
+				{
+					ID:        "uuid",
+					ClassName: "ActionClass",
+					Schema: map[string]interface{}{
+						"foo":    "bar",
+						"number": float64(1),
+					},
+				},
+			}
+
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+				mock.Anything).Return(result, nil).Once()
+
+			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				nil, &order, additional.Properties{})
+			require.Nil(t, err)
 		})
 	})
 }
@@ -467,17 +650,17 @@ func Test_GetThing(t *testing.T) {
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 		results := []search.Result{
-			search.Result{
+			{
 				ID:        id,
 				ClassName: "ThingClass",
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
-			&models.Object{
+			{
 				ID:            id,
 				Class:         "ThingClass",
 				Properties:    map[string]interface{}{"foo": "bar"},
@@ -485,7 +668,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -522,14 +705,14 @@ func Test_GetThing(t *testing.T) {
 				}
 				vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -547,7 +730,7 @@ func Test_GetThing(t *testing.T) {
 					Additional: models.AdditionalProperties{
 						"nearestNeighbors": &NearestNeighbors{
 							Neighbors: []*NearestNeighbor{
-								&NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.3,
 								},
@@ -573,23 +756,23 @@ func Test_GetThing(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 						AdditionalProperties: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -600,7 +783,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -608,7 +791,7 @@ func Test_GetThing(t *testing.T) {
 						Additional: models.AdditionalProperties{
 							"nearestNeighbors": &NearestNeighbors{
 								Neighbors: []*NearestNeighbor{
-									&NearestNeighbor{
+									{
 										Concept:  "foo",
 										Distance: 0.3,
 									},
@@ -618,7 +801,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -633,16 +816,16 @@ func Test_GetThing(t *testing.T) {
 				id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
 				result := []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
-					search.Result{
+					{
 						ID:        id,
 						ClassName: "ThingClass",
 						Schema:    map[string]interface{}{"foo": "bar"},
@@ -655,7 +838,7 @@ func Test_GetThing(t *testing.T) {
 				}
 
 				expected := []*models.Object{
-					&models.Object{
+					{
 						ID:            id,
 						Class:         "ThingClass",
 						Properties:    map[string]interface{}{"foo": "bar"},
@@ -668,7 +851,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),

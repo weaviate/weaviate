@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -80,6 +80,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Object) (*search.Result, error) {
+	if updated == nil {
+		return nil, fmt.Errorf("object to update not provided in request")
+	}
+
 	if updated.Class == "" {
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}

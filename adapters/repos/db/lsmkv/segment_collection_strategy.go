@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -39,7 +39,23 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 		}
 	}
 
-	return i.collectionStratParseData(i.contents[node.Start:node.End])
+	// We need to copy the data we read from the segment exactly once in this
+	// place. This means that future processing can share this memory as much as
+	// it wants to, as it can now be considered immutable. If we didn't copy in
+	// this place it would only be safe to hold this data while still under the
+	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
+	// no compaction is started during an ongoing read. However, as we could show
+	// as part of https://github.com/semi-technologies/weaviate/issues/1837
+	// further processing, such as map-decoding and eventually map-merging would
+	// happen inside the bucket.MapList() method. This scope has its own lock,
+	// but that lock can only protecting against flushing (i.e. changing the
+	// active/flushing memtable), not against removing the disk segment. If a
+	// compaction completes and the old segment is removed, we would be accessing
+	// invalid memory without the copy, thus leading to a SEGFAULT.
+	contentsCopy := make([]byte, node.End-node.Start)
+	copy(contentsCopy, i.contents[node.Start:node.End])
+
+	return i.collectionStratParseData(contentsCopy)
 }
 
 func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
@@ -78,4 +94,12 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 	}
 
 	return ParseCollectionNode(r)
+}
+
+func (i *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
+	if len(in) == 0 {
+		return NotFound
+	}
+
+	return ParseCollectionNodeInto(in, node)
 }

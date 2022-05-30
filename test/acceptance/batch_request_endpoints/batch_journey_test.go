@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -117,15 +117,15 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 			createObjectClass(t, &models.Class{
 				Class: className,
 				Properties: []*models.Property{
-					&models.Property{
+					{
 						Name:     "title",
 						DataType: []string{"string"},
 					},
-					&models.Property{
+					{
 						Name:     "url",
 						DataType: []string{"string"},
 					},
-					&models.Property{
+					{
 						Name:     "wordCount",
 						DataType: []string{"int"},
 					},
@@ -135,7 +135,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 
 		t.Run("create and import some data", func(t *testing.T) {
 			objects := []*models.Object{
-				&models.Object{
+				{
 					Class: className,
 					Properties: map[string]interface{}{
 						"title":     "article 1",
@@ -143,7 +143,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 						"wordCount": 60,
 					},
 				},
-				&models.Object{
+				{
 					Class: className,
 					Properties: map[string]interface{}{
 						"title":     "article 2",
@@ -151,7 +151,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 						"wordCount": 40,
 					},
 				},
-				&models.Object{
+				{
 					Class: className,
 					Properties: map[string]interface{}{
 						"title":     "article 3",

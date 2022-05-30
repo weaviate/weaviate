@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,8 +123,11 @@ func TestNestedReferences(t *testing.T) {
 	}
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -143,7 +147,7 @@ func TestNestedReferences(t *testing.T) {
 
 	t.Run("importing some thing objects with references", func(t *testing.T) {
 		objects := []models.Object{
-			models.Object{
+			{
 				Class: "Planet",
 				Properties: map[string]interface{}{
 					"name": "Earth",
@@ -151,7 +155,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
 				CreationTimeUnix: 1566464889,
 			},
-			models.Object{
+			{
 				Class: "Continent",
 				Properties: map[string]interface{}{
 					"name": "North America",
@@ -164,7 +168,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "4aad8154-e7f3-45b8-81a6-725171419e55",
 				CreationTimeUnix: 1566464892,
 			},
-			models.Object{
+			{
 				Class: "Country",
 				Properties: map[string]interface{}{
 					"name": "USA",
@@ -177,7 +181,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "18c80a16-346a-477d-849d-9d92e5040ac9",
 				CreationTimeUnix: 1566464896,
 			},
-			models.Object{
+			{
 				Class: "City",
 				Properties: map[string]interface{}{
 					"name": "San Francisco",
@@ -190,7 +194,7 @@ func TestNestedReferences(t *testing.T) {
 				ID:               "2297e094-6218-43d4-85b1-3d20af752f23",
 				CreationTimeUnix: 1566464899,
 			},
-			models.Object{
+			{
 				Class: "Place",
 				Properties: map[string]interface{}{
 					"name": "Tim Apple's Fruit Bar",
@@ -341,28 +345,28 @@ func fullyNestedSelectProperties() search.SelectProperties {
 			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName: "City",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
 							Name:        "inCountry",
 							IsPrimitive: false,
 							Refs: []search.SelectClass{
-								search.SelectClass{
+								{
 									ClassName: "Country",
 									RefProperties: search.SelectProperties{
 										search.SelectProperty{
 											Name:        "onContinent",
 											IsPrimitive: false,
 											Refs: []search.SelectClass{
-												search.SelectClass{
+												{
 													ClassName: "Continent",
 													RefProperties: search.SelectProperties{
 														search.SelectProperty{
 															Name:        "onPlanet",
 															IsPrimitive: false,
 															Refs: []search.SelectClass{
-																search.SelectClass{
+																{
 																	ClassName:     "Planet",
 																	RefProperties: nil,
 																},
@@ -389,7 +393,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 			Name:        "inCity",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "City",
 					RefProperties: search.SelectProperties{},
 				},
@@ -460,8 +464,17 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	}
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+<<<<<<< HEAD
 	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
+=======
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+>>>>>>> master
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)

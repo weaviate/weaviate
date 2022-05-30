@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -46,10 +46,11 @@ type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
 	GetObject(context.Context, *models.Principal, strfmt.UUID, additional.Properties) (*models.Object, error)
-	GetObjects(context.Context, *models.Principal, *int64, *int64, additional.Properties) ([]*models.Object, error)
+	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
 	UpdateObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) (*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	DeleteObject(context.Context, *models.Principal, strfmt.UUID) error
+	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
 	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
@@ -157,7 +158,8 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 
 	var deprecationsRes []*models.Deprecation
 
-	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal, params.Offset, params.Limit, additional)
+	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
+		params.Offset, params.Limit, params.Sort, params.Order, additional)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -226,6 +228,28 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsDeleteParams,
 	}
 
 	return objects.NewObjectsDeleteNoContent()
+}
+
+func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
+	principal *models.Principal) middleware.Responder {
+	exists, err := h.manager.HeadObject(params.HTTPRequest.Context(), principal, params.ID)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return objects.NewObjectsHeadForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case usecasesObjects.ErrNotFound:
+			return objects.NewObjectsHeadNotFound()
+		default:
+			return objects.NewObjectsHeadInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	if exists {
+		return objects.NewObjectsHeadNoContent()
+	}
+	return objects.NewObjectsHeadNotFound()
 }
 
 func (h *objectHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
@@ -307,7 +331,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesD
 	return objects.NewObjectsReferencesDeleteNoContent()
 }
 
-func setupKindHandlers(api *operations.WeaviateAPI,
+func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) {
 	h := &objectHandlers{manager, logger, config, modulesProvider}
@@ -320,6 +344,8 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ObjectsGetHandlerFunc(h.getObject)
 	api.ObjectsObjectsDeleteHandler = objects.
 		ObjectsDeleteHandlerFunc(h.deleteObject)
+	api.ObjectsObjectsHeadHandler = objects.
+		ObjectsHeadHandlerFunc(h.headObject)
 	api.ObjectsObjectsListHandler = objects.
 		ObjectsListHandlerFunc(h.getObjects)
 	api.ObjectsObjectsUpdateHandler = objects.

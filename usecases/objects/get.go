@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,9 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -47,7 +49,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, additional additional.Properties) ([]*models.Object, error) {
+	offset, limit *int64, sort, order *string, additional additional.Properties) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -59,7 +61,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.getObjectsFromRepo(ctx, offset, limit, additional)
+	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, additional)
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
@@ -110,12 +112,13 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
-	additional additional.Properties) ([]*models.Object, error) {
+	sort, order *string, additional additional.Properties) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
-	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit, nil, additional)
+	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
+		nil, m.getSort(sort, order), additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
@@ -128,6 +131,37 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
 	}
 
 	return res.ObjectsWithVector(additional.Vector), nil
+}
+
+func (m *Manager) getSort(sort, order *string) []filters.Sort {
+	if sort != nil {
+		sortParams := strings.Split(*sort, ",")
+		var orderParams []string
+		if order != nil {
+			orderParams = strings.Split(*order, ",")
+		}
+		var res []filters.Sort
+		for i := range sortParams {
+			res = append(res, filters.Sort{
+				Path:  []string{sortParams[i]},
+				Order: m.getOrder(orderParams, i),
+			})
+		}
+		return res
+	}
+	return nil
+}
+
+func (m *Manager) getOrder(order []string, i int) string {
+	if len(order) > i {
+		switch order[i] {
+		case "asc", "desc":
+			return order[i]
+		default:
+			return "asc"
+		}
+	}
+	return "asc"
 }
 
 func (m *Manager) localOffsetOrZero(paramOffset *int64) int {

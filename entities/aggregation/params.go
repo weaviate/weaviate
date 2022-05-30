@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -16,6 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 type Params struct {
@@ -25,6 +26,12 @@ type Params struct {
 	GroupBy          *filters.Path        `json:"groupBy"`
 	IncludeMetaCount bool                 `json:"includeMetaCount"`
 	Limit            *int                 `json:"limit"`
+	ObjectLimit      *int                 `json:"objectLimit"`
+	SearchVector     []float32
+	Certainty        float64
+	NearVector       *searchparams.NearVector
+	NearObject       *searchparams.NearObject
+	ModuleParams     map[string]interface{}
 }
 
 type ParamProperty struct {

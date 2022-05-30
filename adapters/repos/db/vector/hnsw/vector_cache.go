@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,6 +31,10 @@ type shardedLockCache struct {
 	count           int64
 	cancel          chan bool
 	logger          logrus.FieldLogger
+
+	// The maintenanceLock makes sure that only one maintenance operation, such
+	// as growing the cache or clearing the cache happens at the same time.
+	maintenanceLock sync.Mutex
 }
 
 var shardFactor = uint64(512)
@@ -46,6 +50,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 		cancel:          make(chan bool),
 		logger:          logger,
 		shardedLocks:    make([]sync.RWMutex, shardFactor),
+		maintenanceLock: sync.Mutex{},
 	}
 
 	for i := uint64(0); i < shardFactor; i++ {
@@ -64,6 +69,10 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 		return vec, nil
 	}
 
+	return n.handleCacheMiss(ctx, id)
+}
+
+func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -79,6 +88,28 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	n.shardedLocks[id%shardFactor].Unlock()
 
 	return vec, nil
+}
+
+func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, error) {
+	out := make([][]float32, len(ids))
+	for i, id := range ids {
+		n.shardedLocks[id%shardFactor].RLock()
+		vec := n.cache[id]
+		n.shardedLocks[id%shardFactor].RUnlock()
+
+		if vec == nil {
+			vecFromDisk, err := n.handleCacheMiss(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+
+			vec = vecFromDisk
+		}
+
+		out[i] = vec
+	}
+
+	return out, nil
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {
@@ -99,6 +130,9 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 }
 
 func (n *shardedLockCache) grow(node uint64) {
+	n.maintenanceLock.Lock()
+	defer n.maintenanceLock.Unlock()
+
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
 
@@ -132,6 +166,9 @@ func (c *shardedLockCache) watchForDeletion() {
 
 func (c *shardedLockCache) replaceIfFull() {
 	if atomic.LoadInt64(&c.count) >= atomic.LoadInt64(&c.maxSize) {
+		c.maintenanceLock.Lock()
+		defer c.maintenanceLock.Unlock()
+
 		c.obtainAllLocks()
 		c.logger.WithField("action", "hnsw_delete_vector_cache").
 			Debug("deleting full vector cache")

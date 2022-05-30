@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -45,7 +46,7 @@ type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
 
-func makeResolveClass() graphql.FieldResolveFn {
+func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		className := schema.ClassName(p.Info.FieldName)
 		source, ok := p.Source.(map[string]interface{})
@@ -76,12 +77,40 @@ func makeResolveClass() graphql.FieldResolveFn {
 
 		limit, err := extractLimit(p.Args)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract limits: %s", err)
+			return nil, fmt.Errorf("could not extract limit: %s", err)
+		}
+
+		objectLimit, err := extractObjectLimit(p.Args)
+		if objectLimit != nil && *objectLimit <= 0 {
+			return nil, fmt.Errorf("objectLimit must be a positive integer")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("could not extract objectLimit: %s", err)
 		}
 
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
+		}
+
+		var nearVectorParams *searchparams.NearVector
+		if nearVector, ok := p.Args["nearVector"]; ok {
+			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			nearVectorParams = &p
+		}
+
+		var nearObjectParams *searchparams.NearObject
+		if nearObject, ok := p.Args["nearObject"]; ok {
+			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			nearObjectParams = &p
+		}
+
+		var moduleParams map[string]interface{}
+		if modulesProvider != nil {
+			extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+			if len(extractedParams) > 0 {
+				moduleParams = extractedParams
+			}
 		}
 
 		params := &aggregation.Params{
@@ -91,6 +120,15 @@ func makeResolveClass() graphql.FieldResolveFn {
 			GroupBy:          groupBy,
 			IncludeMetaCount: includeMeta,
 			Limit:            limit,
+			ObjectLimit:      objectLimit,
+			NearVector:       nearVectorParams,
+			NearObject:       nearObjectParams,
+			ModuleParams:     moduleParams,
+		}
+
+		// we might support objectLimit without nearMedia filters later, e.g. with sort
+		if params.ObjectLimit != nil && !areNearMediaFiltersIncluded(params) {
+			return nil, fmt.Errorf("objectLimit can only be used with a near<Media> filter")
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
@@ -210,10 +248,24 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 
 	limitInt, ok := limit.(int)
 	if !ok {
-		return nil, fmt.Errorf("limit must be a int, instead got: %#v", limit)
+		return nil, fmt.Errorf("limit must be an int, instead got: %#v", limit)
 	}
 
 	return &limitInt, nil
+}
+
+func extractObjectLimit(args map[string]interface{}) (*int, error) {
+	objectLimit, ok := args["objectLimit"]
+	if !ok {
+		return nil, nil
+	}
+
+	objectLimitInt, ok := objectLimit.(int)
+	if !ok {
+		return nil, fmt.Errorf("objectLimit must be an int, instead got: %#v", objectLimit)
+	}
+
+	return &objectLimitInt, nil
 }
 
 func extractLimitFromArgs(args []*ast.Argument) *int {
@@ -230,4 +282,10 @@ func extractLimitFromArgs(args []*ast.Argument) *int {
 	}
 
 	return nil
+}
+
+func areNearMediaFiltersIncluded(params *aggregation.Params) bool {
+	return params.NearObject != nil ||
+		params.NearVector != nil ||
+		len(params.ModuleParams) > 0
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -44,6 +44,12 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 		for i, value := range properties {
 			args.Properties[i] = value.(string)
 		}
+	}
+
+	// rerank is an optional arg, so it could be nil
+	rerank, ok := source["rerank"]
+	if ok {
+		args.Rerank = rerank.(bool)
 	}
 
 	return &args

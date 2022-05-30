@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -39,9 +39,9 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 	return response.Payload, nil
 }
 
-// Perform a query and assert that it is successful
-func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
-	response, err := QueryGraphQL(t, auth, "", query, nil)
+// Perform a GraphQL request and call fatal on failure
+func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
+	response, err := QueryGraphQL(t, auth, operation, query, variables)
 	if err != nil {
 		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
 		if !ok {
@@ -49,6 +49,12 @@ func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query st
 		}
 		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error[0])
 	}
+	return response
+}
+
+// Perform a query and assert that it is successful
+func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
+	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
 
 	if len(response.Errors) != 0 {
 		j, _ := json.Marshal(response.Errors)
@@ -63,6 +69,18 @@ func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query st
 	}
 
 	return &GraphQLResult{Result: data}
+}
+
+// Perform a query and assert that it has errors
+func ErrorGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) []*models.GraphQLError {
+	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
+
+	if len(response.Errors) == 0 {
+		j, _ := json.Marshal(response.Errors)
+		t.Fatal("GraphQL resolved to data:", string(j))
+	}
+
+	return response.Errors
 }
 
 // Drill down in the result

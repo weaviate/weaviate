@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,7 +29,7 @@ var (
 
 func init() {
 	headerSectionRe = regexp.MustCompile(`^(//.*\n)*\n`)
-	buildTagRe = regexp.MustCompile(`^//\s\+build`)
+	buildTagRe = regexp.MustCompile(`^//go:build`)
 	h, err := ioutil.ReadFile("tools/license_headers/header.txt")
 	fatal(err)
 	targetHeader = bytes.TrimSpace(h)

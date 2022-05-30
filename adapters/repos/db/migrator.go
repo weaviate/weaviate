@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -31,13 +32,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State) error {
 	idx, err := NewIndex(ctx,
 		IndexConfig{
-			ClassName: schema.ClassName(class.Class),
-			RootPath:  m.db.config.RootPath,
+			ClassName:                 schema.ClassName(class.Class),
+			RootPath:                  m.db.config.RootPath,
+			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
+			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
+			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
-		class.InvertedIndexConfig,
+		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient,
 		m.db.promMetrics)
@@ -48,6 +52,13 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	err = idx.addUUIDProperty(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "extend idx '%s' with uuid property", idx.ID())
+	}
+
+	if class.InvertedIndexConfig.IndexTimestamps {
+		err = idx.addTimestampProperties(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with timestamp properties", idx.ID())
+		}
 	}
 
 	for _, prop := range class.Properties {
@@ -62,6 +73,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	m.db.indices[idx.ID()] = idx
+	idx.notifyReady()
+
 	return nil
 }
 
@@ -105,6 +118,24 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
+func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	}
+
+	return idx.getShardsStatus(), nil
+}
+
+func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+	}
+
+	return idx.updateShardStatus(shardName, targetStatus)
+}
+
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
 }
@@ -125,4 +156,21 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
 	return hnsw.ValidateUserConfigUpdate(old, updated)
+}
+
+func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
+	old, updated *models.InvertedIndexConfig) error {
+	return inverted.ValidateUserConfigUpdate(old, updated)
+}
+
+func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className string,
+	updated *models.InvertedIndexConfig) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+	}
+
+	conf := inverted.ConfigFromModel(updated)
+
+	return idx.updateInvertedIndexConfig(ctx, conf)
 }

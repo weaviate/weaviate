@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,9 +29,7 @@ type schemaManager interface {
 		class string, property *models.Property) error
 }
 
-// AddObject Class Instance to the connected DB. If the class contains a network
-// ref, it has a side-effect on the schema: The schema will be updated to
-// include this particular network ref class.
+// AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	object *models.Object) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -30,15 +31,19 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList         errorListPayload
-	SingleObject      singleObjectPayload
-	MergeDoc          mergeDocPayload
-	ObjectList        objectListPayload
-	SearchResults     searchResultsPayload
-	SearchParams      searchParamsPayload
-	ReferenceList     referenceListPayload
-	AggregationParams aggregationParamsPayload
-	AggregationResult aggregationResultPayload
+	ErrorList          errorListPayload
+	SingleObject       singleObjectPayload
+	MergeDoc           mergeDocPayload
+	ObjectList         objectListPayload
+	SearchResults      searchResultsPayload
+	SearchParams       searchParamsPayload
+	ReferenceList      referenceListPayload
+	AggregationParams  aggregationParamsPayload
+	AggregationResult  aggregationResultPayload
+	FindDocIDsParams   findDocIDsParamsPayload
+	FindDocIDsResults  findDocIDsResultsPayload
+	BatchDeleteParams  batchDeleteParamsPayload
+	BatchDeleteResults batchDeleteResultsPayload
 }
 
 type errorListPayload struct{}
@@ -221,29 +226,36 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
-	filter *filters.LocalFilter, addP additional.Properties) ([]byte, error) {
+	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort, addP additional.Properties) ([]byte, error) {
 	type params struct {
-		SearchVector []float32             `json:"searchVector"`
-		Limit        int                   `json:"limit"`
-		Filters      *filters.LocalFilter  `json:"filters"`
-		Additional   additional.Properties `json:"additional"`
+		SearchVector   []float32                    `json:"searchVector"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Sort           []filters.Sort               `json:"sort"`
+		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, addP}
+	par := params{vector, limit, filter, keywordRanking, sort, addP}
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, int,
-	*filters.LocalFilter, additional.Properties, error) {
+func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
+	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, additional.Properties, error) {
 	type searchParametersPayload struct {
-		SearchVector []float32             `json:"searchVector"`
-		Limit        int                   `json:"limit"`
-		Filters      *filters.LocalFilter  `json:"filters"`
-		Additional   additional.Properties `json:"additional"`
+		SearchVector   []float32                    `json:"searchVector"`
+		Distance       float32                      `json:"distance"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Sort           []filters.Sort               `json:"sort"`
+		Additional     additional.Properties        `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.Limit, par.Filters, par.Additional, err
+	return par.SearchVector, par.Distance, par.Limit,
+		par.Filters, par.KeywordRanking, par.Sort, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {
@@ -413,4 +425,122 @@ func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, err
 	var out aggregation.Result
 	err := json.Unmarshal(in, &out)
 	return &out, err
+}
+
+type findDocIDsParamsPayload struct{}
+
+func (p findDocIDsParamsPayload) Marshal(filter *filters.LocalFilter) ([]byte, error) {
+	type params struct {
+		Filters *filters.LocalFilter `json:"filters"`
+	}
+
+	par := params{filter}
+	return json.Marshal(par)
+}
+
+func (p findDocIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, error) {
+	type findDocIDsParametersPayload struct {
+		Filters *filters.LocalFilter `json:"filters"`
+	}
+	var par findDocIDsParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.Filters, err
+}
+
+func (p findDocIDsParamsPayload) MIME() string {
+	return "vnd.weaviate.finddocidsparams+json"
+}
+
+func (p findDocIDsParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p findDocIDsParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type findDocIDsResultsPayload struct{}
+
+func (p findDocIDsResultsPayload) Unmarshal(in []byte) ([]uint64, error) {
+	var out []uint64
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p findDocIDsResultsPayload) Marshal(in []uint64) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p findDocIDsResultsPayload) MIME() string {
+	return "application/vnd.weaviate.finddocidsresults+octet-stream"
+}
+
+func (p findDocIDsResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p findDocIDsResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type batchDeleteParamsPayload struct{}
+
+func (p batchDeleteParamsPayload) Marshal(docIDs []uint64, dryRun bool) ([]byte, error) {
+	type params struct {
+		DocIDs []uint64 `json:"docIDs"`
+		DryRun bool     `json:"dryRun"`
+	}
+
+	par := params{docIDs, dryRun}
+	return json.Marshal(par)
+}
+
+func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]uint64, bool, error) {
+	type batchDeleteParametersPayload struct {
+		DocIDs []uint64 `json:"docIDs"`
+		DryRun bool     `json:"dryRun"`
+	}
+	var par batchDeleteParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.DocIDs, par.DryRun, err
+}
+
+func (p batchDeleteParamsPayload) MIME() string {
+	return "vnd.weaviate.batchdeleteparams+json"
+}
+
+func (p batchDeleteParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p batchDeleteParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type batchDeleteResultsPayload struct{}
+
+func (p batchDeleteResultsPayload) Unmarshal(in []byte) (objects.BatchSimpleObjects, error) {
+	var out objects.BatchSimpleObjects
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p batchDeleteResultsPayload) Marshal(in objects.BatchSimpleObjects) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p batchDeleteResultsPayload) MIME() string {
+	return "application/vnd.weaviate.batchdeleteresults+octet-stream"
+}
+
+func (p batchDeleteResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p batchDeleteResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
 }

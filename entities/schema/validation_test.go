@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,6 +17,36 @@ import (
 
 func TestValidateOKClassName(t *testing.T) {
 	_, err := ValidateClassName("FooBar")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("FooBar2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("Foo_______bar__with_numbers___1234567890_and_2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("C_123456___foo_bar_2")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("NormalClassNameWithNumber1")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("Normal__Class__Name__With__Number__1")
+	if err != nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("CClassName")
 	if err != nil {
 		t.Fail()
 	}
@@ -34,6 +64,11 @@ func TestFailValidateBadClassName(t *testing.T) {
 	}
 
 	_, err = ValidateClassName("fooBar")
+	if err == nil {
+		t.Fail()
+	}
+
+	_, err = ValidateClassName("_foo")
 	if err == nil {
 		t.Fail()
 	}

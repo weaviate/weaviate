@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -33,7 +33,7 @@ func Test_InValidConfig(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.ID = ""
@@ -41,7 +41,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("id cannot be empty"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.RootPath = ""
@@ -49,7 +49,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("rootPath cannot be empty"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.MakeCommitLoggerThunk = nil
@@ -57,7 +57,7 @@ func Test_InValidConfig(t *testing.T) {
 			},
 			expectedErr: errors.Errorf("makeCommitLoggerThunk cannot be nil"),
 		},
-		test{
+		{
 			config: func() Config {
 				v := validConfig()
 				v.VectorForIDThunk = nil
@@ -93,7 +93,7 @@ func Test_UserConfig(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: UserConfig{
@@ -104,10 +104,14 @@ func Test_UserConfig(t *testing.T) {
 				EF:                     DefaultEF,
 				Skip:                   DefaultSkip,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 
-		test{
+		{
 			name: "with maximum connections",
 			input: map[string]interface{}{
 				"maxConnections": json.Number("100"),
@@ -119,10 +123,14 @@ func Test_UserConfig(t *testing.T) {
 				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 
-		test{
+		{
 			name: "with all optional fields",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": json.Number("11"),
@@ -131,7 +139,11 @@ func Test_UserConfig(t *testing.T) {
 				"vectorCacheMaxObjects":  json.Number("14"),
 				"ef":                     json.Number("15"),
 				"flatSearchCutoff":       json.Number("16"),
+				"dynamicEfMin":           json.Number("17"),
+				"dynamicEfMax":           json.Number("18"),
+				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
+				"distance":               "l2-squared",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -140,11 +152,15 @@ func Test_UserConfig(t *testing.T) {
 				VectorCacheMaxObjects:  14,
 				EF:                     15,
 				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
 				Skip:                   true,
+				Distance:               "l2-squared",
 			},
 		},
 
-		test{
+		{
 			// this is the case when reading the json representation from disk, as
 			// opposed to from the API
 			name: "with raw data as floats",
@@ -155,6 +171,9 @@ func Test_UserConfig(t *testing.T) {
 				"vectorCacheMaxObjects":  float64(14),
 				"ef":                     float64(15),
 				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -163,6 +182,10 @@ func Test_UserConfig(t *testing.T) {
 				VectorCacheMaxObjects:  14,
 				EF:                     15,
 				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               DefaultDistanceMetric,
 			},
 		},
 	}

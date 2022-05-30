@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,17 +17,18 @@ type binarySearchTree struct {
 	root *binarySearchNode
 }
 
-func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) {
+// returns net additions of insert in bytes
+func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int {
 	if t.root == nil {
 		t.root = &binarySearchNode{
 			key:           key,
 			value:         value,
 			secondaryKeys: secondaryKeys,
 		}
-		return
+		return len(key) + len(value)
 	}
 
-	t.root.insert(key, value, secondaryKeys)
+	return t.root.insert(key, value, secondaryKeys)
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -64,6 +65,21 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 	return t.root.flattenInOrder()
 }
 
+type countStats struct {
+	upsertKeys     [][]byte
+	tombstonedKeys [][]byte
+}
+
+func (t *binarySearchTree) countStats() *countStats {
+	stats := &countStats{}
+	if t.root == nil {
+		return stats
+	}
+
+	t.root.countStats(stats)
+	return stats
+}
+
 type binarySearchNode struct {
 	key           []byte
 	value         []byte
@@ -73,20 +89,30 @@ type binarySearchNode struct {
 	tombstone     bool
 }
 
+// returns net additions of insert in bytes
 func (n *binarySearchNode) insert(key, value []byte,
-	secondaryKeys [][]byte) {
+	secondaryKeys [][]byte) (netAdditions int) {
 	if bytes.Equal(key, n.key) {
+		// since the key already exists, we only need to take the difference
+		// between the existing value and the new one to determine net change
+		netAdditions = len(n.value) - len(value)
+		if netAdditions < 0 {
+			netAdditions *= -1
+		}
+
+		// assign new value to node
 		n.value = value
-		n.secondaryKeys = secondaryKeys
 
 		// reset tombstone in case it had one
 		n.tombstone = false
+		n.secondaryKeys = secondaryKeys
+
 		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, value, secondaryKeys)
+			netAdditions = n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
@@ -94,11 +120,12 @@ func (n *binarySearchNode) insert(key, value []byte,
 				value:         value,
 				secondaryKeys: secondaryKeys,
 			}
+			netAdditions = len(key) + len(value)
 			return
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, value, secondaryKeys)
+			netAdditions = n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{
@@ -106,6 +133,7 @@ func (n *binarySearchNode) insert(key, value []byte,
 				value:         value,
 				secondaryKeys: secondaryKeys,
 			}
+			netAdditions = len(key) + len(value)
 			return
 		}
 	}
@@ -140,6 +168,7 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 		n.value = nil
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
+		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -185,4 +214,24 @@ func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
 
 	right = append([]*binarySearchNode{n}, right...)
 	return append(left, right...)
+}
+
+// This is not very allocation friendly, since we basically need to allocate
+// once for each element in the memtable. However, these results can
+// potentially be cached, as we don't care about the intermediary results, just
+// the net additions.
+func (n *binarySearchNode) countStats(stats *countStats) {
+	if n.tombstone {
+		stats.tombstonedKeys = append(stats.tombstonedKeys, n.key)
+	} else {
+		stats.upsertKeys = append(stats.upsertKeys, n.key)
+	}
+
+	if n.left != nil {
+		n.left.countStats(stats)
+	}
+
+	if n.right != nil {
+		n.right.countStats(stats)
+	}
 }

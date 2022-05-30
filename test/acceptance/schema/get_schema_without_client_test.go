@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -45,6 +45,10 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"ef":                     float64(-1),
 					"maxConnections":         float64(64),
 					"vectorCacheMaxObjects":  float64(2e6),
+					"dynamicEfMin":           float64(100),
+					"dynamicEfMax":           float64(500),
+					"dynamicEfFactor":        float64(8),
+					"distance":               "cosine",
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),
@@ -59,6 +63,15 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
 					"cleanupIntervalSeconds": float64(60),
+					"bm25": map[string]interface{}{
+						"k1": float64(1.2),
+						"b":  float64(0.75),
+					},
+					"stopwords": map[string]interface{}{
+						"preset":    "en",
+						"additions": nil,
+						"removals":  nil,
+					},
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{

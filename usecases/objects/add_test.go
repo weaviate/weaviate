@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -170,6 +170,9 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 
 	t.Run("without a vector", func(t *testing.T) {
+		// Note that this was an invalid case before v1.10 which added this
+		// functionality, as part of
+		// https://github.com/semi-technologies/weaviate/issues/1800
 		reset()
 
 		ctx := context.Background()
@@ -178,9 +181,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObject(ctx, nil, class)
-		_, ok := err.(ErrInvalidUserInput)
-		assert.True(t, ok)
-		assert.Contains(t, err.Error(), "vector must be present")
+		assert.Nil(t, err)
 	})
 
 	t.Run("without a vector, but indexing skipped", func(t *testing.T) {
@@ -196,8 +197,6 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	})
 }
 
-// TODO: This currently always assumes the text2vec-vectorizer, but this could
-// be any module. Needs to be actually made modular
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
 		vectorRepo *fakeVectorRepo
@@ -298,5 +297,56 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
+	})
+}
+
+func Test_Add_Object_OverrideVectorizer(t *testing.T) {
+	var (
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
+	)
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "FooOverride",
+					Vectorizer:        config.VectorizerModuleText2VecContextionary,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+			},
+		},
+	}
+
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+	}
+
+	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		object := &models.Object{
+			Class:  "FooOverride",
+			Vector: []float32{9, 9, 9},
+		}
+
+		_, err := manager.AddObject(ctx, nil, object)
+		require.Nil(t, err)
+
+		vec := vectorRepo.Mock.Calls[0].Arguments.Get(1).([]float32)
+
+		assert.Equal(t, []float32{9, 9, 9}, vec, "check that vector was overridden")
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -49,15 +50,20 @@ func TestRestartJourney(t *testing.T) {
 		Class:               "Class",
 		Properties: []*models.Property{
 			{
-				Name:     "description",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "description",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 		},
 	}
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -122,7 +128,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -143,7 +149,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -171,8 +177,18 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
+<<<<<<< HEAD
 		newRepo = New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 			&fakeNodeResolver{}, nil)
+=======
+		newRepo = New(logger, Config{
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+			DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		}, &fakeRemoteClient{},
+			&fakeNodeResolver{})
+>>>>>>> master
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)
@@ -202,7 +218,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -223,7 +239,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, additional.Properties{})
+				}, nil, additional.Properties{})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -244,5 +260,9 @@ func TestRestartJourney(t *testing.T) {
 			assert.Equal(t, "the band is just fantastic that is really what I think",
 				res[0].Schema.(map[string]interface{})["description"])
 		})
+	})
+
+	t.Run("shutdown", func(t *testing.T) {
+		require.Nil(t, newRepo.Shutdown(context.Background()))
 	})
 }

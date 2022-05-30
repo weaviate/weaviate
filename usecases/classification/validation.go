@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -20,6 +20,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+)
+
+const (
+	TypeKNN        = "knn"
+	TypeContextual = "text2vec-contextionary-contextual"
 )
 
 type Validator struct {
@@ -180,7 +185,7 @@ func (v *Validator) typeText2vecContextionaryContextual() bool {
 		return false
 	}
 
-	return v.subject.Type == "text2vec-contextionary-contextual"
+	return v.subject.Type == TypeContextual
 }
 
 func (v *Validator) typeKNN() bool {
@@ -188,7 +193,7 @@ func (v *Validator) typeKNN() bool {
 		return true
 	}
 
-	return v.subject.Type == "knn"
+	return v.subject.Type == TypeKNN
 }
 
 type errorCompounder struct {

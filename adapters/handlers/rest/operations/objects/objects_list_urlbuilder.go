@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,6 +29,8 @@ type ObjectsListURL struct {
 	Include *string
 	Limit   *int64
 	Offset  *int64
+	Order   *string
+	Sort    *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -86,6 +88,22 @@ func (o *ObjectsListURL) Build() (*url.URL, error) {
 	}
 	if offsetQ != "" {
 		qs.Set("offset", offsetQ)
+	}
+
+	var orderQ string
+	if o.Order != nil {
+		orderQ = *o.Order
+	}
+	if orderQ != "" {
+		qs.Set("order", orderQ)
+	}
+
+	var sortQ string
+	if o.Sort != nil {
+		sortQ = *o.Sort
+	}
+	if sortQ != "" {
+		qs.Set("sort", sortQ)
 	}
 
 	_result.RawQuery = qs.Encode()

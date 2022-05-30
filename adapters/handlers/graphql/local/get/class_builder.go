@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -124,8 +124,12 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties := graphql.Fields{}
 	additionalProperties["classification"] = b.additionalClassificationField(class)
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
+	additionalProperties["distance"] = b.additionalDistanceField(class)
+	additionalProperties["score"] = b.additionalScoreField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
+	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
+	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	// module specific additional properties
 	if b.modulesProvider != nil {
 		for name, field := range b.modulesProvider.GetAdditionalFields(class) {
@@ -168,8 +172,32 @@ func (b *classBuilder) additionalCertaintyField(class *models.Class) *graphql.Fi
 	}
 }
 
+func (b *classBuilder) additionalDistanceField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.Float,
+	}
+}
+
+func (b *classBuilder) additionalScoreField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.Float,
+	}
+}
+
 func (b *classBuilder) additionalVectorField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.NewList(graphql.Float),
+	}
+}
+
+func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
+	}
+}
+
+func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
 	}
 }

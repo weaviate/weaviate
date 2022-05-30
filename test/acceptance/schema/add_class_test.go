@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -36,7 +36,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "someProperty",
 					DataType: []string{""},
 				},
@@ -66,7 +66,7 @@ func TestInvalidPropertyName(t *testing.T) {
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "some-property",
 					DataType: []string{"string"},
 				},
@@ -119,6 +119,73 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 
 	// And verify that the class does not exist anymore.
 	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
+}
+
+// This test prevents a regression on
+// https://github.com/semi-technologies/weaviate/issues/1799
+//
+// This was related to adding ref props. For example in the case of a circular
+// dependency (A<>B), users would typically add A without refs, then add B with
+// a reference back to A, finally update A with a ref to B.
+//
+// This last update that would set the ref prop on an existing class was missing
+// module-specific defaults. So when comparing to-be-updated to existing we would
+// find differences in the properties, thus triggering the above error.
+func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
+	className := "RefUpdateIssueClass"
+
+	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
+		assert.NotContains(t, GetObjectClassNames(t), className)
+	})
+
+	defer func(t *testing.T) {
+		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+	}(t)
+
+	t.Run("initially creating the class", func(t *testing.T) {
+		c := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				{
+					Name:     "string_prop",
+					DataType: []string{"string"},
+				},
+			},
+		}
+
+		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("adding a ref prop after the fact", func(t *testing.T) {
+		params := schema.NewSchemaObjectsPropertiesAddParams().
+			WithClassName(className).
+			WithBody(&models.Property{
+				DataType: []string{className},
+				Name:     "ref_prop",
+			})
+		_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("obtaining the class, making an innocent change and trying to update it", func(t *testing.T) {
+		params := schema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		class := res.Payload
+
+		class.VectorIndexConfig.(map[string]interface{})["ef"] = float64(1234)
+
+		updateParams := schema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(class)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.Nil(t, err)
+	})
 }
 
 // TODO: https://github.com/semi-technologies/weaviate/issues/973

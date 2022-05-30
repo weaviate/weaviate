@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,23 +29,25 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator            migrate.Migrator
-	repo                Repo
-	state               State
-	callbacks           []func(updatedSchema schema.Schema)
-	logger              logrus.FieldLogger
-	authorizer          authorizer
-	config              config.Config
-	vectorizerValidator VectorizerValidator
-	moduleConfig        ModuleConfig
-	cluster             *cluster.TxManager
-	clusterState        clusterState
+	migrator                migrate.Migrator
+	repo                    Repo
+	state                   State
+	callbacks               []func(updatedSchema schema.Schema)
+	logger                  logrus.FieldLogger
+	authorizer              authorizer
+	config                  config.Config
+	vectorizerValidator     VectorizerValidator
+	moduleConfig            ModuleConfig
+	cluster                 *cluster.TxManager
+	clusterState            clusterState
+	hnswConfigParser        VectorConfigParser
+	invertedConfigValidator InvertedConfigValidator
 	sync.Mutex
-
-	hnswConfigParser VectorConfigParser
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
+
+type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
@@ -58,6 +60,7 @@ type VectorizerValidator interface {
 
 type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
+	SetSinglePropertyDefaults(class *models.Class, prop *models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
 }
 
@@ -77,9 +80,7 @@ type clusterState interface {
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
-
 	LocalName() string
-
 	NodeCount() int
 }
 
@@ -87,20 +88,22 @@ type clusterState interface {
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
+	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client) (*Manager, error) {
 	m := &Manager{
-		config:              config,
-		migrator:            migrator,
-		repo:                repo,
-		state:               State{},
-		logger:              logger,
-		authorizer:          authorizer,
-		hnswConfigParser:    hnswConfigParser,
-		vectorizerValidator: vectorizerValidator,
-		moduleConfig:        moduleConfig,
-		cluster:             cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
-		clusterState:        clusterState,
+		config:                  config,
+		migrator:                migrator,
+		repo:                    repo,
+		state:                   State{},
+		logger:                  logger,
+		authorizer:              authorizer,
+		hnswConfigParser:        hnswConfigParser,
+		vectorizerValidator:     vectorizerValidator,
+		invertedConfigValidator: invertedConfigValidator,
+		moduleConfig:            moduleConfig,
+		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		clusterState:            clusterState,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
@@ -240,6 +243,10 @@ func newSchema() *State {
 
 func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
+		for _, prop := range class.Properties {
+			m.setPropertyDefaults(prop)
+		}
+
 		if err := m.parseVectorIndexConfig(ctx, class); err != nil {
 			return errors.Wrapf(err, "class %s: vector index config", class.Class)
 		}

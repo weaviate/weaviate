@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -117,7 +117,7 @@ func BenchmarkSort10k(b *testing.B) {
 		b.StartTimer()
 
 		sort.Slice(list, func(a, b int) bool {
-			return list[a].id < list[b].id
+			return list[a] < list[b]
 		})
 	}
 }
@@ -131,7 +131,7 @@ func BenchmarkUnsortedLinearSearch(b *testing.B) {
 		b.StartTimer()
 
 		for i := range searchTargets {
-			linearSearchUnsorted(list, searchTargets[i].id)
+			linearSearchUnsorted(list, searchTargets[i])
 		}
 	}
 }
@@ -145,11 +145,11 @@ func BenchmarkSortedBinarySearch(b *testing.B) {
 		b.StartTimer()
 
 		sort.Slice(list, func(a, b int) bool {
-			return list[a].id < list[b].id
+			return list[a] < list[b]
 		})
 
 		for i := range searchTargets {
-			binarySearch(list, searchTargets[i].id)
+			binarySearch(list, searchTargets[i])
 		}
 	}
 }
@@ -164,28 +164,28 @@ func BenchmarkHashmap(b *testing.B) {
 
 		lookup := make(map[uint64]struct{}, len(list))
 		for i := range list {
-			lookup[list[i].id] = struct{}{}
+			lookup[list[i]] = struct{}{}
 		}
 
 		for i := range searchTargets {
-			_, ok := lookup[searchTargets[i].id]
+			_, ok := lookup[searchTargets[i]]
 			_ = ok
 		}
 	}
 }
 
-func randomIDs(count int) []docPointer {
-	out := make([]docPointer, count)
+func randomIDs(count int) []uint64 {
+	out := make([]uint64, count)
 	for i := range out {
-		out[i] = docPointer{id: rand.Uint64()}
+		out[i] = rand.Uint64()
 	}
 
 	return out
 }
 
-func linearSearchUnsorted(in []docPointer, needle uint64) bool {
+func linearSearchUnsorted(in []uint64, needle uint64) bool {
 	for i := range in {
-		if in[i].id == needle {
+		if in[i] == needle {
 			return true
 		}
 	}
@@ -206,15 +206,15 @@ func linearSearchUnsorted(in []docPointer, needle uint64) bool {
 //             return m
 //     return unsuccessful
 
-func binarySearch(in []docPointer, needle uint64) bool {
+func binarySearch(in []uint64, needle uint64) bool {
 	left := 0
 	right := len(in) - 1
 
 	for left <= right {
 		m := int(math.Floor(float64((left + right)) / float64(2)))
-		if in[m].id < needle {
+		if in[m] < needle {
 			left = m + 1
-		} else if in[m].id > needle {
+		} else if in[m] > needle {
 			right = m - 1
 		} else {
 			return true

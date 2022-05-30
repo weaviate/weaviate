@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -115,11 +115,85 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 	return response
 }
 
-func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
+func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
+	principal *models.Principal) middleware.Responder {
+	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
+		params.Body.Match, params.Body.DryRun, params.Body.Output)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return batch.NewBatchObjectsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case objects.ErrInvalidUserInput:
+			return batch.NewBatchObjectsDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return batch.NewBatchObjectsDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return batch.NewBatchObjectsDeleteOK().
+		WithPayload(h.objectsDeleteResponse(res))
+}
+
+func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
+	var successful, failed int64
+	output := input.Output
+	var objects []*models.BatchDeleteResponseResultsObjectsItems0
+	for _, obj := range input.Result.Objects {
+		var errorResponse *models.ErrorResponse
+
+		status := models.BatchDeleteResponseResultsObjectsItems0StatusSUCCESS
+		if input.DryRun {
+			status = models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN
+		} else if obj.Err != nil {
+			status = models.BatchDeleteResponseResultsObjectsItems0StatusFAILED
+			errorResponse = errPayloadFromSingleErr(obj.Err)
+			failed += 1
+		} else {
+			successful += 1
+		}
+
+		if output == "minimal" &&
+			(status == models.BatchDeleteResponseResultsObjectsItems0StatusSUCCESS ||
+				status == models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN) {
+			// only add SUCCESS and DRYRUN results if output is "verbose"
+			continue
+		}
+
+		objects = append(objects, &models.BatchDeleteResponseResultsObjectsItems0{
+			ID:     obj.UUID,
+			Status: &status,
+			Errors: errorResponse,
+		})
+	}
+
+	response := &models.BatchDeleteResponse{
+		Match: &models.BatchDeleteResponseMatch{
+			Class: input.Match.Class,
+			Where: input.Match.Where,
+		},
+		DryRun: &input.DryRun,
+		Output: &output,
+		Results: &models.BatchDeleteResponseResults{
+			Matches:    input.Result.Matches,
+			Limit:      input.Result.Limit,
+			Successful: successful,
+			Failed:     failed,
+			Objects:    objects,
+		},
+	}
+	return response
+}
+
+func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.BatchManager) {
 	h := &batchObjectHandlers{manager}
 
 	api.BatchBatchObjectsCreateHandler = batch.
 		BatchObjectsCreateHandlerFunc(h.addObjects)
 	api.BatchBatchReferencesCreateHandler = batch.
 		BatchReferencesCreateHandlerFunc(h.addReferences)
+	api.BatchBatchObjectsDeleteHandler = batch.
+		BatchObjectsDeleteHandlerFunc(h.deleteObjects)
 }

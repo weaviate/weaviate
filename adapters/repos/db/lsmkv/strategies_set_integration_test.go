@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -744,10 +744,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-019"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
-				[][]byte{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
-				[][]byte{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
-				[][]byte{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
+				{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
+				{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
+				{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
+				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
 			}
 
 			var retrievedKeys [][]byte
@@ -770,9 +770,9 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-002"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
-				[][]byte{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				[][]byte{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
+				{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
+				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
+				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
 			}
 
 			var retrievedKeys [][]byte
@@ -803,8 +803,8 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-002"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				[][]byte{
+				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
+				{
 					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
 					[]byte("value-002.3"),
 				},
@@ -953,10 +953,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-019"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
-				[][]byte{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
-				[][]byte{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
-				[][]byte{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
+				{[]byte("value-016.0"), []byte("value-016.1"), []byte("value-016.2")},
+				{[]byte("value-017.0"), []byte("value-017.1"), []byte("value-017.2")},
+				{[]byte("value-018.0"), []byte("value-018.1"), []byte("value-018.2")},
+				{[]byte("value-019.0"), []byte("value-019.1"), []byte("value-019.2")},
 			}
 
 			var retrievedKeys [][]byte
@@ -979,9 +979,9 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-002"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
-				[][]byte{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
-				[][]byte{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
+				{[]byte("value-000.0"), []byte("value-000.1"), []byte("value-000.2")},
+				{[]byte("value-001.0"), []byte("value-001.1"), []byte("value-001.2")},
+				{[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2")},
 			}
 
 			var retrievedKeys [][]byte
@@ -1016,12 +1016,12 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-002"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{
+				{
 					[]byte("value-001.0"),
 					// "value-001.1" deleted
 					[]byte("value-001.2"),
 				},
-				[][]byte{
+				{
 					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
 					[]byte("value-002.3"),
 				},
@@ -1052,12 +1052,12 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				[]byte("key-002"),
 			}
 			expectedValues := [][][]byte{
-				[][]byte{
+				{
 					[]byte("value-001.0"),
 					// "value-001.1" deleted
 					[]byte("value-001.2"),
 				},
-				[][]byte{
+				{
 					[]byte("value-002.0"), []byte("value-002.1"), []byte("value-002.2"),
 					[]byte("value-002.3"),
 				},

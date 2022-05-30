@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -40,6 +40,7 @@ type BatchVectorRepo interface {
 
 type batchRepoNew interface {
 	BatchPutObjects(ctx context.Context, objects BatchObjects) (BatchObjects, error)
+	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams) (BatchDeleteResult, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
 }
 

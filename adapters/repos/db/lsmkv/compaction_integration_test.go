@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,10 +15,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -199,6 +201,10 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
+	t.Run("verify count control before compaction", func(*testing.T) {
+		assert.Equal(t, len(expected), bucket.Count())
+	})
+
 	t.Run("check if eligble for compaction", func(t *testing.T) {
 		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
 	})
@@ -225,6 +231,10 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, retrieved)
+	})
+
+	t.Run("verify count after compaction", func(*testing.T) {
+		assert.Equal(t, len(expected), bucket.Count())
 	})
 }
 
@@ -1038,7 +1048,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 }
 
 func Test_CompactionMapStrategy(t *testing.T) {
-	size := 999
+	size := 10
 
 	type kv struct {
 		key    []byte
@@ -1360,6 +1370,14 @@ func Test_CompactionMapStrategy(t *testing.T) {
 
 	t.Run("flush to disk", func(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
+	})
+
+	t.Run("within control make sure map keys are sorted", func(t *testing.T) {
+		for i := range expected {
+			sort.Slice(expected[i].values, func(a, b int) bool {
+				return bytes.Compare(expected[i].values[a].Key, expected[i].values[b].Key) < 0
+			})
+		}
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {

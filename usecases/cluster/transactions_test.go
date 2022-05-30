@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -13,7 +13,9 @@ package cluster
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -171,6 +173,48 @@ func TestConcurrentDistributedTransaction(t *testing.T) {
 	assert.Equal(t, nil, remoteState, "remote state should not have been updated")
 }
 
+// This test simulates three nodes trying to open a tx at basically the same
+// time with the simulated network being so slow that other nodes will try to
+// open their own transactions before they receive the incoming tx. This is a
+// situation where everyone thinks they were the first to open the tx and there
+// is no clear winner. All attempts must fail!
+func TestConcurrentOpenAttemptsOnSlowNetwork(t *testing.T) {
+	ctx := context.Background()
+
+	broadcaster := &slowMultiBroadcaster{delay: 100 * time.Millisecond}
+	node1 := NewTxManager(broadcaster)
+	node2 := NewTxManager(broadcaster)
+	node3 := NewTxManager(broadcaster)
+
+	broadcaster.nodes = []*TxManager{node1, node2, node3}
+
+	trType := TransactionType("my-type")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := node1.BeginTransaction(ctx, trType, "payload-from-node-1")
+		assert.NotNil(t, err, "open tx 1 must fail")
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := node2.BeginTransaction(ctx, trType, "payload-from-node-2")
+		assert.NotNil(t, err, "open tx 2 must fail")
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := node3.BeginTransaction(ctx, trType, "payload-from-node-3")
+		assert.NotNil(t, err, "open tx 3 must fail")
+	}()
+
+	wg.Wait()
+}
+
 type wrapTxManagerAsBroadcaster struct {
 	txManager *TxManager
 }
@@ -189,4 +233,42 @@ func (w *wrapTxManagerAsBroadcaster) BroadcastAbortTransaction(ctx context.Conte
 func (w *wrapTxManagerAsBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 	tx *Transaction) error {
 	return w.txManager.IncomingCommitTransaction(ctx, tx)
+}
+
+type slowMultiBroadcaster struct {
+	delay time.Duration
+	nodes []*TxManager
+}
+
+func (b *slowMultiBroadcaster) BroadcastTransaction(ctx context.Context,
+	tx *Transaction) error {
+	time.Sleep(b.delay)
+	for _, node := range b.nodes {
+		if err := node.IncomingBeginTransaction(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *slowMultiBroadcaster) BroadcastAbortTransaction(ctx context.Context,
+	tx *Transaction) error {
+	time.Sleep(b.delay)
+	for _, node := range b.nodes {
+		node.IncomingAbortTransaction(ctx, tx)
+	}
+
+	return nil
+}
+
+func (b *slowMultiBroadcaster) BroadcastCommitTransaction(ctx context.Context,
+	tx *Transaction) error {
+	time.Sleep(b.delay)
+	for _, node := range b.nodes {
+		if err := node.IncomingCommitTransaction(ctx, tx); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -16,6 +16,7 @@ import (
 
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -52,7 +53,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	tests := []test{
-		test{
+		{
 			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
@@ -74,7 +75,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -90,12 +91,12 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"interpretation": &models.Interpretation{
 							Source: []*models.InterpretationSource{
-								&models.InterpretationSource{
+								{
 									Concept:    "foo",
 									Weight:     0.6,
 									Occurrence: 1200,
 								},
-								&models.InterpretationSource{
+								{
 									Concept:    "bar",
 									Weight:     0.9,
 									Occurrence: 800,
@@ -124,7 +125,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional nearestNeighbors",
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -140,11 +141,11 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"nearestNeighbors": &models.NearestNeighbors{
 							Neighbors: []*models.NearestNeighbor{
-								&models.NearestNeighbor{
+								{
 									Concept:  "foo",
 									Distance: 0.1,
 								},
-								&models.NearestNeighbor{
+								{
 									Concept:  "bar",
 									Distance: 0.2,
 								},
@@ -170,7 +171,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
 			expectedParams: traverser.GetParams{
@@ -198,7 +199,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
 			expectedParams: traverser.GetParams{
@@ -234,7 +235,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 				},
 			},
 		},
-		test{
+		{
 			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: traverser.GetParams{
@@ -250,14 +251,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"semanticPath": &models.SemanticPath{
 							Path: []*models.SemanticPathElement{
-								&models.SemanticPathElement{
+								{
 									Concept:            "foo",
 									DistanceToNext:     ptFloat32(0.5),
 									DistanceToPrevious: nil,
 									DistanceToQuery:    0.1,
 									DistanceToResult:   0.1,
 								},
-								&models.SemanticPathElement{
+								{
 									Concept:            "bar",
 									DistanceToPrevious: ptFloat32(0.5),
 									DistanceToNext:     nil,
@@ -295,12 +296,14 @@ func TestExtractAdditionalFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver()
+		t.Run(test.name, func(t *testing.T) {
+			resolver := newMockResolver()
 
-		resolver.On("GetClass", test.expectedParams).
-			Return(test.resolverReturn, nil).Once()
-		result := resolver.AssertResolve(t, test.query)
-		assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+			resolver.On("GetClass", test.expectedParams).
+				Return(test.resolverReturn, nil).Once()
+			result := resolver.AssertResolve(t, test.query)
+			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+		})
 	}
 }
 
@@ -381,6 +384,7 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -428,6 +432,7 @@ func TestNearTextRanker(t *testing.T) {
 		expectedParams := traverser.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			ModuleParams: map[string]interface{}{
 				"nearText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -527,7 +532,7 @@ func Test_ResolveExplore(t *testing.T) {
 				Limit: 17,
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -573,7 +578,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -627,7 +632,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -685,7 +690,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -771,7 +776,7 @@ func Test_ResolveExplore(t *testing.T) {
 				},
 			},
 			resolverReturn: []search.Result{
-				search.Result{
+				{
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 				},

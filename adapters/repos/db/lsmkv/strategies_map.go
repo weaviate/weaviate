@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -26,9 +26,9 @@ func newMapDecoder() *mapDecoder {
 }
 
 func (m *mapDecoder) Do(in []value, acceptDuplicates bool) ([]MapPair, error) {
-	if acceptDuplicates {
-		return m.doSimplified(in)
-	}
+	// if acceptDuplicates {
+	// 	return m.doSimplified(in)
+	// }
 
 	seenKeys := map[string]uint{}
 	kvs := make([]MapPair, len(in))
@@ -171,6 +171,45 @@ type MapPair struct {
 	Tombstone bool
 }
 
+// Size() returns the exact size in bytes that will be used when Bytes() is
+// called
+func (kv MapPair) Size() int {
+	// each field uses a uint16 (2 bytes) length indicator
+	return 2 + len(kv.Key) + 2 + len(kv.Value)
+}
+
+func (kv MapPair) EncodeBytes(buf []byte) error {
+	if len(buf) != kv.Size() {
+		return errors.Errorf("buffer has size %d, but MapPair has size %d",
+			len(buf), kv.Size())
+	}
+
+	// make sure the 2 byte length indicators will never overflow:
+	if len(kv.Key) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection key must be smaller than %d",
+			math.MaxUint16)
+	}
+	keyLen := uint16(len(kv.Key))
+
+	if len(kv.Value) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection value must be smaller than %d",
+			math.MaxUint16)
+	}
+	valueLen := uint16(len(kv.Value))
+
+	offset := 0
+	binary.LittleEndian.PutUint16(buf[offset:offset+2], keyLen)
+	offset += 2
+	copy(buf[offset:], kv.Key)
+	offset += len(kv.Key)
+
+	binary.LittleEndian.PutUint16(buf[offset:offset+2], valueLen)
+	offset += 2
+	copy(buf[offset:], kv.Value)
+
+	return nil
+}
+
 func (kv MapPair) Bytes() ([]byte, error) {
 	// make sure the 2 byte length indicators will never overflow:
 	if len(kv.Key) >= math.MaxUint16 {
@@ -212,11 +251,20 @@ func (kv MapPair) Bytes() ([]byte, error) {
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	var read uint16
 
+	// NOTE: A previous implementation was using copy statements in here to avoid
+	// sharing the memory. The general idea of that is good (protect against the
+	// mmaped memory being removed from a completed compaction), however this is
+	// the wrong place. By the time we are in this method, we can no longer
+	// control the memory safety of the "in" argument. Thus, such a copy must
+	// happen at a much earlier scope when a lock is held that protects against
+	// removing the segment. Such an implmentation can now be found in
+	// segment_collection_strategy.go as part of the *segment.getCollection
+	// method. As a result all memory used here can now be considered read-only
+	// and is safe to be used indefinitely.
+
 	keyLen := binary.LittleEndian.Uint16(in[:2])
 	read += 2 // uint16 -> 2 bytes
 
-	// kv.Key = make([]byte, keyLen)
-	// copy(kv.Key, in[read:read+keyLen])
 	kv.Key = in[read : read+keyLen]
 	read += keyLen
 
@@ -227,12 +275,6 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
 	read += 2
 
-	// if int(valueLen) > cap(kv.Value) {
-	// 	kv.Value = make([]byte, valueLen)
-	// } else {
-	// 	kv.Value = kv.Value[:valueLen]
-	// }
-	// copy(kv.Value, in[read:read+valueLen])
 	kv.Value = in[read : read+valueLen]
 	read += valueLen
 
@@ -281,7 +323,9 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	return nil
 }
 
-type mapEncoder struct{}
+type mapEncoder struct {
+	pairBuf []value
+}
 
 func newMapEncoder() *mapEncoder {
 	return &mapEncoder{}
@@ -306,7 +350,8 @@ func (m *mapEncoder) DoMulti(kvs []MapPair) ([]value, error) {
 	out := make([]value, len(kvs))
 
 	for i, kv := range kvs {
-		v, err := kv.Bytes()
+		v := make([]byte, kv.Size())
+		err := kv.EncodeBytes(v)
 		if err != nil {
 			return nil, err
 		}
@@ -318,4 +363,41 @@ func (m *mapEncoder) DoMulti(kvs []MapPair) ([]value, error) {
 	}
 
 	return out, nil
+}
+
+// DoMultiReusable reuses a MapPair buffer that it exposes to the caller on
+// this request. Warning: The caller must make sure that they no longer access
+// the return value once they call this method a second time, otherwise they
+// risk overwriting a previous result. The intended usage for example in a loop
+// where each loop copies the results, for example using a bufio.Writer.
+func (m *mapEncoder) DoMultiReusable(kvs []MapPair) ([]value, error) {
+	m.resizeBuffer(len(kvs))
+
+	for i, kv := range kvs {
+		m.resizeValueAtBuffer(i, kv.Size())
+		err := kv.EncodeBytes(m.pairBuf[i].value)
+		if err != nil {
+			return nil, err
+		}
+
+		m.pairBuf[i].tombstone = kv.Tombstone
+	}
+
+	return m.pairBuf, nil
+}
+
+func (m *mapEncoder) resizeBuffer(size int) {
+	if cap(m.pairBuf) >= size {
+		m.pairBuf = m.pairBuf[:size]
+	} else {
+		m.pairBuf = make([]value, size, int(float64(size)*1.25))
+	}
+}
+
+func (m *mapEncoder) resizeValueAtBuffer(pos, size int) {
+	if cap(m.pairBuf[pos].value) >= size {
+		m.pairBuf[pos].value = m.pairBuf[pos].value[:size]
+	} else {
+		m.pairBuf[pos].value = make([]byte, size, int(float64(size)*1.25))
+	}
 }

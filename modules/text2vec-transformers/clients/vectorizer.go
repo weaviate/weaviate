@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -25,21 +25,33 @@ import (
 )
 
 type vectorizer struct {
-	origin     string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
+	originPassage string
+	originQuery   string
+	httpClient    *http.Client
+	logger        logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *vectorizer {
+func New(originPassage, originQuery string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		origin:     origin,
-		httpClient: &http.Client{},
-		logger:     logger,
+		originPassage: originPassage,
+		originQuery:   originQuery,
+		httpClient:    &http.Client{},
+		logger:        logger,
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input string,
+func (v *vectorizer) VectorizeObject(ctx context.Context, input string,
 	config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	return v.vectorize(ctx, input, config, v.urlPassage)
+}
+
+func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
+	config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	return v.vectorize(ctx, input, config, v.urlQuery)
+}
+
+func (v *vectorizer) vectorize(ctx context.Context, input string,
+	config ent.VectorizationConfig, url func(string) string) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(vecRequest{
 		Text: input,
 		Config: vecRequestConfig{
@@ -50,7 +62,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input string,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", v.url("/vectors"),
+	req, err := http.NewRequestWithContext(ctx, "POST", url("/vectors"),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -84,8 +96,12 @@ func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	}, nil
 }
 
-func (v *vectorizer) url(path string) string {
-	return fmt.Sprintf("%s%s", v.origin, path)
+func (v *vectorizer) urlPassage(path string) string {
+	return fmt.Sprintf("%s%s", v.originPassage, path)
+}
+
+func (v *vectorizer) urlQuery(path string) string {
+	return fmt.Sprintf("%s%s", v.originQuery, path)
 }
 
 type vecRequest struct {

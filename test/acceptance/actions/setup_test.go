@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,7 +29,7 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "testString",
 					DataType: []string{"string"},
 				},
@@ -43,27 +43,27 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "testString",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:     "testWholeNumber",
 					DataType: []string{"int"},
 				},
-				&models.Property{
+				{
 					Name:     "testNumber",
 					DataType: []string{"number"},
 				},
-				&models.Property{
+				{
 					Name:     "testDateTime",
 					DataType: []string{"date"},
 				},
-				&models.Property{
+				{
 					Name:     "testTrueFalse",
 					DataType: []string{"boolean"},
 				},
-				&models.Property{
+				{
 					Name:     "testReference",
 					DataType: []string{"ObjectTestThing"},
 				},
@@ -77,15 +77,15 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "testReference",
 					DataType: []string{"TestObject"},
 				},
-				&models.Property{
+				{
 					Name:     "testReferences",
 					DataType: []string{"TestObject"},
 				},
-				&models.Property{
+				{
 					Name:     "testString",
 					DataType: []string{"string"},
 				},

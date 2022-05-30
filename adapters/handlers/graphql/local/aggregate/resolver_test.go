@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,6 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 )
@@ -29,8 +30,11 @@ type testCase struct {
 	expectedResults          []result
 	expectedGroupBy          *filters.Path
 	expectedWhereFilter      *filters.LocalFilter
+	expectedNearObjectFilter *searchparams.NearObject
+	expectedNearVectorFilter *searchparams.NearVector
 	expectedIncludeMetaCount bool
 	expectedLimit            *int
+	expectedObjectLimit      *int
 }
 
 type testCases []testCase
@@ -87,9 +91,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							Type: aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 20,
@@ -102,7 +106,7 @@ func Test_Resolve(t *testing.T) {
 				Root: &filters.Clause{
 					Operator: filters.OperatorOr,
 					Operands: []filters.Clause{
-						filters.Clause{
+						{
 							Operator: filters.OperatorEqual,
 							On: &filters.Path{
 								Class:    schema.ClassName("Car"),
@@ -113,7 +117,7 @@ func Test_Resolve(t *testing.T) {
 								Type:  schema.DataType("string"),
 							},
 						},
-						filters.Clause{
+						{
 							Operator: filters.OperatorEqual,
 							On: &filters.Path{
 								Class:    schema.ClassName("Car"),
@@ -152,9 +156,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -184,9 +188,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -209,9 +213,9 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name: "with props formerly contained only in Meta",
-			query: `{ Aggregate { Car { 
-				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
-				modelName { type count topOccurrences { value occurs } } 
+			query: `{ Aggregate { Car {
+				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse }
+				modelName { type count topOccurrences { value occurs } }
 				madeBy { type pointingTo }
 				meta { count }
 				} } } `,
@@ -245,10 +249,10 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: 10,
 					Properties: map[string]aggregation.Property{
-						"stillInProduction": aggregation.Property{
+						"stillInProduction": {
 							SchemaType: "boolean",
 							Type:       aggregation.PropertyTypeBoolean,
 							BooleanAggregation: aggregation.Boolean{
@@ -259,24 +263,24 @@ func Test_Resolve(t *testing.T) {
 								Count:           40,
 							},
 						},
-						"modelName": aggregation.Property{
+						"modelName": {
 							SchemaType: "string",
 							Type:       aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 40,
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "fastcar",
 										Occurs: 39,
 									},
-									aggregation.TextOccurrence{
+									{
 										Value:  "slowcar",
 										Occurs: 1,
 									},
 								},
 							},
 						},
-						"madeBy": aggregation.Property{
+						"madeBy": {
 							SchemaType: "cref",
 							Type:       aggregation.PropertyTypeReference,
 							ReferenceAggregation: aggregation.Reference{
@@ -327,8 +331,8 @@ func Test_Resolve(t *testing.T) {
 		},
 		testCase{
 			name: "with custom limit in topOccurrences",
-			query: `{ Aggregate { Car { 
-				modelName { topOccurrences(limit: 7) { value occurs } } 
+			query: `{ Aggregate { Car {
+				modelName { topOccurrences(limit: 7) { value occurs } }
 				} } } `,
 			expectedProps: []aggregation.ParamProperty{
 				{
@@ -339,19 +343,19 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Count: 10,
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							SchemaType: "string",
 							Type:       aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Items: []aggregation.TextOccurrence{
-									aggregation.TextOccurrence{
+									{
 										Value:  "fastcar",
 										Occurs: 39,
 									},
-									aggregation.TextOccurrence{
+									{
 										Value:  "slowcar",
 										Occurs: 1,
 									},
@@ -393,9 +397,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: "int",
 							NumericalAggregations: map[string]float64{
@@ -430,13 +434,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -462,7 +466,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name: "single prop: mean with a where filter",
-			query: `{ 
+			query: `{
 				Aggregate {
 					Car(
 						groupBy:["madeBy", "Manufacturer", "name"]
@@ -471,12 +475,12 @@ func Test_Resolve(t *testing.T) {
 							valueInt: 200,
 							path: ["horsepower"],
 						}
-					) { 
-						horsepower { 
-							mean 
+					) {
+						horsepower {
+							mean
 						}
 					}
-				} 
+				}
 			}`,
 			expectedProps: []aggregation.ParamProperty{
 				{
@@ -485,13 +489,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"mean": 275.7773,
@@ -536,13 +540,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"horsepower": aggregation.Property{
+						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
 							NumericalAggregations: map[string]float64{
 								"maximum": 610.0,
@@ -588,13 +592,13 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			resolverReturn: []aggregation.Group{
-				aggregation.Group{
+				{
 					GroupedBy: &aggregation.GroupedBy{
 						Path:  []string{"madeBy", "Manufacturer", "name"},
 						Value: "best-manufacturer",
 					},
 					Properties: map[string]aggregation.Property{
-						"modelName": aggregation.Property{
+						"modelName": {
 							Type: aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
 								Count: 7,
@@ -604,6 +608,115 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with objectLimit + nearObject",
+			query: `
+				{
+					Aggregate{
+						Car(
+							objectLimit: 1
+							nearObject: {
+								id: "123"
+								certainty: 0.7
+							}
+						) {
+							modelName {
+								count
+							}
+						}
+					}
+				}
+			`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+				},
+			},
+			expectedObjectLimit: ptInt(1),
+			expectedNearObjectFilter: &searchparams.NearObject{
+				ID:        "123",
+				Beacon:    "",
+				Certainty: 0.7,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"modelName": {
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 7,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with objectLimit + nearVector",
+			query: `
+				{
+					Aggregate{
+						Car(
+							objectLimit: 1
+							nearVector: {
+								vector: [1, 2, 3]
+								certainty: 0.7
+							}
+						) {
+							modelName {
+								count
+							}
+						}
+					}
+				}
+			`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+				},
+			},
+			expectedObjectLimit: ptInt(1),
+			expectedNearVectorFilter: &searchparams.NearVector{
+				Vector:    []float32{1, 2, 3},
+				Certainty: 0.7,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"modelName": {
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 7,
+							},
+						},
+					},
+				},
+			},
 			expectedResults: []result{{
 				pathToField: []string{"Aggregate", "Car"},
 				expectedValue: []interface{}{
@@ -630,8 +743,11 @@ func (tests testCases) AssertExtraction(t *testing.T, className string) {
 				Properties:       testCase.expectedProps,
 				GroupBy:          testCase.expectedGroupBy,
 				Filters:          testCase.expectedWhereFilter,
+				NearObject:       testCase.expectedNearObjectFilter,
+				NearVector:       testCase.expectedNearVectorFilter,
 				IncludeMetaCount: testCase.expectedIncludeMetaCount,
 				Limit:            testCase.expectedLimit,
+				ObjectLimit:      testCase.expectedObjectLimit,
 			}
 
 			resolver.On("Aggregate", expectedParams).

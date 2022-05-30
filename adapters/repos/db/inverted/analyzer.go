@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -14,15 +14,15 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
-	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type Countable struct {
 	Data          []byte
-	TermFrequency float64
+	TermFrequency float32
 }
 
 type Property struct {
@@ -31,50 +31,82 @@ type Property struct {
 	HasFrequency bool
 }
 
-type Analyzer struct{}
+type Analyzer struct {
+	stopwords stopwords.StopwordDetector
+}
 
-// Text removes non alpha-numeric and splits into words, then aggregates
+// Text removes non alpha-numeric and splits into lowercased words, then aggregates
 // duplicates
-func (a *Analyzer) Text(in string) []Countable {
-	parts := helpers.TokenizeText(in)
-	terms := map[string]uint64{}
-	total := 0
-	for _, word := range parts {
-		word = strings.ToLower(word)
-		count, ok := terms[word]
-		if !ok {
-			terms[word] = 0
+func (a *Analyzer) Text(tokenization, in string) []Countable {
+	parts := textArrayTokenize(tokenization, []string{in})
+	return a.countParts(parts)
+}
+
+// TextArray removes non alpha-numeric and splits into lowercased words, then aggregates
+// duplicates
+func (a *Analyzer) TextArray(tokenization string, in []string) []Countable {
+	parts := textArrayTokenize(tokenization, in)
+	return a.countParts(parts)
+}
+
+func textArrayTokenize(tokenization string, in []string) []string {
+	var parts []string
+
+	switch tokenization {
+	case models.PropertyTokenizationWord:
+		for _, value := range in {
+			parts = append(parts, helpers.TokenizeText(value)...)
 		}
-		terms[word] = count + 1
-		total++
 	}
 
-	out := make([]Countable, len(terms))
-	i := 0
-	for term, count := range terms {
-		out[i] = Countable{
-			Data:          []byte(term),
-			TermFrequency: float64(count) / float64(total),
-		}
-		i++
-	}
-
-	return out
+	return parts
 }
 
 // String splits only on spaces and does not lowercase, then aggregates
 // duplicates
-func (a *Analyzer) String(in string) []Countable {
-	parts := helpers.TokenizeString(in)
+func (a *Analyzer) String(tokenization, in string) []Countable {
+	parts := stringArrayTokenize(tokenization, []string{in})
+	return a.countParts(parts)
+}
+
+// StringArray splits only on spaces and does not lowercase, then aggregates
+// duplicates
+func (a *Analyzer) StringArray(tokenization string, in []string) []Countable {
+	parts := stringArrayTokenize(tokenization, in)
+	return a.countParts(parts)
+}
+
+func stringArrayTokenize(tokenization string, in []string) []string {
+	var parts []string
+
+	switch tokenization {
+	case models.PropertyTokenizationField:
+		for _, value := range in {
+			if trimmed := helpers.TrimString(value); trimmed != "" {
+				parts = append(parts, trimmed)
+			}
+		}
+	case models.PropertyTokenizationWord:
+		for _, value := range in {
+			parts = append(parts, helpers.TokenizeString(value)...)
+		}
+	}
+
+	return parts
+}
+
+func (a *Analyzer) countParts(parts []string) []Countable {
 	terms := map[string]uint64{}
-	total := 0
 	for _, word := range parts {
+		if a.stopwords.IsStopword(word) {
+			continue
+		}
+
 		count, ok := terms[word]
 		if !ok {
 			terms[word] = 0
 		}
 		terms[word] = count + 1
-		total++
 	}
 
 	out := make([]Countable, len(terms))
@@ -82,7 +114,7 @@ func (a *Analyzer) String(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float64(count) / float64(total),
+			TermFrequency: float32(count),
 		}
 		i++
 	}
@@ -211,6 +243,6 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-func NewAnalyzer() *Analyzer {
-	return &Analyzer{}
+func NewAnalyzer(stopwords stopwords.StopwordDetector) *Analyzer {
+	return &Analyzer{stopwords: stopwords}
 }

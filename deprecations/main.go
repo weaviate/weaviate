@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,5 +17,5 @@ import "github.com/sirupsen/logrus"
 //go:generate goimports -w data.go
 
 func Log(logger logrus.FieldLogger, id string) {
-	logger.WithField("depreaction", ByID[id]).Warning(ByID[id].Msg)
+	logger.WithField("deprecation", ByID[id]).Warning(ByID[id].Msg)
 }

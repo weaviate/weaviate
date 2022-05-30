@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -20,18 +20,18 @@ import (
 )
 
 // Dump to stdout for debugging purposes
-func (index *hnsw) Dump(labels ...string) {
+func (h *hnsw) Dump(labels ...string) {
 	if len(labels) > 0 {
 		fmt.Printf("--------------------------------------------------\n")
 		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
 	}
 	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", index.id)
-	fmt.Printf("Entrypoint: %d\n", index.entryPointID)
-	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
-	fmt.Printf("Tombstones %v\n", index.tombstones)
+	fmt.Printf("ID: %s\n", h.id)
+	fmt.Printf("Entrypoint: %d\n", h.entryPointID)
+	fmt.Printf("Max Level: %d\n", h.currentMaximumLayer)
+	fmt.Printf("Tombstones %v\n", h.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range index.nodes {
+	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
@@ -46,15 +46,15 @@ func (index *hnsw) Dump(labels ...string) {
 }
 
 // DumpJSON to stdout for debugging purposes
-func (index *hnsw) DumpJSON(labels ...string) {
+func (h *hnsw) DumpJSON(labels ...string) {
 	dump := JSONDump{
 		Labels:              labels,
-		ID:                  index.id,
-		Entrypoint:          index.entryPointID,
-		CurrentMaximumLayer: index.currentMaximumLayer,
-		Tombstones:          index.tombstones,
+		ID:                  h.id,
+		Entrypoint:          h.entryPointID,
+		CurrentMaximumLayer: h.currentMaximumLayer,
+		Tombstones:          h.tombstones,
 	}
-	for _, node := range index.nodes {
+	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
@@ -123,4 +123,35 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	}
 
 	return index, nil
+}
+
+// was added as part of
+// https://github.com/semi-technologies/weaviate/issues/1868 for debugging. It
+// is not currently in use anywhere as it is somewhat costly, it would lock the
+// entire graph and iterate over every node which would lead to disruptions in
+// production. However, keeping this method around may be valuable for future
+// investigations where the amount of links may be a problem.
+func (h *hnsw) ValidateLinkIntegrity() {
+	h.Lock()
+	defer h.Unlock()
+
+	for i, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+
+		for level, conns := range node.connections {
+			m := h.maximumConnections
+			if level == 0 {
+				m = h.maximumConnectionsLayerZero
+			}
+
+			if len(conns) > m {
+				h.logger.Warnf("node %d at level %d has %d connections", i, level, len(conns))
+			}
+
+		}
+	}
+
+	h.logger.Infof("completed link integrity check")
 }

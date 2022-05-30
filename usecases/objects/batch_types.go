@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -13,7 +13,9 @@ package objects
 
 import (
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 )
 
@@ -59,3 +61,32 @@ type BatchReference struct {
 // order from the original request. It can be turned into the expected response
 // type using the .Response() method
 type BatchReferences []BatchReference
+
+type BatchSimpleObject struct {
+	UUID strfmt.UUID
+	Err  error
+}
+
+type BatchSimpleObjects []BatchSimpleObject
+
+type BatchDeleteParams struct {
+	ClassName schema.ClassName     `json:"className"`
+	Filters   *filters.LocalFilter `json:"filters"`
+	DryRun    bool
+	Output    string
+}
+
+type BatchDeleteResult struct {
+	Matches int64
+	Limit   int64
+	DryRun  bool
+	Objects BatchSimpleObjects
+}
+
+type BatchDeleteResponse struct {
+	Match  *models.BatchDeleteMatch
+	DryRun bool
+	Output string
+	Params BatchDeleteParams
+	Result BatchDeleteResult
+}

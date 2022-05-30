@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,7 +17,9 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -53,6 +55,11 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	}
 
 	err = m.parseVectorIndexConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.invertedConfigValidator(class.InvertedIndexConfig)
 	if err != nil {
 		return err
 	}
@@ -111,60 +118,100 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
 	}
 
+	if class.InvertedIndexConfig.Bm25 == nil {
+		class.InvertedIndexConfig.Bm25 = &models.BM25Config{
+			K1: config.DefaultBM25k1,
+			B:  config.DefaultBM25b,
+		}
+	}
+
+	if class.InvertedIndexConfig.Stopwords == nil {
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
+		}
+	}
+
+	for _, prop := range class.Properties {
+		m.setPropertyDefaults(prop)
+	}
+
 	m.moduleConfig.SetClassDefaults(class)
 }
 
+func (m *Manager) setPropertyDefaults(prop *models.Property) {
+	m.setPropertyDefaultTokenization(prop)
+}
+
+func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
+	// already set, no default needed
+	if prop.Tokenization != "" {
+		return
+	}
+
+	// set only for tokenization supporting data types
+	if len(prop.DataType) == 1 {
+		switch prop.DataType[0] {
+		case string(schema.DataTypeString), string(schema.DataTypeStringArray),
+			string(schema.DataTypeText), string(schema.DataTypeTextArray):
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	}
+}
+
 func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
-	// First check if there is a name clash.
-	err := m.validateClassNameUniqueness(class.Class)
-	if err != nil {
+	if err := m.validateClassNameUniqueness(class.Class); err != nil {
 		return err
 	}
 
-	err = m.validateClassName(ctx, class.Class)
-	if err != nil {
+	if err := m.validateClassName(ctx, class.Class); err != nil {
 		return err
 	}
 
-	// Check properties
-	foundNames := map[string]bool{}
+	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyName(ctx, class.Class, property.Name,
-			property.ModuleConfig)
-		if err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, principal); err != nil {
 			return err
 		}
-
-		err = m.validateReservedPropertyName(property.Name)
-		if err != nil {
-			return err
-		}
-
-		if foundNames[property.Name] {
-			return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
-		}
-
-		foundNames[property.Name] = true
-
-		// Validate data type of property.
-		schema, err := m.GetSchema(principal)
-		if err != nil {
-			return err
-		}
-
-		_, err = (&schema).FindPropertyDataType(property.DataType)
-		if err != nil {
-			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
-		}
+		existingPropertyNames[property.Name] = true
 	}
 
-	err = m.validateVectorSettings(ctx, class)
+	if err := m.validateVectorSettings(ctx, class); err != nil {
+		return err
+	}
+
+	if err := m.moduleConfig.ValidateClass(ctx, class); err != nil {
+		return err
+	}
+
+	// all is fine!
+	return nil
+}
+
+func (m *Manager) validateProperty(property *models.Property, class *models.Class, existingPropertyNames map[string]bool, principal *models.Principal) error {
+	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
+		return err
+	}
+
+	if err := schema.ValidateReservedPropertyName(property.Name); err != nil {
+		return err
+	}
+
+	if existingPropertyNames[property.Name] {
+		return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
+	}
+
+	// Validate data type of property.
+	schema, err := m.GetSchema(principal)
 	if err != nil {
 		return err
 	}
 
-	err = m.moduleConfig.ValidateClass(ctx, class)
+	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
+		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+	}
+
+	if err := validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
 

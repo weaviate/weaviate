@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -23,7 +23,6 @@ import (
 // implement. If it is implemented, all methods will be called when the user
 // adds or updates a class which has the module set as the vectorizer
 type ClassConfigurator interface {
-
 	// ClassDefaults provides the defaults for a per-class module config. The
 	// module provider will merge the props into the user-specified config with
 	// the user-provided values taking precedence

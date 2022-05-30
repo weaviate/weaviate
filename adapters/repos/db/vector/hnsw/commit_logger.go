@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,7 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxUncondensedCommitLogSize = 500 * 1024 * 1024
+const defaultCommitLogSize = 500 * 1024 * 1024
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -39,17 +39,26 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string,
-	maintainenceInterval time.Duration,
-	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
+	maintainenceInterval time.Duration, logger logrus.FieldLogger,
+	opts ...CommitlogOption) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		cancel:               make(chan struct{}),
+		cancelComplete:       make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor2(logger),
+		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
-		maxSizeIndividual:    maxUncondensedCommitLogSize / 5, // TODO: make configurable
-		maxSizeCombining:     maxUncondensedCommitLogSize,     // TODO: make configurable
+
+		// both can be overwritten using functional options
+		maxSizeIndividual: defaultCommitLogSize / 5,
+		maxSizeCombining:  defaultCommitLogSize,
+	}
+
+	for _, o := range opts {
+		if err := o(l); err != nil {
+			return nil, err
+		}
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -223,16 +232,21 @@ type condensor interface {
 }
 
 type hnswCommitLogger struct {
+	// protect against concurrent attempts to write in the underlying file or
+	// buffer
 	sync.Mutex
-	cancel               chan struct{}
+
+	cancel         chan struct{}
+	cancelComplete chan struct{}
+
 	rootPath             string
 	id                   string
 	condensor            condensor
-	maintainenceInterval time.Duration
 	logger               logrus.FieldLogger
 	maxSizeIndividual    int64
 	maxSizeCombining     int64
 	commitLogger         *commitlog.Logger
+	maintainenceInterval time.Duration
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -359,10 +373,21 @@ func (l *hnswCommitLogger) StartLogging() {
 	// cancel maintenance jobs on request
 	go func(cancel ...chan struct{}) {
 		<-l.cancel
+
 		for _, c := range cancel {
 			c <- struct{}{}
 		}
+
+		l.cancelComplete <- struct{}{}
 	}(cancelCombineAndCondenseLogs, cancelSwitchLog)
+}
+
+// Shutdown waits for ongoing maintenance processes to stop, then cancels their
+// scheduling. The caller can be sure that state on disk is immutable after
+// calling Shutdown().
+func (l *hnswCommitLogger) Shutdown() {
+	l.cancel <- struct{}{}
+	<-l.cancelComplete
 }
 
 func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
@@ -513,6 +538,7 @@ func (l *hnswCommitLogger) Drop() error {
 
 	// stop all goroutines
 	l.cancel <- struct{}{}
+	<-l.cancelComplete
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
 	if _, err := os.Stat(dir); err == nil {

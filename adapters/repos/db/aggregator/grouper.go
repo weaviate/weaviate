@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -71,7 +71,7 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(g.store, s, g.invertedRowCache, nil,
-		g.classSearcher, g.deletedDocIDs).
+		g.classSearcher, g.deletedDocIDs, g.stopwords, g.shardVersion).
 		DocIDs(ctx, g.params.Filters, additional.Properties{},
 			g.params.ClassName)
 	if err != nil {

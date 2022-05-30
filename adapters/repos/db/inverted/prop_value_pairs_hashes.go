@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -40,8 +40,10 @@ func (pv *propValuePair) cacheable() bool {
 
 func (pv *propValuePair) fetchHashes(s *Searcher) error {
 	if pv.operator.OnValue() {
-		if pv.prop == "id" {
-			pv.prop = helpers.PropertyNameID
+		if pv.prop == filters.InternalPropBackwardsCompatID {
+			// the user-specified ID is considered legacy. we
+			// support backwards compatibility with this prop
+			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
 
@@ -59,7 +61,7 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 				return err
 			}
 		} else {
-			hash, err = pv.hashForNonEqualOp(s.store, b)
+			hash, err = pv.hashForNonEqualOp(s.store, b, s.shardVersion)
 			if err != nil {
 				return err
 			}
@@ -84,7 +86,7 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 }
 
 func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
-	hashBucket *lsmkv.Bucket) ([]byte, error) {
+	hashBucket *lsmkv.Bucket, shardVersion uint16) ([]byte, error) {
 	bucketName := helpers.BucketFromPropNameLSM(pv.prop)
 	propBucket := store.Bucket(bucketName)
 	if propBucket == nil && pv.operator != filters.OperatorWithinGeoRange {
@@ -92,7 +94,7 @@ func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	}
 
 	if pv.hasFrequency {
-		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket)
+		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket, shardVersion)
 	}
 	return pv.hashForNonEqualOpWithoutFrequency(propBucket, hashBucket)
 }
@@ -122,8 +124,8 @@ func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
 }
 
 func (pv *propValuePair) hashForNonEqualOpWithFrequency(propBucket,
-	hashBucket *lsmkv.Bucket) ([]byte, error) {
-	rr := NewRowReaderFrequency(propBucket, pv.value, pv.operator, true)
+	hashBucket *lsmkv.Bucket, shardVersion uint16) ([]byte, error) {
+	rr := NewRowReaderFrequency(propBucket, pv.value, pv.operator, true, shardVersion)
 
 	var keys [][]byte
 	if err := rr.Read(context.TODO(), func(k []byte, ids []lsmkv.MapPair) (bool, error) {

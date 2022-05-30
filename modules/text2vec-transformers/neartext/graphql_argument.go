@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,6 +24,10 @@ func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *grap
 
 func (g *GraphQLArgumentsProvider) exploreNearTextArgumentFn() *graphql.ArgumentConfig {
 	return g.nearTextArgument("Explore", "")
+}
+
+func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.nearTextArgument("Aggregate", classname)
 }
 
 func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {

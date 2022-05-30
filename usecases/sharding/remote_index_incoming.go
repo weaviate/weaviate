@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -48,10 +49,15 @@ type RemoteIndexIncomingRepo interface {
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
-		vector []float32, limit int, filters *filters.LocalFilter,
+		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
+		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		additional additional.Properties) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
+	IncomingFindDocIDs(ctx context.Context, shardName string,
+		filters *filters.LocalFilter) ([]uint64, error)
+	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
+		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
 }
 
 type RemoteIndexIncoming struct {
@@ -148,14 +154,16 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
-	vector []float32, limit int, filters *filters.LocalFilter,
+	vector []float32, distance float32, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil, errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingSearch(ctx, shardName, vector, limit, filters, additional)
+	return index.IncomingSearch(
+		ctx, shardName, vector, distance, limit, filters, keywordRanking, sort, additional)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
@@ -166,4 +174,25 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params)
+}
+
+func (rii *RemoteIndexIncoming) FindDocIDs(ctx context.Context, indexName, shardName string,
+	filters *filters.LocalFilter) ([]uint64, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingFindDocIDs(ctx, shardName, filters)
+}
+
+func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
+	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		err := errors.Errorf("local index %q not found", indexName)
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	return index.IncomingDeleteObjectBatch(ctx, shardName, docIDs, dryRun)
 }

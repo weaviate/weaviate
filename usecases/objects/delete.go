@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -37,16 +37,29 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) error {
-	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
-	if err != nil {
-		return err
-	}
+	// There might be a situation to have UUIDs which are not unique across classes.
+	// Added loop in order to delete all of the objects with given UUID across all classes.
+	// This change is added in response to this issue:
+	// https://github.com/semi-technologies/weaviate/issues/1836
+	deleteCounter := 0
+	for {
+		objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+		if err != nil {
+			_, ok := err.(ErrNotFound)
+			if ok {
+				if deleteCounter == 0 {
+					return err
+				}
+				return nil
+			}
+			return err
+		}
 
-	object := objectRes.Object()
-	err = m.vectorRepo.DeleteObject(ctx, object.Class, id)
-	if err != nil {
-		return NewErrInternal("could not delete object from vector repo: %v", err)
+		object := objectRes.Object()
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id)
+		if err != nil {
+			return NewErrInternal("could not delete object from vector repo: %v", err)
+		}
+		deleteCounter++
 	}
-
-	return nil
 }

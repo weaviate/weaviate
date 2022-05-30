@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -53,7 +53,7 @@ func benchmarkDotAVX(b *testing.B, dims int) {
 }
 
 func BenchmarkDot(b *testing.B) {
-	dims := []int{256, 300, 600, 768, 1024}
+	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
 			b.Run("pure go", func(b *testing.B) { benchmarkDotGo(b, dim) })

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -36,7 +36,7 @@ func TestVectorizingObjects(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			name: "empty object",
 			input: &models.Object{
 				Class: "Car",
@@ -45,7 +45,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedPoolingStrategy: "cls",
 			expectedClientCall:      "car",
 		},
-		testCase{
+		{
 			name: "object with one string prop",
 			input: &models.Object{
 				Class: "Car",
@@ -56,7 +56,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "car brand mercedes",
 		},
 
-		testCase{
+		{
 			name: "object with one non-string prop",
 			input: &models.Object{
 				Class: "Car",
@@ -67,7 +67,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "car",
 		},
 
-		testCase{
+		{
 			name: "object with a mix of props",
 			input: &models.Object{
 				Class: "Car",
@@ -79,7 +79,7 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			expectedClientCall: "car brand best brand review a very great car",
 		},
-		testCase{
+		{
 			name:    "with a noindexed property",
 			noindex: "review",
 			input: &models.Object{
@@ -93,7 +93,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "car brand best brand",
 		},
 
-		testCase{
+		{
 			name:          "with the class name not vectorized",
 			excludedClass: "Car",
 			input: &models.Object{
@@ -107,7 +107,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "brand best brand review a very great car",
 		},
 
-		testCase{
+		{
 			name:             "with a property name not vectorized",
 			excludedProperty: "review",
 			input: &models.Object{
@@ -121,7 +121,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "car brand best brand a very great car",
 		},
 
-		testCase{
+		{
 			name:             "with no schema labels vectorized",
 			excludedProperty: "review",
 			excludedClass:    "Car",
@@ -134,7 +134,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "a very great car",
 		},
 
-		testCase{
+		{
 			name:             "with string/text arrays without propname or classname",
 			excludedProperty: "reviews",
 			excludedClass:    "Car",
@@ -150,7 +150,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "a very great car you should consider buying one",
 		},
 
-		testCase{
+		{
 			name: "with string/text arrays with propname and classname",
 			input: &models.Object{
 				Class: "Car",
@@ -164,7 +164,7 @@ func TestVectorizingObjects(t *testing.T) {
 			expectedClientCall: "car reviews a very great car reviews you should consider buying one",
 		},
 
-		testCase{
+		{
 			name: "with compound class and prop names",
 			input: &models.Object{
 				Class: "SuperCar",

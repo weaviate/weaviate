@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -62,22 +62,20 @@ func (ua *unfilteredAggregator) Do(ctx context.Context) (*aggregation.Result, er
 
 func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 	out *aggregation.Result) error {
-	var count int
-
 	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return errors.Errorf("objects bucket is nil")
 	}
 
-	c := b.Cursor()
-	defer c.Close()
+	// c := b.Cursor()
+	// defer c.Close()
 
-	// TODO: can this be optimized?
-	for k, _ := c.First(); k != nil; k, _ = c.Next() {
-		count++
-	}
+	// // TODO: can this be optimized?
+	// for k, _ := c.First(); k != nil; k, _ = c.Next() {
+	// 	count++
+	// }
 
-	out.Groups[0].Count = count
+	out.Groups[0].Count = b.Count()
 
 	return nil
 }

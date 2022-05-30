@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,12 +22,18 @@ import (
 
 type commitloggerParser struct {
 	path     string
+	strategy string
 	memtable *Memtable
 	reader   io.Reader
 }
 
-func newCommitLoggerParser(path string, activeMemtable *Memtable) *commitloggerParser {
-	return &commitloggerParser{path: path, memtable: activeMemtable}
+func newCommitLoggerParser(path string, activeMemtable *Memtable,
+	strategy string) *commitloggerParser {
+	return &commitloggerParser{
+		path:     path,
+		memtable: activeMemtable,
+		strategy: strategy,
+	}
 }
 
 func (p *commitloggerParser) Do() error {
@@ -90,5 +96,24 @@ func (p *commitloggerParser) parseCollectionNode() error {
 		return err
 	}
 
+	if p.strategy == StrategyMapCollection {
+		return p.parseMapNode(n)
+	}
 	return p.memtable.append(n.primaryKey, n.values)
+}
+
+func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
+	for _, val := range n.values {
+		mp := MapPair{}
+		if err := mp.FromBytes(val.value, false); err != nil {
+			return err
+		}
+		mp.Tombstone = val.tombstone
+
+		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -12,14 +12,17 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,30 +38,33 @@ type Bucket struct {
 	flushLock sync.RWMutex
 
 	memTableThreshold uint64
+	walThreshold      uint64
 	strategy          string
 	secondaryIndices  uint16
 
+	// for backward compatibility
+	legacyMapSortingBeforeCompaction bool
+
 	stopFlushCycle chan struct{}
+
+	status     storagestate.Status
+	statusLock sync.RWMutex
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
-	defaultThreshold := uint64(10 * 1024 * 1024)
+	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
+	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger, metrics)
-	if err != nil {
-		return nil, errors.Wrap(err, "init disk segments")
-	}
-
 	b := &Bucket{
 		dir:               dir,
-		disk:              sg,
-		memTableThreshold: defaultThreshold,
+		memTableThreshold: defaultMemTableThreshold,
+		walThreshold:      defaultWalThreshold,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
@@ -70,7 +76,13 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		}
 	}
 
-	b.disk.setStrategy(b.strategy)
+	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+		b.legacyMapSortingBeforeCompaction, metrics)
+	if err != nil {
+		return nil, errors.Wrap(err, "init disk segments")
+	}
+
+	b.disk = sg
 
 	if err := b.setNewActiveMemtable(); err != nil {
 		return nil, err
@@ -237,7 +249,8 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 }
 
 type MapListOptionConfig struct {
-	acceptDuplicates bool
+	acceptDuplicates           bool
+	legacyRequireManualSorting bool
 }
 
 type MapListOption func(c *MapListOptionConfig)
@@ -245,6 +258,12 @@ type MapListOption func(c *MapListOptionConfig)
 func MapListAcceptDuplicates() MapListOption {
 	return func(c *MapListOptionConfig) {
 		c.acceptDuplicates = true
+	}
+}
+
+func MapListLegacySortingRequired() MapListOption {
+	return func(c *MapListOptionConfig) {
+		c.legacyRequireManualSorting = true
 	}
 }
 
@@ -257,81 +276,99 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		cfg(&c)
 	}
 
-	var raw []value
-
-	v, err := b.disk.getCollection(key)
+	segments := [][]MapPair{}
+	// before := time.Now()
+	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
 
-	if len(raw) > 0 {
-		raw = append(raw, v...)
-	} else {
-		raw = v
+	for i := range disk {
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+				return nil, err
+			}
+			segmentDecoded[j].Tombstone = v.tombstone
+		}
+		segments = append(segments, segmentDecoded)
 	}
 
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+
 	if b.flushing != nil {
-		v, err := b.flushing.getCollection(key)
+		v, err := b.flushing.getMap(key)
 		if err != nil {
 			if err != nil && err != NotFound {
 				return nil, err
 			}
 		}
-		raw = append(raw, v...)
+
+		segments = append(segments, v)
 	}
 
-	v, err = b.active.getCollection(key)
+	// before = time.Now()
+	v, err := b.active.getMap(key)
 	if err != nil {
 		if err != nil && err != NotFound {
 			return nil, err
 		}
 	}
-	raw = append(raw, v...)
+	segments = append(segments, v)
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
-	return newMapDecoder().Do(raw, c.acceptDuplicates)
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+			})
+		}
+	}
+
+	return newSortedMapMerger().do(segments)
 }
 
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, kv)
 }
 
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	v, err := newMapEncoder().DoMulti(kvs)
-	if err != nil {
-		return err
+	for _, kv := range kvs {
+		if err := b.active.appendMapSorted(rowKey, kv); err != nil {
+			return err
+		}
 	}
 
-	return b.active.append(rowKey, v)
+	return nil
 }
 
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	kv := MapPair{
+	pair := MapPair{
 		Key:       mapKey,
 		Tombstone: true,
 	}
 
-	v, err := newMapEncoder().Do(kv)
-	if err != nil {
-		return err
-	}
-
-	return b.active.append(rowKey, v)
+	return b.active.appendMapSorted(rowKey, pair)
 }
 
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
@@ -352,6 +389,48 @@ func (b *Bucket) setNewActiveMemtable() error {
 
 	b.active = mt
 	return nil
+}
+
+func (b *Bucket) Count() int {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if b.strategy != StrategyReplace {
+		panic("Count() called on strategy other than 'replace'")
+	}
+
+	memtableCount := b.memtableNetCount(b.active.countStats())
+	if b.flushing != nil {
+		memtableCount += b.memtableNetCount(b.flushing.countStats())
+	}
+	diskCount := b.disk.count()
+
+	return memtableCount + diskCount
+}
+
+func (b *Bucket) memtableNetCount(stats *countStats) int {
+	netCount := 0
+
+	// TODO: this uses regular get, given that this may be called quite commonly,
+	// we might consider building a pure Exists(), which skips reading the value
+	// and only checks for tombstones, etc.
+	for _, key := range stats.upsertKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v == nil {
+			// this key didn't exist before
+			netCount++
+		}
+	}
+
+	for _, key := range stats.tombstonedKeys {
+		v, _ := b.disk.get(key) // current implementation can't error
+		if v != nil {
+			// this key existed before
+			netCount--
+		}
+	}
+
+	return netCount
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
@@ -396,7 +475,34 @@ func (b *Bucket) initFlushCycle() {
 				return
 			case <-t:
 				b.flushLock.Lock()
-				shouldSwitch := b.active.Size() >= b.memTableThreshold
+
+				// to check the current size of the WAL to
+				// see if the threshold has been reached
+				stat, err := b.active.commitlog.file.Stat()
+				if err != nil {
+					b.logger.WithField("action", "lsm_wal_stat").
+						WithField("path", b.dir).
+						WithError(err).
+						Fatal("flush and switch failed")
+				}
+
+				shouldSwitch := b.active.Size() >= b.memTableThreshold ||
+					uint64(stat.Size()) >= b.walThreshold
+
+				// If true, the parent shard has indicated that it has
+				// entered an immutable state. During this time, the
+				// bucket should refrain from flushing until its shard
+				// indicates otherwise
+				if shouldSwitch && b.isReadOnly() {
+					b.logger.WithField("action", "lsm_memtable_flush").
+						WithField("path", b.dir).
+						Warn("flush halted due to shard READONLY status")
+
+					b.flushLock.Unlock()
+					time.Sleep(time.Second)
+					continue
+				}
+
 				b.flushLock.Unlock()
 				if shouldSwitch {
 					if err := b.FlushAndSwitch(); err != nil {
@@ -409,6 +515,24 @@ func (b *Bucket) initFlushCycle() {
 			}
 		}
 	}()
+}
+
+// UpdateStatus is used by the parent shard to communicate to the bucket
+// when the shard has been set to readonly, or when it is ready for
+// writes.
+func (b *Bucket) UpdateStatus(status storagestate.Status) {
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	b.status = status
+	b.disk.updateStatus(status)
+}
+
+func (b *Bucket) isReadOnly() bool {
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	return b.status == storagestate.StatusReadOnly
 }
 
 // FlushAndSwitch is typically called periodically and does not require manual

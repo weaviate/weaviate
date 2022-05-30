@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,7 +24,7 @@ var (
 )
 
 func init() {
-	validateClassNameRegex = regexp.MustCompile(`^([A-Z][a-z]+)+$`)
+	validateClassNameRegex = regexp.MustCompile(`^[A-Z][_0-9A-Za-z]*$`)
 	validatePropertyNameRegex = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 	reservedPropertyNames = []string{"_additional", "_id", "id"}

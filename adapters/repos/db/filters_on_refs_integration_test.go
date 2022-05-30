@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -45,8 +46,13 @@ func TestRefFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryLimit: 20, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryLimit:                20,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -65,7 +71,7 @@ func TestRefFilters(t *testing.T) {
 
 	t.Run("importing with various combinations of props", func(t *testing.T) {
 		objects := []models.Object{
-			models.Object{
+			{
 				Class: "MultiRefParkingGarage",
 				Properties: map[string]interface{}{
 					"name": "Luxury Parking Garage",
@@ -77,7 +83,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
 				CreationTimeUnix: 1566469890,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingGarage",
 				Properties: map[string]interface{}{
 					"name": "Crappy Parking Garage",
@@ -89,7 +95,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
 				CreationTimeUnix: 1566469892,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingLot",
 				Properties: map[string]interface{}{
 					"name": "Fancy Parking Lot",
@@ -97,7 +103,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
 				CreationTimeUnix: 1566469894,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingLot",
 				Properties: map[string]interface{}{
 					"name": "The worst parking lot youve ever seen",
@@ -105,7 +111,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
 				CreationTimeUnix: 1566469897,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked no where",
@@ -113,7 +119,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
 				CreationTimeUnix: 1566469899,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in a garage",
@@ -126,7 +132,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
 				CreationTimeUnix: 1566469902,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in a lot",
@@ -139,7 +145,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "21ab5130-627a-4268-baef-1a516bd6cad4",
 				CreationTimeUnix: 1566469906,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in two places at the same time (magic!)",
@@ -155,7 +161,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "533673a7-2a5c-4e1c-b35d-a3809deabace",
 				CreationTimeUnix: 1566469909,
 			},
-			models.Object{
+			{
 				Class: "MultiRefDriver",
 				Properties: map[string]interface{}{
 					"name": "Johny Drivemuch",
@@ -168,7 +174,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "9653ab38-c16b-4561-80df-7a7e19300dd0",
 				CreationTimeUnix: 1566469912,
 			},
-			models.Object{
+			{
 				Class: "MultiRefPerson",
 				Properties: map[string]interface{}{
 					"name": "Jane Doughnut",
@@ -181,7 +187,7 @@ func TestRefFilters(t *testing.T) {
 				ID:               "91ad23a3-07ba-4d4c-9836-76c57094f734",
 				CreationTimeUnix: 1566469915,
 			},
-			models.Object{
+			{
 				Class: "MultiRefSociety",
 				Properties: map[string]interface{}{
 					"name": "Cool People",
@@ -291,7 +297,7 @@ func TestRefFilters(t *testing.T) {
 						Operator: filters.OperatorAnd,
 						Operands: []filters.Clause{
 							*(parkedAtFilter.Root),
-							filters.Clause{
+							{
 								On: &filters.Path{
 									Class:    schema.ClassName("MultiRefCar"),
 									Property: schema.PropertyName("name"),
@@ -466,8 +472,18 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+<<<<<<< HEAD
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
+=======
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+>>>>>>> master
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)

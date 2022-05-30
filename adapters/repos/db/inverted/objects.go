@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -12,13 +12,14 @@
 package inverted
 
 import (
+	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -35,12 +36,21 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		return nil, errors.Wrap(err, "analyze props")
 	}
 
-	property, err := a.analyzeIDProp(uuid)
+	idProp, err := a.analyzeIDProp(uuid)
 	if err != nil {
 		return nil, errors.Wrap(err, "analyze uuid prop")
 	}
+	properties = append(properties, *idProp)
 
-	properties = append(properties, *property)
+	tsProps, err := a.analyzeTimestampProps(input)
+	if err != nil {
+		return nil, errors.Wrap(err, "analyze timestamp props")
+	}
+	// tsProps will be nil here if weaviate is
+	// not setup to index by timestamps
+	if tsProps != nil {
+		properties = append(properties, tsProps...)
+	}
 
 	return properties, nil
 }
@@ -85,7 +95,7 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 		return nil, errors.Wrap(err, "marshal id prop")
 	}
 	return &Property{
-		Name:         helpers.PropertyNameID,
+		Name:         filters.InternalPropID,
 		HasFrequency: false,
 		Items: []Countable{
 			{
@@ -93,6 +103,36 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 			},
 		},
 	}, nil
+}
+
+func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Property, error) {
+	createTime, createTimeOK := input[filters.InternalPropCreationTimeUnix]
+	updateTime, updateTimeOK := input[filters.InternalPropLastUpdateTimeUnix]
+
+	var props []Property
+	if createTimeOK {
+		b, err := json.Marshal(createTime)
+		if err != nil {
+			return nil, errors.Wrap(err, "analyze create timestamp prop")
+		}
+		props = append(props, Property{
+			Name:  filters.InternalPropCreationTimeUnix,
+			Items: []Countable{{Data: b}},
+		})
+	}
+
+	if updateTimeOK {
+		b, err := json.Marshal(updateTime)
+		if err != nil {
+			return nil, errors.Wrap(err, "analyze update timestamp prop")
+		}
+		props = append(props, Property{
+			Name:  filters.InternalPropLastUpdateTimeUnix,
+			Items: []Countable{{Data: b}},
+		})
+	}
+
+	return props, nil
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
@@ -161,18 +201,18 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	switch dt {
 	case schema.DataTypeTextArray:
 		hasFrequency = HasFrequency(dt)
-		value, err := a.stringValFromArray(prop, values)
+		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
-		items = a.Text(value)
+		items = a.TextArray(prop.Tokenization, in)
 	case schema.DataTypeStringArray:
 		hasFrequency = HasFrequency(dt)
-		value, err := a.stringValFromArray(prop, values)
+		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
-		items = a.String(value)
+		items = a.StringArray(prop.Tokenization, in)
 	case schema.DataTypeIntArray:
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
@@ -256,19 +296,16 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	}, nil
 }
 
-func (a *Analyzer) stringValFromArray(prop *models.Property, values []interface{}) (string, error) {
-	var value strings.Builder
-	for i := range values {
-		asString, ok := values[i].(string)
+func stringsFromValues(prop *models.Property, values []interface{}) ([]string, error) {
+	in := make([]string, len(values))
+	for i, value := range values {
+		asString, ok := value.(string)
 		if !ok {
-			return "", fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, values[i])
+			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		value.WriteString(asString)
-		if i != len(values)-1 {
-			value.WriteString(" ")
-		}
+		in[i] = asString
 	}
-	return value.String(), nil
+	return in, nil
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
@@ -282,14 +319,14 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.Text(asString)
+		items = a.Text(prop.Tokenization, asString)
 	case schema.DataTypeString:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.String(asString)
+		items = a.String(prop.Tokenization, asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {

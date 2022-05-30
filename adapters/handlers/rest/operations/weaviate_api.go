@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -69,6 +69,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BatchBatchObjectsCreateHandler: batch.BatchObjectsCreateHandlerFunc(func(params batch.BatchObjectsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchObjectsCreate has not yet been implemented")
 		}),
+		BatchBatchObjectsDeleteHandler: batch.BatchObjectsDeleteHandlerFunc(func(params batch.BatchObjectsDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation batch.BatchObjectsDelete has not yet been implemented")
+		}),
 		BatchBatchReferencesCreateHandler: batch.BatchReferencesCreateHandlerFunc(func(params batch.BatchReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchReferencesCreate has not yet been implemented")
 		}),
@@ -95,6 +98,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ObjectsObjectsGetHandler: objects.ObjectsGetHandlerFunc(func(params objects.ObjectsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsGet has not yet been implemented")
+		}),
+		ObjectsObjectsHeadHandler: objects.ObjectsHeadHandlerFunc(func(params objects.ObjectsHeadParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsHead has not yet been implemented")
 		}),
 		ObjectsObjectsListHandler: objects.ObjectsListHandlerFunc(func(params objects.ObjectsListParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsList has not yet been implemented")
@@ -131,6 +137,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
+		}),
+		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
+		}),
+		SchemaSchemaObjectsShardsUpdateHandler: schema.SchemaObjectsShardsUpdateHandlerFunc(func(params schema.SchemaObjectsShardsUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsShardsUpdate has not yet been implemented")
 		}),
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
@@ -197,6 +209,8 @@ type WeaviateAPI struct {
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
 	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
 	BatchBatchObjectsCreateHandler batch.BatchObjectsCreateHandler
+	// BatchBatchObjectsDeleteHandler sets the operation handler for the batch objects delete operation
+	BatchBatchObjectsDeleteHandler batch.BatchObjectsDeleteHandler
 	// BatchBatchReferencesCreateHandler sets the operation handler for the batch references create operation
 	BatchBatchReferencesCreateHandler batch.BatchReferencesCreateHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
@@ -215,6 +229,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsDeleteHandler objects.ObjectsDeleteHandler
 	// ObjectsObjectsGetHandler sets the operation handler for the objects get operation
 	ObjectsObjectsGetHandler objects.ObjectsGetHandler
+	// ObjectsObjectsHeadHandler sets the operation handler for the objects head operation
+	ObjectsObjectsHeadHandler objects.ObjectsHeadHandler
 	// ObjectsObjectsListHandler sets the operation handler for the objects list operation
 	ObjectsObjectsListHandler objects.ObjectsListHandler
 	// ObjectsObjectsPatchHandler sets the operation handler for the objects patch operation
@@ -239,6 +255,10 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
+	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
+	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
+	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
+	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
@@ -326,6 +346,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.BatchBatchObjectsCreateHandler == nil {
 		unregistered = append(unregistered, "batch.BatchObjectsCreateHandler")
 	}
+	if o.BatchBatchObjectsDeleteHandler == nil {
+		unregistered = append(unregistered, "batch.BatchObjectsDeleteHandler")
+	}
 	if o.BatchBatchReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "batch.BatchReferencesCreateHandler")
 	}
@@ -352,6 +375,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsGetHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsGetHandler")
+	}
+	if o.ObjectsObjectsHeadHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsHeadHandler")
 	}
 	if o.ObjectsObjectsListHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsListHandler")
@@ -388,6 +414,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
+	}
+	if o.SchemaSchemaObjectsShardsGetHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
+	}
+	if o.SchemaSchemaObjectsShardsUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsShardsUpdateHandler")
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
@@ -509,6 +541,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batch/objects"] = batch.NewBatchObjectsCreate(o.context, o.BatchBatchObjectsCreateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/batch/objects"] = batch.NewBatchObjectsDelete(o.context, o.BatchBatchObjectsDeleteHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -545,6 +581,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/objects/{id}"] = objects.NewObjectsGet(o.context, o.ObjectsObjectsGetHandler)
+	if o.handlers["HEAD"] == nil {
+		o.handlers["HEAD"] = make(map[string]http.Handler)
+	}
+	o.handlers["HEAD"]["/objects/{id}"] = objects.NewObjectsHead(o.context, o.ObjectsObjectsHeadHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -593,6 +633,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/shards"] = schema.NewSchemaObjectsShardsGet(o.context, o.SchemaSchemaObjectsShardsGetHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/{className}/shards/{shardName}"] = schema.NewSchemaObjectsShardsUpdate(o.context, o.SchemaSchemaObjectsShardsUpdateHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}

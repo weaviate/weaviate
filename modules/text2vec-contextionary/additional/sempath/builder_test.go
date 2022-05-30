@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,7 +28,7 @@ func TestSemanticPathBuilder(t *testing.T) {
 	b.fixedSeed = 1000 // control randomness in unit test
 
 	input := []search.Result{
-		search.Result{
+		{
 			ID:        "7fe919ed-2ef6-4087-856c-a307046bf895",
 			ClassName: "Foo",
 			Vector:    []float32{1, 0.1},
@@ -37,53 +37,53 @@ func TestSemanticPathBuilder(t *testing.T) {
 	searchVector := []float32{0.3, 0.3}
 
 	c11y.neighbors = []*txt2vecmodels.NearestNeighbors{
-		&txt2vecmodels.NearestNeighbors{
+		{
 			Neighbors: []*txt2vecmodels.NearestNeighbor{
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good1",
 					Vector:  []float32{0.5, 0.1},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good2",
 					Vector:  []float32{0.7, 0.2},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good3",
 					Vector:  []float32{0.9, 0.1},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good4",
 					Vector:  []float32{0.55, 0.1},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good5",
 					Vector:  []float32{0.77, 0.2},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "good6",
 					Vector:  []float32{0.99, 0.1},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad1",
 					Vector:  []float32{-0.1, -3},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad2",
 					Vector:  []float32{-0.15, -2.75},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad3",
 					Vector:  []float32{-0.22, -2.35},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad4",
 					Vector:  []float32{0.1, -3.3},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad5",
 					Vector:  []float32{0.15, -2.5},
 				},
-				&txt2vecmodels.NearestNeighbor{
+				{
 					Concept: "bad6",
 					Vector:  []float32{-0.4, -2.25},
 				},
@@ -96,41 +96,41 @@ func TestSemanticPathBuilder(t *testing.T) {
 
 	expectedPath := &txt2vecmodels.SemanticPath{
 		Path: []*txt2vecmodels.SemanticPathElement{
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:          "good5",
 				DistanceToNext:   ptFloat32(0.00029218197),
 				DistanceToQuery:  0.13783735,
 				DistanceToResult: 0.011904657,
 			},
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:            "good2",
 				DistanceToNext:     ptFloat32(0.014019072),
 				DistanceToPrevious: ptFloat32(0.00029218197),
 				DistanceToQuery:    0.12584269,
 				DistanceToResult:   0.015912116,
 			},
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:            "good3",
 				DistanceToNext:     ptFloat32(4.9889088e-05),
 				DistanceToPrevious: ptFloat32(0.014019072),
 				DistanceToQuery:    0.21913117,
 				DistanceToResult:   6.0379505e-05,
 			},
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:            "good6",
 				DistanceToNext:     ptFloat32(0.0046744347),
 				DistanceToPrevious: ptFloat32(4.9889088e-05),
 				DistanceToQuery:    0.2254098,
 				DistanceToResult:   5.364418e-07,
 			},
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:            "good1",
 				DistanceToNext:     ptFloat32(0.00015383959),
 				DistanceToPrevious: ptFloat32(0.0046744347),
 				DistanceToQuery:    0.16794968,
 				DistanceToResult:   0.004771471,
 			},
-			&txt2vecmodels.SemanticPathElement{
+			{
 				Concept:            "good4",
 				DistanceToPrevious: ptFloat32(0.00015383959),
 				DistanceToQuery:    0.17780781,

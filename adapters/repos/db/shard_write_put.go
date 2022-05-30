@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,16 +15,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
+	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -37,8 +45,12 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "store object in LSM store")
 	}
 
-	if err := s.updateVectorIndex(object.Vector, status); err != nil {
-		return errors.Wrap(err, "update vector index")
+	// vector is now optional as of
+	// https://github.com/semi-technologies/weaviate/issues/1800
+	if object.Vector != nil {
+		if err := s.updateVectorIndex(object.Vector, status); err != nil {
+			return errors.Wrap(err, "update vector index")
+		}
 	}
 
 	if err := s.updatePropertySpecificIndices(object, status); err != nil {
@@ -47,6 +59,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
+	}
+
+	if err := s.propLengths.Flush(); err != nil {
+		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
 	if err := s.vectorIndex.Flush(); err != nil {
@@ -58,6 +74,13 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
+	// on occasion, objects are updated which
+	// do not have vector embeddings. in this
+	// case, there is nothing to update here.
+	if len(vector) == 0 {
+		return nil
+	}
+
 	if status.docIDChanged {
 		if err := s.vectorIndex.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
@@ -117,9 +140,9 @@ type objectInsertStatus struct {
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
-// didn't exist before, we will get a new docID from the central counter.
-// Otherwise, we will will reuse the previous docID and mark this as an update
-func (s Shard) determineInsertStatus(previous []byte,
+// didn't exist before), we will get a new docID from the central counter.
+// Otherwise, we will reuse the previous docID and mark this as an update
+func (s *Shard) determineInsertStatus(previous []byte,
 	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
@@ -156,7 +179,7 @@ func (s Shard) determineInsertStatus(previous []byte,
 // where it does not alter the doc id if one already exists. Calling this
 // method only makes sense under very special conditions, such as those
 // outlined in mutableMergeObjectInTx
-func (s Shard) determineMutableInsertStatus(previous []byte,
+func (s *Shard) determineMutableInsertStatus(previous []byte,
 	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
@@ -179,7 +202,7 @@ func (s Shard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
+func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64) error {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
@@ -188,7 +211,7 @@ func (s Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
 }
 
-func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
+func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, previous []byte) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
@@ -200,17 +223,57 @@ func (s Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze and cleanup previous")
 	}
 
+	if s.index.invertedIndexConfig.IndexTimestamps {
+		// update the inverted timestamp indices as well
+		err = s.addIndexedTimestampsToProps(object, &props)
+		if err != nil {
+			return errors.Wrap(err, "add indexed timestamps to props")
+		}
+	}
+
 	before := time.Now()
+
 	err = s.extendInvertedIndicesLSM(props, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
 	s.metrics.InvertedExtend(before, len(props))
 
+	if err := s.addPropLengths(props); err != nil {
+		return errors.Wrap(err, "store field length values for props")
+	}
+
 	return nil
 }
 
-func (s Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
+// addIndexedTimestampsToProps ensures that writes are indexed
+// by internal timestamps
+func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
+	createTime, err := json.Marshal(object.CreationTimeUnix())
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal _creationTimeUnix")
+	}
+
+	updateTime, err := json.Marshal(object.LastUpdateTimeUnix())
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal _lastUpdateTimeUnix")
+	}
+
+	*props = append(*props,
+		inverted.Property{
+			Name:  filters.InternalPropCreationTimeUnix,
+			Items: []inverted.Countable{{Data: createTime}},
+		},
+		inverted.Property{
+			Name:  filters.InternalPropLastUpdateTimeUnix,
+			Items: []inverted.Countable{{Data: updateTime}},
+		},
+	)
+
+	return nil
+}
+
+func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	previous []byte) error {
 	if !status.docIDChanged {
 		// nothing to do

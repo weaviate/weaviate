@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -69,14 +69,11 @@ type authorizer interface {
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
-
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		additional additional.Properties) (search.Results, error)
-
+		sort []filters.Sort, additional additional.Properties) (search.Results, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
-
 	AddReference(ctx context.Context, className string,
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error

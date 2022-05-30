@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -23,47 +23,47 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class:      "SomeThing",
 					Vectorizer: vectorizer,
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "intField",
 							DataType: []string{"int"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Class:      "CustomVectorClass",
 					Vectorizer: config.VectorizerModuleNone,
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "intField",
 							DataType: []string{"int"},
 						},
 					},
 				},
-				&models.Class{
+				{
 					Vectorizer: vectorizer,
 					Class:      "SomeAction",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "intField",
 							DataType: []string{"int"},
 						},
-						&models.Property{
+						{
 							Name:     "location",
 							DataType: []string{"geoCoordinates"},
 						},
-						&models.Property{
+						{
 							Name:     "phone",
 							DataType: []string{"phoneNumber"},
 						},
-						&models.Property{
+						{
 							Name:     "hasAction",
 							DataType: []string{"SomeAction"},
 						},
-						&models.Property{
+						{
 							Name:     "hasActions",
 							DataType: []string{"SomeAction"},
 						},
@@ -78,39 +78,39 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 var CarSchema = schema.Schema{
 	Objects: &models.Schema{
 		Classes: []*models.Class{
-			&models.Class{
+			{
 				Class: "Manufacturer",
 				Properties: []*models.Property{
-					&models.Property{
+					{
 						Name:     "name",
 						DataType: []string{"string"},
 					},
 				},
 			},
-			&models.Class{
+			{
 				Class: "Car",
 				Properties: []*models.Property{
-					&models.Property{
+					{
 						Name:     "horsepower",
 						DataType: []string{"int"},
 					},
-					&models.Property{
+					{
 						Name:     "weight",
 						DataType: []string{"number"},
 					},
-					&models.Property{
+					{
 						Name:     "modelName",
 						DataType: []string{"string"},
 					},
-					&models.Property{
+					{
 						Name:     "madeBy",
 						DataType: []string{"Manufacturer"},
 					},
-					&models.Property{
+					{
 						Name:     "startOfProduction",
 						DataType: []string{"date"},
 					},
-					&models.Property{
+					{
 						Name:     "stillInProduction",
 						DataType: []string{"boolean"},
 					},

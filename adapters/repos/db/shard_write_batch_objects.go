@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -13,18 +13,24 @@ package db
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context,
 	objects []*storobj.Object) []error {
+	if s.isReadOnly() {
+		return []error{storagestate.ErrStatusReadOnly}
+	}
+
 	return newObjectsBatcher(s).Objects(ctx, objects)
 }
 
@@ -52,7 +58,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 
 	b.init(objects)
 	b.storeInObjectStore(ctx)
-	b.storeAdditionalStorage(ctx)
+	b.storeAdditionalStorageWithWorkers(ctx)
 	b.flushWALs(ctx)
 	return b.errs
 }
@@ -147,30 +153,53 @@ func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUI
 	b.statuses[id] = status
 }
 
-// storeAdditionalStorage stores the object in all non-key-value stores,
-// such as the main vector index as well as the property-specific indices, such
-// as the geo-index.
-func (b *objectsBatcher) storeAdditionalStorage(ctx context.Context) {
+type job struct {
+	object *storobj.Object
+	status objectInsertStatus
+	index  int
+}
+
+// storeAdditionalStorageWithWorkers stores the object in all non-key-value
+// stores, such as the main vector index as well as the property-specific
+// indices, such as the geo-index.
+func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
 	if ok := b.checkContext(ctx); !ok {
 		// if the context is no longer OK, there's no point in continuing - abort
 		// early
 		return
 	}
 
-	beforeVectorIndex := time.Now()
 	wg := &sync.WaitGroup{}
+	worker := func(jobs <-chan job) {
+		defer wg.Done()
+		for job := range jobs {
+			b.storeSingleObjectInAdditionalStorage(ctx, job.object, job.status, job.index)
+		}
+	}
+
+	beforeVectorIndex := time.Now()
+
+	jobs := make(chan job, len(b.objects))
+
+	// spawn one worker per thread
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go worker(jobs)
+	}
+
 	for i, object := range b.objects {
 		if b.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
 
-		wg.Add(1)
 		status := b.statuses[object.ID()]
-		go func(object *storobj.Object, status objectInsertStatus, index int) {
-			defer wg.Done()
-			b.storeSingleObjectInAdditionalStorage(ctx, object, status, index)
-		}(object, status, i)
+		jobs <- job{
+			object: object,
+			status: status,
+			index:  i,
+		}
 	}
+	close(jobs)
 	wg.Wait()
 	b.shard.metrics.VectorIndex(beforeVectorIndex)
 }
@@ -198,9 +227,13 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 		return
 	}
 
-	if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
-		b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-		return
+	if object.Vector != nil {
+		// vector is now optional as of
+		// https://github.com/semi-technologies/weaviate/issues/1800
+		if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
+			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+			return
+		}
 	}
 
 	if err := b.shard.updatePropertySpecificIndices(object, status); err != nil {
@@ -254,6 +287,12 @@ func (b *objectsBatcher) flushWALs(ctx context.Context) {
 	}
 
 	if err := b.shard.vectorIndex.Flush(); err != nil {
+		for i := range b.objects {
+			b.setErrorAtIndex(err, i)
+		}
+	}
+
+	if err := b.shard.propLengths.Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}

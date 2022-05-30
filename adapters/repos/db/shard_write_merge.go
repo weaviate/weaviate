@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -18,11 +18,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	idBytes, err := uuid.MustParse(merge.ID.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -152,7 +157,7 @@ func (s *Shard) mergeObjectData(previous []byte,
 	merge objects.MergeDocument) (*storobj.Object, *storobj.Object, error) {
 	var previousObj *storobj.Object
 	if len(previous) == 0 {
-		// DocID must be overwriten after status check, simply set to initial
+		// DocID must be overwritten after status check, simply set to initial
 		// value
 		previousObj = storobj.New(0)
 		previousObj.SetClass(merge.Class)
@@ -199,6 +204,7 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
+	next.Object.LastUpdateTimeUnix = merge.UpdateTime
 	next.SetProperties(properties)
 
 	return next

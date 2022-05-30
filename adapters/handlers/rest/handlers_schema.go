@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,10 +15,9 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-
-	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type schemaHandlers struct {
@@ -134,6 +133,45 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
+	principal *models.Principal) middleware.Responder {
+	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsShardsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsShardsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	payload := status
+
+	return schema.NewSchemaObjectsShardsGetOK().WithPayload(payload)
+}
+
+func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.UpdateShardStatus(
+		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsShardsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	payload := params.Body
+
+	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
@@ -151,4 +189,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 		SchemaObjectsGetHandlerFunc(h.getClass)
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
+
+	api.SchemaSchemaObjectsShardsGetHandler = schema.
+		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
+	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
+		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
 }

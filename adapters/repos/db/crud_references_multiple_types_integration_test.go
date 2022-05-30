@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,8 +43,11 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -63,7 +67,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 	t.Run("importing with various combinations of props", func(t *testing.T) {
 		objects := []models.Object{
-			models.Object{
+			{
 				Class: "MultiRefParkingGarage",
 				Properties: map[string]interface{}{
 					"name": "Luxury Parking Garage",
@@ -75,7 +79,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
 				CreationTimeUnix: 1566469890,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingGarage",
 				Properties: map[string]interface{}{
 					"name": "Crappy Parking Garage",
@@ -87,7 +91,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
 				CreationTimeUnix: 1566469892,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingLot",
 				Properties: map[string]interface{}{
 					"name": "Fancy Parking Lot",
@@ -95,7 +99,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
 				CreationTimeUnix: 1566469894,
 			},
-			models.Object{
+			{
 				Class: "MultiRefParkingLot",
 				Properties: map[string]interface{}{
 					"name": "The worst parking lot youve ever seen",
@@ -103,7 +107,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
 				CreationTimeUnix: 1566469897,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked no where",
@@ -111,7 +115,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
 				CreationTimeUnix: 1566469899,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in a garage",
@@ -124,7 +128,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
 				CreationTimeUnix: 1566469902,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in a lot",
@@ -137,7 +141,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "21ab5130-627a-4268-baef-1a516bd6cad4",
 				CreationTimeUnix: 1566469906,
 			},
-			models.Object{
+			{
 				Class: "MultiRefCar",
 				Properties: map[string]interface{}{
 					"name": "Car which is parked in two places at the same time (magic!)",
@@ -153,7 +157,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "533673a7-2a5c-4e1c-b35d-a3809deabace",
 				CreationTimeUnix: 1566469909,
 			},
-			models.Object{
+			{
 				Class: "MultiRefDriver",
 				Properties: map[string]interface{}{
 					"name": "Johny Drivemuch",
@@ -166,7 +170,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "9653ab38-c16b-4561-80df-7a7e19300dd0",
 				CreationTimeUnix: 1566469912,
 			},
-			models.Object{
+			{
 				Class: "MultiRefPerson",
 				Properties: map[string]interface{}{
 					"name": "Jane Doughnut",
@@ -179,7 +183,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				ID:               "91ad23a3-07ba-4d4c-9836-76c57094f734",
 				CreationTimeUnix: 1566469915,
 			},
-			models.Object{
+			{
 				Class: "MultiRefSociety",
 				Properties: map[string]interface{}{
 					"name": "Cool People",
@@ -461,7 +465,7 @@ func parkedAtGarage() search.SelectProperties {
 			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName: "MultiRefParkingGarage",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
@@ -481,7 +485,7 @@ func parkedAtLot() search.SelectProperties {
 			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName: "MultiRefParkingLot",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
@@ -501,7 +505,7 @@ func parkedAtEither() search.SelectProperties {
 			Name:        "parkedAt",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName: "MultiRefParkingLot",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
@@ -510,7 +514,7 @@ func parkedAtEither() search.SelectProperties {
 						},
 					},
 				},
-				search.SelectClass{
+				{
 					ClassName: "MultiRefParkingGarage",
 					RefProperties: search.SelectProperties{
 						search.SelectProperty{
@@ -530,7 +534,7 @@ func drivesCarparkedAtLot() search.SelectProperties {
 			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtLot(),
 				},
@@ -545,7 +549,7 @@ func drivesCarparkedAtGarage() search.SelectProperties {
 			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtGarage(),
 				},
@@ -560,7 +564,7 @@ func drivesCarparkedAtEither() search.SelectProperties {
 			Name:        "drives",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtEither(),
 				},
@@ -575,7 +579,7 @@ func friendsWithdrivesCarparkedAtLot() search.SelectProperties {
 			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtLot(),
 				},
@@ -590,7 +594,7 @@ func friendsWithdrivesCarparkedAtGarage() search.SelectProperties {
 			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtGarage(),
 				},
@@ -605,7 +609,7 @@ func friendsWithdrivesCarparkedAtEither() search.SelectProperties {
 			Name:        "friendsWith",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarparkedAtEither(),
 				},
@@ -620,7 +624,7 @@ func hasMembersfriendsWithdrivesCarparkedAtLot() search.SelectProperties {
 			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtLot(),
 				},
@@ -635,7 +639,7 @@ func hasMembersfriendsWithdrivesCarparkedAtGarage() search.SelectProperties {
 			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtGarage(),
 				},
@@ -650,7 +654,7 @@ func hasMembersfriendsWithdrivesCarparkedAtEither() search.SelectProperties {
 			Name:        "hasMembers",
 			IsPrimitive: false,
 			Refs: []search.SelectClass{
-				search.SelectClass{
+				{
 					ClassName:     "MultiRefPerson",
 					RefProperties: friendsWithdrivesCarparkedAtEither(),
 				},

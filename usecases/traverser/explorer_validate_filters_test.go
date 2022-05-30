@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -28,6 +30,9 @@ import (
 )
 
 func Test_Explorer_GetClass_WithFilters(t *testing.T) {
+	valueNameFromDataType := func(dt schema.DataType) string {
+		return "value" + strings.ToUpper(string(dt[0])) + string(dt[1:])
+	}
 	log, _ := test.NewNullLogger()
 	type test struct {
 		name          string
@@ -327,8 +332,9 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 				name: "filter by id with wrong type",
 				filters: buildFilter(filters.OperatorEqual, []interface{}{"id"},
 					schema.DataTypeInt, "foo"),
-				expectedError: errors.Errorf("invalid 'where' filter: using special path " +
-					"[\"id\"] to filter by uuid: must use \"valueString\" to specify the id"),
+				expectedError: errors.Errorf(
+					"invalid 'where' filter: using [\"_id\"] to filter by uuid: " +
+						"must use \"valueString\" to specify the id"),
 			},
 		},
 	}
@@ -338,7 +344,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				params := GetParams{
 					ClassName: "ClassOne",
-					NearVector: &NearVectorParams{
+					NearVector: &searchparams.NearVector{
 						Vector: []float32{0.8, 0.2, 0.7},
 					},
 					Pagination: &filters.Pagination{Limit: 100},

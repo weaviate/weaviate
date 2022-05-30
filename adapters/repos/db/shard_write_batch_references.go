@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,6 +28,10 @@ import (
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) addReferencesBatch(ctx context.Context,
 	refs objects.BatchReferences) []error {
+	if s.isReadOnly() {
+		return []error{errors.Errorf("shard is read-only")}
+	}
+
 	return newReferencesBatcher(s).References(ctx, refs)
 }
 
@@ -57,7 +61,7 @@ func (b *referencesBatcher) References(ctx context.Context,
 
 func (b *referencesBatcher) init(refs objects.BatchReferences) {
 	b.refs = refs
-	b.errs = []error{}
+	b.errs = make([]error, len(refs))
 }
 
 func (b *referencesBatcher) storeInObjectStore(
@@ -261,7 +265,7 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
 		refs = parsed
 	}
 
-	a := inverted.NewAnalyzer()
+	a := inverted.NewAnalyzer(nil)
 
 	countItems, err := a.RefCount(refs)
 	if err != nil {

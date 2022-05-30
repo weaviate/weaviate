@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,7 +28,8 @@ type Migrator interface {
 	DropClass(ctx context.Context, className string) error
 	UpdateClass(ctx context.Context, className string,
 		newClassName *string) error
-
+	GetShardsStatus(ctx context.Context, className string) (map[string]string, error)
+	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 	AddProperty(ctx context.Context, className string,
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
@@ -37,4 +38,8 @@ type Migrator interface {
 		old, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfig(ctx context.Context, className string,
 		updated schema.VectorIndexConfig) error
+	ValidateInvertedIndexConfigUpdate(ctx context.Context,
+		old, updated *models.InvertedIndexConfig) error
+	UpdateInvertedIndexConfig(ctx context.Context, className string,
+		updated *models.InvertedIndexConfig) error
 }

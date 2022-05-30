@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func Test_Classifier_KNN(t *testing.T) {
 			id = class.ID
 		})
 
-		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+		t.Run("retrieving the same classification by id", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
@@ -420,6 +421,103 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 			expectedErr := "classification failed: " +
 				"no classes to be classified - did you run a previous classification already?"
 			assert.Equal(t, expectedErr, class.Error)
+		})
+	})
+}
+
+func Test_Classifier_WhereFilterValidation(t *testing.T) {
+	t.Run("when invalid whereFilters are received", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
+		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
+
+		t.Run("with invalid sourceFilter", func(t *testing.T) {
+			invalidSourceFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("should be valueText"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere: invalidSourceFilter,
+				},
+				Type: TypeContextual,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.EqualError(t, err, `invalid sourceWhere: data type filter cannot use "valueString" on type "text", use "valueText" instead`)
+		})
+
+		t.Run("with invalid targetFilter", func(t *testing.T) {
+			sourceFilter := &models.WhereFilter{
+				Path:      []string{"description"},
+				Operator:  "Equal",
+				ValueText: ptString("someValue"),
+			}
+
+			invalidTargetFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("someValue"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere: sourceFilter,
+					TargetWhere: invalidTargetFilter,
+				},
+				Type: TypeContextual,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.Error(t, err)
+			assert.True(t, strings.Contains(err.Error(), "invalid targetWhere"))
+		})
+
+		t.Run("with invalid trainingFilter", func(t *testing.T) {
+			sourceFilter := &models.WhereFilter{
+				Path:      []string{"description"},
+				Operator:  "Equal",
+				ValueText: ptString("someValue"),
+			}
+			invalidTrainingFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("someValue"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere:      sourceFilter,
+					TrainingSetWhere: invalidTrainingFilter,
+				},
+				Type: TypeKNN,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.Error(t, err)
+			assert.True(t, strings.Contains(err.Error(), "invalid trainingSetWhere"))
 		})
 	})
 }

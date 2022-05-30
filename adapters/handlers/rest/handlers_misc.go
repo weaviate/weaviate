@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -82,58 +82,58 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			origin := serverConfig.Config.Origin
 			body := &operations.WeaviateRootOKBody{
 				Links: []*models.Link{
-					&models.Link{
+					{
 						Name: "Meta information about this instance/cluster",
 						Href: fmt.Sprintf("%s/v1/meta", origin),
 					},
-					&models.Link{
+					{
 						Name:              "view complete schema",
 						Href:              fmt.Sprintf("%s/v1/schema", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
 					},
-					&models.Link{
+					{
 						Name:              "CRUD schema",
 						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
 					},
-					&models.Link{
+					{
 						Name:              "CRUD objects",
 						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/objects.html",
 					},
-					&models.Link{
+					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/contextual-classification.html,https://www.semi.technology/documentation/weaviate/current/features/knn-classification.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/modules/text2vec-contextionary.html#contextual-classification,https://weaviate.io/developers/weaviate/current/restful-api-references/classification.html#knn-classification",
 					},
-					&models.Link{
+					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/live", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#liveness",
 					},
-					&models.Link{
+					{
 						Name:              "check if Weaviate is ready (returns 200 on GET when ready)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/ready", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#readiness",
 					},
-					&models.Link{
+					{
 						Name:              "view link to openid configuration (returns 404 on GET if no openid is configured)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
-						DocumentationHref: "https://www.semi.technology/developers/weaviate/current/restful-api-references/well-known.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#openid-configuration",
 					},
 
 					// TODO: part of the text2vec-contextionary module
-					&models.Link{
+					{
 						Name:              "search contextionary for concepts (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/concepts/:concept", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
 					},
 
 					// TODO: part of the text2vec-contextionary module
-					&models.Link{
+					{
 						Name:              "extend contextionary with custom extensions (part of the text2vec-contextionary module)",
 						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/extensions", origin),
-						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
 					},
 				},
 			}

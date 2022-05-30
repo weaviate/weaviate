@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -83,16 +83,16 @@ func mergeAndOptimized(children []*propValuePair,
 func intersectAnd(smaller, larger *docPointers) *docPointers {
 	lookup := make(map[uint64]struct{}, len(smaller.docIDs))
 	eligibile := docPointers{
-		docIDs: make([]docPointer, len(smaller.docIDs)),
+		docIDs: make([]uint64, len(smaller.docIDs)),
 	}
 	for i := range smaller.docIDs {
-		lookup[smaller.docIDs[i].id] = struct{}{}
+		lookup[smaller.docIDs[i]] = struct{}{}
 	}
 
 	matches := 0
 	for i := range larger.docIDs {
-		if _, ok := lookup[larger.docIDs[i].id]; ok {
-			eligibile.docIDs[matches] = docPointer{id: larger.docIDs[i].id}
+		if _, ok := lookup[larger.docIDs[i]]; ok {
+			eligibile.docIDs[matches] = larger.docIDs[i]
 
 			// remove the current match from the lookup list. Otherwise, if the
 			// larger of the two lists contains duplicates for a doc id the total
@@ -101,7 +101,7 @@ func intersectAnd(smaller, larger *docPointers) *docPointers {
 			// find two matches. After deleting [1] from list_a after it was first
 			// found on list_b, we will no longer create a match for the second
 			// entry.
-			delete(lookup, larger.docIDs[i].id)
+			delete(lookup, larger.docIDs[i])
 			matches++
 		}
 	}
@@ -119,7 +119,7 @@ func mergeOrAcceptDuplicates(in []*docPointers) (*docPointers, error) {
 	}
 
 	out := docPointers{
-		docIDs:   make([]docPointer, size),
+		docIDs:   make([]uint64, size),
 		checksum: combineSetChecksums(in, filters.OperatorOr),
 	}
 

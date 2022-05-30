@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,6 +22,15 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 
 	for candidate := range allowList {
 		h.Lock()
+		// Hot fix for https://github.com/semi-technologies/weaviate/issues/1937
+		// this if statement mitigates the problem but it doesn't resolve the issue
+		if candidate >= uint64(len(h.nodes)) {
+			h.logger.WithField("action", "flatSearch").
+				Warnf("trying to get candidate: %v but we only have: %v elements.",
+					candidate, len(h.nodes))
+			h.Unlock()
+			continue
+		}
 		c := h.nodes[candidate]
 		if c == nil || h.hasTombstone(candidate) {
 			h.Unlock()

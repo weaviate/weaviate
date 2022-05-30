@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -47,6 +47,10 @@ type ClientService interface {
 	SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsGetOK, error)
 
 	SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error)
+
+	SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsGetOK, error)
+
+	SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsUpdateOK, error)
 
 	SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error)
 
@@ -225,6 +229,76 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  SchemaObjectsShardsGet gets the shards status of an object class
+*/
+func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsShardsGetParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.shards.get",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}/shards",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsShardsGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsShardsGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.shards.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  SchemaObjectsShardsUpdate Update shard status of an Object Class
+*/
+func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsShardsUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.shards.update",
+		Method:             "PUT",
+		PathPattern:        "/schema/{className}/shards/{shardName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsShardsUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsShardsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.shards.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

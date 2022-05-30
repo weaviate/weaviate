@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -397,9 +398,10 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, limit, filters, additional)
+		Marshal(vector, limit, filters, keywordRanking, sort, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal request payload")
 	}
@@ -491,4 +493,106 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, indexName,
 	}
 
 	return aggRes, nil
+}
+
+func (c *RemoteIndex) FindDocIDs(ctx context.Context, hostName, indexName,
+	shardName string, filters *filters.LocalFilter) ([]uint64, error) {
+	paramsBytes, err := clusterapi.IndicesPayloads.FindDocIDsParams.Marshal(filters)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal request payload")
+	}
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return nil, errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.FindDocIDsParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.FindDocIDsResults.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	docIDs, err := clusterapi.IndicesPayloads.FindDocIDsResults.Unmarshal(resBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+	return docIDs, nil
+}
+
+func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
+	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	method := http.MethodDelete
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(docIDs, dryRun)
+	if err != nil {
+		err := errors.Wrap(err, "marshal payload")
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(marshalled))
+	if err != nil {
+		err := errors.Wrap(err, "open http request")
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		err := errors.Wrap(err, "send http request")
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(res.Body)
+		err := errors.Errorf("unexpected status code %d (%s)", res.StatusCode, body)
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	if ct, ok := clusterapi.IndicesPayloads.BatchDeleteResults.
+		CheckContentTypeHeader(res); !ok {
+		err := errors.Errorf("unexpected content type: %s", ct)
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		err := errors.Wrap(err, "ready body")
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	bactchDeleteResults, err := clusterapi.IndicesPayloads.BatchDeleteResults.Unmarshal(resBytes)
+	if err != nil {
+		err := errors.Wrap(err, "unmarshal body")
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
+
+	return bactchDeleteResults
 }

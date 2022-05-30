@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"os"
 
@@ -25,7 +24,7 @@ import (
 
 type MemoryCondensor struct {
 	newLogFile *os.File
-	newLog     *bufio.Writer
+	newLog     *bufWriter
 	logger     logrus.FieldLogger
 }
 
@@ -34,10 +33,9 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
-
 	fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-	res, _, err := NewDeserializer2(c.logger).Do(fdBuf, nil, false)
+	res, _, err := NewDeserializer(c.logger).Do(fdBuf, nil, true)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
@@ -49,7 +47,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	c.newLogFile = newLogFile
-	c.newLog = bufio.NewWriterSize(c.newLogFile, 1*1024*1024)
+
+	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 
 	for _, node := range res.Nodes {
 		if node == nil {
@@ -57,14 +56,26 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			continue
 		}
 
-		if err := c.AddNode(node); err != nil {
-			return errors.Wrapf(err, "write node %d to commit log", node.id)
+		if node.level > 0 {
+			// nodes are implicitly added when they are first linked, if the level is
+			// not zero we know this node was new. If the level is zero it doesn't
+			// matter if it gets added explicitly or implicitly
+			if err := c.AddNode(node); err != nil {
+				return errors.Wrapf(err, "write node %d to commit log", node.id)
+			}
 		}
 
 		for level, links := range node.connections {
-			if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
-				return errors.Wrapf(err,
-					"write links for node %d at level %dto commit log", node.id, level)
+			if res.ReplaceLinks(node.id, uint16(level)) {
+				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %d to commit log", node.id, level)
+				}
+			} else {
+				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
+					return errors.Wrapf(err,
+						"write links for node %d at level %d to commit log", node.id, level)
+				}
 			}
 		}
 	}
@@ -98,37 +109,45 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64(w io.Writer, in uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor) writeUint64(w *bufWriter, in uint64) error {
+	toWrite := make([]byte, 8)
+	binary.LittleEndian.PutUint64(toWrite[0:8], in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing uint64")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint16(w io.Writer, in uint16) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor) writeUint16(w *bufWriter, in uint16) error {
+	toWrite := make([]byte, 2)
+	binary.LittleEndian.PutUint16(toWrite[0:2], in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing uint16")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
+func (c *MemoryCondensor) writeCommitType(w *bufWriter, in HnswCommitType) error {
+	toWrite := make([]byte, 1)
+	toWrite[0] = byte(in)
+	_, err := w.Write(toWrite)
 	if err != nil {
-		return errors.Wrap(err, "writing commit type")
+		return err
 	}
 
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64Slice(w io.Writer, in []uint64) error {
-	err := binary.Write(w, binary.LittleEndian, &in)
-	if err != nil {
-		return errors.Wrap(err, "writing []uint64")
+func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
+	for _, v := range in {
+		err := c.writeUint64(w, v)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -161,6 +180,31 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []ui
 	}
 	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
 	ec.add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
+
+	return ec.toError()
+}
+
+func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets []uint64) error {
+	toWrite := make([]byte, 13+len(targets)*8)
+	toWrite[0] = byte(AddLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
+	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(len(targets)))
+	for i, target := range targets {
+		offsetStart := 13 + i*8
+		offsetEnd := offsetStart + 8
+		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
+	}
+	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
+	ec := &errorCompounder{}
+	ec.add(c.writeCommitType(c.newLog, AddLinkAtLevel))
+	ec.add(c.writeUint64(c.newLog, nodeid))
+	ec.add(c.writeUint16(c.newLog, uint16(level)))
+	ec.add(c.writeUint64(c.newLog, target))
 
 	return ec.toError()
 }

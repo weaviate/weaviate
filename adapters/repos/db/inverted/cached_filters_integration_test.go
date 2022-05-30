@@ -4,11 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
 
+//go:build integrationTest
 // +build integrationTest
 
 package inverted
@@ -25,10 +26,15 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	className = "TestClass"
 )
 
 func Test_CachedFilters_String(t *testing.T) {
@@ -58,21 +64,21 @@ func Test_CachedFilters_String(t *testing.T) {
 	defer store.Shutdown(context.Background())
 
 	fakeInvertedIndex := map[string][]uint64{
-		"modulo-2":  []uint64{2, 4, 6, 8, 10, 12, 14, 16},
-		"modulo-3":  []uint64{3, 6, 9, 12, 15},
-		"modulo-4":  []uint64{4, 8, 12, 16},
-		"modulo-5":  []uint64{5, 10, 15},
-		"modulo-6":  []uint64{6, 12},
-		"modulo-7":  []uint64{7, 14},
-		"modulo-8":  []uint64{8, 16},
-		"modulo-9":  []uint64{9},
-		"modulo-10": []uint64{10},
-		"modulo-11": []uint64{11},
-		"modulo-12": []uint64{12},
-		"modulo-13": []uint64{13},
-		"modulo-14": []uint64{14},
-		"modulo-15": []uint64{15},
-		"modulo-16": []uint64{16},
+		"modulo-2":  {2, 4, 6, 8, 10, 12, 14, 16},
+		"modulo-3":  {3, 6, 9, 12, 15},
+		"modulo-4":  {4, 8, 12, 16},
+		"modulo-5":  {5, 10, 15},
+		"modulo-6":  {6, 12},
+		"modulo-7":  {7, 14},
+		"modulo-8":  {8, 16},
+		"modulo-9":  {9},
+		"modulo-10": {10},
+		"modulo-11": {11},
+		"modulo-12": {12},
+		"modulo-13": {13},
+		"modulo-14": {14},
+		"modulo-15": {15},
+		"modulo-16": {16},
 	}
 
 	t.Run("import data", func(t *testing.T) {
@@ -91,7 +97,7 @@ func Test_CachedFilters_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
@@ -229,9 +235,8 @@ func Test_CachedFilters_String(t *testing.T) {
 				Root: &filters.Clause{
 					Operator: filters.OperatorAnd,
 					Operands: []filters.Clause{
-
 						// This part will produce results
-						filters.Clause{
+						{
 							Operator: filters.OperatorOr,
 							Operands: []filters.Clause{
 								{
@@ -260,7 +265,7 @@ func Test_CachedFilters_String(t *testing.T) {
 						},
 
 						// This part will produce no results
-						filters.Clause{
+						{
 							Operator: filters.OperatorEqual,
 							On: &filters.Path{
 								Class:    "foo",
@@ -296,7 +301,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -311,7 +316,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -345,7 +350,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -356,7 +361,7 @@ func Test_CachedFilters_String(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -407,21 +412,21 @@ func Test_CachedFilters_Int(t *testing.T) {
 	defer store.Shutdown(context.Background())
 
 	fakeInvertedIndex := map[int64][]uint64{
-		2:  []uint64{2, 4, 6, 8, 10, 12, 14, 16},
-		3:  []uint64{3, 6, 9, 12, 15},
-		4:  []uint64{4, 8, 12, 16},
-		5:  []uint64{5, 10, 15},
-		6:  []uint64{6, 12},
-		7:  []uint64{7, 14},
-		8:  []uint64{8, 16},
-		9:  []uint64{9},
-		10: []uint64{10},
-		11: []uint64{11},
-		12: []uint64{12},
-		13: []uint64{13},
-		14: []uint64{14},
-		15: []uint64{15},
-		16: []uint64{16},
+		2:  {2, 4, 6, 8, 10, 12, 14, 16},
+		3:  {3, 6, 9, 12, 15},
+		4:  {4, 8, 12, 16},
+		5:  {5, 10, 15},
+		6:  {6, 12},
+		7:  {7, 14},
+		8:  {8, 16},
+		9:  {9},
+		10: {10},
+		11: {11},
+		12: {12},
+		13: {13},
+		14: {14},
+		15: {15},
+		16: {16},
 	}
 
 	t.Run("import data", func(t *testing.T) {
@@ -442,7 +447,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
@@ -672,7 +677,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -687,7 +692,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -708,7 +713,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -719,7 +724,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -753,11 +758,10 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 	out := make([]lsmkv.MapPair, len(ids))
 	for i, id := range ids {
 		out[i] = lsmkv.MapPair{
-
 			Key:   make([]byte, 8),
 			Value: make([]byte, 8),
 		}
-		binary.LittleEndian.PutUint64(out[i].Key, id)
+		binary.BigEndian.PutUint64(out[i].Key, id)
 		// leave frequency empty for now
 	}
 
@@ -836,8 +840,8 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	defer store.Shutdown(context.Background())
 
 	fakeInvertedIndex := map[string][]uint64{
-		"list_a": []uint64{0, 1},
-		"list_b": []uint64{1, 1, 1, 1, 1},
+		"list_a": {0, 1},
+		"list_b": {1, 1, 1, 1, 1},
 	}
 
 	t.Run("import data", func(t *testing.T) {
@@ -856,7 +860,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, schema.Schema{}, rowCacher, nil, nil, nil)
+	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
@@ -916,7 +920,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with cold cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -931,7 +935,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with warm cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListBeforeUpdate(), res)
 			})
@@ -964,7 +968,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with a stale cache", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -975,7 +979,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 
 			t.Run("with the cache being fresh again now", func(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
-					additional.Properties{}, "")
+					additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Equal(t, test.expectedListAfterUpdate(), res)
 			})
@@ -993,5 +997,28 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 						idsMapValues[0].Key))
 				})
 		})
+	}
+}
+
+func createSchema() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+					Properties: []*models.Property{
+						{
+							Name:         "inverted-with-frequency",
+							DataType:     []string{"string"},
+							Tokenization: "word",
+						},
+						{
+							Name:     "inverted-without-frequency",
+							DataType: []string{"int"},
+						},
+					},
+				},
+			},
+		},
 	}
 }

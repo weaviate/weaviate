@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -50,17 +51,23 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
-			Name:     "stringProp",
-			DataType: []string{string(schema.DataTypeString)},
+			Name:         "stringProp",
+			DataType:     []string{string(schema.DataTypeString)},
+			Tokenization: "word",
 		}, {
 			Name:          "hiddenStringProp",
 			DataType:      []string{string(schema.DataTypeString)},
+			Tokenization:  "word",
 			IndexInverted: ptBool(false),
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -122,6 +129,21 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(),
 			"bucket for prop hiddenStringProp not found - is it indexed?")
+	})
+
+	t.Run("class search on timestamp prop with no timestamp indexing error", func(t *testing.T) {
+		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName: "ThingClassWithNoIndexProps",
+			Pagination: &filters.Pagination{
+				Limit: 10,
+			},
+			Filters: buildFilter("_creationTimeUnix", "1234567891011", eq, dtString),
+		})
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(),
+			"timestamps must be indexed to be filterable! "+
+				"add `indexTimestaps: true` to the invertedIndexConfig")
 	})
 }
 

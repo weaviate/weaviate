@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -25,6 +25,14 @@ import (
 func (ig *SegmentGroup) eligbleForCompaction() bool {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
+
+	// if true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// SegmentGroup should refrain from flushing until its
+	// shard indicates otherwise
+	if ig.isReadyOnly() {
+		return false
+	}
 
 	// if there are at least two segments of the same level a regular compaction
 	// can be performed
@@ -152,9 +160,10 @@ func (ig *SegmentGroup) compactOnce() error {
 			return err
 		}
 	case SegmentStrategyMapCollection:
-		c := newCompactorMapCollection(f, ig.segmentAtPos(pair[0]).newCollectionCursor(),
-			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath)
+		c := newCompactorMapCollection(f,
+			ig.segmentAtPos(pair[0]).newCollectionCursorReusable(),
+			ig.segmentAtPos(pair[1]).newCollectionCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, ig.mapRequiresSorting)
 
 		if ig.metrics != nil {
 			ig.metrics.CompactionMap.With(prometheus.Labels{"path": ig.dir}).Set(1)
@@ -212,7 +221,8 @@ func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "strip .tmp extension of new segment")
 	}
 
-	seg, err := newSegment(newPath, ig.logger)
+	exists := ig.makeExistsOnLower(old1)
+	seg, err := newSegment(newPath, ig.logger, exists)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

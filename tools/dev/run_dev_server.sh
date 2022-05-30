@@ -10,6 +10,7 @@ export DEVELOPMENT_UI=on
 export LOG_LEVEL=debug
 export LOG_FORMAT=text
 export PROMETHEUS_MONITORING_ENABLED=true
+export ENABLE_EXPERIMENTAL_BM25=true
 
 case $CONFIG in
   debug)
@@ -31,14 +32,15 @@ case $CONFIG in
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
+      QUERY_MAXIMUM_RESULTS=10000 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
       ENABLE_MODULES="text2vec-contextionary" \
       CLUSTER_HOSTNAME="node1" \
-      CLUSTER_GOSSIP_BIND_PORT="7000" \
-      CLUSTER_DATA_BIND_PORT="7001" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -52,9 +54,9 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-node2" \
       CLUSTER_HOSTNAME="node2" \
-      CLUSTER_GOSSIP_BIND_PORT="7002" \
-      CLUSTER_DATA_BIND_PORT="7003" \
-      CLUSTER_JOIN="localhost:7000" \
+      CLUSTER_GOSSIP_BIND_PORT="7102" \
+      CLUSTER_DATA_BIND_PORT="7103" \
+      CLUSTER_JOIN="localhost:7100" \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary" \
@@ -82,6 +84,23 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-transformers-passage-query)
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
+      PERSISTENCE_DATA_PATH="./data" \
+      TRANSFORMERS_PASSAGE_INFERENCE_API="http://localhost:8006" \
+      TRANSFORMERS_QUERY_INFERENCE_API="http://localhost:8007" \
+      ENABLE_MODULES="text2vec-transformers" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;  
   local-qna)
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
@@ -196,6 +215,36 @@ case $CONFIG in
         --scheme http \
         --host "127.0.0.1" \
         --port 8080
+    ;;
+
+  local-openai)
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-openai \
+      PERSISTENCE_DATA_PATH="./data" \
+      ENABLE_MODULES="text2vec-openai" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-no-modules)
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=none \
+      PERSISTENCE_DATA_PATH="./data" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=3600s \
+        --write-timeout=3600s
     ;;
 
   *) 

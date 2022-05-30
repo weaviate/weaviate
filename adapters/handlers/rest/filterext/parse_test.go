@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -33,10 +33,10 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 	t.Run("all value types", func(t *testing.T) {
 		tests := []test{
-			test{
+			{
 				name: "no filter",
 			},
-			test{
+			{
 				name: "valid int filter",
 				input: &models.WhereFilter{
 					Operator: "Equal",
@@ -55,7 +55,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid string filter",
 				input: &models.WhereFilter{
 					Operator:    "Equal",
@@ -74,7 +74,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid date filter",
 				input: &models.WhereFilter{
 					Operator:  "Equal",
@@ -93,7 +93,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid text filter",
 				input: &models.WhereFilter{
 					Operator:  "Equal",
@@ -112,7 +112,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid number filter",
 				input: &models.WhereFilter{
 					Operator:    "Equal",
@@ -131,7 +131,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid bool filter",
 				input: &models.WhereFilter{
 					Operator:     "Equal",
@@ -150,7 +150,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
-			test{
+			{
 				name: "valid geo range filter",
 				input: &models.WhereFilter{
 					Operator:      "WithinGeoRange",
@@ -179,7 +179,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -188,7 +188,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 	t.Run("invalid cases", func(t *testing.T) {
 		tests := []test{
-			test{
+			{
 				name: "geo missing coordinates",
 				input: &models.WhereFilter{
 					Operator: "WithinGeoRange",
@@ -202,7 +202,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
 					"field 'geoCoordinates' must be set"),
 			},
-			test{
+			{
 				name: "geo missing distance object",
 				input: &models.WhereFilter{
 					Operator: "WithinGeoRange",
@@ -217,7 +217,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
 					"field 'distance' must be set"),
 			},
-			test{
+			{
 				name: "geo having negative distance",
 				input: &models.WhereFilter{
 					Operator: "WithinGeoRange",
@@ -235,7 +235,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
 					"field 'distance.max' must be a positive number"),
 			},
-			test{
+			{
 				name: "and operator and path set",
 				input: &models.WhereFilter{
 					Operator: "And",
@@ -245,7 +245,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					"operator 'And' not compatible with field 'path', remove 'path' " +
 					"or switch to compare operator (eg. Equal, NotEqual, etc.)"),
 			},
-			test{
+			{
 				name: "and operator and value set",
 				input: &models.WhereFilter{
 					Operator: "And",
@@ -256,7 +256,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					"remove value field or switch to compare operator " +
 					"(eg. Equal, NotEqual, etc.)"),
 			},
-			test{
+			{
 				name: "and operator and no operands set",
 				input: &models.WhereFilter{
 					Operator: "And",
@@ -264,7 +264,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				expectedErr: fmt.Errorf("invalid where filter: " +
 					"operator 'And', but no operands set - add at least one operand"),
 			},
-			test{
+			{
 				name: "equal operator and no values set",
 				input: &models.WhereFilter{
 					Operator: "Equal",
@@ -272,7 +272,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 				expectedErr: fmt.Errorf("invalid where filter: " +
 					"got operator 'Equal', but no value<Type> field set"),
 			},
-			test{
+			{
 				name: "equal operator and no path set",
 				input: &models.WhereFilter{
 					Operator: "Equal",
@@ -285,7 +285,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -295,37 +295,37 @@ func Test_ExtractFlatFilters(t *testing.T) {
 	t.Run("all operator types", func(t *testing.T) {
 		// all tests use int as the value type, value types are tested separately
 		tests := []test{
-			test{
+			{
 				name:           "equal",
 				input:          inputIntFilterWithOp("Equal"),
 				expectedFilter: intFilterWithOp(filters.OperatorEqual),
 			},
-			test{
+			{
 				name:           "like", // doesn't make sense on an int, but that's irrelevant for parsing
 				input:          inputIntFilterWithOp("Like"),
 				expectedFilter: intFilterWithOp(filters.OperatorLike),
 			},
-			test{
+			{
 				name:           "not equal",
 				input:          inputIntFilterWithOp("NotEqual"),
 				expectedFilter: intFilterWithOp(filters.OperatorNotEqual),
 			},
-			test{
+			{
 				name:           "greater than",
 				input:          inputIntFilterWithOp("GreaterThan"),
 				expectedFilter: intFilterWithOp(filters.OperatorGreaterThan),
 			},
-			test{
+			{
 				name:           "greater than/equal",
 				input:          inputIntFilterWithOp("GreaterThanEqual"),
 				expectedFilter: intFilterWithOp(filters.OperatorGreaterThanEqual),
 			},
-			test{
+			{
 				name:           "less than",
 				input:          inputIntFilterWithOp("LessThan"),
 				expectedFilter: intFilterWithOp(filters.OperatorLessThan),
 			},
-			test{
+			{
 				name:           "less than/equal",
 				input:          inputIntFilterWithOp("LessThanEqual"),
 				expectedFilter: intFilterWithOp(filters.OperatorLessThanEqual),
@@ -334,7 +334,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -344,7 +344,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 	t.Run("nested filters", func(t *testing.T) {
 		// all tests use int as the value type, value types are tested separately
 		tests := []test{
-			test{
+			{
 				name: "chainied together using and",
 				input: &models.WhereFilter{
 					Operator: "And",
@@ -358,7 +358,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Root: &filters.Clause{
 						Operator: filters.OperatorAnd,
 						Operands: []filters.Clause{
-							filters.Clause{
+							{
 								Operator: filters.OperatorEqual,
 								On: &filters.Path{
 									Class:    schema.AssertValidClassName("Todo"),
@@ -369,7 +369,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									Type:  schema.DataTypeInt,
 								},
 							},
-							filters.Clause{
+							{
 								Operator: filters.OperatorEqual,
 								On: &filters.Path{
 									Class:    schema.AssertValidClassName("Todo"),
@@ -388,7 +388,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				},
 			},
-			test{
+			{
 				name: "chainied together using or",
 				input: &models.WhereFilter{
 					Operator: "Or",
@@ -402,7 +402,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Root: &filters.Clause{
 						Operator: filters.OperatorOr,
 						Operands: []filters.Clause{
-							filters.Clause{
+							{
 								Operator: filters.OperatorEqual,
 								On: &filters.Path{
 									Class:    schema.AssertValidClassName("Todo"),
@@ -413,7 +413,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 									Type:  schema.DataTypeInt,
 								},
 							},
-							filters.Clause{
+							{
 								Operator: filters.OperatorEqual,
 								On: &filters.Path{
 									Class:    schema.AssertValidClassName("Todo"),
@@ -436,7 +436,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input)
+				filter, err := Parse(test.input, "Todo")
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})

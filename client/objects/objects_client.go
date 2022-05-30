@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -43,6 +43,8 @@ type ClientService interface {
 	ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsDeleteNoContent, error)
 
 	ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsGetOK, error)
+
+	ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsHeadNoContent, error)
 
 	ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsListOK, error)
 
@@ -169,6 +171,43 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for objects.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  ObjectsHead checks object s existence based on its UUID
+
+  Checks if an Object exists in the system.
+*/
+func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsHeadNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewObjectsHeadParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "objects.head",
+		Method:             "HEAD",
+		PathPattern:        "/objects/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ObjectsHeadReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ObjectsHeadNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for objects.head: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

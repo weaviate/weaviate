@@ -16,24 +16,24 @@
 
 ## Weaviate helps ...
 
-1. **Software Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
+1. **Software Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as an ML-first database for your applications. 
     * Out-of-the-box modules for: NLP/semantic search, automatic classification and image similarity search.
-    * Easy to integrate in your current architecture, with full CRUD support like you're used to from other OSS databases.
+    * Easy to integrate into your current architecture, with full CRUD support like you're used to from other OSS databases.
     * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
-2. **Data Engineers** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
-    * Weaviate has a modular setup that allows to use your own ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
+2. **Data Engineers** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate as a vector database that is built up from the ground with ANN at its core, and with the same UX they love from Lucene-based search engines.
+    * Weaviate has a modular setup that allows you to use your ML models inside Weaviate, but you can also use out-of-the-box ML models (e.g., SBERT, ResNet, fasttext, etc).
     * Weaviate takes care of the scalability, so that you don't have to.
     * Deploy and maintain ML models in production reliably and efficiently.
 
-3. **Data Scientists** ([docs](https://www.semi.technology/developers/weaviate/current/)) - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
+3. **Data Scientists** ([docs](https://weaviate.io/developers/weaviate/current/)) - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
     * Deploy and maintain your ML models in production reliably and efficiently.
     * Weaviate's modular design allows you to easily package any custom trained model you want.
     * Smooth and accelerated handover of your Machine Learning models to engineers.
 
 ## GraphQL interface demo
 
-<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=7" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://weaviate.io/img/weaviate-demo.gif?i=8" alt="Demo of Weaviate" width="100%"></a>
 
 <sup>Weaviate GraphQL demo on news article dataset containing: Transformers module, GraphQL usage, semantic search, _additional{} features, Q&A, and Aggregate{} function. You can the demo on this dataset in the GUI here: <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%20%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20nearText%3A%20%7B%0A%20%20%20%20%20%20%20%20concepts%3A%20%5B%22Housing%20prices%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20where%3A%20%7B%0A%20%20%20%20%20%20%20%20operator%3A%20Equal%0A%20%20%20%20%20%20%20%20path%3A%20%5B%22inPublication%22%2C%20%22Publication%22%2C%20%22name%22%5D%0A%20%20%20%20%20%20%20%20valueString%3A%20%22The%20Economist%22%0A%20%20%20%20%20%20%7D%0A%20%20%20%20)%20%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20certainty%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">semantic search</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20ask%3A%20%7B%0A%20%20%20%20%20%20%20%20question%3A%20%22What%20did%20Jemina%20Packington%20predict%3F%22%0A%20%20%20%20%20%20%20%20properties%3A%20%5B%22summary%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20limit%3A%201%0A%20%20%20%20)%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20answer%20%7B%0A%20%20%20%20%20%20%20%20%20%20endPosition%0A%20%20%20%20%20%20%20%20%20%20property%0A%20%20%20%20%20%20%20%20%20%20result%0A%20%20%20%20%20%20%20%20%20%20startPosition%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Q&A</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Aggregate%20%7B%0A%20%20%20%20Article%20%7B%0A%20%20%20%20%20%20meta%20%7B%0A%20%20%20%20%20%20%20%20count%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Aggregate</a>.</sup>
 
@@ -46,16 +46,15 @@ Weaviate makes it easy to use state-of-the-art ML models while giving you the sc
    <br><sub></sub>
 
 * **Any media type with Weaviate Modules**<br>
-  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for your - or import your own vectors.
+  Use State-of-the-Art ML model inference (e.g. Transformers) for Text, Images, etc. at search and query time to let Weaviate manage the process of vectorizing your data for you - or import your own vectors.
 
 * **Combine vector and scalar search**<br>
-  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for a third party object storage. 
-
+  Weaviate allows for efficient combined vector and scalar searches, e.g “articles related to the COVID 19 pandemic published within the past 7 days”. Weaviate stores both your objects and the vectors and make sure the retrieval of both is always efficient. There is no need for third party object storage.
 * **Real-time and persistent**<br>
-Weaviate let’s you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
+Weaviate lets you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
 
 * **Horizontal Scalability**<br>
-  Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Currently under development, ETA Fall 2021) 
+  Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Multi-Node sharding since `v1.8.0`, Replication under development) 
 
 * **Cost-Effectiveness**<br>
   Very large datasets do not need to be kept entirely in memory in Weaviate. At the same time available memory can be used to increase the speed of queries. This allows for a conscious speed/cost trade-off to suit every use case.
@@ -65,7 +64,7 @@ Weaviate let’s you search through your data even if it’s currently being imp
 
 ## Documentation
 
-You can find detailed documentation in the [developers section of our website](https://www.semi.technology/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
+You can find detailed documentation in the [developers section of our website](https://weaviate.io/developers/weaviate/current/) or directly go to one of the docs using the links in the list below.
 
 ## Additional material
 
@@ -79,7 +78,6 @@ You can find detailed documentation in the [developers section of our website](h
 - [Weaviate, an ANN Database with CRUD support (DB-Engines.com)](https://db-engines.com/en/blog_post/87)
 - [A sub-50ms neural search with DistilBERT and Weaviate (Towards Datascience)](https://towardsdatascience.com/a-sub-50ms-neural-search-with-distilbert-and-weaviate-4857ae390154)
 - [Getting Started with Weaviate Python Library (Towards Datascience)](https://towardsdatascience.com/getting-started-with-weaviate-python-client-e85d14f19e4f)
-- [Industry use cases (SeMI Technologies)](https://www.semi.technology/industry-solutions/)
 
 ## Examples
 
@@ -90,8 +88,8 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 - [Stackoverflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
 - [Github for issues](https://github.com/semi-technologies/weaviate/issues)
 - [Slack channel to connect](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
-- [Newsletter to stay in the know](https://www.semi.technology/newsletter/)
+- [Newsletter to stay in the know](http://weaviate-newsletter.semi.technology/)
 
 ## Contributing
 
-- [How to Contribute](https://www.semi.technology/developers/contributor-guide/current/)
+- [How to Contribute](https://weaviate.io/developers/contributor-guide/current/)

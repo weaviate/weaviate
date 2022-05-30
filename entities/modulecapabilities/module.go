@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,6 +22,11 @@ type Module interface {
 	Name() string
 	Init(ctx context.Context, params moduletools.ModuleInitParams) error
 	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
+}
+
+type ModuleExtension interface {
+	Module
+	InitExtension(modules []Module) error
 }
 
 type ModuleDependency interface {

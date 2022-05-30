@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -57,7 +57,7 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 				&models.Class{
 					Class: targetClass,
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							DataType: []string{"string"},
 							Name:     "name",
 						},
@@ -73,11 +73,11 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 				&models.Class{
 					Class: sourceClass,
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							DataType: []string{targetClass},
 							Name:     "toTarget",
 						},
-						&models.Property{
+						{
 							DataType: []string{"string"},
 							Name:     "name",
 						},

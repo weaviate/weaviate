@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,7 +24,6 @@ type vectorizer interface {
 	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
 	// element should be explicit nil, not skipped
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
-
 	VectorOnlyForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,7 +24,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
-		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	if !ok {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -21,6 +21,7 @@ type Memtable struct {
 	sync.RWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
+	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
 	commitlog          *commitLogger
 	size               uint64
@@ -40,6 +41,7 @@ func newMemtable(path string, strategy string,
 	m := &Memtable{
 		key:              &binarySearchTree{},
 		keyMulti:         &binarySearchTreeMulti{},
+		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
 		commitlog:        cl,
 		path:             path,
@@ -129,9 +131,8 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	l.key.insert(key, value, secondaryKeys)
-	l.size += uint64(len(key))
-	l.size += uint64(len(value))
+	netAdditions := l.key.insert(key, value, secondaryKeys)
+	l.size += uint64(netAdditions)
 
 	for i, sec := range secondaryKeys {
 		l.secondaryToPrimary[i][string(sec)] = key
@@ -191,6 +192,23 @@ func (l *Memtable) getCollection(key []byte) ([]value, error) {
 	return v, nil
 }
 
+func (l *Memtable) getMap(key []byte) ([]MapPair, error) {
+	if l.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("getCollection only possible with strategy %q",
+			StrategyMapCollection)
+	}
+
+	l.RLock()
+	defer l.RUnlock()
+
+	v, err := l.keyMap.get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
 func (l *Memtable) append(key []byte, values []value) error {
 	if l.strategy != StrategySetCollection && l.strategy != StrategyMapCollection {
 		return errors.Errorf("append only possible with strategies %q, %q",
@@ -215,11 +233,48 @@ func (l *Memtable) append(key []byte, values []value) error {
 	return nil
 }
 
+func (l *Memtable) appendMapSorted(key []byte, pair MapPair) error {
+	if l.strategy != StrategyMapCollection {
+		return errors.Errorf("append only possible with strategy %q",
+			StrategyMapCollection)
+	}
+
+	l.Lock()
+	defer l.Unlock()
+
+	valuesForCommitLog, err := pair.Bytes()
+	if err != nil {
+		return err
+	}
+
+	if err := l.commitlog.append(segmentCollectionNode{
+		primaryKey: key,
+		values: []value{
+			{
+				value: valuesForCommitLog,
+			},
+		},
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
+	l.keyMap.insert(key, pair)
+
+	// TODO: actual size diff
+	l.size += uint64(len(key) + len(valuesForCommitLog))
+
+	return nil
+}
+
 func (l *Memtable) Size() uint64 {
 	l.RLock()
 	defer l.RUnlock()
 
 	return l.size
+}
+
+func (l *Memtable) countStats() *countStats {
+	return l.key.countStats()
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

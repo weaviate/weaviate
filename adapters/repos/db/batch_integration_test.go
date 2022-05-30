@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -49,7 +50,12 @@ func TestBatchPutObjects(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -62,6 +68,65 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 }
 
+func TestBatchDeleteObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch delete things", testBatchDeleteObjects(repo))
+}
+
+func TestBatchDeleteObjects_Journey(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	queryMaximumResults := int64(20)
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       queryMaximumResults,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+}
+
 func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
 	return func(t *testing.T) {
@@ -71,8 +136,9 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:         "stringProp",
+					DataType:     []string{string(schema.DataTypeString)},
+					Tokenization: "word",
 				},
 				{
 					Name:     "location",
@@ -556,6 +622,222 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					assert.True(t, recall >= 0.99)
 				})
 			}
+		})
+	}
+}
+
+func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		getParams := func(dryRun bool, output string) objects.BatchDeleteParams {
+			return objects.BatchDeleteParams{
+				ClassName: "ThingForBatching",
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLike,
+						Value: &filters.Value{
+							Value: "*",
+							Type:  schema.DataTypeString,
+						},
+						On: &filters.Path{
+							Property: schema.PropertyName("id"),
+						},
+					},
+				},
+				DryRun: dryRun,
+				Output: output,
+			}
+		}
+		performClassSearch := func() ([]search.Result, error) {
+			return repo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10000},
+			})
+		}
+		t.Run("batch delete with dryRun set to true", func(t *testing.T) {
+			// get the initial count of the objects
+			res, err := performClassSearch()
+			require.Nil(t, err)
+			beforeDelete := len(res)
+			require.True(t, beforeDelete > 0)
+			// dryRun == true, only test how many objects can be deleted
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				getParams(true, "verbose"))
+			require.Nil(t, err)
+			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			res, err = performClassSearch()
+			require.Nil(t, err)
+			assert.Equal(t, beforeDelete, len(res))
+			fmt.Printf("beforeDelete: %v\n", beforeDelete)
+		})
+
+		t.Run("batch delete with dryRun set to true and output to minimal", func(t *testing.T) {
+			// get the initial count of the objects
+			res, err := performClassSearch()
+			require.Nil(t, err)
+			beforeDelete := len(res)
+			require.True(t, beforeDelete > 0)
+			// dryRun == true, only test how many objects can be deleted
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				getParams(true, "minimal"))
+			require.Nil(t, err)
+			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			res, err = performClassSearch()
+			require.Nil(t, err)
+			assert.Equal(t, beforeDelete, len(res))
+		})
+
+		t.Run("batch delete only 2 given objects", func(t *testing.T) {
+			// get the initial count of the objects
+			res, err := performClassSearch()
+			require.Nil(t, err)
+			beforeDelete := len(res)
+			require.True(t, beforeDelete > 0)
+			// dryRun == true, only test how many objects can be deleted
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				objects.BatchDeleteParams{
+					ClassName: "ThingForBatching",
+					Filters: &filters.LocalFilter{
+						Root: &filters.Clause{
+							Operator: filters.OperatorOr,
+							Operands: []filters.Clause{
+								{
+									Operator: filters.OperatorEqual,
+									On: &filters.Path{
+										Class:    "ThingForBatching",
+										Property: schema.PropertyName("id"),
+									},
+									Value: &filters.Value{
+										Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+										Type:  schema.DataTypeString,
+									},
+								},
+								{
+									Operator: filters.OperatorEqual,
+									On: &filters.Path{
+										Class:    "ThingForBatching",
+										Property: schema.PropertyName("id"),
+									},
+									Value: &filters.Value{
+										Value: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+										Type:  schema.DataTypeString,
+									},
+								},
+							},
+						},
+					},
+					DryRun: false,
+					Output: "verbose",
+				})
+			require.Nil(t, err)
+			require.Equal(t, int64(2), batchDeleteRes.Matches)
+			require.Equal(t, 2, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			res, err = performClassSearch()
+			require.Nil(t, err)
+			assert.Equal(t, beforeDelete-2, len(res))
+		})
+
+		t.Run("batch delete with dryRun set to false", func(t *testing.T) {
+			// get the initial count of the objects
+			res, err := performClassSearch()
+			require.Nil(t, err)
+			beforeDelete := len(res)
+			require.True(t, beforeDelete > 0)
+			// dryRun == true, only test how many objects can be deleted
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				getParams(false, "verbose"))
+			require.Nil(t, err)
+			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
+			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
+			for _, batchRes := range batchDeleteRes.Objects {
+				require.Nil(t, batchRes.Err)
+			}
+			res, err = performClassSearch()
+			require.Nil(t, err)
+			assert.Equal(t, 0, len(res))
+		})
+	}
+}
+
+func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *testing.T) {
+	return func(t *testing.T) {
+		getParams := func(dryRun bool, output string) objects.BatchDeleteParams {
+			return objects.BatchDeleteParams{
+				ClassName: "ThingForBatching",
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLike,
+						Value: &filters.Value{
+							Value: "*",
+							Type:  schema.DataTypeString,
+						},
+						On: &filters.Path{
+							Property: schema.PropertyName("id"),
+						},
+					},
+				},
+				DryRun: dryRun,
+				Output: output,
+			}
+		}
+		performClassSearch := func() ([]search.Result, error) {
+			return repo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 20},
+			})
+		}
+		t.Run("batch delete journey", func(t *testing.T) {
+			// delete objects to limit
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+				getParams(true, "verbose"))
+			require.Nil(t, err)
+			objectsMatches := batchDeleteRes.Matches
+
+			leftToDelete := objectsMatches
+			deleteIterationCount := 0
+			deletedObjectsCount := 0
+			for true {
+				// delete objects to limit
+				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+					getParams(false, "verbose"))
+				require.Nil(t, err)
+				matches, deleted := batchDeleteRes.Matches, len(batchDeleteRes.Objects)
+				require.Equal(t, leftToDelete, matches)
+				require.True(t, deleted > 0)
+				deletedObjectsCount += deleted
+
+				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(),
+					getParams(true, "verbose"))
+				require.Nil(t, err)
+				leftToDelete = batchDeleteRes.Matches
+
+				res, err := performClassSearch()
+				require.Nil(t, err)
+				afterDelete := len(res)
+				require.True(t, afterDelete >= 0)
+				if afterDelete == 0 {
+					// where have deleted all objects
+					break
+				}
+				deleteIterationCount += 1
+				if deleteIterationCount > 100 {
+					// something went wrong
+					break
+				}
+			}
+			require.False(t, deleteIterationCount > 100, "Batch delete journey tests didn't stop properly")
+			require.True(t, objectsMatches/int64(queryMaximumResults) <= int64(deleteIterationCount))
+			require.Equal(t, objectsMatches, int64(deletedObjectsCount))
 		})
 	}
 }

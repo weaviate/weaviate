@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -42,7 +42,7 @@ func Test_MergeObject(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			id:       "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name:     "didn't previously exist",
 			previous: nil,
@@ -55,7 +55,7 @@ func Test_MergeObject(t *testing.T) {
 			expectedErr: NewErrInvalidUserInput("invalid merge: object with id '%s' does not exist",
 				"dd59815b-142b-4c54-9b12-482434bd54ca"),
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a new property",
 			previous: &models.Object{
@@ -85,7 +85,7 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "without properties",
 			previous: &models.Object{
@@ -107,7 +107,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{},
 			},
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding many primitive properties of different types",
 			previous: &models.Object{
@@ -158,7 +158,7 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a primitive and a ref property",
 			previous: &models.Object{
@@ -199,7 +199,7 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 		},
-		testCase{
+		{
 			name: "udpating the vector of a non-vectorized class",
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			previous: &models.Object{
@@ -224,7 +224,7 @@ func Test_MergeObject(t *testing.T) {
 			},
 		},
 
-		testCase{
+		{
 			name: "not udpating the vector of a non-vectorized class",
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			previous: &models.Object{
@@ -316,7 +316,7 @@ func Test_MergeThing(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			id:       "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name:     "didn't previously exist",
 			previous: nil,
@@ -329,7 +329,7 @@ func Test_MergeThing(t *testing.T) {
 			expectedErr: NewErrInvalidUserInput("invalid merge: object with id '%s' does not exist",
 				"dd59815b-142b-4c54-9b12-482434bd54ca"),
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a new property",
 			previous: &models.Object{
@@ -359,7 +359,7 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding many primitive properties of different types",
 			previous: &models.Object{
@@ -410,7 +410,7 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 		},
-		testCase{
+		{
 			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
 			name: "adding a primitive and a ref property",
 			previous: &models.Object{
