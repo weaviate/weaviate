@@ -42,6 +42,8 @@ type ClientService interface {
 
 	ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassGetOK, error)
 
+	ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPatchNoContent, error)
+
 	ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPutOK, error)
 
 	ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsCreateOK, error)
@@ -140,6 +142,43 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for objects.class.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  ObjectsClassPatch updates an object based on its UUID using patch semantics
+
+  Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+*/
+func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPatchNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewObjectsClassPatchParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "objects.class.patch",
+		Method:             "PATCH",
+		PathPattern:        "/objects/{className}/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ObjectsClassPatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ObjectsClassPatchNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for objects.class.patch: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

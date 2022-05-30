@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 
@@ -48,9 +49,8 @@ type objectsManager interface {
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
-
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
-	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
+	MergeObject(context.Context, *models.Principal, *models.Object) error
 	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
@@ -59,7 +59,8 @@ type objectsManager interface {
 }
 
 func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -84,7 +85,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 }
 
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -104,7 +106,8 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 }
 
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	ps := objects.ObjectsClassGetParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -115,7 +118,8 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 
 // getObject gets object of a specific class
 func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	var additional additional.Properties
 
 	// The process to extract additional params depends on knowing the schema
@@ -161,7 +165,8 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 }
 
 func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
@@ -199,7 +204,8 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 }
 
 func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
 		Body:        params.Body,
@@ -209,7 +215,8 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 }
 
 func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeleteParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	ps := objects.ObjectsClassDeleteParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -219,7 +226,8 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 
 // deleteObject delete a single object of giving class
 func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := h.manager.DeleteObject(params.HTTPRequest.Context(), principal, params.ClassName, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -238,7 +246,8 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 }
 
 func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(), principal, params.ClassName, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -263,7 +272,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 }
 
 func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	exists, err := h.manager.HeadObject(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -284,27 +294,45 @@ func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
 	return objects.NewObjectsHeadNotFound()
 }
 
-func (h *objectHandlers) patchObject(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
-	err := h.manager.MergeObject(params.HTTPRequest.Context(), principal, params.ID, params.Body)
+func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
+	args := objects.ObjectsClassPatchParams{
+		HTTPRequest: params.HTTPRequest,
+		ID:          params.ID,
+		Body:        params.Body,
+	}
+	if params.Body != nil {
+		args.ClassName = params.Body.Class
+	}
+	return h.patchObject(args, principal)
+}
+
+func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
+	updates := params.Body
+	updates.ID = params.ID
+	updates.Class = params.ClassName
+	err := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates)
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return objects.NewObjectsPatchForbidden().
+		switch {
+		case stderrors.Is(err, usecasesObjects.ErrItemNotFound):
+			return objects.NewObjectsClassPatchNotFound()
+		case stderrors.Is(err, usecasesObjects.ErrAuthorization):
+			return objects.NewObjectsClassPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case usecasesObjects.ErrInvalidUserInput:
-			return objects.NewObjectsUpdateUnprocessableEntity().
+		case stderrors.Is(err, usecasesObjects.ErrValidation):
+			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return objects.NewObjectsUpdateInternalServerError().
+			return objects.NewObjectsClassPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return objects.NewObjectsPatchNoContent()
+	return objects.NewObjectsClassPatchNoContent()
 }
 
 func (h *objectHandlers) addObjectReference(params objects.ObjectsReferencesCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -324,7 +352,8 @@ func (h *objectHandlers) addObjectReference(params objects.ObjectsReferencesCrea
 }
 
 func (h *objectHandlers) updateObjectReferences(params objects.ObjectsReferencesUpdateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -344,7 +373,8 @@ func (h *objectHandlers) updateObjectReferences(params objects.ObjectsReferences
 }
 
 func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -365,7 +395,8 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesD
 
 func setupObjectHandlers(api *operations.WeaviateAPI,
 	manager *usecasesObjects.Manager, config config.Config, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider) {
+	modulesProvider ModulesProvider,
+) {
 	h := &objectHandlers{manager, logger, config, modulesProvider}
 
 	api.ObjectsObjectsCreateHandler = objects.
@@ -388,8 +419,10 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsClassPutHandlerFunc(h.updateObject)
 	api.ObjectsObjectsUpdateHandler = objects.
 		ObjectsUpdateHandlerFunc(h.updateObjectDeprecated)
+	api.ObjectsObjectsClassPatchHandler = objects.
+		ObjectsClassPatchHandlerFunc(h.patchObject)
 	api.ObjectsObjectsPatchHandler = objects.
-		ObjectsPatchHandlerFunc(h.patchObject)
+		ObjectsPatchHandlerFunc(h.patchObjectDeprecated)
 	api.ObjectsObjectsReferencesCreateHandler = objects.
 		ObjectsReferencesCreateHandlerFunc(h.addObjectReference)
 	api.ObjectsObjectsReferencesDeleteHandler = objects.
@@ -441,7 +474,8 @@ func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
 }
 
 func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModuleParams bool,
-	class *models.Class) (additional.Properties, error) {
+	class *models.Class,
+) (additional.Properties, error) {
 	out := additional.Properties{}
 	if in == nil {
 		return out, nil

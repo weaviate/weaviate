@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,100 +23,235 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
+type stage int
+
+const (
+	stageInit = iota
+	// stageInputValidation
+	stageAuthorization
+	stageUpdateValidation
+	stageObjectExists
+	// stageVectorization
+	// stageMerge
+	stageCount
+)
+
 func Test_MergeObject(t *testing.T) {
-	logger, _ := test.NewNullLogger()
+	t.Parallel()
+	var (
+		uuid           = strfmt.UUID("dd59815b-142b-4c54-9b12-482434bd54ca")
+		cls            = "ZooAction"
+		lastTime int64 = 12345
+		errAny         = errors.New("any error")
+	)
 
-	type testCase struct {
-		name                 string
-		previous             *models.Object // nil implies return false on Exist()
+	tests := []struct {
+		name string
+		// inputs
+		previous             *models.Object
 		updated              *models.Object
-		expectedErr          error
-		expectedOutput       *MergeDocument
-		id                   strfmt.UUID
 		vectorizerCalledWith *models.Object
-	}
 
-	tests := []testCase{
+		// outputs
+		expectedOutput *MergeDocument
+		expectedErr    error
+
+		// control return errors
+		errMerge        error
+		errUpdateObject error
+		errGetObject    error
+		errExists       error
+		stage
+	}{
 		{
-			id:       "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name:     "didn't previously exist",
+			name:     "empty class",
 			previous: nil,
 			updated: &models.Object{
-				Class: "ZooAction",
-				Properties: map[string]interface{}{
-					"foo": "bar",
-				},
+				ID: uuid,
 			},
-			expectedErr: NewErrInvalidUserInput("invalid merge: object with id '%s' does not exist",
-				"dd59815b-142b-4c54-9b12-482434bd54ca"),
+			expectedErr: ErrValidation,
+			stage:       stageInit,
 		},
 		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding a new property",
-			previous: &models.Object{
-				Class:      "ZooAction",
-				Properties: map[string]interface{}{},
-			},
+			name:     "empty uuid",
+			previous: nil,
 			updated: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
+			},
+			expectedErr: ErrValidation,
+			stage:       stageInit,
+		},
+		{
+			name:        "empty updates",
+			previous:    nil,
+			expectedErr: ErrValidation,
+			stage:       stageInit,
+		},
+		{
+			name:     "object not found",
+			previous: nil,
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
 				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
-			expectedErr: nil,
+			expectedErr: ErrItemNotFound,
+			stage:       stageObjectExists,
+		},
+		{
+			name:     "object failure",
+			previous: nil,
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedErr:  ErrServiceInternal,
+			errGetObject: errAny,
+			stage:        stageObjectExists,
+		},
+		{
+			name:     "cross-ref not found",
+			previous: nil,
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+					"hasAnimals": []interface{}{
+						map[string]interface{}{
+							"beacon": "weaviate://localhost/a8ffc82c-9845-4014-876c-11369353c33c",
+						},
+					},
+				},
+			},
+			expectedErr: ErrValidation,
+			errExists:   errAny,
+			stage:       stageAuthorization,
+		},
+		{
+			name: "merge failure",
+			previous: &models.Object{
+				Class:      cls,
+				Properties: map[string]interface{}{},
+			},
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
 			vectorizerCalledWith: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
 				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
 			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "ZooAction",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
 				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
+			errMerge:    errAny,
+			expectedErr: ErrServiceInternal,
+			stage:       stageCount,
 		},
 		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "without properties",
+			name: "vectorization failure",
 			previous: &models.Object{
-				Class: "ZooAction",
+				Class:      cls,
+				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
 			},
-			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
-				Class:      "ZooAction",
+				Class: cls,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			errUpdateObject: errAny,
+			expectedErr:     ErrServiceInternal,
+			stage:           stageCount,
+		},
+		{
+			name: "add property",
+			previous: &models.Object{
+				Class:      cls,
+				Properties: map[string]interface{}{},
+			},
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			vectorizerCalledWith: &models.Object{
+				Class: cls,
+				Properties: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
+				Vector:     []float32{1, 2, 3},
+				PrimitiveSchema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			stage: stageCount,
+		},
+		{
+			name: "without properties",
+			previous: &models.Object{
+				Class: cls,
+			},
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+			},
+			vectorizerCalledWith: &models.Object{
+				Class:      cls,
 				Properties: map[string]interface{}{},
 			},
 			expectedOutput: &MergeDocument{
-				UpdateTime:      12345,
-				Class:           "ZooAction",
-				ID:              "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime:      lastTime,
+				Class:           cls,
+				ID:              uuid,
 				Vector:          []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{},
 			},
+			stage: stageCount,
 		},
 		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding many primitive properties of different types",
+			name: "add primitive properties of different types",
 			previous: &models.Object{
-				Class:      "ZooAction",
+				Class:      cls,
 				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
+				ID:    uuid,
 				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -127,9 +263,8 @@ func Test_MergeObject(t *testing.T) {
 					"foundedIn": "2002-10-02T15:00:00Z",
 				},
 			},
-			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
 				Properties: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -142,9 +277,9 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "ZooAction",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
 				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
@@ -157,16 +292,17 @@ func Test_MergeObject(t *testing.T) {
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
 			},
+			stage: stageCount,
 		},
 		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding a primitive and a ref property",
+			name: "add primitive and ref properties",
 			previous: &models.Object{
-				Class:      "ZooAction",
+				Class:      cls,
 				Properties: map[string]interface{}{},
 			},
 			updated: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
+				ID:    uuid,
 				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 					"hasAnimals": []interface{}{
@@ -176,17 +312,16 @@ func Test_MergeObject(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: nil,
 			vectorizerCalledWith: &models.Object{
-				Class: "ZooAction",
+				Class: cls,
 				Properties: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
 			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "ZooAction",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -198,10 +333,10 @@ func Test_MergeObject(t *testing.T) {
 					},
 				},
 			},
+			stage: stageCount,
 		},
 		{
-			name: "udpating the vector of a non-vectorized class",
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "update vector non-vectorized class",
 			previous: &models.Object{
 				Class: "NotVectorized",
 				Properties: map[string]interface{}{
@@ -211,22 +346,21 @@ func Test_MergeObject(t *testing.T) {
 			},
 			updated: &models.Object{
 				Class:  "NotVectorized",
+				ID:     uuid,
 				Vector: []float32{0.66, 0.22},
 			},
-			expectedErr:          nil,
 			vectorizerCalledWith: nil,
 			expectedOutput: &MergeDocument{
-				UpdateTime:      12345,
+				UpdateTime:      lastTime,
 				Class:           "NotVectorized",
-				ID:              "dd59815b-142b-4c54-9b12-482434bd54ca",
+				ID:              uuid,
 				Vector:          []float32{0.66, 0.22},
 				PrimitiveSchema: map[string]interface{}{},
 			},
+			stage: stageCount,
 		},
-
 		{
-			name: "not udpating the vector of a non-vectorized class",
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "do not update vector non-vectorized class",
 			previous: &models.Object{
 				Class: "NotVectorized",
 				Properties: map[string]interface{}{
@@ -236,263 +370,67 @@ func Test_MergeObject(t *testing.T) {
 			},
 			updated: &models.Object{
 				Class: "NotVectorized",
+				ID:    uuid,
 				Properties: map[string]interface{}{
 					"description": "this description was updated",
 				},
 			},
-			expectedErr:          nil,
 			vectorizerCalledWith: nil,
 			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
+				UpdateTime: lastTime,
 				Class:      "NotVectorized",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				ID:         uuid,
 				Vector:     []float32{0.7, 0.3},
 				PrimitiveSchema: map[string]interface{}{
 					"description": "this description was updated",
 				},
 			},
+			stage: stageCount,
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
-			schemaManager := &fakeSchemaManager{
-				GetSchemaResponse: zooAnimalSchemaForTest(),
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newFakeGetManager(zooAnimalSchemaForTest())
+			m.timeSource = fakeTimeSource{}
+			cls := ""
+			if tc.updated != nil {
+				cls = tc.updated.Class
 			}
-			locks := &fakeLocks{}
-			cfg := &config.WeaviateConfig{}
-			authorizer := &fakeAuthorizer{}
-			vectorizer := &fakeVectorizer{}
-			vecProvider := &fakeVectorizerProvider{vectorizer}
-			manager := NewManager(locks, schemaManager,
-				cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
-			manager.timeSource = fakeTimeSource{}
-
-			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
+			if tc.previous != nil {
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
 					Return(&search.Result{
-						Schema:    test.previous.Properties,
-						ClassName: test.previous.Class,
-						Vector:    test.previous.Vector,
+						Schema:    tc.previous.Properties,
+						ClassName: tc.previous.Class,
+						Vector:    tc.previous.Vector,
 					}, nil)
-			} else {
-				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
-					Return((*search.Result)(nil), nil)
+			} else if tc.stage >= stageUpdateValidation {
+				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
+					Return((*search.Result)(nil), tc.errGetObject)
 			}
 
-			if test.expectedOutput != nil {
-				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
+			if tc.expectedOutput != nil {
+				m.repo.On("Merge", *tc.expectedOutput).Return(tc.errMerge)
 			}
 
-			if test.vectorizerCalledWith != nil {
-				vectorizer.On("UpdateObject", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
+			if tc.vectorizerCalledWith != nil {
+				m.vectorizer.On("UpdateObject", tc.vectorizerCalledWith).Return([]float32{1, 2, 3}, tc.errUpdateObject)
 			}
 
-			// only for validation of cross-refs. "Maybe" indicates that if this call
-			// doesn't happen the test won't fail
-			vectorRepo.On("Exists", mock.Anything).Maybe().Return(true, nil)
+			// called during validation of cross-refs only.
+			m.repo.On("Exists", mock.Anything).Maybe().Return(true, tc.errExists)
 
-			err := manager.MergeObject(context.Background(), nil, test.id, test.updated)
-			assert.Equal(t, test.expectedErr, err)
-
-			vectorRepo.AssertExpectations(t)
-			vectorizer.AssertExpectations(t)
-		})
-	}
-}
-
-func Test_MergeThing(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	type testCase struct {
-		name                 string
-		previous             *models.Object // nil implies return false on Exist()
-		updated              *models.Object
-		expectedErr          error
-		expectedOutput       *MergeDocument
-		id                   strfmt.UUID
-		vectorizerCalledWith *models.Object
-	}
-
-	tests := []testCase{
-		{
-			id:       "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name:     "didn't previously exist",
-			previous: nil,
-			updated: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"foo": "bar",
-				},
-			},
-			expectedErr: NewErrInvalidUserInput("invalid merge: object with id '%s' does not exist",
-				"dd59815b-142b-4c54-9b12-482434bd54ca"),
-		},
-		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding a new property",
-			previous: &models.Object{
-				Class:      "Zoo",
-				Properties: map[string]interface{}{},
-			},
-			updated: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-				},
-			},
-			expectedErr: nil,
-			vectorizerCalledWith: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-				},
-			},
-			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "Zoo",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector:     []float32{1, 2, 3},
-				PrimitiveSchema: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-				},
-			},
-		},
-		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding many primitive properties of different types",
-			previous: &models.Object{
-				Class:      "Zoo",
-				Properties: map[string]interface{}{},
-			},
-			updated: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name":      "My little pony zoo with extra sparkles",
-					"area":      3.222,
-					"employees": json.Number("70"),
-					"located": map[string]interface{}{
-						"latitude":  30.2,
-						"longitude": 60.2,
-					},
-					"foundedIn": "2002-10-02T15:00:00Z",
-				},
-			},
-			expectedErr: nil,
-			vectorizerCalledWith: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name":      "My little pony zoo with extra sparkles",
-					"area":      3.222,
-					"employees": int64(70),
-					"located": &models.GeoCoordinates{
-						Latitude:  ptFloat32(30.2),
-						Longitude: ptFloat32(60.2),
-					},
-					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
-				},
-			},
-			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "Zoo",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector:     []float32{1, 2, 3},
-				PrimitiveSchema: map[string]interface{}{
-					"name":      "My little pony zoo with extra sparkles",
-					"area":      3.222,
-					"employees": int64(70),
-					"located": &models.GeoCoordinates{
-						Latitude:  ptFloat32(30.2),
-						Longitude: ptFloat32(60.2),
-					},
-					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
-				},
-			},
-		},
-		{
-			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
-			name: "adding a primitive and a ref property",
-			previous: &models.Object{
-				Class:      "Zoo",
-				Properties: map[string]interface{}{},
-			},
-			updated: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-					"hasAnimals": []interface{}{
-						map[string]interface{}{
-							"beacon": "weaviate://localhost/a8ffc82c-9845-4014-876c-11369353c33c",
-						},
-					},
-				},
-			},
-			expectedErr: nil,
-			vectorizerCalledWith: &models.Object{
-				Class: "Zoo",
-				Properties: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-				},
-			},
-			expectedOutput: &MergeDocument{
-				UpdateTime: 12345,
-				Class:      "Zoo",
-				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
-				PrimitiveSchema: map[string]interface{}{
-					"name": "My little pony zoo with extra sparkles",
-				},
-				Vector: []float32{1, 2, 3},
-				References: BatchReferences{
-					BatchReference{
-						From: crossrefMustParseSource("weaviate://localhost/Zoo/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
-						To:   crossrefMustParse("weaviate://localhost/a8ffc82c-9845-4014-876c-11369353c33c"),
-					},
-				},
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
-			schemaManager := &fakeSchemaManager{
-				GetSchemaResponse: zooAnimalSchemaForTest(),
-			}
-			locks := &fakeLocks{}
-			cfg := &config.WeaviateConfig{}
-			authorizer := &fakeAuthorizer{}
-			vectorizer := &fakeVectorizer{}
-			vecProvider := &fakeVectorizerProvider{vectorizer}
-			manager := NewManager(locks, schemaManager,
-				cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
-			manager.timeSource = fakeTimeSource{}
-
-			if test.previous != nil {
-				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
-					Return(&search.Result{
-						Schema:    test.previous.Properties,
-						ClassName: test.previous.Class,
-					}, nil)
-			} else {
-				vectorRepo.On("ObjectByID", test.id, search.SelectProperties(nil), additional.Properties{}).
-					Return((*search.Result)(nil), nil)
+			err := m.MergeObject(context.Background(), nil, tc.updated)
+			if tc.expectedErr != nil {
+				if !errors.Is(err, tc.expectedErr) {
+					t.Fatalf("error want: %v got: %v", tc.expectedErr, err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
 			}
 
-			if test.expectedOutput != nil {
-				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
-				vectorizer.On("UpdateObject", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
-			}
-
-			// only for validation of cross-refs. Maybe indicates that if this call
-			// doesn't happen the test won't fail
-			vectorRepo.On("Exists", mock.Anything).Maybe().Return(true, nil)
-
-			err := manager.MergeObject(context.Background(), nil, test.id, test.updated)
-			assert.Equal(t, test.expectedErr, err)
-
-			vectorRepo.AssertExpectations(t)
-			vectorizer.AssertExpectations(t)
+			m.repo.AssertExpectations(t)
+			m.vectorizer.AssertExpectations(t)
 		})
 	}
 }

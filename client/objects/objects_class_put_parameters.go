@@ -78,7 +78,7 @@ type ObjectsClassPutParams struct {
 	/*ClassName*/
 	ClassName string
 	/*ID
-	  Unique ID of the Object.
+	  The uuid of the data object to update.
 
 	*/
 	ID strfmt.UUID
