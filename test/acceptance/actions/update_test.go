@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/client/objects"
@@ -26,7 +27,7 @@ import (
 )
 
 // run from setup_test.go
-func updateObjects(t *testing.T) {
+func updateObjectsDeprecated(t *testing.T) {
 	t.Run("update and set number", func(t *testing.T) {
 		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
 		assertGetObjectEventually(t, uuid)
@@ -163,4 +164,71 @@ func updateObjects(t *testing.T) {
 
 		testhelper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/%s", thingToRefID), actualThunk)
 	})
+}
+
+func updateObjects(t *testing.T) {
+	cls := "TestObjectsUpdate"
+	// test setup
+	//deleteClassObject(t, cls)
+	createObjectClass(t, &models.Class{
+		Class: cls,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "testString",
+				DataType: []string{"string"},
+			},
+			{
+				Name:     "testWholeNumber",
+				DataType: []string{"int"},
+			},
+			{
+				Name:     "testNumber",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "testDateTime",
+				DataType: []string{"date"},
+			},
+			{
+				Name:     "testTrueFalse",
+				DataType: []string{"boolean"},
+			},
+		},
+	})
+	// tear down
+	defer deleteClassObject(t, cls)
+
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"testWholeNumber": 2.0,
+		"testDateTime":    time.Now(),
+		"testString":      "wibbly",
+	})
+	assertGetObjectEventually(t, uuid)
+	expected := map[string]interface{}{
+		"testNumber":    2.0,
+		"testTrueFalse": true,
+		"testString":    "wibbly wobbly",
+	}
+	update := models.Object{
+		Class:      cls,
+		Properties: models.PropertySchema(expected),
+		ID:         uuid,
+	}
+	params := objects.NewObjectsClassPutParams().WithID(uuid).WithBody(&update)
+	updateResp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
+	helper.AssertRequestOk(t, updateResp, err, nil)
+	actual := func() interface{} {
+		obj := assertGetObject(t, uuid)
+		props := obj.Properties.(map[string]interface{})
+		if props["testNumber"] != nil {
+			props["testNumber"], _ = props["testNumber"].(json.Number).Float64()
+		}
+		return props
+	}
+	testhelper.AssertEventuallyEqual(t, expected, actual)
 }
