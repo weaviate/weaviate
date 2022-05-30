@@ -83,18 +83,12 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	shardState := fixedMultiShardState()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
-<<<<<<< HEAD
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
-=======
 	repo := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
->>>>>>> master
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)

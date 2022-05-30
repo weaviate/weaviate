@@ -464,17 +464,11 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	}
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-<<<<<<< HEAD
-	repo := New(logger, Config{RootPath: dirName}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
-=======
 	repo := New(logger, Config{
 		RootPath:                  dirName,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{})
->>>>>>> master
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)

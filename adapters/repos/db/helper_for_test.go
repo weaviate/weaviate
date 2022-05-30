@@ -221,7 +221,7 @@ func testShard(ctx context.Context, className string) (*Shard, *Index) {
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, shardName, idx)
+	shd, err := NewShard(ctx, nil, shardName, idx)
 	if err != nil {
 		panic(err)
 	}
