@@ -167,10 +167,10 @@ func updateObjectsDeprecated(t *testing.T) {
 }
 
 func updateObjects(t *testing.T) {
+	t.Parallel()
 	cls := "TestObjectsUpdate"
 	// test setup
-	//deleteClassObject(t, cls)
-	createObjectClass(t, &models.Class{
+	assertCreateObjectClass(t, &models.Class{
 		Class: cls,
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{

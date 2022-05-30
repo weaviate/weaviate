@@ -21,7 +21,7 @@ import (
 
 func Test_Objects(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
-		createObjectClass(t, &models.Class{
+		assertCreateObjectClass(t, &models.Class{
 			Class: "ObjectTestThing",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -35,7 +35,7 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
-		createObjectClass(t, &models.Class{
+		assertCreateObjectClass(t, &models.Class{
 			Class: "TestObject",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -69,7 +69,7 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
-		createObjectClass(t, &models.Class{
+		assertCreateObjectClass(t, &models.Class{
 			Class: "TestObjectTwo",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -106,7 +106,7 @@ func Test_Objects(t *testing.T) {
 	deleteObjectClass(t, "TestObjectTwo")
 }
 
-func createObjectClass(t *testing.T, class *models.Class) {
+func assertCreateObjectClass(t *testing.T, class *models.Class) {
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)

@@ -48,7 +48,6 @@ type objectsManager interface {
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
-
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
 	MergeObject(context.Context, *models.Principal, strfmt.UUID, *models.Object) error
 	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
