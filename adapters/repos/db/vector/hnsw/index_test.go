@@ -77,6 +77,49 @@ func TestHnswIndexGrow(t *testing.T) {
 		err := index.Add(uint64(initialSize+1), vector)
 		require.Nil(t, err)
 	})
+
+	t.Run("should grow index without panic", func(t *testing.T) {
+		// This test shows that we had an edge case that was not covered
+		// in growIndexToAccomodateNode method which was leading to panic:
+		// panic: runtime error: index out of range [170001] with length 170001
+		vector := []float32{0.11, 0.22}
+		id := uint64(5*initialSize + 1)
+		err := index.Add(id, vector)
+		require.Nil(t, err)
+		// index should grow to 150001
+		assert.Equal(t, int(id)+defaultIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*defaultIndexGrowthDelta), index.cache.len())
+		// try to add a vector with id: 170001
+		id = uint64(6*initialSize + defaultIndexGrowthDelta + 1)
+		err = index.Add(id, vector)
+		require.Nil(t, err)
+		// index should grow 170001 + defaultIndexGrowthDelta
+		assert.Equal(t, int(id)+defaultIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*defaultIndexGrowthDelta), index.cache.len())
+	})
+
+	t.Run("should grow index", func(t *testing.T) {
+		// should grow index to fit the id: 5*initialSize+1
+		currentSize := uint64(7*initialSize + 1)
+		// should not increase the nodes size
+		idDontGrowIndex := uint64(6*initialSize - 1)
+		err := index.Add(idDontGrowIndex, vector)
+		require.Nil(t, err)
+		assert.Equal(t, int(currentSize)+defaultIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(currentSize+2*defaultIndexGrowthDelta), index.cache.len())
+		// should increase nodes
+		id := uint64(8*initialSize + 1)
+		err = index.Add(id, vector)
+		require.Nil(t, err)
+		assert.Equal(t, int(id)+defaultIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*defaultIndexGrowthDelta), index.cache.len())
+		// should increase nodes when a much greater id is passed
+		id = uint64(20*initialSize + 22)
+		err = index.Add(id, vector)
+		require.Nil(t, err)
+		assert.Equal(t, int(id)+defaultIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*defaultIndexGrowthDelta), index.cache.len())
+	})
 }
 
 func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {

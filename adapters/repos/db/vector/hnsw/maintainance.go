@@ -66,7 +66,7 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 	// typically grow the index by the delta
 	newSize := previousSize + defaultIndexGrowthDelta
 
-	if uint64(newSize) < id {
+	if uint64(newSize) <= id {
 		// There are situations were docIDs are not in order. For example, if  the
 		// default size is 10k and the default delta is 10k. Imagine the user
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the
