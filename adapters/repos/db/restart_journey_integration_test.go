@@ -177,18 +177,12 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-<<<<<<< HEAD
-		newRepo = New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-			&fakeNodeResolver{}, nil)
-=======
 		newRepo = New(logger, Config{
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 			DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-		}, &fakeRemoteClient{},
-			&fakeNodeResolver{})
->>>>>>> master
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
 		require.Nil(t, err)
