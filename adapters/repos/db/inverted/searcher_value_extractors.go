@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -18,50 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
-
-func (fs Searcher) extractTextValue(in interface{}) ([]byte, error) {
-	value, ok := in.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got %T", in)
-	}
-
-	parts := helpers.TokenizeText(value)
-	if len(parts) > 1 {
-		return nil, fmt.Errorf("expected single search term, got: %v", parts)
-	}
-
-	return []byte(parts[0]), nil
-}
-
-func (fs Searcher) extractTextValueKeepWildcards(in interface{}) ([]byte, error) {
-	value, ok := in.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got %T", in)
-	}
-
-	parts := helpers.TokenizeTextKeepWildcards(value)
-	if len(parts) > 1 {
-		return nil, fmt.Errorf("expected single search term, got: %v", parts)
-	}
-
-	return []byte(parts[0]), nil
-}
-
-func (fs Searcher) extractStringValue(in interface{}) ([]byte, error) {
-	value, ok := in.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got %T", in)
-	}
-
-	parts := helpers.TokenizeString(value)
-	if len(parts) > 1 {
-		return nil, fmt.Errorf("expected single search term, got: %v", parts)
-	}
-
-	return []byte(parts[0]), nil
-}
 
 func (fs Searcher) extractNumberValue(in interface{}) ([]byte, error) {
 	value, ok := in.(float64)

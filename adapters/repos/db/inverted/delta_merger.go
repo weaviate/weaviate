@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -102,7 +102,7 @@ func (mi MergeItem) Countable() Countable {
 
 type MergeDocIDWithFrequency struct {
 	DocID     uint64
-	Frequency float64
+	Frequency float32
 }
 
 type propsByName map[string]*propWithDocIDs
@@ -150,7 +150,7 @@ func (pwd *propWithDocIDs) getOrCreateItem(data []byte) *countableWithDocIDs {
 	}
 	item = &countableWithDocIDs{
 		value:  data,
-		docIDs: map[uint64]float64{},
+		docIDs: map[uint64]float32{},
 	}
 	pwd.items[name] = item
 	return item
@@ -183,10 +183,10 @@ func (pwd *propWithDocIDs) merge() *MergeProperty {
 
 type countableWithDocIDs struct {
 	value  []byte
-	docIDs map[uint64]float64 // map[docid]frequency
+	docIDs map[uint64]float32 // map[docid]frequency
 }
 
-func (cwd *countableWithDocIDs) addDocIDAndFrequency(docID uint64, freq float64) {
+func (cwd *countableWithDocIDs) addDocIDAndFrequency(docID uint64, freq float32) {
 	cwd.docIDs[docID] = freq
 }
 

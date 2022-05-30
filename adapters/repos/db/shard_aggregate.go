@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -21,5 +21,7 @@ import (
 func (s *Shard) aggregate(ctx context.Context,
 	params aggregation.Params) (*aggregation.Result, error) {
 	return aggregator.New(s.store, params, s.index.getSchema, s.invertedRowCache,
-		s.index.classSearcher, s.deletedDocIDs).Do(ctx)
+		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version(),
+		s.vectorIndex).
+		Do(ctx)
 }

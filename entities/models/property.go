@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,8 +17,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Property property
@@ -35,15 +39,71 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules
 	IndexInverted *bool `json:"indexInverted,omitempty"`
 
-	// Configuratino specific to modules this Weaviate instance has installed
+	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
+
+	// Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are `word` (default) and `field` for string and string[], `word` (default) for text and text[]. Not supported for remaining data types
+	// Enum: [word field]
+	Tokenization string `json:"tokenization,omitempty"`
 }
 
 // Validate validates this property
 func (m *Property) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateTokenization(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var propertyTypeTokenizationPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["word","field"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		propertyTypeTokenizationPropEnum = append(propertyTypeTokenizationPropEnum, v)
+	}
+}
+
+const (
+
+	// PropertyTokenizationWord captures enum value "word"
+	PropertyTokenizationWord string = "word"
+
+	// PropertyTokenizationField captures enum value "field"
+	PropertyTokenizationField string = "field"
+)
+
+// prop value enum
+func (m *Property) validateTokenizationEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, propertyTypeTokenizationPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Property) validateTokenization(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Tokenization) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTokenizationEnum("tokenization", "body", m.Tokenization); err != nil {
+		return err
+	}
+
 	return nil
 }
 

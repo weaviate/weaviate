@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -159,6 +159,26 @@ func FromEnv(config *Config) error {
 	config.AutoSchema.DefaultDate = "date"
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_DATE"); v != "" {
 		config.AutoSchema.DefaultDate = v
+	}
+
+	if v := os.Getenv("DISK_USE_WARNING_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
+		}
+		config.DiskUse.WarningPercentage = asUint
+	} else {
+		config.DiskUse.WarningPercentage = DefaultDiskUseWarningPercentage
+	}
+
+	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
+		}
+		config.DiskUse.ReadOnlyPercentage = asUint
+	} else {
+		config.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
 	}
 
 	return nil

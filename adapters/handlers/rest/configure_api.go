@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
@@ -44,6 +45,7 @@ import (
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
@@ -147,9 +149,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
-		RootPath:            appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:          appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults: appState.ServerConfig.Config.QueryMaximumResults,
+		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
+		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
 	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -184,7 +188,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, appState.Modules, appState.Cluster,
+		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
 		schemaTxClient)
 	if err != nil {
 		appState.Logger.
@@ -211,25 +215,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	kindsManager := objects.NewManager(appState.Locks,
+	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
-	batchKindsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
+	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
-	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager)
+	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
+	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	setupSchemaHandlers(api, schemaManager)
-	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
-	setupKindBatchHandlers(api, batchKindsManager)
+	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
+	setupObjectBatchHandlers(api, batchObjectsManager)
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
@@ -430,6 +434,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "multi2vec-clip").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules["text2vec-openai"]; ok {
+		appState.Modules.Register(modopenai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "text2vec-openai").
 			Debug("enabled module")
 	}
 

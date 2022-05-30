@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -58,6 +59,11 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "vector index config")
 	}
 
+	if err := m.migrator.ValidateInvertedIndexConfigUpdate(ctx,
+		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
+		return errors.Wrap(err, "inverted index config")
+	}
+
 	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
 		updated.ShardingConfig.(sharding.Config)); err != nil {
 		return errors.Wrap(err, "sharding config")
@@ -84,6 +90,11 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
+	}
+
+	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
+		updated.InvertedIndexConfig); err != nil {
+		return errors.Wrap(err, "inverted index config")
 	}
 
 	initial := m.getClassByName(className)
@@ -125,12 +136,6 @@ func (m *Manager) validateImmutableFields(initial, updated *models.Class) error 
 				"to add additional properties")
 	}
 
-	if !reflect.DeepEqual(initial.InvertedIndexConfig, updated.InvertedIndexConfig) {
-		// NOTE: There is no technical reason for this to be immutable, it is
-		// simply not implemented (yet).
-		return errors.Errorf("inverted index config is immutable")
-	}
-
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
 		return errors.Errorf("module config is immutable")
 	}
@@ -153,6 +158,17 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 	}
 
 	return nil
+}
+
+func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
+	className, shardName, targetStatus string) error {
+	err := m.authorizer.Authorize(principal, "update",
+		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
+	if err != nil {
+		return err
+	}
+
+	return m.migrator.UpdateShardStatus(ctx, className, shardName, targetStatus)
 }
 
 // Below here is old - to be deleted

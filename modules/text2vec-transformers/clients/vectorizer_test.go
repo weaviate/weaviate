@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,13 +31,13 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, server.URL, nullLogger())
 		expected := &ent.VectorizationResult{
 			Text:       "This is my text",
 			Vector:     []float32{0.1, 0.2, 0.3},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), "This is my text",
+		res, err := c.VectorizeObject(context.Background(), "This is my text",
 			ent.VectorizationConfig{
 				PoolingStrategy: "masked_mean",
 			})
@@ -49,11 +49,11 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+		c := New(server.URL, server.URL, nullLogger())
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.VectorizeObject(ctx, "This is my text", ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -65,8 +65,8 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
-		_, err := c.Vectorize(context.Background(), "This is my text",
+		c := New(server.URL, server.URL, nullLogger())
+		_, err := c.VectorizeObject(context.Background(), "This is my text",
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)

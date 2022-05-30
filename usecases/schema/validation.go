@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -37,25 +37,35 @@ func (m *Manager) validateClassName(ctx context.Context, className string) error
 	return err
 }
 
-func validatePropertyNameUniqueness(propertyName string, class *models.Class) error {
-	for _, otherProperty := range class.Properties {
-		if propertyName == otherProperty.Name {
-			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", propertyName, class.Class)
+func validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
+	if propertyDataType.IsPrimitive() {
+		primitiveDataType := propertyDataType.AsPrimitive()
+
+		switch primitiveDataType {
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			switch tokenization {
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord:
+				return nil
+			}
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			switch tokenization {
+			case models.PropertyTokenizationWord:
+				return nil
+			}
+		default:
+			if tokenization == "" {
+				return nil
+			}
 		}
+
+		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
-	return nil
-}
+	if tokenization == "" {
+		return nil
+	}
 
-// Check that the format of the name is correct
-func (m *Manager) validatePropertyName(ctx context.Context, className string,
-	propertyName string, moduleConfig interface{}) error {
-	_, err := schema.ValidatePropertyName(propertyName)
-	return err
-}
-
-func (m *Manager) validateReservedPropertyName(propertyName string) error {
-	return schema.ValidateReservedPropertyName(propertyName)
+	return fmt.Errorf("Tokenization '%s' is not allowed for reference data type", tokenization)
 }
 
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {

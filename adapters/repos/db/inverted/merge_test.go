@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,12 +22,8 @@ import (
 func TestMergeAnd_Old(t *testing.T) {
 	list1 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 7},
-				{id: 8},
-				{id: 9},
-				{id: 10},
-				{id: 11},
+			docIDs: []uint64{
+				7, 8, 9, 10, 11,
 			},
 			checksum: []byte{0x01},
 		},
@@ -36,13 +32,8 @@ func TestMergeAnd_Old(t *testing.T) {
 
 	list2 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
-				{id: 9},
-				{id: 11},
+			docIDs: []uint64{
+				1, 3, 5, 7, 9, 11,
 			},
 			checksum: []byte{0x02},
 		},
@@ -51,12 +42,8 @@ func TestMergeAnd_Old(t *testing.T) {
 
 	list3 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
-				{id: 9},
+			docIDs: []uint64{
+				1, 3, 5, 7, 9,
 			},
 			checksum: []byte{0x03},
 		},
@@ -65,11 +52,8 @@ func TestMergeAnd_Old(t *testing.T) {
 
 	list4 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
+			docIDs: []uint64{
+				1, 3, 5, 7,
 			},
 			checksum: []byte{0x04},
 		},
@@ -79,8 +63,8 @@ func TestMergeAnd_Old(t *testing.T) {
 	res, err := mergeAnd([]*propValuePair{&list1, &list2, &list3, &list4}, false)
 	require.Nil(t, err)
 
-	expectedPointers := []docPointer{
-		{id: 7},
+	expectedPointers := []uint64{
+		7,
 	}
 
 	assert.ElementsMatch(t, expectedPointers, res.docIDs)
@@ -89,12 +73,8 @@ func TestMergeAnd_Old(t *testing.T) {
 func TestMergeAnd_Optimized(t *testing.T) {
 	list1 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 7},
-				{id: 8},
-				{id: 9},
-				{id: 10},
-				{id: 11},
+			docIDs: []uint64{
+				7, 8, 9, 10, 11,
 			},
 			checksum: []byte{0x01},
 		},
@@ -103,13 +83,8 @@ func TestMergeAnd_Optimized(t *testing.T) {
 
 	list2 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
-				{id: 9},
-				{id: 11},
+			docIDs: []uint64{
+				1, 3, 5, 7, 9, 11,
 			},
 			checksum: []byte{0x02},
 		},
@@ -118,12 +93,8 @@ func TestMergeAnd_Optimized(t *testing.T) {
 
 	list3 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
-				{id: 9},
+			docIDs: []uint64{
+				1, 3, 5, 7, 9,
 			},
 			checksum: []byte{0x03},
 		},
@@ -132,11 +103,8 @@ func TestMergeAnd_Optimized(t *testing.T) {
 
 	list4 := propValuePair{
 		docIDs: docPointers{
-			docIDs: []docPointer{
-				{id: 1},
-				{id: 3},
-				{id: 5},
-				{id: 7},
+			docIDs: []uint64{
+				1, 3, 5, 7,
 			},
 			checksum: []byte{0x04},
 		},
@@ -146,9 +114,7 @@ func TestMergeAnd_Optimized(t *testing.T) {
 	res, err := mergeAndOptimized([]*propValuePair{&list1, &list2, &list3, &list4}, false)
 	require.Nil(t, err)
 
-	expectedPointers := []docPointer{
-		{id: 7},
-	}
+	expectedPointers := []uint64{7}
 
 	assert.ElementsMatch(t, expectedPointers, res.docIDs)
 }

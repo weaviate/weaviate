@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,7 +131,7 @@ func TestClassUpdates(t *testing.T) {
 						"to add additional properties"),
 			},
 			{
-				name: "attempting to update the inverted index config",
+				name: "attempting to update the inverted index cleanup interval",
 				initial: &models.Class{
 					Class: "InitialName",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
@@ -141,9 +142,58 @@ func TestClassUpdates(t *testing.T) {
 					Class: "InitialName",
 					InvertedIndexConfig: &models.InvertedIndexConfig{
 						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: config.DefaultBM25k1,
+							B:  config.DefaultBM25b,
+						},
 					},
 				},
-				expectedError: errors.Errorf("inverted index config is immutable"),
+			},
+			{
+				name: "attempting to update the inverted index BM25 config",
+				initial: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: 1.012,
+							B:  0.125,
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Bm25: &models.BM25Config{
+							K1: 1.012,
+							B:  0.125,
+						},
+					},
+				},
+			},
+			{
+				name: "attempting to update the inverted index Stopwords config",
+				initial: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Stopwords: &models.StopwordConfig{
+							Preset: "en",
+						},
+					},
+				},
+				update: &models.Class{
+					Class: "InitialName",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						CleanupIntervalSeconds: 18,
+						Stopwords: &models.StopwordConfig{
+							Preset:    "none",
+							Additions: []string{"banana", "passionfruit", "kiwi"},
+							Removals:  []string{"a", "the"},
+						},
+					},
+				},
 			},
 			{
 				name: "attempting to update module config",

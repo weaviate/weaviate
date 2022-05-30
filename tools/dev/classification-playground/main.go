@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -32,97 +32,97 @@ type category struct {
 
 func categoryLookup(id string) string {
 	includedCategories := []category{
-		category{
+		{
 			"f0102af9-c45a-447a-8c06-2bec2f96a5c6",
 			"comp.graphics",
 			"comp.graphics",
 		},
-		category{
+		{
 			"5d854455-8ab4-4bd1-b4c6-19cb18c5fd05",
 			"comp.os.ms-windows.misc",
 			"comp.os.ms-windows.misc",
 		},
-		category{
+		{
 			"ea15eb4a-b145-49fe-9cac-4d688a9cbf1f",
 			"comp.sys.ibm.pc.hardware",
 			"comp.sys.ibm.pc.hardware",
 		},
-		category{
+		{
 			"d08afdf7-2e5e-44cc-be0d-926752084efc",
 			"comp.sys.mac.hardware",
 			"comp.sys.mac.hardware",
 		},
-		category{
+		{
 			"5b608ab2-b8bc-4a57-8eb6-8c7cb6d773ea",
 			"comp.windows.x",
 			"comp.windows.x",
 		},
-		category{
+		{
 			"b68a4691-b83c-4c60-8db8-5acd91851617",
 			"misc.forsale",
 			"misc.forsale",
 		},
-		category{
+		{
 			"19fb7dd6-b775-4421-a055-a368145144cc",
 			"rec.autos",
 			"rec.autos",
 		},
-		category{
+		{
 			"5257952b-74c5-4697-9c65-9240e189c771",
 			"rec.motorcycles",
 			"rec.motorcycles",
 		},
-		category{
+		{
 			"a3f618c7-6224-4427-9eb1-6ea820ecfc34",
 			"rec.sport.baseball",
 			"rec.sport.baseball",
 		},
-		category{
+		{
 			"140f3b5a-a78c-4ac8-aea3-4ee9025b2758",
 			"rec.sport.hockey",
 			"rec.sport.hockey",
 		},
-		category{
+		{
 			"b03ac29f-d0e0-4b52-818e-30ff46b0e718",
 			"sci.crypt",
 			"sci.crypt",
 		},
-		category{
+		{
 			"fe29ccd7-de6d-4f12-b910-b28fed4fe09a",
 			"sci.electronics",
 			"sci.electronics",
 		},
-		category{
+		{
 			"e36ffc0a-7dee-4241-ab1f-7b52b36001c2",
 			"sci.med",
 			"sci.med",
 		},
-		category{
+		{
 			"0a57cefb-dbb1-420a-b921-64c6d7b5559a",
 			"sci.space",
 			"sci.space",
 		},
-		category{
+		{
 			"6fa7bf33-0e50-400d-a0d8-48cabf19bdcf",
 			"soc.religion.christian",
 			"soc.religion.christian",
 		},
-		category{
+		{
 			"fbca4c94-3fc4-4312-b832-d0ae61475d43",
 			"talk.politics.guns",
 			"talk.politics.guns",
 		},
-		category{
+		{
 			"2609f1bc-7693-48f3-b531-6ddc52cd2501",
 			"talk.politics.mideast",
 			"talk.politics.mideast",
 		},
-		category{
+		{
 			"64b5cb24-53f7-4468-a07b-50ed68c0642f",
 			"talk.politics.misc",
 			"talk.politics.misc",
 		},
-		category{
+		{
 			"9ce20123-16ea-41e2-b509-808c09426bbb",
 			"talk.religion.misc",
 			"talk.religion.misc",

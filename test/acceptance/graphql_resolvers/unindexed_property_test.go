@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -42,11 +42,11 @@ func Test_UnindexedProperty(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:          "hiddenName",
 					DataType:      []string{"string"},
 					IndexInverted: referenceToFalse(),

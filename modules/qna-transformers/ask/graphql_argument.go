@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,6 +24,10 @@ func (g *GraphQLArgumentsProvider) getAskArgumentFn(classname string) *graphql.A
 
 func (g *GraphQLArgumentsProvider) exploreAskArgumentFn() *graphql.ArgumentConfig {
 	return g.askArgument("Explore", "")
+}
+
+func (g *GraphQLArgumentsProvider) aggregateAskArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.askArgument("Aggregate", classname)
 }
 
 func (g *GraphQLArgumentsProvider) askArgument(prefix, className string) *graphql.ArgumentConfig {
@@ -52,6 +56,10 @@ func (g *GraphQLArgumentsProvider) askFields(prefix string) graphql.InputObjectC
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "Properties which contains text",
 			Type:        graphql.NewList(graphql.String),
+		},
+		"rerank": &graphql.InputObjectFieldConfig{
+			Description: "Arranges the results by certainty",
+			Type:        graphql.Boolean,
 		},
 	}
 	if g.askTransformer != nil {

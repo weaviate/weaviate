@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,87 +17,263 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAnalyzer(t *testing.T) {
-	a := NewAnalyzer()
+	a := NewAnalyzer(fakeStopwordDetector{})
 
 	t.Run("with text", func(t *testing.T) {
 		t.Run("only unique words", func(t *testing.T) {
-			res := a.Text("Hello, my name is John Doe")
+			res := a.Text(models.PropertyTokenizationWord, "Hello, my name is John Doe")
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("hello"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("my"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("name"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("is"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("john"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("doe"),
-					TermFrequency: float64(1) / 6,
+					TermFrequency: float32(1),
 				},
 			})
 		})
 
-		t.Run("with repeated words", func(t *testing.T) {
-			res := a.Text("Du. Du hast. Du hast. Du hast mich gefragt.")
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.Text(models.PropertyTokenizationWord, "Du. Du hast. Du hast. Du hast mich gefragt.")
 			assert.ElementsMatch(t, res, []Countable{
 				{
 					Data:          []byte("du"),
-					TermFrequency: float64(4) / 9,
+					TermFrequency: float32(4),
 				},
 				{
 					Data:          []byte("hast"),
-					TermFrequency: float64(3) / 9,
+					TermFrequency: float32(3),
 				},
 				{
 					Data:          []byte("mich"),
-					TermFrequency: float64(1) / 9,
+					TermFrequency: float32(1),
 				},
 				{
 					Data:          []byte("gefragt"),
-					TermFrequency: float64(1) / 9,
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("not supported tokenization", func(t *testing.T) {
+			res := a.Text("not-supported", "Du. Du hast. Du hast. Du hast mich gefragt.")
+			assert.Empty(t, res)
+		})
+	})
+
+	t.Run("with text array", func(t *testing.T) {
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.TextArray(models.PropertyTokenizationWord, []string{"Hello,", "my name is John Doe"})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("hello"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("my"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("name"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("john"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("doe"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.TextArray(models.PropertyTokenizationWord, []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("du"),
+					TermFrequency: float32(4),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("not supported tokenization", func(t *testing.T) {
+			res := a.TextArray("not-supported", []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.Empty(t, res)
+		})
+	})
+
+	t.Run("with string", func(t *testing.T) {
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationWord, "My email is john-thats-jay.ohh.age.n+alloneword@doe.com")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("My"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("email"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationWord, "Du. Du hast. Du hast. Du hast mich gefragt.")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("hast."),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("field tokenization", func(t *testing.T) {
+			res := a.String(models.PropertyTokenizationField, "\n Du. Du hast. Du hast. Du hast mich gefragt.\t ")
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du. Du hast. Du hast. Du hast mich gefragt."),
+					TermFrequency: float32(1),
 				},
 			})
 		})
 	})
 
-	t.Run("with string", func(t *testing.T) {
-		res := a.String("My email is john-thats-jay.ohh.age.n+alloneword@doe.com")
-		assert.ElementsMatch(t, res, []Countable{
-			{
-				Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
-				TermFrequency: float64(1) / 4,
-			},
-			{
-				Data:          []byte("My"),
-				TermFrequency: float64(1) / 4,
-			},
-			{
-				Data:          []byte("email"),
-				TermFrequency: float64(1) / 4,
-			},
-			{
-				Data:          []byte("is"),
-				TermFrequency: float64(1) / 4,
-			},
+	t.Run("with string array", func(t *testing.T) {
+		t.Run("only unique words", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationWord, []string{"My email", "is john-thats-jay.ohh.age.n+alloneword@doe.com"})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("My"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("email"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("is"),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("repeated words", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationWord, []string{"Du. Du hast. Du hast.", "Du hast mich gefragt."})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du"),
+					TermFrequency: float32(3),
+				},
+				{
+					Data:          []byte("hast."),
+					TermFrequency: float32(2),
+				},
+				{
+					Data:          []byte("hast"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("mich"),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
+		})
+
+		t.Run("field tokenization", func(t *testing.T) {
+			res := a.StringArray(models.PropertyTokenizationField, []string{"\n Du. Du hast. Du hast.", "Du hast mich gefragt.\t "})
+			assert.ElementsMatch(t, res, []Countable{
+				{
+					Data:          []byte("Du. Du hast. Du hast."),
+					TermFrequency: float32(1),
+				},
+				{
+					Data:          []byte("Du hast mich gefragt."),
+					TermFrequency: float32(1),
+				},
+			})
 		})
 	})
 
@@ -204,4 +380,154 @@ func TestAnalyzer(t *testing.T) {
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
 	})
+}
+
+func TestAnalyzer_ConfigurableStopwords(t *testing.T) {
+	type testcase struct {
+		cfg               schema.StopwordConfig
+		input             string
+		expectedCountable int
+	}
+
+	runTest := func(t *testing.T, tests []testcase) {
+		for _, test := range tests {
+			a := newTestAnalyzer(t, test.cfg)
+
+			textCountable := a.Text(models.PropertyTokenizationWord, test.input)
+			assert.Equal(t, test.expectedCountable, len(textCountable))
+
+			stringCountable := a.String(models.PropertyTokenizationWord, test.input)
+			assert.Equal(t, test.expectedCountable, len(stringCountable))
+		}
+	}
+
+	t.Run("with en preset, additions", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"dog"},
+				},
+				input:             "dog dog dog dog",
+				expectedCountable: 0,
+			},
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"dog"},
+				},
+				input:             "dog dog dog cat",
+				expectedCountable: 1,
+			},
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"dog"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 1,
+			},
+		}
+
+		runTest(t, tests)
+	})
+
+	t.Run("with no preset, additions", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "none",
+					Additions: []string{"dog"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 4,
+			},
+		}
+
+		runTest(t, tests)
+	})
+
+	t.Run("with en preset, removals", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: schema.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"a"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 3,
+			},
+			{
+				cfg: schema.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"a", "is", "the"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 5,
+			},
+		}
+
+		runTest(t, tests)
+	})
+
+	t.Run("with en preset, removals", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: schema.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"a"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 3,
+			},
+			{
+				cfg: schema.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"a", "is", "the"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 5,
+			},
+		}
+
+		runTest(t, tests)
+	})
+
+	t.Run("with en preset, additions, removals", func(t *testing.T) {
+		tests := []testcase{
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"dog"},
+					Removals:  []string{"a"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 2,
+			},
+			{
+				cfg: schema.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"dog", "best"},
+					Removals:  []string{"a", "the", "is"},
+				},
+				input:             "a dog is the best",
+				expectedCountable: 3,
+			},
+		}
+
+		runTest(t, tests)
+	})
+}
+
+type fakeStopwordDetector struct{}
+
+func (fsd fakeStopwordDetector) IsStopword(word string) bool {
+	return false
+}
+
+func newTestAnalyzer(t *testing.T, cfg schema.StopwordConfig) *Analyzer {
+	sd, err := stopwords.NewDetectorFromConfig(cfg)
+	require.Nil(t, err)
+
+	return NewAnalyzer(sd)
 }

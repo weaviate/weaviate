@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -52,6 +52,10 @@ func (f fakeVectorConfig) IndexType() string {
 
 func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
+}
+
+func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
+	return nil
 }
 
 type fakeVectorizerValidator struct {
@@ -102,6 +106,10 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 	}
 }
 
+func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
+	prop *models.Property) {
+}
+
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
 	return nil
 }
@@ -141,6 +149,14 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+	return nil
+}
+
 func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
 	return nil
 }
@@ -162,5 +178,13 @@ func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, 
 }
 
 func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaent.VectorIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
 	return nil
 }

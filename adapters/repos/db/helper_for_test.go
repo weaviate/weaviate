@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,9 +15,18 @@
 package db
 
 import (
+	"context"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/sirupsen/logrus"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -30,8 +39,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "location",
@@ -45,8 +55,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -56,8 +67,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "parkedAt",
@@ -71,8 +83,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "drives",
@@ -86,8 +99,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "friendsWith",
@@ -101,8 +115,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 						{
 							Name:     "hasMembers",
@@ -118,8 +133,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -129,8 +145,9 @@ func parkingGaragesSchema() schema.Schema {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     []string{string(schema.DataTypeString)},
+							Tokenization: "word",
 						},
 					},
 				},
@@ -148,7 +165,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}},
+						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
 					},
 				},
 				{
@@ -156,7 +173,7 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "name", DataType: []string{"string"}},
+						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
 						{Name: "inCountry", DataType: []string{"Country"}},
 						{Name: "population", DataType: []string{"int"}},
 						{Name: "location", DataType: []string{"geoCoordinates"}},
@@ -167,12 +184,60 @@ func cityCountryAirportSchema() schema.Schema {
 					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
-						{Name: "code", DataType: []string{"string"}},
+						{Name: "code", DataType: []string{"string"}, Tokenization: "word"},
 						{Name: "phone", DataType: []string{"phoneNumber"}},
 						{Name: "inCity", DataType: []string{"City"}},
 					},
 				},
 			},
 		},
+	}
+}
+
+func testCtx() context.Context {
+	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	return ctx
+}
+
+func testShard(ctx context.Context, className string) (*Shard, *Index) {
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+
+	shardState := singleShardState()
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{{Class: className}},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
+
+	idx := &Index{
+		Config:                IndexConfig{RootPath: dirName, ClassName: schema.ClassName(className)},
+		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
+		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
+		logger:                logrus.New(),
+		getSchema:             schemaGetter,
+		Shards:                map[string]*Shard{},
+	}
+
+	shardName := shardState.AllPhysicalShards()[0]
+
+	shd, err := NewShard(ctx, shardName, idx)
+	if err != nil {
+		panic(err)
+	}
+
+	idx.Shards[shardName] = shd
+
+	return shd, idx
+}
+
+func testObject(className string) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+		},
+		Vector: []float32{1, 2, 3},
 	}
 }

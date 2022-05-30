@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,17 +39,20 @@ type SegmentGroup struct {
 
 	stopCompactionCycle chan struct{}
 
-	logger  logrus.FieldLogger
-	metrics *Metrics
-}
+	logger logrus.FieldLogger
 
-func (ig *SegmentGroup) setStrategy(strategy string) {
-	ig.strategy = strategy
+	// for backward-compatibility with states where the disk state for maps was
+	// not guaranteed to be sorted yet
+	mapRequiresSorting bool
+
+	status     storagestate.Status
+	statusLock sync.Mutex
+	metrics    *Metrics
 }
 
 func newSegmentGroup(dir string,
 	compactionCycle time.Duration, logger logrus.FieldLogger,
-	metrics *Metrics) (*SegmentGroup, error) {
+	mapRequiresSorting bool, metrics *Metrics) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -60,6 +64,7 @@ func newSegmentGroup(dir string,
 		logger:              logger,
 		metrics:             metrics,
 		stopCompactionCycle: make(chan struct{}),
+		mapRequiresSorting:  mapRequiresSorting,
 	}
 
 	segmentIndex := 0
@@ -97,7 +102,8 @@ func newSegmentGroup(dir string,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger)
+		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger,
+			out.makeExistsOnLower(segmentIndex))
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
@@ -112,11 +118,30 @@ func newSegmentGroup(dir string,
 	return out, nil
 }
 
+func (ig *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
+	return func(key []byte) (bool, error) {
+		if nextSegmentIndex == 0 {
+			// this is already the lowest possible segment, we can guarantee that
+			// any key in this segment is previously unseen.
+			return false, nil
+		}
+
+		v, err := ig.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
+		if err != nil {
+			return false, errors.Wrapf(err, "check exists on segments lower than %d",
+				nextSegmentIndex)
+		}
+
+		return v != nil, nil
+	}
+}
+
 func (ig *SegmentGroup) add(path string) error {
 	ig.maintenanceLock.Lock()
 	defer ig.maintenanceLock.Unlock()
 
-	segment, err := newSegment(path, ig.logger)
+	newSegmentIndex := len(ig.segments)
+	segment, err := newSegment(path, ig.logger, ig.makeExistsOnLower(newSegmentIndex))
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
@@ -129,11 +154,17 @@ func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
 	ig.maintenanceLock.RLock()
 	defer ig.maintenanceLock.RUnlock()
 
+	return ig.getWithUpperSegmentBoundary(key, len(ig.segments)-1)
+}
+
+// not thread-safe on its own, as the assumption is that this is called from a
+// lockholder, e.g. within .get()
+func (ig *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment int) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(ig.segments) - 1; i >= 0; i-- {
+	for i := topMostSegment; i >= 0; i-- {
 		v, err := ig.segments[i].get(key)
 		if err != nil {
 			if err == NotFound {
@@ -208,6 +239,43 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
+func (ig *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	out := make([][]value, len(ig.segments))
+
+	i := 0
+	// start with first and do not exit
+	for _, segment := range ig.segments {
+		v, err := segment.getCollection(key)
+		if err != nil {
+			if err == NotFound {
+				continue
+			}
+
+			return nil, err
+		}
+
+		out[i] = v
+		i++
+	}
+
+	return out[:i], nil
+}
+
+func (ig *SegmentGroup) count() int {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	count := 0
+	for _, seg := range ig.segments {
+		count += seg.countNetAdditions
+	}
+
+	return count
+}
+
 func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 	ig.maintenanceLock.Lock()
 	defer ig.maintenanceLock.Unlock()
@@ -222,7 +290,26 @@ func (ig *SegmentGroup) shutdown(ctx context.Context) error {
 		ig.segments[i] = nil
 	}
 
+	// make sure the segment list itself is set to nil. In case a memtable will
+	// still flush after closing, it might try to read from a disk segment list
+	// otherwise and run into nil-pointer problems.
+	ig.segments = nil
+
 	return nil
+}
+
+func (ig *SegmentGroup) updateStatus(status storagestate.Status) {
+	ig.statusLock.Lock()
+	defer ig.statusLock.Unlock()
+
+	ig.status = status
+}
+
+func (ig *SegmentGroup) isReadyOnly() bool {
+	ig.statusLock.Lock()
+	defer ig.statusLock.Unlock()
+
+	return ig.status == storagestate.StatusReadOnly
 }
 
 func fileExists(path string) (bool, error) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -45,8 +46,12 @@ func TestFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -63,6 +68,9 @@ func TestFilters(t *testing.T) {
 
 	t.Run("chained primitive props",
 		testChainedPrimitiveProps(repo, migrator))
+
+	t.Run("sort props",
+		testSortProperties(repo))
 }
 
 var (
@@ -321,6 +329,66 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	filter:      buildFilter("id", carPoloID.String(), like, dtString),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
+			{
+				name:        "by color with word tokenization",
+				filter:      buildFilter("colorWord", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name:        "by color with word tokenization multiword (1)",
+				filter:      buildFilter("colorWord", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "by color with word tokenization multiword (2)",
+				filter:      buildFilter("colorWord", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color with field tokenization",
+				filter:      buildFilter("colorField", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{},
+			},
+			{
+				name:        "by color with field tokenization multiword (1)",
+				filter:      buildFilter("colorField", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "by color with field tokenization multiword (2)",
+				filter:      buildFilter("colorField", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color array with word tokenization",
+				filter:      buildFilter("colorArrayWord", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name:        "by color array with word tokenization multiword (1)",
+				filter:      buildFilter("colorArrayWord", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "by color array with word tokenization multiword (2)",
+				filter:      buildFilter("colorArrayWord", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by color array with field tokenization",
+				filter:      buildFilter("colorArrayField", "grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "by color with array field tokenization multiword (1)",
+				filter:      buildFilter("colorArrayField", "light grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "by color with array field tokenization multiword (2)",
+				filter:      buildFilter("colorArrayField", "dark grey", eq, dtString),
+				expectedIDs: []strfmt.UUID{},
+			},
 		}
 
 		for _, test := range tests {
@@ -390,7 +458,7 @@ func testChainedPrimitiveProps(repo *DB,
 		}
 
 		tests := []test{
-			test{
+			{
 				name: "modelName == sprinter AND  weight > 3000",
 				filter: filterAnd(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -398,7 +466,7 @@ func testChainedPrimitiveProps(repo *DB,
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
-			test{
+			{
 				name: "modelName == sprinter OR modelName == e63s",
 				filter: filterOr(
 					buildFilter("modelName", "sprinter", eq, dtString),
@@ -422,7 +490,7 @@ func testChainedPrimitiveProps(repo *DB,
 			// 	),
 			// 	expectedIDs: []strfmt.UUID{carE63sID},
 			// },
-			test{
+			{
 				name: "(heavy AND powerful) OR light",
 				filter: filterOr(
 					filterAnd(
@@ -436,7 +504,7 @@ func testChainedPrimitiveProps(repo *DB,
 
 			// this test prevents a regression on
 			// https://github.com/semi-technologies/weaviate/issues/1638
-			test{
+			{
 				name: "Like ca* AND Like eng*",
 				filter: filterAnd(
 					buildFilter("description", "ca*", like, dtText),
@@ -484,6 +552,10 @@ func buildFilter(propName string, value interface{}, operator filters.Operator, 
 	}
 }
 
+func buildSortFilter(path []string, order string) filters.Sort {
+	return filters.Sort{Path: path, Order: order}
+}
+
 func compoundFilter(operator filters.Operator,
 	operands ...*filters.LocalFilter) *filters.LocalFilter {
 	clauses := make([]filters.Clause, len(operands), len(operands))
@@ -518,16 +590,19 @@ var carClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "modelName",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "modelName",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeString)},
-			Name:     "contact",
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "contact",
+			Tokenization: "word",
 		},
 		{
-			DataType: []string{string(schema.DataTypeText)},
-			Name:     "description",
+			DataType:     []string{string(schema.DataTypeText)},
+			Name:         "description",
+			Tokenization: "word",
 		},
 		{
 			DataType: []string{string(schema.DataTypeInt)},
@@ -544,6 +619,26 @@ var carClass = &models.Class{
 		{
 			DataType: []string{string(schema.DataTypeDate)},
 			Name:     "released",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "colorWord",
+			Tokenization: "word",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeString)},
+			Name:         "colorField",
+			Tokenization: "field",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeStringArray)},
+			Name:         "colorArrayWord",
+			Tokenization: "word",
+		},
+		{
+			DataType:     []string{string(schema.DataTypeStringArray)},
+			Name:         "colorArrayField",
+			Tokenization: "field",
 		},
 	},
 }
@@ -563,7 +658,7 @@ func mustParseTime(in string) time.Time {
 }
 
 var cars = []models.Object{
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carSprinterID,
 		Properties: map[string]interface{}{
@@ -575,11 +670,15 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(34.052235),
 				Longitude: ptFloat32(-118.243683),
 			},
-			"contact":     "john@heavycars.example.com",
-			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
+			"contact":         "john@heavycars.example.com",
+			"description":     "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
+			"colorWord":       "light grey",
+			"colorField":      "light grey",
+			"colorArrayWord":  []interface{}{"light grey"},
+			"colorArrayField": []interface{}{"light grey"},
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carE63sID,
 		Properties: map[string]interface{}{
@@ -591,20 +690,28 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(40.730610),
 				Longitude: ptFloat32(-73.935242),
 			},
-			"contact":     "jessica@fastcars.example.com",
-			"description": "This car has a huge motor, but it's also not exactly lightweight.",
+			"contact":         "jessica@fastcars.example.com",
+			"description":     "This car has a huge motor, but it's also not exactly lightweight.",
+			"colorWord":       "very light grey",
+			"colorField":      "very light grey",
+			"colorArrayWord":  []interface{}{"very light", "grey"},
+			"colorArrayField": []interface{}{"very light", "grey"},
 		},
 	},
-	models.Object{
+	{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Properties: map[string]interface{}{
-			"released":    mustParseTime("1975-01-01T10:12:00+02:00"),
-			"modelName":   "polo",
-			"horsepower":  int64(100),
-			"weight":      1200.0,
-			"contact":     "sandra@efficientcars.example.com",
-			"description": "This small car has a small engine, but it's very light, so it feels fater than it is.",
+			"released":        mustParseTime("1975-01-01T10:12:00+02:00"),
+			"modelName":       "polo",
+			"horsepower":      int64(100),
+			"weight":          1200.0,
+			"contact":         "sandra@efficientcars.example.com",
+			"description":     "This small car has a small engine, but it's very light, so it feels fater than it is.",
+			"colorWord":       "dark grey",
+			"colorField":      "dark grey",
+			"colorArrayWord":  []interface{}{"dark", "grey"},
+			"colorArrayField": []interface{}{"dark", "grey"},
 		},
 	},
 }
@@ -628,8 +735,18 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+<<<<<<< HEAD
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
+=======
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+>>>>>>> master
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -738,8 +855,18 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+<<<<<<< HEAD
 	repo := New(logger, Config{RootPath: dirName, QueryMaximumResults: 10000}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
+=======
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{},
+		&fakeNodeResolver{})
+>>>>>>> master
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -752,16 +879,19 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "name",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "textProp",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:         "textProp",
+				DataType:     []string{string(schema.DataTypeText)},
+				Tokenization: "word",
 			},
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
 			},
 		},
 	}
@@ -997,4 +1127,178 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testSortProperties(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			sort        []filters.Sort
+			expectedIDs []strfmt.UUID
+			wantErr     bool
+			errMessage  string
+		}
+		tests := []test{
+			{
+				name: "modelName asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+			},
+			{
+				name: "modelName desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carE63sID},
+			},
+			{
+				name: "horsepower asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "horsepower desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "weight asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"weight"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carSprinterID},
+			},
+			{
+				name: "weight desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"weight"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID},
+			},
+			{
+				name: "released asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"released"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "released desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"released"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "parkedAt asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"parkedAt"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "parkedAt desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"parkedAt"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "contact asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"contact"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "contact desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"contact"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "description asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"description"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "description desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"description"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "colorArrayWord asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"colorArrayWord"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "colorArrayWord desc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"colorArrayWord"}, "desc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+			},
+			{
+				name: "modelName and horsepower asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"modelName"}, "asc"),
+					buildSortFilter([]string{"horsepower"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+			},
+			{
+				name: "horsepower and modelName asc",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower"}, "asc"),
+					buildSortFilter([]string{"modelName"}, "asc"),
+				},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+			},
+			{
+				name: "horsepower and modelName asc invalid sort",
+				sort: []filters.Sort{
+					buildSortFilter([]string{"horsepower", "modelName"}, "asc"),
+				},
+				expectedIDs: nil,
+				wantErr:     true,
+				errMessage:  "sort object list: sorting by reference not supported, path must have exactly one argument",
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				params := traverser.GetParams{
+					ClassName:  carClass.Class,
+					Pagination: &filters.Pagination{Limit: 100},
+					Sort:       test.sort,
+				}
+				res, err := repo.ClassSearch(context.Background(), params)
+				if test.wantErr {
+					require.NotNil(t, err)
+					require.Contains(t, err.Error(), test.errMessage)
+				} else {
+					require.Nil(t, err)
+					require.Len(t, res, len(test.expectedIDs))
+
+					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					for pos, concept := range res {
+						ids[pos] = concept.ID
+					}
+					assert.EqualValues(t, ids, test.expectedIDs, "ids dont match")
+				}
+			})
+		}
+	}
 }

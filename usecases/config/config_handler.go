@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,6 +31,17 @@ const DefaultConfigFile string = "./weaviate.conf.json"
 // DefaultCleanupIntervalSeconds can be overwritten on a per-class basis
 const DefaultCleanupIntervalSeconds = int64(60)
 
+const (
+	// These BM25 tuning params can be overwritten on a per-class basis
+	DefaultBM25k1 = float32(1.2)
+	DefaultBM25b  = float32(0.75)
+)
+
+const (
+	DefaultDiskUseWarningPercentage  = uint64(80)
+	DefaultDiskUseReadonlyPercentage = uint64(90)
+)
+
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
@@ -53,6 +64,7 @@ type Config struct {
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
 	Monitoring              Monitoring     `json:"monitoring" yaml:"monitoring"`
+	DiskUse                 DiskUse        `json:"disk_use" yaml:"disk_use"`
 }
 
 type moduleProvider interface {
@@ -125,6 +137,23 @@ func (p Persistence) Validate() error {
 	return nil
 }
 
+type DiskUse struct {
+	WarningPercentage  uint64 `json:"warning_percentage" yaml:"warning_percentage"`
+	ReadOnlyPercentage uint64 `json:"readonly_percentage" yaml:"readonly_percentage"`
+}
+
+func (d DiskUse) Validate() error {
+	if d.WarningPercentage > 100 {
+		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
+	}
+
+	if d.ReadOnlyPercentage > 100 {
+		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
+	}
+
+	return nil
+}
+
 // GetConfigOptionGroup creates a option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
@@ -167,7 +196,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	if len(file) > 0 {
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
-			return err
+			return configErr(err)
 		}
 		f.Config = config
 
@@ -175,23 +204,27 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := FromEnv(&f.Config); err != nil {
-		return err
+		return configErr(err)
 	}
 
 	if err := f.Config.Authentication.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return configErr(err)
 	}
 
 	if err := f.Config.Authorization.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return configErr(err)
 	}
 
 	if err := f.Config.Persistence.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return configErr(err)
 	}
 
 	if err := f.Config.AutoSchema.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %v", err)
+		return configErr(err)
+	}
+
+	if err := f.Config.DiskUse.Validate(); err != nil {
+		return configErr(err)
 	}
 
 	return nil
@@ -221,4 +254,8 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
+}
+
+func configErr(err error) error {
+	return fmt.Errorf("invalid config: %v", err)
 }

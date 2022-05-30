@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -53,6 +53,38 @@ func TestUserConfigUpdates(t *testing.T) {
 				expectedError: errors.Errorf(
 					"cleanupIntervalSeconds is immutable: " +
 						"attempted change from \"60\" to \"90\""),
+			},
+			{
+				name:          "changing ef",
+				initial:       UserConfig{EF: 100},
+				update:        UserConfig{EF: -1},
+				expectedError: nil,
+			},
+			{
+				name: "changing other mutable settings",
+				initial: UserConfig{
+					VectorCacheMaxObjects: 700,
+					FlatSearchCutoff:      800,
+				},
+				update: UserConfig{
+					VectorCacheMaxObjects: 730,
+					FlatSearchCutoff:      830,
+				},
+				expectedError: nil,
+			},
+			{
+				name: "attempting to change dynamic ef settings",
+				initial: UserConfig{
+					DynamicEFMin:    100,
+					DynamicEFMax:    200,
+					DynamicEFFactor: 5,
+				},
+				update: UserConfig{
+					DynamicEFMin:    101,
+					DynamicEFMax:    201,
+					DynamicEFFactor: 6,
+				},
+				expectedError: nil,
 			},
 		}
 

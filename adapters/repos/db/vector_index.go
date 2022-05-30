@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,7 +22,10 @@ type VectorIndex interface {
 	Add(id uint64, vector []float32) error
 	Delete(id uint64) error
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(vector []float32, dist float32,
+		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schema.VectorIndexConfig) error
 	Drop() error
+	Shutdown()
 	Flush() error
 }

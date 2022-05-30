@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,10 +22,14 @@ type Classification struct {
 }
 
 type Properties struct {
-	Classification bool                   `json:"classification"`
-	RefMeta        bool                   `json:"refMeta"`
-	Vector         bool                   `json:"vector"`
-	Certainty      bool                   `json:"certainty"`
-	ID             bool                   `json:"id"`
-	ModuleParams   map[string]interface{} `json:"moduleParams"`
+	Classification     bool                   `json:"classification"`
+	RefMeta            bool                   `json:"refMeta"`
+	Vector             bool                   `json:"vector"`
+	Certainty          bool                   `json:"certainty"`
+	ID                 bool                   `json:"id"`
+	CreationTimeUnix   bool                   `json:"creationTimeUnix"`
+	LastUpdateTimeUnix bool                   `json:"lastUpdateTimeUnix"`
+	ModuleParams       map[string]interface{} `json:"moduleParams"`
+	Distance           bool                   `json:"distance"`
+	Score              bool                   `json:"score"`
 }

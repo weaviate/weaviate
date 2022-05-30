@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,9 +31,10 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getAsk() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction:     g.getAskArgumentFn,
-		ExploreArgumentsFunction: g.exploreAskArgumentFn,
-		ExtractFunction:          g.extractAskFn,
-		ValidateFunction:         g.validateAskFn,
+		GetArgumentsFunction:       g.getAskArgumentFn,
+		AggregateArgumentsFunction: g.aggregateAskArgumentFn,
+		ExploreArgumentsFunction:   g.exploreAskArgumentFn,
+		ExtractFunction:            g.extractAskFn,
+		ValidateFunction:           g.validateAskFn,
 	}
 }

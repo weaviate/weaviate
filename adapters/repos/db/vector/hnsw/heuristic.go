@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -12,7 +12,8 @@
 package hnsw
 
 import (
-	"github.com/pkg/errors"
+	"context"
+
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
@@ -23,13 +24,25 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		return nil
 	}
 
+	// TODO, if this solution stays we might need something with fewer allocs
+	ids := make([]uint64, input.Len())
+	var vecs [][]float32
+
 	closestFirst := h.pools.pqHeuristic.GetMin(input.Len())
+	i := uint64(0)
 	for input.Len() > 0 {
 		elem := input.Pop()
-		closestFirst.Insert(elem.ID, elem.Dist)
+		closestFirst.Insert(elem.ID, i, elem.Dist)
+		ids[i] = elem.ID
+		i++
 	}
 
-	returnList := h.pools.pqItemSlice.Get().([]priorityqueue.Item)
+	vecs, err := h.multiVectorForID(context.TODO(), ids)
+	if err != nil {
+		return err
+	}
+
+	returnList := h.pools.pqItemSlice.Get().([]priorityqueue.ItemWithIndex)
 
 	for closestFirst.Len() > 0 && len(returnList) < max {
 		curr := closestFirst.Pop()
@@ -38,17 +51,11 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		}
 		distToQuery := curr.Dist
 
+		currVec := vecs[curr.Index]
 		good := true
 		for _, item := range returnList {
-
-			peerDist, ok, err := h.distBetweenNodes(curr.ID, item.ID)
-			if err != nil {
-				return errors.Wrapf(err, "distance between %d and %d", curr.ID, item.ID)
-			}
-
-			if !ok {
-				continue
-			}
+			peerDist, _, _ := h.distancerProvider.SingleDist(currVec,
+				vecs[item.Index])
 
 			if peerDist < distToQuery {
 				good = false

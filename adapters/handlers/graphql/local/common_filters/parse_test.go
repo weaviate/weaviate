@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -171,9 +171,9 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 		}) }`
 
 		expectedErrors := []gqlerrors.FormattedError{
-			gqlerrors.FormattedError{
+			{
 				Message:   "Argument \"where\" has invalid value {path: [\"location\"], operator: WithinGeoRange, valueGeoRange: {geoCoordinates: {latitude: 0.5}, distance: {max: 2.0}}}.\nIn field \"valueGeoRange\": In field \"geoCoordinates\": In field \"longitude\": Expected \"Float!\", found null.",
-				Locations: []location.SourceLocation{location.SourceLocation{Line: 1, Column: 21}},
+				Locations: []location.SourceLocation{{Line: 1, Column: 21}},
 			},
 		}
 		resolver.AssertErrors(t, query, expectedErrors)
@@ -216,7 +216,7 @@ func TestExtractOperand(t *testing.T) {
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorAnd,
 		Operands: []filters.Clause{
-			filters.Clause{
+			{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),
@@ -227,7 +227,7 @@ func TestExtractOperand(t *testing.T) {
 					Type:  schema.DataTypeInt,
 				},
 			},
-			filters.Clause{
+			{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),
@@ -271,4 +271,8 @@ func TestExtractOperandFailsIfPathPresent(t *testing.T) {
 
 	query := `{ SomeAction(where: { path:["should", "not", "be", "present"], operator: And  })}`
 	resolver.AssertFailToResolve(t, query)
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }

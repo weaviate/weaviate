@@ -4,20 +4,18 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
 
 package common_filters
 
-import (
-	"github.com/semi-technologies/weaviate/usecases/traverser"
-)
+import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractNearObject arguments, such as "vector" and "certainty"
-func ExtractNearObject(source map[string]interface{}) traverser.NearObjectParams {
-	var args traverser.NearObjectParams
+func ExtractNearObject(source map[string]interface{}) searchparams.NearObject {
+	var args searchparams.NearObject
 
 	id, ok := source["id"]
 	if ok {

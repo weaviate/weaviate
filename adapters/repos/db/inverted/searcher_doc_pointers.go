@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/binary"
 	"hash/crc64"
-	"math"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -55,9 +54,9 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 	var hashes [][]byte
 
 	if err := rr.Read(context.TODO(), func(k []byte, ids [][]byte) (bool, error) {
-		currentDocIDs := make([]docPointer, len(ids))
+		currentDocIDs := make([]uint64, len(ids))
 		for i, asBytes := range ids {
-			currentDocIDs[i].id = binary.LittleEndian.Uint64(asBytes)
+			currentDocIDs[i] = binary.LittleEndian.Uint64(asBytes)
 		}
 
 		pointers.count += uint64(len(ids))
@@ -93,19 +92,22 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 
 func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, fs.shardVersion)
 
 	var pointers docPointers
 	var hashes [][]byte
 
 	if err := rr.Read(context.TODO(), func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
-		currentDocIDs := make([]docPointer, len(pairs))
+		currentDocIDs := make([]uint64, len(pairs))
 		// beforePairs := time.Now()
 		for i, pair := range pairs {
-			currentDocIDs[i].id = binary.LittleEndian.Uint64(pair.Key)
-			freqBits := binary.LittleEndian.Uint64(pair.Value)
-			freq := math.Float64frombits(freqBits)
-			currentDocIDs[i].frequency = &freq
+			// this entry has a frequency, but that's only used for bm25, not for
+			// pure filtering, so we can ignore it here
+			if fs.shardVersion < 2 {
+				currentDocIDs[i] = binary.LittleEndian.Uint64(pair.Key)
+			} else {
+				currentDocIDs[i] = binary.BigEndian.Uint64(pair.Key)
+			}
 		}
 		// fmt.Printf("loop through pairs took %s\n", time.Since(beforePairs))
 
@@ -159,10 +161,7 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 		return out, errors.Wrapf(err, "geo index range search on prop %q", pv.prop)
 	}
 
-	out.docIDs = make([]docPointer, len(res))
-	for i, id := range res {
-		out.docIDs[i] = docPointer{id: id}
-	}
+	out.docIDs = res
 	out.count = uint64(len(res))
 
 	// we can not use the checksum in the same fashion as with the inverted

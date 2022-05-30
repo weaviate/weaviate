@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -62,6 +62,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
+	// Set the original creation timestamp before call to put,
+	// otherwise it is lost. This is because `class` is unmarshaled
+	// directly from the request body, therefore `CreationTimeUnix`
+	// inherits the zero value.
+	class.CreationTimeUnix = originalObject.Created
 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorizeAndPutObject(ctx, class, principal)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -86,6 +86,23 @@ func Test_extractAskFn(t *testing.T) {
 				Properties: []string{"prop1", "prop2"},
 			},
 		},
+		{
+			name: "should parse properly with question and certainty and properties and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":   "some question",
+					"certainty":  0.8,
+					"properties": []interface{}{"prop1", "prop2"},
+					"rerank":     true,
+				},
+			},
+			want: &AskParams{
+				Question:   "some question",
+				Certainty:  0.8,
+				Properties: []string{"prop1", "prop2"},
+				Rerank:     true,
+			},
+		},
 	}
 
 	testsWithAutocorrect := []struct {
@@ -147,6 +164,25 @@ func Test_extractAskFn(t *testing.T) {
 				Certainty:   0.8,
 				Properties:  []string{"prop1", "prop2"},
 				Autocorrect: true,
+			},
+		},
+		{
+			name: "should parse properly with question and certainty and properties and autocorrect and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":    "transform this",
+					"certainty":   0.8,
+					"properties":  []interface{}{"prop1", "prop2"},
+					"autocorrect": true,
+					"rerank":      true,
+				},
+			},
+			want: &AskParams{
+				Question:    "transformed text",
+				Certainty:   0.8,
+				Properties:  []string{"prop1", "prop2"},
+				Autocorrect: true,
+				Rerank:      true,
 			},
 		},
 	}

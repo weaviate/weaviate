@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -38,21 +38,21 @@ func Test_Traverser_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{GetParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
 
-		testCase{
+		{
 			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&aggregation.Params{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
 
-		testCase{
+		{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",
@@ -82,7 +82,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 			schemaGetter := &fakeSchemaGetter{}
 
 			manager := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-				vectorRepo, explorer, schemaGetter)
+				vectorRepo, explorer, schemaGetter, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,15 +15,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
@@ -35,6 +40,8 @@ type Searcher struct {
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
 	deletedDocIDs DeletedDocIDChecker
+	stopwords     stopwords.StopwordDetector
+	shardVersion  uint16
 }
 
 type cacher interface {
@@ -48,7 +55,8 @@ type DeletedDocIDChecker interface {
 
 func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	rowCache cacher, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
+	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
+	stopwords stopwords.StopwordDetector, shardVersion uint16) *Searcher {
 	return &Searcher{
 		store:         store,
 		schema:        schema,
@@ -56,19 +64,20 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
 		deletedDocIDs: deletedDocIDs,
+		stopwords:     stopwords,
+		shardVersion:  shardVersion,
 	}
 }
 
 // Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int,
-	filter *filters.LocalFilter, additional additional.Properties,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
-	var out []*storobj.Object
 	// we assume that when retrieving objects, we can not tolerate duplicates as
 	// they would have a direct impact on the user
 	if err := pv.fetchDocIDs(f, limit, false); err != nil {
@@ -80,18 +89,41 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	// cutoff if required, e.g. after merging unlimted filters
-	if len(pointers.docIDs) > limit {
-		pointers.docIDs = pointers.docIDs[:limit]
+	if len(sort) > 0 {
+		return f.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
 	}
 
-	res, err := f.objectsByDocID(pointers.IDs(), additional)
+	return f.allObjectsByDocID(pointers.IDs(), limit, additional)
+}
+
+func (f *Searcher) allObjectsByDocID(ids []uint64, limit int,
+	additional additional.Properties) ([]*storobj.Object, error) {
+	// cutoff if required, e.g. after merging unlimted filters
+	docIDs := ids
+	if len(docIDs) > limit {
+		docIDs = docIDs[:limit]
+	}
+
+	res, err := f.objectsByDocID(docIDs, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
+	return res, nil
+}
 
-	out = res
-	return out, nil
+func (f *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
+	additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+	docIDs, err := f.sort(ctx, limit, sort, ids, additional, className)
+	if err != nil {
+		return nil, errors.Wrap(err, "sort doc ids")
+	}
+	return f.objectsByDocID(docIDs, additional)
+}
+
+func (f *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+	additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+	return sorter.NewLSMSorter(f.store, f.schema, className).
+		SortDocIDs(ctx, limit, sort, docIDs, additional)
 }
 
 func (f *Searcher) objectsByDocID(ids []uint64,
@@ -173,7 +205,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
-		out.Insert(p.id)
+		out.Insert(p)
 	}
 
 	if cacheable {
@@ -213,6 +245,10 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	// we are on a value element
 
+	if fs.onInternalProp(props[0]) {
+		return fs.extractInternalProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
+	}
+
 	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
@@ -224,13 +260,14 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
-	if fs.onIDProp(props[0]) {
-		return fs.extractIDProp(filter.Value.Value, filter.Operator)
-	}
+	if fs.onTokenizablePropValue(filter.Value.Type) {
+		property, err := fs.schema.GetProperty(className, schema.PropertyName(props[0]))
+		if err != nil {
+			return nil, err
+		}
 
-	if fs.onMultiWordPropValue(filter.Operator, filter.Value.Value, filter.Value.Type) {
-		return fs.extractMultiWordProp(props[0], filter.Value.Type, filter.Value.Value,
-			filter.Operator)
+		return fs.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
+			filter.Operator, property.Tokenization)
 	}
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
@@ -248,18 +285,6 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	var extractValueFn func(in interface{}) ([]byte, error)
 	var hasFrequency bool
 	switch dt {
-	case schema.DataTypeText:
-		if operator == filters.OperatorLike {
-			// if the operator is like, we cannot apply the regular text-splitting
-			// logic as it would remove all wildcard symbols
-			extractValueFn = fs.extractTextValueKeepWildcards
-		} else {
-			extractValueFn = fs.extractTextValue
-		}
-		hasFrequency = true
-	case schema.DataTypeString:
-		extractValueFn = fs.extractStringValue
-		hasFrequency = true
 	case schema.DataTypeBoolean:
 		extractValueFn = fs.extractBoolValue
 		hasFrequency = false
@@ -325,6 +350,19 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 	}, nil
 }
 
+func (fs *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
+	operator filters.Operator) (*propValuePair, error) {
+	switch propName {
+	case filters.InternalPropBackwardsCompatID, filters.InternalPropID:
+		return fs.extractIDProp(value, operator)
+	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
+		return extractTimestampProp(propName, propType, value, operator)
+	default:
+		return nil, fmt.Errorf(
+			"failed to extract internal prop, unsupported internal prop '%s'", propName)
+	}
+}
+
 func (fs *Searcher) extractIDProp(value interface{},
 	operator filters.Operator) (*propValuePair, error) {
 	v, ok := value.(string)
@@ -335,36 +373,100 @@ func (fs *Searcher) extractIDProp(value interface{},
 	return &propValuePair{
 		value:        []byte(v),
 		hasFrequency: false,
-		prop:         helpers.PropertyNameID,
+		prop:         filters.InternalPropID,
 		operator:     operator,
 	}, nil
 }
 
-func (fs *Searcher) extractMultiWordProp(propName string, dt schema.DataType,
-	value interface{}, operator filters.Operator) (*propValuePair, error) {
-	var out propValuePair
+func extractTimestampProp(propName string, propType schema.DataType, value interface{},
+	operator filters.Operator) (*propValuePair, error) {
+	if propType != schema.DataTypeDate && propType != schema.DataTypeString {
+		return nil, fmt.Errorf(
+			"failed to extract internal prop, unsupported type %T for prop %s", value, propName)
+	}
+
+	var valResult []byte
+	// if propType is a `valueDate`, we need to convert
+	// it to ms before fetching. this is the format by
+	// which our timestamps are indexed
+	if propType == schema.DataTypeDate {
+		v, ok := value.(time.Time)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be time.Time, got %T", value)
+		}
+
+		b, err := json.Marshal(v.UnixNano() / int64(time.Millisecond))
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract internal prop: %s", err)
+		}
+		valResult = b
+	} else {
+		v, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected value to be string, got %T", value)
+		}
+		valResult = []byte(v)
+	}
+
+	return &propValuePair{
+		value:        valResult,
+		hasFrequency: false,
+		prop:         propName,
+		operator:     operator,
+	}, nil
+}
+
+func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
+	operator filters.Operator, tokenization string) (*propValuePair, error) {
 	var parts []string
+
 	switch dt {
 	case schema.DataTypeString:
-		parts = helpers.TokenizeString(value.(string))
-	case schema.DataTypeText:
-		parts = helpers.TokenizeText(value.(string))
-	default:
-		return nil, fmt.Errorf("expected value type to be string or text, got %T", dt)
-	}
-
-	out.children = make([]*propValuePair, len(parts))
-
-	for i, part := range parts {
-		child, err := fs.extractPrimitiveProp(propName, dt, part, operator)
-		if err != nil {
-			return nil, errors.Wrapf(err, "multi word at pos %d", i)
+		switch tokenization {
+		case models.PropertyTokenizationWord:
+			parts = helpers.TokenizeString(value.(string))
+		case models.PropertyTokenizationField:
+			parts = []string{helpers.TrimString(value.(string))}
+		default:
+			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
 		}
-		out.children[i] = child
+	case schema.DataTypeText:
+		switch tokenization {
+		case models.PropertyTokenizationWord:
+			if operator == filters.OperatorLike {
+				// if the operator is like, we cannot apply the regular text-splitting
+				// logic as it would remove all wildcard symbols
+				parts = helpers.TokenizeTextKeepWildcards(value.(string))
+			} else {
+				parts = helpers.TokenizeText(value.(string))
+			}
+		default:
+			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
+		}
+	default:
+		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
 	}
-	out.operator = filters.OperatorAnd
 
-	return &out, nil
+	propValuePairs := make([]*propValuePair, 0, len(parts))
+	for _, part := range parts {
+		if fs.stopwords.IsStopword(part) {
+			continue
+		}
+		propValuePairs = append(propValuePairs, &propValuePair{
+			value:        []byte(part),
+			hasFrequency: true,
+			prop:         propName,
+			operator:     operator,
+		})
+	}
+
+	if len(propValuePairs) > 1 {
+		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs}, nil
+	}
+	if len(propValuePairs) == 1 {
+		return propValuePairs[0], nil
+	}
+	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -372,22 +474,12 @@ func (fs *Searcher) extractMultiWordProp(propName string, dt schema.DataType,
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		if schema.IsRefDataType(prop.DataType) {
-			return true
-		}
-	}
-
-	return false
+	return schema.IsRefDataType(property.DataType)
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -395,42 +487,22 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
-	c := fs.schema.FindClassByName(className)
-	if c == nil {
+	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
 		return false
 	}
 
-	for _, prop := range c.Properties {
-		if prop.Name != propName {
-			continue
-		}
-
-		return schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
-	}
-
-	return false
+	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
-func (fs *Searcher) onIDProp(propName string) bool {
-	return propName == helpers.PropertyNameID
+func (fs *Searcher) onInternalProp(propName string) bool {
+	return filters.IsInternalProperty(schema.PropertyName(propName))
 }
 
-func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
-	value interface{}, valueType schema.DataType) bool {
+func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
-	case schema.DataTypeString:
-		parts := helpers.TokenizeString(value.(string))
-		return len(parts) > 1
-	case schema.DataTypeText:
-		var parts []string
-		if operator == filters.OperatorLike {
-			// if the operator is like, we cannot apply the regular text-splitting
-			// logic as it would remove all wildcard symbols
-			parts = helpers.TokenizeTextKeepWildcards(value.(string))
-		} else {
-			parts = helpers.TokenizeText(value.(string))
-		}
-		return len(parts) > 1
+	case schema.DataTypeString, schema.DataTypeText:
+		return true
 	default:
 		return false
 	}
@@ -438,16 +510,28 @@ func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
 
 type docPointers struct {
 	count    uint64
-	docIDs   []docPointer
+	docIDs   []uint64
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
-type docPointer struct {
-	id        uint64
-	frequency *float64
+type docPointersWithScore struct {
+	count    uint64
+	docIDs   []docPointerWithScore
+	checksum []byte // helps us judge if a cached read is still fresh
+}
+
+type docPointerWithScore struct {
+	id         uint64
+	frequency  float64
+	propLength float64
+	score      float64
 }
 
 func (d docPointers) IDs() []uint64 {
+	return d.docIDs
+}
+
+func (d docPointersWithScore) IDs() []uint64 {
 	out := make([]uint64, len(d.docIDs))
 	for i, elem := range d.docIDs {
 		out[i] = elem.id
@@ -458,18 +542,18 @@ func (d docPointers) IDs() []uint64 {
 func (d *docPointers) removeDuplicates() {
 	counts := make(map[uint64]uint16, len(d.docIDs))
 	for _, id := range d.docIDs {
-		counts[id.id]++
+		counts[id]++
 	}
 
-	updated := make([]docPointer, len(d.docIDs))
+	updated := make([]uint64, len(d.docIDs))
 	i := 0
 	for _, id := range d.docIDs {
-		if counts[id.id] == 1 {
+		if counts[id] == 1 {
 			updated[i] = id
 			i++
 		}
 
-		counts[id.id]--
+		counts[id]--
 	}
 
 	d.docIDs = updated[:i]

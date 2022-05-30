@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -40,13 +40,21 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 	tolerateDuplicates bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
-		if pv.prop == "id" {
-			// the user-specified ID prop has a special internal name
-			id = helpers.BucketFromPropNameLSM(helpers.PropertyNameID)
-			pv.prop = helpers.PropertyNameID
+		if pv.prop == filters.InternalPropBackwardsCompatID {
+			// the user-specified ID is considered legacy. we
+			// support backwards compatibility with this prop
+			id = helpers.BucketFromPropNameLSM(filters.InternalPropID)
+			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
 		b := s.store.Bucket(id)
+
+		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
+			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
+			return errors.Errorf("timestamps must be indexed to be filterable! " +
+				"add `indexTimestaps: true` to the invertedIndexConfig")
+		}
+
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			// a nil bucket is ok for a WithinGeoRange filter, as this query is not
 			// served by the inverted index, but propagated to a secondary index in
@@ -119,9 +127,9 @@ func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, e
 	found := map[uint64]uint64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count := found[pointer.id]
+			count := found[pointer]
 			count++
-			found[pointer.id] = count
+			found[pointer] = count
 		}
 	}
 
@@ -135,9 +143,7 @@ func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, e
 		// TODO: optimize to use fixed length slice and cut off (should be
 		// considerably cheaper on very long lists, such as we encounter during
 		// large classification cases
-		out.docIDs = append(out.docIDs, docPointer{
-			id: id,
-		})
+		out.docIDs = append(out.docIDs, id)
 		idsForChecksum = append(idsForChecksum, id)
 	}
 
@@ -178,20 +184,16 @@ func mergeOr(children []*propValuePair, acceptDuplicates bool) (*docPointers, er
 	found := map[uint64]uint64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count := found[pointer.id]
+			count := found[pointer]
 			count++
-			found[pointer.id] = count
+			found[pointer] = count
 		}
 		checksums = append(checksums, set.checksum)
 	}
 
 	var out docPointers
 	for id := range found {
-		// TODO: improve score if item was contained more often
-
-		out.docIDs = append(out.docIDs, docPointer{
-			id: id,
-		})
+		out.docIDs = append(out.docIDs, id)
 	}
 
 	out.checksum = combineChecksums(checksums, filters.OperatorOr)

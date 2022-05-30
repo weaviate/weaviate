@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -15,60 +15,38 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
-	return &graphql.ArgumentConfig{
-		// Description: descriptions.GetExplore,
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
-				Fields: nearVectorFields(prefix),
-			},
-		),
-	}
-}
-
-func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"vector": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
-		},
-	}
+	return common_filters.NearVectorArgument("GetObjects", className)
 }
 
 func nearObjectArgument(className string) *graphql.ArgumentConfig {
+	return common_filters.NearObjectArgument("GetObjects", className)
+}
+
+func bm25Argument(className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sNearObjectInpObj", prefix),
-				Fields: nearObjectFields(prefix),
+				Name:   fmt.Sprintf("%sBm25InpObj", prefix),
+				Fields: bm25Fields(prefix),
 			},
 		),
 	}
 }
 
-func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
+func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
-		"id": &graphql.InputObjectFieldConfig{
-			Description: descriptions.ID,
-			Type:        graphql.String,
+		"query": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.ID,
+			Type: graphql.String,
 		},
-		"beacon": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Beacon,
-			Type:        graphql.String,
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
+		"properties": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Beacon,
+			Type: graphql.NewList(graphql.String),
 		},
 	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -109,7 +109,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 	if haystack == needle {
 		// direct match
 		return []filters.Path{
-			filters.Path{
+			{
 				Class:    libschema.ClassName(class.Class),
 				Property: libschema.PropertyName(propName),
 				Child: &filters.Path{

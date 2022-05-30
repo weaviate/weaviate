@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -24,36 +24,36 @@ func testSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class: "ExactCategory",
 				},
-				&models.Class{
+				{
 					Class: "MainCategory",
 				},
-				&models.Class{
+				{
 					Class: "Article",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "description",
 							DataType: []string{string(schema.DataTypeText)},
 						},
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "exactCategory",
 							DataType: []string{"ExactCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "mainCategory",
 							DataType: []string{"MainCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "categories",
 							DataType: []string{"ExactCategory"},
 						},
-						&models.Property{
+						{
 							Name:     "anyCategory",
 							DataType: []string{"MainCategory", "ExactCategory"},
 						},

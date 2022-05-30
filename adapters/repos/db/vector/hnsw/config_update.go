@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -83,6 +83,9 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	// Store atomatically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&h.ef, int64(parsed.EF))
+	atomic.StoreInt64(&h.efMin, int64(parsed.DynamicEFMin))
+	atomic.StoreInt64(&h.efMax, int64(parsed.DynamicEFMax))
+	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
 	h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))

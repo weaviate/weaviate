@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -125,7 +125,8 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 }
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
+	fieldsToKeep map[string]struct{}) {
 	defer wg.Done()
 
 	var id strfmt.UUID
@@ -164,8 +165,13 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if _, ok := fieldsToKeep["properties"]; ok {
 		object.Properties = concept.Properties
 	}
-	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
-		object.CreationTimeUnix = unixNow()
+
+	now := unixNow()
+	if _, ok := fieldsToKeep["creationTimeUnix"]; ok {
+		object.CreationTimeUnix = now
+	}
+	if _, ok := fieldsToKeep["lastUpdateTimeUnix"]; ok {
+		object.LastUpdateTimeUnix = now
 	}
 
 	err = validation.New(s, b.exists, b.config).Object(ctx, object)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -54,7 +54,7 @@ func TestGetParams(t *testing.T) {
 				IsPrimitive: false,
 				Name:        "inCity",
 				Refs: []search.SelectClass{
-					search.SelectClass{
+					{
 						ClassName: "City",
 						RefProperties: search.SelectProperties{
 							search.SelectProperty{
@@ -65,7 +65,7 @@ func TestGetParams(t *testing.T) {
 								Name:        "inCountry",
 								IsPrimitive: false,
 								Refs: []search.SelectClass{
-									search.SelectClass{
+									{
 										ClassName: "Country",
 										RefProperties: search.SelectProperties{
 											search.SelectProperty{

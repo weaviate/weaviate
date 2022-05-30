@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -62,7 +62,7 @@ func oidcHandler(t *testing.T, url string) http.Handler {
 		w.Header().Add("Content-Type", "application/json")
 		d := jwksResponse{
 			Keys: []jose.JSONWebKey{
-				jose.JSONWebKey{
+				{
 					Key:       publicKey,
 					Use:       "sig",
 					Algorithm: string(jose.RS256),

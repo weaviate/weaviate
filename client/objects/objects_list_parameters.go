@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -99,6 +99,16 @@ type ObjectsListParams struct {
 
 	*/
 	Offset *int64
+	/*Order
+	  Order parameter to tell how to order (asc or desc) data within given field
+
+	*/
+	Order *string
+	/*Sort
+	  Sort parameter to pass an information about the names of the sort fields
+
+	*/
+	Sort *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -171,6 +181,28 @@ func (o *ObjectsListParams) SetOffset(offset *int64) {
 	o.Offset = offset
 }
 
+// WithOrder adds the order to the objects list params
+func (o *ObjectsListParams) WithOrder(order *string) *ObjectsListParams {
+	o.SetOrder(order)
+	return o
+}
+
+// SetOrder adds the order to the objects list params
+func (o *ObjectsListParams) SetOrder(order *string) {
+	o.Order = order
+}
+
+// WithSort adds the sort to the objects list params
+func (o *ObjectsListParams) WithSort(sort *string) *ObjectsListParams {
+	o.SetSort(sort)
+	return o
+}
+
+// SetSort adds the sort to the objects list params
+func (o *ObjectsListParams) SetSort(sort *string) {
+	o.Sort = sort
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -221,6 +253,38 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		qOffset := swag.FormatInt64(qrOffset)
 		if qOffset != "" {
 			if err := r.SetQueryParam("offset", qOffset); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	if o.Order != nil {
+
+		// query param order
+		var qrOrder string
+		if o.Order != nil {
+			qrOrder = *o.Order
+		}
+		qOrder := qrOrder
+		if qOrder != "" {
+			if err := r.SetQueryParam("order", qOrder); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	if o.Sort != nil {
+
+		// query param sort
+		var qrSort string
+		if o.Sort != nil {
+			qrSort = *o.Sort
+		}
+		qSort := qrSort
+		if qSort != "" {
+			if err := r.SetQueryParam("sort", qSort); err != nil {
 				return err
 			}
 		}

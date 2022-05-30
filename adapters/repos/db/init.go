@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -32,7 +33,6 @@ func (d *DB) init(ctx context.Context) error {
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
-
 			invertedConfig := class.InvertedIndexConfig
 			if invertedConfig == nil {
 				// for backward compatibility, this field was introduced in v1.0.4,
@@ -42,13 +42,21 @@ func (d *DB) init(ctx context.Context) error {
 				// it could have been created before v1.0.4
 				invertedConfig = &models.InvertedIndexConfig{
 					CleanupIntervalSeconds: config.DefaultCleanupIntervalSeconds,
+					Bm25: &models.BM25Config{
+						K1: config.DefaultBM25k1,
+						B:  config.DefaultBM25b,
+					},
 				}
 			}
 
 			idx, err := NewIndex(ctx, IndexConfig{
-				ClassName: schema.ClassName(class.Class),
-				RootPath:  d.config.RootPath,
-			}, d.schemaGetter.ShardingState(class.Class), invertedConfig,
+				ClassName:                 schema.ClassName(class.Class),
+				RootPath:                  d.config.RootPath,
+				DiskUseWarningPercentage:  d.config.DiskUseWarningPercentage,
+				DiskUseReadOnlyPercentage: d.config.DiskUseReadOnlyPercentage,
+				QueryMaximumResults:       d.config.QueryMaximumResults,
+			}, d.schemaGetter.ShardingState(class.Class),
+				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient, d.promMetrics)
 			if err != nil {

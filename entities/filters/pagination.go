@@ -4,15 +4,24 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
 
 package filters
 
-// Pagination for now only contains a limit parameter, but might be extended in
-// the future
+const (
+	// LimitFlagSearchByDist indicates that the
+	// vector search should be conducted by
+	// distance, witout limit
+	LimitFlagSearchByDist int = iota - 2
+
+	// LimitFlagNotSet indicates that no limit
+	// was provided by the client
+	LimitFlagNotSet
+)
+
 type Pagination struct {
 	Offset int
 	Limit  int
@@ -27,8 +36,8 @@ func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error)
 	}
 
 	limit, limitOk := args["limit"]
-	if !limitOk {
-		limit = -1
+	if !limitOk || limit.(int) < 0 {
+		limit = LimitFlagNotSet
 	}
 
 	if !offsetOk && !limitOk {

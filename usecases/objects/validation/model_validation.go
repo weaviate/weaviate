@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -43,6 +43,8 @@ const (
 	ErrorMissingActionObjectsSubjectType string = "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON"
 	// ErrorInvalidActionObjectsSubjectType message
 	ErrorInvalidActionObjectsSubjectType string = "subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'"
+	// ErrorMisingObject message
+	ErrorMissingObject = "the given object is empty"
 	// ErrorMissingClass message
 	ErrorMissingClass string = "the given class is empty"
 	// ErrorMissingContext message

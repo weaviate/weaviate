@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -44,6 +44,5 @@ type State interface {
 
 	// Idempotent remove; removing a non-existing peer should not fail.
 	RemovePeer(id strfmt.UUID) error
-
 	UpdateLastContact(id strfmt.UUID, contact_time time.Time, schemaHash string) error
 }

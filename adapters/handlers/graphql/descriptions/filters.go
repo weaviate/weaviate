@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -134,4 +134,9 @@ const NetworkTimeout = "Specify the time in seconds after which an unresolved re
 const (
 	First = "Show the first x results (pagination option)"
 	After = "Show the results after the first x results (pagination option)"
+)
+
+const (
+	SortPath  = "Specify the path from the Objects fields to the property name (e.g. ['Get', 'City', 'population'] leads to the 'population' property of a 'City' object)"
+	SortOrder = "Specify the sort order, either ascending (asc) which is default or descending (desc)"
 )

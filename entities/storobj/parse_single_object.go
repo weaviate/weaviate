@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -12,57 +12,70 @@
 package storobj
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strconv"
 
 	"github.com/buger/jsonparser"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
+func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, error) {
+	if propName == "id" || propName == "_id" {
+		return extractID(data)
+	}
+	if propName == "_creationTimeUnix" {
+		return extractCreationTimeUnix(data)
+	}
+	if propName == "_lastUpdateTimeUnix" {
+		return extractLastUpdateTimeUnix(data)
+	}
+	return ParseAndExtractTextProp(data, propName)
+}
+
 func ParseAndExtractTextProp(data []byte, propName string) ([]string, bool, error) {
-	propsBytes, err := extractPropsBytes(data)
-	if err != nil {
-		return nil, false, err
-	}
-
-	val, t, _, err := jsonparser.Get(propsBytes, propName)
-	if err != nil {
-		return nil, false, err
-	}
-
 	vals := []string{}
-	if t == jsonparser.Array {
-		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			vals = append(vals, string(value))
-		})
-	} else {
-		vals = append(vals, string(val))
+	err := parseAndExtractValueProp(data, propName, func(value []byte) {
+		vals = append(vals, string(value))
+	})
+	if err != nil {
+		return nil, false, err
 	}
-
 	return vals, true, nil
 }
 
 func ParseAndExtractNumberArrayProp(data []byte, propName string) ([]float64, bool, error) {
-	propsBytes, err := extractPropsBytes(data)
+	vals := []float64{}
+	err := parseAndExtractValueProp(data, propName, func(value []byte) {
+		vals = append(vals, mustExtractNumber(value))
+	})
 	if err != nil {
 		return nil, false, err
+	}
+	return vals, true, nil
+}
+
+func parseAndExtractValueProp(data []byte, propName string, valueFn func(value []byte)) error {
+	propsBytes, err := extractPropsBytes(data)
+	if err != nil {
+		return err
 	}
 
 	val, t, _, err := jsonparser.Get(propsBytes, propName)
 	if err != nil {
-		return nil, false, err
+		return err
 	}
 
-	vals := []float64{}
 	if t == jsonparser.Array {
 		jsonparser.ArrayEach(val, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			vals = append(vals, mustExtractNumber(value))
+			valueFn(value)
 		})
 	} else {
-		vals = append(vals, mustExtractNumber(val))
+		valueFn(val)
 	}
 
-	return vals, true, nil
+	return nil
 }
 
 func mustExtractNumber(value []byte) float64 {
@@ -71,6 +84,46 @@ func mustExtractNumber(value []byte) float64 {
 		panic("not a float64")
 	}
 	return number
+}
+
+func extractID(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1
+	end := start + 16
+	if len(data) > end {
+		uuidParsed, err := uuid.FromBytes(data[start:end])
+		if err != nil {
+			return nil, false, errors.New("cannot parse id property")
+		}
+		return []string{uuidParsed.String()}, true, nil
+	}
+	return nil, false, errors.New("id property not found")
+}
+
+func extractCreationTimeUnix(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1 + 16
+	end := start + 8
+	if len(data) > end {
+		return extractTimeUnix(data[start:end], "_creationTimeUnix")
+	}
+	return nil, false, errors.New("_creationTimeUnix property not found")
+}
+
+func extractLastUpdateTimeUnix(data []byte) ([]string, bool, error) {
+	start := 1 + 8 + 1 + 16 + 8
+	end := start + 8
+	if len(data) > end {
+		return extractTimeUnix(data[start:end], "_lastUpdateTimeUnix")
+	}
+	return nil, false, errors.New("_lastUpdateTimeUnix property not found")
+}
+
+func extractTimeUnix(data []byte, propertyName string) ([]string, bool, error) {
+	var timeUnix int64
+	r := bytes.NewReader(data)
+	if err := binary.Read(r, binary.LittleEndian, &timeUnix); err != nil {
+		return nil, false, errors.Errorf("cannot parse %s property", propertyName)
+	}
+	return []string{strconv.FormatInt(timeUnix, 10)}, true, nil
 }
 
 func extractPropsBytes(data []byte) ([]byte, error) {

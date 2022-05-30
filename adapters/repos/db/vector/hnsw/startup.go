@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -71,7 +71,7 @@ func (h *hnsw) restoreFromDisk() error {
 		fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
 		var valid int
-		state, valid, err = NewDeserializer2(h.logger).Do(fdBuf, state, false)
+		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -71,7 +71,7 @@ func setupArticleCategory(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
@@ -85,11 +85,11 @@ func setupArticleCategory(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "content",
 					DataType: []string{"text"},
 				},
-				&models.Property{
+				{
 					Name:     "OfCategory",
 					DataType: []string{"Category"},
 				},
@@ -155,7 +155,7 @@ func setupRecipe(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
@@ -169,11 +169,11 @@ func setupRecipe(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "content",
 					DataType: []string{"text"},
 				},
-				&models.Property{
+				{
 					Name:     "OfType",
 					DataType: []string{"RecipeType"},
 				},

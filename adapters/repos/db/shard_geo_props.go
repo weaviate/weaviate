@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/geo"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
@@ -78,6 +79,10 @@ func geoPropID(shardID string, propName string) string {
 
 func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	status objectInsertStatus) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	for propName, propIndex := range s.propertyIndices {
 		if err := s.updatePropertySpecificIndex(propName, propIndex,
 			object, status); err != nil {
@@ -101,6 +106,10 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 
 func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	if status.docIDChanged {
 		if err := s.deleteFromGeoIndex(index, status.oldDocID); err != nil {
 			return errors.Wrap(err, "delete old doc id from geo index")
@@ -112,6 +121,10 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 
 func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	if obj.Properties() == nil {
 		return nil
 	}
@@ -138,6 +151,10 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint64) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
 	if err := index.GeoIndex.Delete(docID); err != nil {
 		return errors.Wrapf(err, "delete from geo index")
 	}

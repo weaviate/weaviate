@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -37,52 +37,64 @@ func Test_Schema_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		testCase{
+		{
 			methodName:       "GetSchema",
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
-		testCase{
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{"classname"},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
-		testCase{
+		{
+			methodName:       "GetShardsStatus",
+			additionalArgs:   []interface{}{"className"},
+			expectedVerb:     "list",
+			expectedResource: "schema/className/shards",
+		},
+		{
 			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "UpdateClass",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "DeleteClass",
 			additionalArgs:   []interface{}{"somename"},
 			expectedVerb:     "delete",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "AddClassProperty",
 			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
-		testCase{
+		{
 			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
+		},
+		{
+			methodName:       "UpdateShardStatus",
+			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
+			expectedVerb:     "update",
+			expectedResource: "schema/className/shards/shardName",
 		},
 	}
 
@@ -97,6 +109,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			switch method {
 			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
+				"TryLock", // introduced by sync.Mutex in go 1.18
 				"ShardingState", "TxManager":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
@@ -115,7 +128,8 @@ func Test_Schema_Authorization(t *testing.T) {
 				authorizer := &authDenier{}
 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
 					logger, authorizer, config.Config{},
-					dummyParseVectorConfig, &fakeVectorizerValidator{}, &fakeModuleConfig{},
+					dummyParseVectorConfig, &fakeVectorizerValidator{},
+					dummyValidateInvertedConfig, &fakeModuleConfig{},
 					&fakeClusterState{}, &fakeTxClient{})
 				require.Nil(t, err)
 

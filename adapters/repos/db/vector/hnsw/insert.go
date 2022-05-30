@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -53,6 +53,11 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
+	}
+
+	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	if err != nil {
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 
 	h.nodes[node.id] = node

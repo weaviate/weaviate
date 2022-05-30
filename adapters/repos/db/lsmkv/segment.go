@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -44,6 +44,9 @@ type segment struct {
 	index                 diskIndex
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
+
+	// the net addition this segment adds with respect to all previous segments
+	countNetAdditions int
 }
 
 type diskIndex interface {
@@ -59,7 +62,8 @@ type diskIndex interface {
 	AllKeys() ([][]byte, error)
 }
 
-func newSegment(path string, logger logrus.FieldLogger) (*segment, error) {
+func newSegment(path string, logger logrus.FieldLogger,
+	existsLower existsOnLowerSegmentsFn) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file")
@@ -129,7 +133,55 @@ func newSegment(path string, logger logrus.FieldLogger) (*segment, error) {
 		return nil, err
 	}
 
+	if err := ind.initCountNetAdditions(existsLower); err != nil {
+		return nil, err
+	}
+
 	return ind, nil
+}
+
+// existOnLowerSegments is a simple function that can be passed at segment
+// initialization time to check if any of the keys are truly new or previously
+// seen. This can in turn be used to build up the net count additions. The
+// reason this is abstrate:
+type existsOnLowerSegmentsFn func(key []byte) (bool, error)
+
+func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
+	if ind.strategy != SegmentStrategyReplace {
+		// replace is the only strategy that supports counting
+		return nil
+	}
+
+	// before := time.Now()
+	// defer func() {
+	// 	fmt.Printf("init count net additions took %s\n", time.Since(before))
+	// }()
+
+	var lastErr error
+	netCount := 0
+	cb := func(key []byte, tombstone bool) {
+		existedOnPrior, err := exists(key)
+		if err != nil {
+			lastErr = err
+		}
+
+		if tombstone && existedOnPrior {
+			netCount--
+		}
+
+		if !tombstone && !existedOnPrior {
+			netCount++
+		}
+	}
+
+	extr := newBufferedKeyAndTombstoneExtractor(ind.contents, ind.dataStartPos,
+		ind.dataEndPos, 10e6, ind.secondaryIndexCount, cb)
+
+	extr.do()
+
+	ind.countNetAdditions = netCount
+
+	return lastErr
 }
 
 func (ind *segment) initBloomFilter() error {

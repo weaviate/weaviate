@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -55,6 +55,10 @@ func dummyParseVectorConfig(in interface{}) (schema.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
+func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
+	return nil
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -101,6 +105,10 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 		defaultConfig["my-module1"] = asMap
 		class.ModuleConfig = defaultConfig
 	}
+}
+
+func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
+	prop *models.Property) {
 }
 
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {

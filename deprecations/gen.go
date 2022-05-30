@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -152,7 +152,7 @@ func ptString(in string) *string {
 
 var ByID = map[string]models.Deprecation{
 {{- range .Deprecations }}
-	{{ printf "%q" .ID }}: models.Deprecation{ 
+	{{ printf "%q" .ID }}: { 
 		ID: {{ printf "%q" .ID }},
 		Status: {{ printf "%q" .Status }},
 		APIType: {{ printf "%q" .APIType }},

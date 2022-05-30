@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -31,7 +31,7 @@ type mockResolver struct {
 }
 
 func newMockResolver(cfg config.Config) *mockResolver {
-	field, err := Build(&testhelper.CarSchema, cfg)
+	field, err := Build(&testhelper.CarSchema, cfg, nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

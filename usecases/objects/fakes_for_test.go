@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -145,12 +145,15 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	args := f.Called(id, props, additional)
-	return args.Get(0).(*search.Result), args.Error(1)
+	if args.Get(0) != nil {
+		return args.Get(0).(*search.Result), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, additional additional.Properties) (search.Results, error) {
-	args := f.Called(offset, limit, filters, additional)
+func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
+	sort []filters.Sort, additional additional.Properties) (search.Results, error) {
+	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
@@ -168,6 +171,11 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences) (BatchReferences, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
+}
+
+func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams) (BatchDeleteResult, error) {
+	args := f.Called(params)
+	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
 func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {

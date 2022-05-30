@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -85,4 +86,43 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	}
 
 	return references, nil
+}
+
+func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams) (objects.BatchDeleteResult, error) {
+	// get index for a given class
+	idx := db.GetIndex(params.ClassName)
+	// find all DocIDs in all shards that match the filter
+	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters)
+	if err != nil {
+		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
+	}
+	// prepare to be deleted list of DocIDs from all shards
+	toDelete := map[string][]uint64{}
+	limit := db.config.QueryMaximumResults
+
+	matches := int64(0)
+	for shardName, docIDs := range shardDocIDs {
+		docIDsLength := int64(len(docIDs))
+		if matches <= limit {
+			if matches+docIDsLength <= limit {
+				toDelete[shardName] = docIDs
+			} else {
+				toDelete[shardName] = docIDs[:limit-matches]
+			}
+		}
+		matches += docIDsLength
+	}
+	// delete the DocIDs in given shards
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun)
+	if err != nil {
+		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
+	}
+
+	result := objects.BatchDeleteResult{
+		Matches: matches,
+		Limit:   db.config.QueryMaximumResults,
+		DryRun:  params.DryRun,
+		Objects: deletedObjects,
+	}
+	return result, nil
 }

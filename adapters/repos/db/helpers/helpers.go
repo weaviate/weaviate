@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -13,15 +13,10 @@ package helpers
 
 import "fmt"
 
-const (
-	PropertyNameID = "_id"
-)
-
 var (
-	ObjectsBucket    []byte = []byte("objects")
-	ObjectsBucketLSM        = "objects"
-	DocIDBucket      []byte = []byte("doc_ids")
-	DocIDBucketLSM          = "doc_ids"
+	ObjectsBucket    = []byte("objects")
+	ObjectsBucketLSM = "objects"
+	DocIDBucket      = []byte("doc_ids")
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name

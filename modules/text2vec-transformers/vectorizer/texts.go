@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -21,7 +21,7 @@ import (
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
+	res, err := v.client.VectorizeQuery(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
 		PoolingStrategy: settings.PoolingStrategy(),
 	})
 	if err != nil {

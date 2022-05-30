@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -19,7 +19,7 @@ import (
 )
 
 // Parse Filter from REST construct to entities filter
-func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
+func Parse(in *models.WhereFilter, rootClass string) (*filters.LocalFilter, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -30,14 +30,14 @@ func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
 	}
 
 	if operator.OnValue() {
-		filter, err := parseValueFilter(in, operator)
+		filter, err := parseValueFilter(in, operator, rootClass)
 		if err != nil {
 			return nil, fmt.Errorf("invalid where filter: %v", err)
 		}
 		return filter, nil
 	}
 
-	filter, err := parseNestedFilter(in, operator)
+	filter, err := parseNestedFilter(in, operator, rootClass)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %v", err)
 	}
@@ -45,13 +45,13 @@ func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
 }
 
 func parseValueFilter(in *models.WhereFilter,
-	operator filters.Operator) (*filters.LocalFilter, error) {
+	operator filters.Operator, rootClass string) (*filters.LocalFilter, error) {
 	value, err := parseValue(in)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := parsePath(in.Path)
+	path, err := parsePath(in.Path, rootClass)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func parseValueFilter(in *models.WhereFilter,
 }
 
 func parseNestedFilter(in *models.WhereFilter,
-	operator filters.Operator) (*filters.LocalFilter, error) {
+	operator filters.Operator, rootClass string) (*filters.LocalFilter, error) {
 	if in.Path != nil {
 		return nil, fmt.Errorf(
 			"operator '%s' not compatible with field 'path', remove 'path' "+
@@ -88,7 +88,7 @@ func parseNestedFilter(in *models.WhereFilter,
 			operator.Name())
 	}
 
-	operands, err := parseOperands(in.Operands)
+	operands, err := parseOperands(in.Operands, rootClass)
 	if err != nil {
 		return nil, err
 	}
@@ -101,10 +101,10 @@ func parseNestedFilter(in *models.WhereFilter,
 	}, nil
 }
 
-func parseOperands(ops []*models.WhereFilter) ([]filters.Clause, error) {
+func parseOperands(ops []*models.WhereFilter, rootClass string) ([]filters.Clause, error) {
 	out := make([]filters.Clause, len(ops))
 	for i, operand := range ops {
-		res, err := Parse(operand)
+		res, err := Parse(operand, rootClass)
 		if err != nil {
 			return nil, fmt.Errorf("operand %d: %v", i, err)
 		}
@@ -145,17 +145,17 @@ func parseOperator(in string) (filters.Operator, error) {
 	}
 }
 
-func parsePath(in []string) (*filters.Path, error) {
+func parsePath(in []string, rootClass string) (*filters.Path, error) {
 	if len(in) == 0 {
 		return nil, fmt.Errorf("field 'path': must have at least one element")
 	}
 
-	asInterface := make([]interface{}, len(in))
+	pathElements := make([]interface{}, len(in))
 	for i, elem := range in {
-		asInterface[i] = elem
+		pathElements[i] = elem
 	}
 
-	return filters.ParsePath(asInterface, "Todo") // TODO: do we need to set a root class?
+	return filters.ParsePath(pathElements, rootClass)
 }
 
 func allValuesNil(in *models.WhereFilter) bool {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -23,14 +23,14 @@ func testSchema() schema.Schema {
 	return schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
-				&models.Class{
+				{
 					Class: "Person",
 					Properties: []*models.Property{
-						&models.Property{
+						{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
-						&models.Property{
+						{
 							Name:     "phone",
 							DataType: []string{"phoneNumber"},
 						},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -38,21 +38,37 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	// without grouping there is always exactly one group
 	out.Groups = make([]aggregation.Group, 1)
 
-	s := fa.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
-		fa.Aggregator.classSearcher, fa.deletedDocIDs).
-		DocIDs(ctx, fa.params.Filters, additional.Properties{},
-			fa.params.ClassName)
-	if err != nil {
-		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+	var (
+		allowList helpers.AllowList
+		foundIDs  []uint64
+		err       error
+	)
+
+	if fa.params.Filters != nil {
+		s := fa.getSchema.GetSchemaSkipAuth()
+		allowList, err = inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
+			fa.Aggregator.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
+			DocIDs(ctx, fa.params.Filters, additional.Properties{},
+				fa.params.ClassName)
+		if err != nil {
+			return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+		}
+	}
+
+	if len(fa.params.SearchVector) > 0 {
+		foundIDs, err = fa.vectorSearch(allowList)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		foundIDs = flattenAllowList(allowList)
 	}
 
 	if fa.params.IncludeMetaCount {
-		out.Groups[0].Count = len(ids)
+		out.Groups[0].Count = len(foundIDs)
 	}
 
-	idsList := flattenAllowList(ids)
-	props, err := fa.properties(ctx, idsList)
+	props, err := fa.properties(ctx, foundIDs)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
 	}
@@ -60,6 +76,53 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups[0].Properties = props
 
 	return &out, nil
+}
+
+func (fa *filteredAggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err error) {
+	if fa.params.ObjectLimit != nil {
+		ids, err = fa.searchByVector(fa.params.SearchVector, fa.params.ObjectLimit, allow)
+		return
+	}
+
+	ids, err = fa.searchByVectorDistance(fa.params.SearchVector, allow)
+	return
+}
+
+func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, error) {
+	idsFound, dists, err := fa.vectorIndex.SearchByVector(searchVector, *limit, ids)
+	if err != nil {
+		return idsFound, err
+	}
+
+	if fa.params.Certainty > 0 {
+		targetDist := float32(1-fa.params.Certainty) * 2
+
+		i := 0
+		for _, dist := range dists {
+			if dist > targetDist {
+				break
+			}
+			i++
+		}
+
+		return idsFound[:i], nil
+
+	}
+	return idsFound, nil
+}
+
+func (fa *filteredAggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, error) {
+	if fa.params.Certainty <= 0 {
+		return nil, errors.New("must provide certainty or objectLimit with vector search")
+	}
+
+	targetDist := float32(1-fa.params.Certainty) * 2
+	idsFound, _, err := fa.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
+	if err != nil {
+		return nil, errors.Wrap(err, "aggregate search by vector")
+	}
+
+	return idsFound, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,

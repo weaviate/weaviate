@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -17,6 +17,7 @@ import (
 	"path"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,6 +44,22 @@ func New(rootDir string, logger logrus.FieldLogger,
 
 func (s *Store) Bucket(name string) *Bucket {
 	return s.bucketsByName[name]
+}
+
+func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
+	for _, b := range s.bucketsByName {
+		if b == nil {
+			continue
+		}
+
+		b.UpdateStatus(targetStatus)
+	}
+
+	if targetStatus == storagestate.StatusReadOnly {
+		s.logger.WithField("action", "lsm_compaction").
+			WithField("path", s.rootDir).
+			Warn("compaction halted due to shard READONLY status")
+	}
 }
 
 func (s *Store) init() error {
@@ -75,7 +92,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 func (s *Store) Shutdown(ctx context.Context) error {
 	for name, bucket := range s.bucketsByName {
 		if err := bucket.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shtudown bucket %q", name)
+			return errors.Wrapf(err, "shutdown bucket %q", name)
 		}
 	}
 

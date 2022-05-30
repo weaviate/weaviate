@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -27,7 +27,7 @@ func Test_Batch(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class: "BulkTest",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
@@ -36,13 +36,26 @@ func Test_Batch(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class: "BulkTestSource",
 			Properties: []*models.Property{
-				&models.Property{
+				{
 					Name:     "name",
 					DataType: []string{"string"},
 				},
-				&models.Property{
+				{
 					Name:     "ref",
 					DataType: []string{"BulkTest"},
+				},
+			},
+		})
+		createObjectClass(t, &models.Class{
+			Class: "BulkTestTarget",
+			Properties: []*models.Property{
+				{
+					Name:     "intProp",
+					DataType: []string{"int"},
+				},
+				{
+					Name:     "fromSource",
+					DataType: []string{"BulkTestSource"},
 				},
 			},
 		})
@@ -52,9 +65,11 @@ func Test_Batch(t *testing.T) {
 
 	t.Run("gql results order", batchJourney)
 	t.Run("gql results order", gqlResultsOrder)
+	t.Run("batch delete", batchDeleteJourney)
 
 	deleteObjectClass(t, "BulkTest")
 	deleteObjectClass(t, "BulkTestSource")
+	deleteObjectClass(t, "BulkTestTarget")
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {

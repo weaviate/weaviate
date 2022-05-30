@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -22,7 +22,7 @@ type fakeClient struct {
 	lastConfig ent.VectorizationConfig
 }
 
-func (c *fakeClient) Vectorize(ctx context.Context,
+func (c *fakeClient) VectorizeObject(ctx context.Context,
 	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
@@ -31,6 +31,11 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 	}, nil
+}
+
+func (c *fakeClient) VectorizeQuery(ctx context.Context,
+	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	return c.VectorizeObject(ctx, text, cfg)
 }
 
 type fakeSettings struct {

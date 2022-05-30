@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -37,6 +37,10 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
+func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+}
+
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }
@@ -49,3 +53,5 @@ func (i *Index) Drop() error {
 func (i *Index) Flush() error {
 	return nil
 }
+
+func (i *Index) Shutdown() {}

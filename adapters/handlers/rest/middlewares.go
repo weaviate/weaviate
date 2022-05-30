@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -49,7 +50,7 @@ func addHandleRoot(next http.Handler) http.Handler {
 			w.Header().Add("Location", "/v1")
 			w.WriteHeader(http.StatusMovedPermanently)
 			w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
-				`"https://www.semi.technology/documentation/weaviate/current/"}}`))
+				`"https://weaviate.io/developers/weaviate/current/"}}`))
 			return
 		}
 
@@ -98,6 +99,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
+		handler = addInjectHeadersIntoContext(handler)
 
 		return handler
 	}
@@ -146,6 +148,25 @@ func addPreflight(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+func addInjectHeadersIntoContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		changed := false
+		for k, v := range r.Header {
+			if strings.HasPrefix(k, "X-") {
+				ctx = context.WithValue(ctx, k, v)
+				changed = true
+			}
+		}
+
+		if changed {
+			next.ServeHTTP(w, r.Clone(ctx))
+		} else {
+			next.ServeHTTP(w, r)
+		}
 	})
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -33,7 +33,9 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input string,
+	VectorizeObject(ctx context.Context, input string,
+		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	VectorizeQuery(ctx context.Context, input string,
 		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
@@ -110,7 +112,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	text := strings.Join(corpi, " ")
-	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
+	res, err := v.client.VectorizeObject(ctx, text, ent.VectorizationConfig{
 		PoolingStrategy: icheck.PoolingStrategy(),
 	})
 	if err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2021 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
 //
 //  CONTACT: hello@semi.technology
 //
@@ -333,4 +333,20 @@ func mustEncode(kvs []MapPair) []value {
 	}
 
 	return res
+}
+
+func Test_MapPair_EncodingBytes(t *testing.T) {
+	kv := MapPair{
+		Key:   []byte("hello-world-key1"),
+		Value: []byte("this is the value ;-)"),
+	}
+
+	control, err := kv.Bytes()
+	assert.Nil(t, err)
+
+	encoded := make([]byte, kv.Size())
+	err = kv.EncodeBytes(encoded)
+	assert.Nil(t, err)
+
+	assert.Equal(t, control, encoded)
 }
