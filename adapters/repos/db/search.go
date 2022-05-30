@@ -240,7 +240,7 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 	}
 
 	totalLimit := pagination.Offset + db.getLimit(pagination.Limit)
-	if totalLimit > int(db.config.QueryMaximumResults) {
+	if !addl.ReferenceQuery && totalLimit > int(db.config.QueryMaximumResults) {
 		return 0, errors.New("query maximum results exceeded")
 	}
 	return totalLimit, nil

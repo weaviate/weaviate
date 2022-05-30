@@ -32,4 +32,22 @@ type Properties struct {
 	ModuleParams       map[string]interface{} `json:"moduleParams"`
 	Distance           bool                   `json:"distance"`
 	Score              bool                   `json:"score"`
+
+	// ReferenceQuery is used to indicate that a search
+	// is being conducted on behalf of a referenced
+	// property. for example: this is relevant when a
+	// where filter operand is passed in with a path to
+	// a referenced class, rather than a path to one of
+	// its own props.
+	//
+	// The reason we need this indication is that
+	// without it, the sub-ClassSearch which is
+	// conducted to extract the reference propValuePair
+	// is conducted with the pagination set to whatever
+	// the QueryMaximumResults. if this value is set low
+	// relative to the number of objects being searched,
+	// weaviate will be unable to find enough results to
+	// make any comparisons, and erroneously returns
+	// empty, or with fewer results than expected.
+	ReferenceQuery bool `json:"-"`
 }
