@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -167,10 +168,10 @@ func updateObjectsDeprecated(t *testing.T) {
 }
 
 func updateObjects(t *testing.T) {
+	t.Parallel()
 	cls := "TestObjectsUpdate"
 	// test setup
-	//deleteClassObject(t, cls)
-	createObjectClass(t, &models.Class{
+	assertCreateObjectClass(t, &models.Class{
 		Class: cls,
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
@@ -231,4 +232,104 @@ func updateObjects(t *testing.T) {
 		return props
 	}
 	testhelper.AssertEventuallyEqual(t, expected, actual)
+}
+
+func patchObjects(t *testing.T) {
+	t.Parallel()
+	var (
+		cls        = "TestObjectsPatch"
+		friend_cls = "TestObjectsPatchFriend"
+		mconfig    = map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		}
+	)
+	// test setup
+	assertCreateObjectClass(t, &models.Class{
+		Class:        friend_cls,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	assertCreateObjectClass(t, &models.Class{
+		Class:        cls,
+		ModuleConfig: mconfig,
+		Properties: []*models.Property{
+			{
+				Name:     "string1",
+				DataType: []string{"string"},
+			},
+			{
+				Name:     "integer1",
+				DataType: []string{"int"},
+			},
+			{
+				Name:     "number1",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "friend",
+				DataType: []string{friend_cls},
+			},
+			{
+				Name:     "boolean1",
+				DataType: []string{"boolean"},
+			},
+		},
+	})
+
+	// tear down
+	defer deleteClassObject(t, cls)
+	defer deleteClassObject(t, friend_cls)
+
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"integer1": 2.0,
+		"string1":  "wibbly",
+	})
+	assertGetObjectEventually(t, uuid)
+
+	friendID := assertCreateObject(t, friend_cls, nil)
+	assertGetObjectEventually(t, friendID)
+
+	expected := map[string]interface{}{
+		"integer1": json.Number("2"),
+		"number1":  json.Number("3"),
+		"boolean1": true,
+		"string1":  "wibbly wobbly",
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+			},
+		},
+	}
+	update := map[string]interface{}{
+		"number1":  3.0,
+		"boolean1": true,
+		"string1":  "wibbly wobbly",
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+			},
+		},
+	}
+	updateObj := models.Object{
+		Properties: models.PropertySchema(update),
+	}
+	params := objects.NewObjectsClassPatchParams().WithClassName(cls)
+	params.WithID(uuid).WithBody(&updateObj)
+	updateResp, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
+	helper.AssertRequestOk(t, updateResp, err, nil)
+	actual := func() interface{} {
+		obj := assertGetObject(t, uuid)
+		props := obj.Properties.(map[string]interface{})
+		return props
+	}
+	testhelper.AssertEventuallyEqual(t, expected, actual)
+
+	params.WithID(strfmt.UUID("e5be1f32-0001-0000-0000-ebb25dfc811f"))
+	_, err = helper.Client(t).Objects.ObjectsClassPatch(params, nil)
+	if err == nil {
+		t.Errorf("must return an error for non existing object")
+	}
 }

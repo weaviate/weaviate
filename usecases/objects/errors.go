@@ -11,7 +11,22 @@
 
 package objects
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
+
+var (
+	// ErrItemNotFound item doesn't exist
+	ErrItemNotFound = errors.New("item not found")
+	// ErrValidation invalid inputs
+	ErrValidation = errors.New("validation")
+	//  ErrAuthorization access denied
+	ErrAuthorization = errors.New("authorization")
+	// ErrServiceInternal error
+	ErrServiceInternal = errors.New("service internal")
+)
 
 // ErrInvalidUserInput indicates a client-side error
 type ErrInvalidUserInput struct {

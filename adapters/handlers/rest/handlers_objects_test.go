@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -612,6 +613,47 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
+	t.Run("patch object", func(t *testing.T) {
+		fakeManager := &fakeManager{}
+		h := &objectHandlers{manager: fakeManager}
+		req := objects.ObjectsClassPatchParams{
+			HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/MyClass/123", nil),
+			ClassName:   "MyClass",
+			ID:          "123",
+			Body:        &models.Object{Properties: map[string]interface{}{"name": "hello world"}},
+		}
+		res := h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+		fakeManager.patchObjectReturn = fmt.Errorf("access denied %w", usecasesObjects.ErrValidation)
+		res = h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchUnprocessableEntity{}, res)
+		}
+		fakeManager.patchObjectReturn = usecasesObjects.ErrItemNotFound
+		res = h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchNotFound); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchNotFound{}, res)
+		}
+		fakeManager.patchObjectReturn = usecasesObjects.ErrAuthorization
+		res = h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchForbidden); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchForbidden{}, res)
+		}
+		fakeManager.patchObjectReturn = stderrors.New("")
+		res = h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchInternalServerError); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchInternalServerError{}, res)
+		}
+
+		fakeManager.patchObjectReturn = nil
+		res = h.patchObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+	})
+
 	t.Run("get object", func(t *testing.T) {
 		cls := "MyClass"
 		type test struct {
@@ -755,6 +797,7 @@ type fakeManager struct {
 	updateObjectReturn *models.Object
 	updateObjectErr    error
 	deleteObjectReturn error
+	patchObjectReturn  error
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error) {
@@ -789,8 +832,8 @@ func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class
 	return updates, f.updateObjectErr
 }
 
-func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ *models.Object) error {
-	panic("not implemented") // TODO: Implement
+func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
+	return f.patchObjectReturn
 }
 
 func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error {

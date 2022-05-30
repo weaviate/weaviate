@@ -17,7 +17,6 @@ package objects
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -29,28 +28,27 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-// NewObjectsClassPutParams creates a new ObjectsClassPutParams object
+// NewObjectsClassPatchParams creates a new ObjectsClassPatchParams object
 // no default values defined in spec.
-func NewObjectsClassPutParams() ObjectsClassPutParams {
+func NewObjectsClassPatchParams() ObjectsClassPatchParams {
 
-	return ObjectsClassPutParams{}
+	return ObjectsClassPatchParams{}
 }
 
-// ObjectsClassPutParams contains all the bound params for the objects class put operation
+// ObjectsClassPatchParams contains all the bound params for the objects class patch operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters objects.class.put
-type ObjectsClassPutParams struct {
+// swagger:parameters objects.class.patch
+type ObjectsClassPatchParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
-	  Required: true
+	/*RFC 7396-style patch, the body contains the object to merge into the existing object.
 	  In: body
 	*/
 	Body *models.Object
-	/*
+	/*The class name as defined in the schema
 	  Required: true
 	  In: path
 	*/
@@ -65,8 +63,8 @@ type ObjectsClassPutParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewObjectsClassPutParams() beforehand.
-func (o *ObjectsClassPutParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewObjectsClassPatchParams() beforehand.
+func (o *ObjectsClassPatchParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
@@ -75,11 +73,7 @@ func (o *ObjectsClassPutParams) BindRequest(r *http.Request, route *middleware.M
 		defer r.Body.Close()
 		var body models.Object
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body", ""))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
+			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {
 			// validate body object
 			if err := body.Validate(route.Formats); err != nil {
@@ -90,8 +84,6 @@ func (o *ObjectsClassPutParams) BindRequest(r *http.Request, route *middleware.M
 				o.Body = &body
 			}
 		}
-	} else {
-		res = append(res, errors.Required("body", "body", ""))
 	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
@@ -110,7 +102,7 @@ func (o *ObjectsClassPutParams) BindRequest(r *http.Request, route *middleware.M
 }
 
 // bindClassName binds and validates parameter ClassName from path.
-func (o *ObjectsClassPutParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *ObjectsClassPatchParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -125,7 +117,7 @@ func (o *ObjectsClassPutParams) bindClassName(rawData []string, hasKey bool, for
 }
 
 // bindID binds and validates parameter ID from path.
-func (o *ObjectsClassPutParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *ObjectsClassPatchParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -149,7 +141,7 @@ func (o *ObjectsClassPutParams) bindID(rawData []string, hasKey bool, formats st
 }
 
 // validateID carries on validations for parameter ID
-func (o *ObjectsClassPutParams) validateID(formats strfmt.Registry) error {
+func (o *ObjectsClassPatchParams) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err

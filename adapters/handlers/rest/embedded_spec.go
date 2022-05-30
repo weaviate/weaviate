@@ -833,7 +833,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "The uuid of the data object to update.",
             "name": "id",
             "in": "path",
             "required": true
@@ -933,6 +933,76 @@ func init() {
         },
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "operationId": "objects.class.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully applied. No content provided."
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ]
@@ -1162,6 +1232,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID (using patch semantics).",
         "operationId": "objects.patch",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -4029,7 +4100,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the Object.",
+            "description": "The uuid of the data object to update.",
             "name": "id",
             "in": "path",
             "required": true
@@ -4129,6 +4200,76 @@ func init() {
         },
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "operationId": "objects.class.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully applied. No content provided."
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ]
@@ -4361,6 +4502,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID (using patch semantics).",
         "operationId": "objects.patch",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",

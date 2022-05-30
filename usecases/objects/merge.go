@@ -33,32 +33,43 @@ type MergeDocument struct {
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 }
 
-func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Object) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
-	if err != nil {
-		return err
+func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, updates *models.Object) error {
+	if err := m.validateInputs(updates); err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	cls, id := updates.Class, updates.ID
+	path := fmt.Sprintf("objects/%s/%s", cls, id)
+	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
+		return fmt.Errorf("%w: %v", ErrAuthorization, err)
 	}
 
-	previous, err := m.retrievePreviousAndValidateMergeObject(ctx, principal, id, updated)
-	if err != nil {
-		return NewErrInvalidUserInput("invalid merge: %v", err)
+	if err := m.validateObject(ctx, principal, updates); err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
 	}
-
-	if updated.Properties == nil {
-		updated.Properties = map[string]interface{}{}
+	if updates.Properties == nil {
+		updates.Properties = map[string]interface{}{}
 	}
-
-	primitive, refs := m.splitPrimitiveAndRefs(updated.Properties.(map[string]interface{}),
-		updated.Class, id)
-
-	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, previous.ClassName, previous.Schema,
-		primitive, principal, previous.Vector, updated.Vector)
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{})
 	if err != nil {
-		return NewErrInternal("vectorize merged: %v", err)
+		return fmt.Errorf("%w: %v", ErrServiceInternal, err)
+	}
+	if obj == nil {
+		return ErrItemNotFound
+	}
+	return m.patchObject(ctx, principal, obj, updates)
+}
+
+// patchObject patches an existing object obj with updates
+func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, obj *search.Result, updates *models.Object) error {
+	cls, id := updates.Class, updates.ID
+	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
+	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, obj.Schema,
+		primitive, principal, obj.Vector, updates.Vector)
+	if err != nil {
+		return fmt.Errorf("%w: vectorize merged: %v", ErrServiceInternal, err)
 	}
 	mergeDoc := MergeDocument{
-		Class:           updated.Class,
+		Class:           cls,
 		ID:              id,
 		PrimitiveSchema: primitive,
 		References:      refs,
@@ -70,50 +81,30 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
-	err = m.vectorRepo.Merge(ctx, mergeDoc)
-	if err != nil {
-		return NewErrInternal("repo: %v", err)
+	if err := m.vectorRepo.Merge(ctx, mergeDoc); err != nil {
+		return fmt.Errorf("%w: repo: %v", ErrServiceInternal, err)
 	}
 
 	return nil
 }
 
-func (m *Manager) retrievePreviousAndValidateMergeObject(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, updated *models.Object) (*search.Result, error) {
-	if updated == nil {
-		return nil, fmt.Errorf("object to update not provided in request")
+func (m *Manager) validateInputs(updates *models.Object) error {
+	if updates == nil {
+		return fmt.Errorf("empty updates")
 	}
-
-	if updated.Class == "" {
-		return nil, fmt.Errorf("class is a required (and immutable) field")
+	if updates.Class == "" {
+		return fmt.Errorf("empty class")
 	}
-
-	object, err := m.vectorRepo.ObjectByID(ctx, id, nil, additional.Properties{})
-	if err != nil {
-		return nil, err
+	if updates.ID == "" {
+		return fmt.Errorf("empty uuid")
 	}
-
-	if object == nil {
-		return nil, fmt.Errorf("object with id '%s' does not exist", id)
-	}
-
-	if object.ClassName != updated.Class {
-		return nil, fmt.Errorf("class is immutable, but got '%s' for previous class '%s'",
-			updated.Class, object.ClassName)
-	}
-
-	updated.ID = id
-	err = m.validateObject(ctx, principal, updated)
-	if err != nil {
-		return nil, err
-	}
-
-	return object, nil
+	return nil
 }
 
 func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
 	old interface{}, new map[string]interface{},
-	principal *models.Principal, oldVec, newVec []float32) (*models.Object, error) {
+	principal *models.Principal, oldVec, newVec []float32,
+) (*models.Object, error) {
 	var merged map[string]interface{}
 	var vector []float32
 	if old == nil {
@@ -149,7 +140,8 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,
-	sourceID strfmt.UUID) (map[string]interface{}, BatchReferences) {
+	sourceID strfmt.UUID,
+) (map[string]interface{}, BatchReferences) {
 	primitive := map[string]interface{}{}
 	var outRefs BatchReferences
 
