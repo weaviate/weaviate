@@ -200,12 +200,21 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 		if len(modules) > 1 {
 			m.hasMultipleVectorizers = true
 		}
+		for _, moduleName := range modules {
+			if m.moduleProvidesMultipleVectorizers(moduleName) {
+				m.hasMultipleVectorizers = true
+			}
+		}
 	}
 	return errorMessages
 }
 
 func (m *Provider) isDefaultModule(module string) bool {
 	return module == "qna-transformers" || module == "text-spellcheck" || module == "ner-transformers"
+}
+
+func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
+	return module == "text2vec-openai"
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string) bool {
