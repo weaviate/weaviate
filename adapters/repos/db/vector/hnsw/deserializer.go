@@ -325,7 +325,7 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return err
 	}
 
-	if int(id) > len(res.Nodes) {
+	if int(id) >= len(res.Nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
@@ -351,7 +351,7 @@ func (c *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		return err
 	}
 
-	if int(id) > len(res.Nodes) {
+	if int(id) >= len(res.Nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
