@@ -14,18 +14,36 @@ package db
 import (
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
-// TODO: these are currently only used for trace logging, but they would also
-// be a perfect point to introduce application monitoring
-
 type Metrics struct {
-	logger logrus.FieldLogger
+	logger     logrus.FieldLogger
+	monitoring bool
+	batchTime  prometheus.ObserverVec
 }
 
-func NewMetrics(logger logrus.FieldLogger) *Metrics {
-	return &Metrics{logger: logger}
+func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
+	className, shardName string) *Metrics {
+	m := &Metrics{
+		logger: logger,
+	}
+
+	if prom != nil {
+		m.monitoring = true
+		batchTime, err := prom.BatchTime.CurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		})
+		if err != nil {
+			panic(err)
+		}
+		m.batchTime = batchTime
+	}
+
+	return m
 }
 
 func (m *Metrics) BatchObject(start time.Time, size int) {
@@ -41,6 +59,11 @@ func (m *Metrics) ObjectStore(start time.Time) {
 	m.logger.WithField("action", "store_object_store").
 		WithField("took", took).
 		Tracef("storing objects in KV/inverted store took %s", took)
+
+	if m.monitoring {
+		m.batchTime.With(prometheus.Labels{"operation": "object_storage"}).
+			Observe(float64(took / time.Millisecond))
+	}
 }
 
 func (m *Metrics) VectorIndex(start time.Time) {
@@ -48,6 +71,11 @@ func (m *Metrics) VectorIndex(start time.Time) {
 	m.logger.WithField("action", "store_vector_index").
 		WithField("took", took).
 		Tracef("storing objects vector index took %s", took)
+
+	if m.monitoring {
+		m.batchTime.With(prometheus.Labels{"operation": "vector_storage"}).
+			Observe(float64(took / time.Millisecond))
+	}
 }
 
 func (m *Metrics) PutObject(start time.Time) {

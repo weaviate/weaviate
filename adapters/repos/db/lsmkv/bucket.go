@@ -52,7 +52,7 @@ type Bucket struct {
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
-	opts ...BucketOption) (*Bucket, error) {
+	metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
@@ -77,7 +77,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	}
 
 	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
-		b.legacyMapSortingBeforeCompaction)
+		b.legacyMapSortingBeforeCompaction, metrics)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}

@@ -139,7 +139,8 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -354,8 +355,8 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyReplace),
-			WithSecondaryIndicies(1))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -474,7 +475,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -571,7 +573,8 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -838,7 +841,8 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategySetCollection))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -961,7 +965,8 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategySetCollection))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1311,7 +1316,8 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1440,7 +1446,8 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), WithStrategy(StrategyMapCollection))
+		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

@@ -25,6 +25,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
@@ -50,6 +51,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -94,6 +96,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState := startupRoutine(ctx)
 
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		// only monitoring tool supported at the moment is prometheus
+		go func() {
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.Handler())
+			http.ListenAndServe(":2112", mux)
+		}()
+	}
+
 	err := registerModules(appState)
 	if err != nil {
 		appState.Logger.
@@ -130,6 +141,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var schemaRepo schemaUC.Repo
 	// var classifierRepo classification.Repo
 
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		promMetrics := monitoring.NewPrometheusMetrics()
+		appState.Metrics = promMetrics
+	}
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
@@ -138,7 +154,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
 		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
-	}, remoteIndexClient, appState.Cluster) // TODO client
+	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -204,7 +220,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer)
+		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)

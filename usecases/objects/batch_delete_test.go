@@ -65,7 +65,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewBatchManager(vectorRepo, vecProvider, locks,
-			schemaManager, config, logger, authorizer)
+			schemaManager, config, logger, authorizer, nil)
 	}
 
 	reset := func() {

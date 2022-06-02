@@ -33,6 +33,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,6 +48,7 @@ type Shard struct {
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
 	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
 	cleanupInterval  time.Duration
@@ -60,7 +62,8 @@ type Shard struct {
 	statusLock sync.Mutex
 }
 
-func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+	shardName string, index *Index) (*Shard, error) {
 	rand, err := newBufferedRandomGen(64 * 1024)
 	if err != nil {
 		return nil, errors.Wrap(err, "init bufferend random generator")
@@ -72,8 +75,10 @@ func NewShard(ctx context.Context, shardName string, index *Index) (*Shard, erro
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
-		metrics:          NewMetrics(index.logger),
-		deletedDocIDs:    docid.NewInMemDeletedTracker(),
+		promMetrics:      promMetrics,
+		metrics: NewMetrics(index.logger, promMetrics,
+			string(index.Config.ClassName), shardName),
+		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
 		cancel:        make(chan struct{}, 1),
@@ -182,7 +187,12 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		"index": s.index.ID(),
 		"class": s.index.Config.ClassName,
 	})
-	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger)
+	var metrics *lsmkv.Metrics
+	if s.promMetrics != nil {
+		lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+	}
+
+	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
