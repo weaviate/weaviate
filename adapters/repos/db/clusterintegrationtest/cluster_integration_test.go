@@ -305,7 +305,6 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			received := res[0].Object().Properties.(map[string]interface{})["description"]
 			assert.Equal(t, expected, received)
 		}
-
 	})
 
 	t.Run("aggregate count", func(t *testing.T) {
@@ -714,7 +713,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, client, nodeResolver)
+	}, client, nodeResolver, nil)
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},

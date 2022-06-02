@@ -63,6 +63,7 @@ type Config struct {
 	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
 	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
+	Monitoring              Monitoring     `json:"monitoring" yaml:"monitoring"`
 	DiskUse                 DiskUse        `json:"disk_use" yaml:"disk_use"`
 }
 
@@ -116,6 +117,12 @@ type QueryDefaults struct {
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
+}
+
+type Monitoring struct {
+	Enabled bool   `json:"enabled"`
+	Tool    string `json:"tool"`
+	Port    int    `json:"port"`
 }
 
 type Persistence struct {

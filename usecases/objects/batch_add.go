@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -42,21 +43,54 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
+	if b.metrics != nil {
+		before := time.Now()
+		defer func() {
+			tookMs := time.Since(before) / time.Millisecond
+			b.metrics.BatchTime.With(prometheus.Labels{
+				"operation":  "total_uc_level",
+				"class_name": "n/a",
+				"shard_name": "n/a",
+			}).Observe(float64(tookMs))
+		}()
+	}
 	return b.addObjects(ctx, principal, objects, fields)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	classes []*models.Object, fields []*string) (BatchObjects, error) {
+	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
 	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
 
+	if b.metrics != nil {
+		b.metrics.BatchTime.With(prometheus.Labels{
+			"operation":  "total_preprocessing",
+			"class_name": "n/a",
+			"shard_name": "n/a",
+		}).
+			Observe(float64(time.Since(beforePreProcessing) / time.Millisecond))
+	}
+
 	var (
 		res BatchObjects
 		err error
 	)
+
+	if b.metrics != nil {
+		beforePersistence := time.Now()
+		defer func() {
+			b.metrics.BatchTime.With(prometheus.Labels{
+				"operation":  "total_persistence_level",
+				"class_name": "n/a",
+				"shard_name": "n/a",
+			}).
+				Observe(float64(time.Since(beforePersistence) / time.Millisecond))
+		}()
+	}
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}

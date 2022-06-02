@@ -16,6 +16,27 @@ services:
       EXTENSIONS_STORAGE_ORIGIN: http://host.docker.internal:8080
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       LOG_LEVEL: debug
+  prometheus:
+    image: prom/prometheus:v2.1.0
+    volumes:
+      - ./tools/dev/prometheus_config/:/etc/prometheus/
+      - ./data/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - 9090:9090
+  grafana:
+    image: grafana/grafana-oss
+    ports:
+      - 3000:3000
+    volumes:
+      - ./tools/dev/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./tools/dev/grafana/datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
+      - ./tools/dev/grafana/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./tools/dev/grafana/dashboards:/var/lib/grafana/dashboards
   keycloak:
     image: jboss/keycloak:5.0.0
     environment:

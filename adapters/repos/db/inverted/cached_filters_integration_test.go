@@ -46,7 +46,7 @@ func Test_CachedFilters_String(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, logger)
+	store, err := lsmkv.New(dirName, logger, nil)
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -394,7 +394,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, logger)
+	store, err := lsmkv.New(dirName, logger, nil)
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
@@ -822,7 +822,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(dirName, logger)
+	store, err := lsmkv.New(dirName, logger, nil)
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"

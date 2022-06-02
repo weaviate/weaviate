@@ -23,6 +23,21 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
+	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+		config.Monitoring.Enabled = true
+		config.Monitoring.Tool = "prometheus"
+		config.Monitoring.Port = 2112
+	}
+
+	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse PROMETHEUS_MONITORING_PORT as int")
+		}
+
+		config.Monitoring.Port = asInt
+	}
+
 	if enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}

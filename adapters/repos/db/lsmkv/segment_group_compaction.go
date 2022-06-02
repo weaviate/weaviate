@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func (ig *SegmentGroup) eligbleForCompaction() bool {
@@ -128,10 +129,19 @@ func (ig *SegmentGroup) compactOnce() error {
 	secondaryIndices := ig.segmentAtPos(pair[0]).secondaryIndexCount
 
 	strategy := ig.segmentAtPos(pair[0]).strategy
+
 	switch strategy {
+
+	// TODO: call metrics just once with variable strategy label
+
 	case SegmentStrategyReplace:
 		c := newCompactorReplace(f, ig.segmentAtPos(pair[0]).newCursor(),
 			ig.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
+
+		if ig.metrics != nil {
+			ig.metrics.CompactionReplace.With(prometheus.Labels{"path": ig.dir}).Set(1)
+			defer ig.metrics.CompactionReplace.With(prometheus.Labels{"path": ig.dir}).Set(0)
+		}
 
 		if err := c.do(); err != nil {
 			return err
@@ -141,6 +151,11 @@ func (ig *SegmentGroup) compactOnce() error {
 			ig.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
 
+		if ig.metrics != nil {
+			ig.metrics.CompactionSet.With(prometheus.Labels{"path": ig.dir}).Set(1)
+			defer ig.metrics.CompactionSet.With(prometheus.Labels{"path": ig.dir}).Set(0)
+		}
+
 		if err := c.do(); err != nil {
 			return err
 		}
@@ -149,6 +164,11 @@ func (ig *SegmentGroup) compactOnce() error {
 			ig.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			ig.segmentAtPos(pair[1]).newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, ig.mapRequiresSorting)
+
+		if ig.metrics != nil {
+			ig.metrics.CompactionMap.With(prometheus.Labels{"path": ig.dir}).Set(1)
+			defer ig.metrics.CompactionMap.With(prometheus.Labels{"path": ig.dir}).Set(0)
+		}
 
 		if err := c.do(); err != nil {
 			return err
@@ -243,6 +263,14 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 					Debug("stop compaction cycle")
 				return
 			case <-t:
+				if ig.metrics != nil {
+					ig.metrics.ActiveSegments.With(prometheus.Labels{
+						"strategy": ig.strategy,
+						"path":     ig.dir,
+					}).
+						Set(float64(ig.Len()))
+				}
+
 				if ig.eligbleForCompaction() {
 					if err := ig.compactOnce(); err != nil {
 						ig.logger.WithField("action", "lsm_compaction").
@@ -258,4 +286,11 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+func (ig *SegmentGroup) Len() int {
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	return len(ig.segments)
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -29,6 +30,7 @@ type DB struct {
 	indices      map[string]*Index
 	remoteClient sharding.RemoteIndexClient
 	nodeResolver nodeResolver
+	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
 
 	indexLock sync.Mutex
@@ -50,13 +52,15 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func New(logger logrus.FieldLogger, config Config,
-	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver) *DB {
+	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	promMetrics *monitoring.PrometheusMetrics) *DB {
 	return &DB{
 		logger:       logger,
 		config:       config,
 		indices:      map[string]*Index{},
 		remoteClient: remoteClient,
 		nodeResolver: nodeResolver,
+		promMetrics:  promMetrics,
 		shutdown:     make(chan struct{}),
 	}
 }

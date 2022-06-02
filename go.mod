@@ -23,6 +23,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
+	github.com/prometheus/client_golang v1.11.0
 	github.com/rs/cors v1.5.0
 	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
 	github.com/sirupsen/logrus v1.6.0
@@ -38,7 +39,6 @@ require (
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
-	golang.org/x/tools v0.1.10 // indirect
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
