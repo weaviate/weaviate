@@ -208,6 +208,18 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
+	// if both grouping and whereFilter/sort are present, the below
+	// class search will eventually call storobj.FromBinaryOptional
+	// to unmarshal the record. in this case, we must manually set
+	// the vector addl prop to unmarshal the result vector into each
+	// result payload. if we skip this step, the grouper will attempt
+	// to compute the distance with a `nil` vector, resulting in NaN.
+	// this was the cause of [github issue 1958]
+	// (https://github.com/semi-technologies/weaviate/issues/1958)
+	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
+		params.AdditionalProperties.Vector = true
+	}
+
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: list class: search: %v", err)

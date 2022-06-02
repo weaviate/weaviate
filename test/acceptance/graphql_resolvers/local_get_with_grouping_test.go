@@ -139,6 +139,63 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		assert.True(t, len(companies) > 0)
 	})
 
+	t.Run("grouping with where filter", func(t *testing.T) {
+		query := `
+			{
+				Get {
+					Company(group:{type:merge force:1.0} where:{path:["id"] operator:Like valueString:"*"}) {
+						name
+					}
+				}
+			}
+		`
+
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		grouped := result.Get("Get", "Company").AsSlice()
+		require.Len(t, grouped, 1)
+		groupedName := grouped[0].(map[string]interface{})["name"].(string)
+		assert.Equal(t, "Apple Inc. (Google Incorporated, Google Inc., "+
+			"Microsoft Incorporated, Apple, Apple Incorporated, Google, Microsoft Inc., Microsoft)",
+			groupedName)
+
+		// this query should yield the same results as the above, as the above where filter will
+		// match all records. checking the previous payload with the one below is a sanity check
+		// for the sake of validating the fix for [github issue 1958]
+		// (https://github.com/semi-technologies/weaviate/issues/1958)
+		queryWithoutWhere := `
+			{
+				Get {
+					Company(group:{type:merge force:1.0}) {
+						name
+					}
+				}
+			}
+		`
+		result = AssertGraphQL(t, helper.RootAuth, queryWithoutWhere)
+		groupedWithoutWhere := result.Get("Get", "Company").AsSlice()
+		assert.Equal(t, grouped, groupedWithoutWhere)
+	})
+
+	t.Run("grouping with sort", func(t *testing.T) {
+		query := `
+			{
+				Get {
+					Company(group:{type:merge force:1.0} sort:{path:["name"]}) {
+						name
+					}
+				}
+			}
+		`
+
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		grouped := result.Get("Get", "Company").AsSlice()
+		require.Len(t, grouped, 1)
+		groupedName := grouped[0].(map[string]interface{})["name"].(string)
+		assert.Equal(t, "Apple (Apple Inc., Apple Incorporated, Google, Google Inc., "+
+			"Google Incorporated, Microsoft, Microsoft Inc., Microsoft Incorporated)",
+			groupedName)
+	})
+
 	// temporarily removed due to
 	// https://github.com/semi-technologies/weaviate/issues/1302
 	// t.Run("grouping mode set to closest", func(t *testing.T) {
