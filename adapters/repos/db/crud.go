@@ -157,7 +157,18 @@ func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	return &res[0], nil
 }
 
-func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (d *DB) Exists(ctx context.Context, class string, id strfmt.UUID) (bool, error) {
+	if class == "" {
+		return d.anyExists(ctx, id)
+	}
+	index := d.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return false, fmt.Errorf("index not found for class %s", class)
+	}
+	return index.exists(ctx, id)
+}
+
+func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {

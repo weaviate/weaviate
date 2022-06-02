@@ -418,7 +418,7 @@ func Test_MergeObject(t *testing.T) {
 			}
 
 			// called during validation of cross-refs only.
-			m.repo.On("Exists", mock.Anything).Maybe().Return(true, tc.errExists)
+			m.repo.On("Exists", mock.Anything, mock.Anything).Maybe().Return(true, tc.errExists)
 
 			err := m.MergeObject(context.Background(), nil, tc.updated)
 			if tc.expectedErr != nil {

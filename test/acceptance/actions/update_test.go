@@ -333,3 +333,39 @@ func patchObjects(t *testing.T) {
 		t.Errorf("must return an error for non existing object")
 	}
 }
+
+func headObject(t *testing.T) {
+	t.Parallel()
+	cls := "TestObjectsHead"
+	// test setup
+	assertCreateObjectClass(t, &models.Class{
+		Class: cls,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+	})
+	// tear down
+	defer deleteClassObject(t, cls)
+
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"name": "John",
+	})
+
+	r := objects.NewObjectsClassHeadParams().WithID(uuid).WithClassName(cls)
+	resp, err := helper.Client(t).Objects.ObjectsClassHead(r, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	// check for an object which doesn't exist
+	unknown_uuid := strfmt.UUID("11110000-0000-0000-0000-000011110000")
+	r = objects.NewObjectsClassHeadParams().WithID(unknown_uuid).WithClassName(cls)
+	resp, err = helper.Client(t).Objects.ObjectsClassHead(r, nil)
+	helper.AssertRequestFail(t, resp, err, nil)
+}

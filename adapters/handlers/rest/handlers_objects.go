@@ -49,9 +49,9 @@ type objectsManager interface {
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
+	HeadObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) (bool, error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
 	MergeObject(context.Context, *models.Principal, *models.Object) error
-	HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error)
 	AddObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
 	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
@@ -103,17 +103,6 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	}
 
 	return objects.NewObjectsValidateOK()
-}
-
-func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
-	principal *models.Principal,
-) middleware.Responder {
-	ps := objects.ObjectsClassGetParams{
-		HTTPRequest: params.HTTPRequest,
-		ID:          params.ID,
-		Include:     params.Include,
-	}
-	return h.getObject(ps, principal)
 }
 
 // getObject gets object of a specific class
@@ -203,27 +192,6 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		})
 }
 
-func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
-	principal *models.Principal,
-) middleware.Responder {
-	ps := objects.ObjectsClassPutParams{
-		HTTPRequest: params.HTTPRequest,
-		Body:        params.Body,
-		ID:          params.ID,
-	}
-	return h.updateObject(ps, principal)
-}
-
-func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeleteParams,
-	principal *models.Principal,
-) middleware.Responder {
-	ps := objects.ObjectsClassDeleteParams{
-		HTTPRequest: params.HTTPRequest,
-		ID:          params.ID,
-	}
-	return h.deleteObject(ps, principal)
-}
-
 // deleteObject delete a single object of giving class
 func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	principal *models.Principal,
@@ -271,39 +239,25 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
-func (h *objectHandlers) headObject(params objects.ObjectsHeadParams,
+func (h *objectHandlers) headObject(r objects.ObjectsClassHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	exists, err := h.manager.HeadObject(params.HTTPRequest.Context(), principal, params.ID)
+	ok, err := h.manager.HeadObject(r.HTTPRequest.Context(), principal, r.ClassName, r.ID)
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return objects.NewObjectsHeadForbidden().
+		switch {
+		case stderrors.Is(err, usecasesObjects.ErrAuthorization):
+			return objects.NewObjectsClassHeadForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case usecasesObjects.ErrNotFound:
-			return objects.NewObjectsHeadNotFound()
 		default:
-			return objects.NewObjectsHeadInternalServerError().
+			return objects.NewObjectsClassHeadInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	if exists {
-		return objects.NewObjectsHeadNoContent()
+	if !ok {
+		return objects.NewObjectsClassHeadNotFound()
 	}
-	return objects.NewObjectsHeadNotFound()
-}
-
-func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
-	args := objects.ObjectsClassPatchParams{
-		HTTPRequest: params.HTTPRequest,
-		ID:          params.ID,
-		Body:        params.Body,
-	}
-	if params.Body != nil {
-		args.ClassName = params.Body.Class
-	}
-	return h.patchObject(args, principal)
+	return objects.NewObjectsClassHeadNoContent()
 }
 
 func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
@@ -398,37 +352,93 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 	modulesProvider ModulesProvider,
 ) {
 	h := &objectHandlers{manager, logger, config, modulesProvider}
-
 	api.ObjectsObjectsCreateHandler = objects.
 		ObjectsCreateHandlerFunc(h.addObject)
 	api.ObjectsObjectsValidateHandler = objects.
 		ObjectsValidateHandlerFunc(h.validateObject)
-	api.ObjectsObjectsGetHandler = objects.
-		ObjectsGetHandlerFunc(h.getObjectDeprecated)
 	api.ObjectsObjectsClassGetHandler = objects.
 		ObjectsClassGetHandlerFunc(h.getObject)
-	api.ObjectsObjectsDeleteHandler = objects.
-		ObjectsDeleteHandlerFunc(h.deleteObjectDeprecated)
+	api.ObjectsObjectsClassHeadHandler = objects.
+		ObjectsClassHeadHandlerFunc(h.headObject)
 	api.ObjectsObjectsClassDeleteHandler = objects.
 		ObjectsClassDeleteHandlerFunc(h.deleteObject)
-	api.ObjectsObjectsHeadHandler = objects.
-		ObjectsHeadHandlerFunc(h.headObject)
 	api.ObjectsObjectsListHandler = objects.
 		ObjectsListHandlerFunc(h.getObjects)
 	api.ObjectsObjectsClassPutHandler = objects.
 		ObjectsClassPutHandlerFunc(h.updateObject)
-	api.ObjectsObjectsUpdateHandler = objects.
-		ObjectsUpdateHandlerFunc(h.updateObjectDeprecated)
 	api.ObjectsObjectsClassPatchHandler = objects.
 		ObjectsClassPatchHandlerFunc(h.patchObject)
-	api.ObjectsObjectsPatchHandler = objects.
-		ObjectsPatchHandlerFunc(h.patchObjectDeprecated)
 	api.ObjectsObjectsReferencesCreateHandler = objects.
 		ObjectsReferencesCreateHandlerFunc(h.addObjectReference)
 	api.ObjectsObjectsReferencesDeleteHandler = objects.
 		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReference)
 	api.ObjectsObjectsReferencesUpdateHandler = objects.
 		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferences)
+	// deprecated handlers
+	api.ObjectsObjectsGetHandler = objects.
+		ObjectsGetHandlerFunc(h.getObjectDeprecated)
+	api.ObjectsObjectsDeleteHandler = objects.
+		ObjectsDeleteHandlerFunc(h.deleteObjectDeprecated)
+	api.ObjectsObjectsHeadHandler = objects.
+		ObjectsHeadHandlerFunc(h.headObjectDeprecated)
+	api.ObjectsObjectsUpdateHandler = objects.
+		ObjectsUpdateHandlerFunc(h.updateObjectDeprecated)
+	api.ObjectsObjectsPatchHandler = objects.
+		ObjectsPatchHandlerFunc(h.patchObjectDeprecated)
+}
+
+func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ps := objects.ObjectsClassGetParams{
+		HTTPRequest: params.HTTPRequest,
+		ID:          params.ID,
+		Include:     params.Include,
+	}
+	return h.getObject(ps, principal)
+}
+
+func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
+	principal *models.Principal,
+) middleware.Responder {
+	r := objects.ObjectsClassHeadParams{
+		HTTPRequest: params.HTTPRequest,
+		ID:          params.ID,
+	}
+	return h.headObject(r, principal)
+}
+
+func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
+	args := objects.ObjectsClassPatchParams{
+		HTTPRequest: params.HTTPRequest,
+		ID:          params.ID,
+		Body:        params.Body,
+	}
+	if params.Body != nil {
+		args.ClassName = params.Body.Class
+	}
+	return h.patchObject(args, principal)
+}
+
+func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ps := objects.ObjectsClassPutParams{
+		HTTPRequest: params.HTTPRequest,
+		Body:        params.Body,
+		ID:          params.ID,
+	}
+	return h.updateObject(ps, principal)
+}
+
+func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	ps := objects.ObjectsClassDeleteParams{
+		HTTPRequest: params.HTTPRequest,
+		ID:          params.ID,
+	}
+	return h.deleteObject(ps, principal)
 }
 
 func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {

@@ -1770,7 +1770,8 @@
         "summary": "Checks Object's existence based on its UUID.",
         "tags": ["objects"],
         "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
+        "x-available-in-websocket": true,
+        "deprecated" : true
       }
     },
     "/objects/{className}/{id}": {
@@ -2013,6 +2014,55 @@
         "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      },
+      "head": {
+        "description": "Checks if a data object exists without retrieving it.",
+        "operationId": "objects.class.head",
+        "x-serviceIds": ["weaviate.local.manipulate"],
+        "parameters": [
+          {
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "The uuid of the data object",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Checks object's existence based on its class and uuid.",
+        "tags": ["objects"],
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       }
     },
     "/objects/{id}/references/{propertyName}": {
