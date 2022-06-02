@@ -126,5 +126,5 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 }
 
 func (m *Manager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	return m.vectorRepo.Exists(ctx, id)
+	return m.vectorRepo.Exists(ctx, "", id)
 }

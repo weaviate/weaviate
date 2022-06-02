@@ -937,6 +937,59 @@ func init() {
           "weaviate.local.manipulate"
         ]
       },
+      "head": {
+        "description": "Checks if a data object exists without retrieving it.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks object's existence based on its class and uuid.",
+        "operationId": "objects.class.head",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
       "patch": {
         "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
@@ -1186,6 +1239,7 @@ func init() {
         ],
         "summary": "Checks Object's existence based on its UUID.",
         "operationId": "objects.head",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -4204,6 +4258,59 @@ func init() {
           "weaviate.local.manipulate"
         ]
       },
+      "head": {
+        "description": "Checks if a data object exists without retrieving it.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks object's existence based on its class and uuid.",
+        "operationId": "objects.class.head",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
       "patch": {
         "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
@@ -4456,6 +4563,7 @@ func init() {
         ],
         "summary": "Checks Object's existence based on its UUID.",
         "operationId": "objects.head",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",

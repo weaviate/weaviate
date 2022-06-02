@@ -786,6 +786,45 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("head object", func(t *testing.T) {
+		m := &fakeManager{
+			headObjectReturn: true,
+		}
+		h := &objectHandlers{manager: m}
+		req := objects.ObjectsClassHeadParams{
+			HTTPRequest: httptest.NewRequest("HEAD", "/v1/objects/MyClass/123", nil),
+			ClassName:   "MyClass",
+			ID:          "123",
+		}
+		res := h.headObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassHeadNoContent); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+
+		m.headObjectErr = usecasesObjects.ErrAuthorization
+		res = h.headObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassHeadForbidden); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadForbidden{}, res)
+		}
+		m.headObjectErr = stderrors.New("")
+		res = h.headObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassHeadInternalServerError); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadInternalServerError{}, res)
+		}
+		m.headObjectErr = nil
+		m.headObjectReturn = false
+		res = h.headObject(req, nil)
+		if _, ok := res.(*objects.ObjectsClassHeadNotFound); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadNotFound{}, res)
+		}
+		// same test as before but using old request
+		oldRequest := objects.ObjectsHeadParams{HTTPRequest: req.HTTPRequest}
+		res = h.headObjectDeprecated(oldRequest, nil)
+		if _, ok := res.(*objects.ObjectsClassHeadNotFound); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadNotFound{}, res)
+		}
+	})
 }
 
 type fakeManager struct {
@@ -798,10 +837,12 @@ type fakeManager struct {
 	updateObjectErr    error
 	deleteObjectReturn error
 	patchObjectReturn  error
+	headObjectReturn   bool
+	headObjectErr      error
 }
 
-func (f *fakeManager) HeadObject(context.Context, *models.Principal, strfmt.UUID) (bool, error) {
-	panic("not implemented") // TODO: Implement
+func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, error) {
+	return f.headObjectReturn, f.headObjectErr
 }
 
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal, object *models.Object) (*models.Object, error) {

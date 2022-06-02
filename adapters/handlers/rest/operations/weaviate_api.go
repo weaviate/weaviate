@@ -96,6 +96,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsClassGetHandler: objects.ObjectsClassGetHandlerFunc(func(params objects.ObjectsClassGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassGet has not yet been implemented")
 		}),
+		ObjectsObjectsClassHeadHandler: objects.ObjectsClassHeadHandlerFunc(func(params objects.ObjectsClassHeadParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsClassHead has not yet been implemented")
+		}),
 		ObjectsObjectsClassPatchHandler: objects.ObjectsClassPatchHandlerFunc(func(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassPatch has not yet been implemented")
 		}),
@@ -239,6 +242,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsClassDeleteHandler objects.ObjectsClassDeleteHandler
 	// ObjectsObjectsClassGetHandler sets the operation handler for the objects class get operation
 	ObjectsObjectsClassGetHandler objects.ObjectsClassGetHandler
+	// ObjectsObjectsClassHeadHandler sets the operation handler for the objects class head operation
+	ObjectsObjectsClassHeadHandler objects.ObjectsClassHeadHandler
 	// ObjectsObjectsClassPatchHandler sets the operation handler for the objects class patch operation
 	ObjectsObjectsClassPatchHandler objects.ObjectsClassPatchHandler
 	// ObjectsObjectsClassPutHandler sets the operation handler for the objects class put operation
@@ -392,6 +397,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsClassGetHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassGetHandler")
+	}
+	if o.ObjectsObjectsClassHeadHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsClassHeadHandler")
 	}
 	if o.ObjectsObjectsClassPatchHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassPatchHandler")
@@ -609,6 +617,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/objects/{className}/{id}"] = objects.NewObjectsClassGet(o.context, o.ObjectsObjectsClassGetHandler)
+	if o.handlers["HEAD"] == nil {
+		o.handlers["HEAD"] = make(map[string]http.Handler)
+	}
+	o.handlers["HEAD"]["/objects/{className}/{id}"] = objects.NewObjectsClassHead(o.context, o.ObjectsObjectsClassHeadHandler)
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}

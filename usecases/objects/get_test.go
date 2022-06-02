@@ -976,6 +976,8 @@ type fakeGetManager struct {
 	extender   *fakeExtender
 	projector  *fakeProjector
 	vectorizer *fakeVectorizer
+	authorizer *fakeAuthorizer
+	locks      *fakeLocks
 }
 
 func newFakeGetManager(schema schema.Schema) fakeGetManager {
@@ -984,18 +986,18 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 		extender:   new(fakeExtender),
 		projector:  new(fakeProjector),
 		vectorizer: new(fakeVectorizer),
+		authorizer: new(fakeAuthorizer),
+		locks:      new(fakeLocks),
 	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
 	}
-	locks := &fakeLocks{}
 	cfg := &config.WeaviateConfig{}
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
-	authorizer := &fakeAuthorizer{}
 	logger, _ := test.NewNullLogger()
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, r.repo, mProvider)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider)
 	return r
 }
