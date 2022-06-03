@@ -30,12 +30,12 @@ func objectReferences(t *testing.T) {
 		t.Parallel()
 
 		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, toPointToUuid)
+		assertGetObjectEventually(t, "TestObject", toPointToUuid)
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{})
 
 		// Verify that testReferences is empty
-		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.Nil(t, updatedSchema["testReferences"])
 
@@ -67,8 +67,8 @@ func objectReferences(t *testing.T) {
 
 		toPointToUuidFirst := assertCreateObject(t, "TestObject", map[string]interface{}{})
 		toPointToUuidLater := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, toPointToUuidFirst)
-		assertGetObjectEventually(t, toPointToUuidLater)
+		assertGetObjectEventually(t, "TestObject", toPointToUuidFirst)
+		assertGetObjectEventually(t, "TestObject", toPointToUuidLater)
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
@@ -77,7 +77,7 @@ func objectReferences(t *testing.T) {
 		})
 
 		// Verify that testReferences is empty
-		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
@@ -110,7 +110,7 @@ func objectReferences(t *testing.T) {
 		t.Parallel()
 
 		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, toPointToUuid)
+		assertGetObjectEventually(t, "TestObject", toPointToUuid)
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
@@ -119,7 +119,7 @@ func objectReferences(t *testing.T) {
 		})
 
 		// Verify that testReferences is not empty
-		updatedObject := assertGetObjectEventually(t, uuid)
+		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 

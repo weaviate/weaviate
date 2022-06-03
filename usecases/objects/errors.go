@@ -13,20 +13,47 @@ package objects
 
 import (
 	"fmt"
-
-	"github.com/pkg/errors"
 )
 
-var (
-	// ErrItemNotFound item doesn't exist
-	ErrItemNotFound = errors.New("item not found")
-	// ErrValidation invalid inputs
-	ErrValidation = errors.New("validation")
-	//  ErrAuthorization access denied
-	ErrAuthorization = errors.New("authorization")
-	// ErrServiceInternal error
-	ErrServiceInternal = errors.New("service internal")
+// objects status code
+const (
+	StatusForbidden           = 403
+	StatusBadRequest          = 400
+	StatusNotFound            = 404
+	StatusInternalServerError = 500
 )
+
+type Error struct {
+	Msg  string
+	Code int
+	Err  error
+}
+
+// Error implements error interface
+func (e *Error) Error() string {
+	return fmt.Sprintf("msg:%s code:%v err:%v", e.Msg, e.Code, e.Err)
+}
+
+// Unwrap underlying error
+func (e *Error) Unwrap() error {
+	return e.Err
+}
+
+func (e *Error) NotFound() bool {
+	return e.Code == StatusNotFound
+}
+
+func (e *Error) Forbidden() bool {
+	return e.Code == StatusForbidden
+}
+
+func (e *Error) BadRequest() bool {
+	return e.Code == StatusBadRequest
+}
+
+func (e *Error) Internal() bool {
+	return e.Code == StatusNotFound
+}
 
 // ErrInvalidUserInput indicates a client-side error
 type ErrInvalidUserInput struct {

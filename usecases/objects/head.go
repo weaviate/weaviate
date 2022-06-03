@@ -20,24 +20,24 @@ import (
 )
 
 // HeadObject check object's existence in the conncected DB
-func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID) (bool, error) {
+func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID) (bool, *Error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
 		path = fmt.Sprintf("objects/%s/%s", class, id)
 	}
 	if err := m.authorizer.Authorize(principal, "head", path); err != nil {
-		return false, fmt.Errorf("%w: %v", ErrAuthorization, err)
+		return false, &Error{path, StatusForbidden, err}
 	}
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return false, fmt.Errorf("%w: locking: %v", ErrServiceInternal, err)
+		return false, &Error{"cannot lock", StatusInternalServerError, err}
 	}
 	defer unlock()
 
 	ok, err := m.vectorRepo.Exists(ctx, class, id)
 	if err != nil {
-		return false, fmt.Errorf("%w: repo: %v", ErrServiceInternal, err)
+		return false, &Error{"repo.exists", StatusInternalServerError, err}
 	}
 	return ok, nil
 }

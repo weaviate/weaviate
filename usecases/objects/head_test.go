@@ -36,7 +36,7 @@ func Test_HeadObject(t *testing.T) {
 		authErr   error
 		lockErr   error
 		wantOK    bool
-		wantErr   error
+		wantCode  int
 	}{
 		{
 			mockedOk: true,
@@ -57,19 +57,19 @@ func Test_HeadObject(t *testing.T) {
 			mockedOk:  false,
 			mockedErr: errAny,
 			wantOK:    false,
-			wantErr:   ErrServiceInternal,
+			wantCode:  StatusInternalServerError,
 		},
 		{
-			class:   cls,
-			authErr: errAny,
-			wantOK:  false,
-			wantErr: ErrAuthorization,
+			class:    cls,
+			authErr:  errAny,
+			wantOK:   false,
+			wantCode: StatusForbidden,
 		},
 		{
-			class:   cls,
-			lockErr: errAny,
-			wantOK:  false,
-			wantErr: ErrServiceInternal,
+			class:    cls,
+			lockErr:  errAny,
+			wantOK:   false,
+			wantCode: StatusInternalServerError,
 		},
 	}
 	for i, tc := range tests {
@@ -79,8 +79,12 @@ func Test_HeadObject(t *testing.T) {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()
 		}
 		ok, err := m.Manager.HeadObject(context.Background(), nil, tc.class, id)
-		if tc.wantOK != ok || !errors.Is(err, tc.wantErr) {
-			t.Errorf("case-%d: expected: (%v, %v), got:(%v, %v)", i+1, tc.wantOK, tc.wantErr, ok, err)
+		code := 0
+		if err != nil {
+			code = err.Code
+		}
+		if tc.wantOK != ok || tc.wantCode != code {
+			t.Errorf("case %d expected:(%v, %v) got:(%v, %v)", i+1, tc.wantOK, tc.wantCode, ok, code)
 		}
 	}
 }

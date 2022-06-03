@@ -45,10 +45,11 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	return nil
 }
 
-func (d *DB) DeleteObject(ctx context.Context, className string, id strfmt.UUID) error {
-	idx := d.GetIndex(schema.ClassName(className))
+// DeleteObject from of a specific class giving its ID
+func (d *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID) error {
+	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
-		return fmt.Errorf("delete from non-existing index for %s", className)
+		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
 	err := idx.deleteObject(ctx, id)
@@ -99,6 +100,8 @@ func (d *DB) MultiGet(ctx context.Context,
 }
 
 // ObjectByID checks every index of the particular kind for the ID
+//
+// @warning: this function is deprecated by Object()
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties) (*search.Result, error) {
@@ -125,18 +128,19 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 // Object gets object with id from index of specified class.
-func (d *DB) Object(ctx context.Context, className string,
+func (d *DB) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
-	adds additional.Properties) (r *search.Result, err error) {
-	idx := d.GetIndex(schema.ClassName(className))
+	adds additional.Properties) (*search.Result, error) {
+	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
-		return nil, fmt.Errorf("index not found for class %s", className)
+		return nil, fmt.Errorf("index not found for class %s", class)
 	}
 
 	obj, err := idx.objectByID(ctx, id, props, adds)
 	if err != nil {
 		return nil, errors.Wrapf(err, "search index %s", idx.ID())
 	}
+	var r *search.Result
 	if obj != nil {
 		r = obj.SearchResult(adds)
 	}

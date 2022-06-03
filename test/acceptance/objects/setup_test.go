@@ -20,7 +20,6 @@ import (
 )
 
 func Test_Objects(t *testing.T) {
-	// t.Run("setup", func(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class: "TestObject",
 		ModuleConfig: map[string]interface{}{
@@ -85,7 +84,6 @@ func Test_Objects(t *testing.T) {
 			},
 		},
 	})
-	//	})
 
 	// tests
 	t.Run("listing objects", listingObjects)
@@ -97,7 +95,6 @@ func Test_Objects(t *testing.T) {
 	t.Run("auto schema", autoSchemaObjects)
 	t.Run("checking object's existence", checkObjects)
 	t.Run("delete request deletes all objects with a given ID", deleteAllObjectsFromAllClasses)
-	t.Run("delete one class object", deleteClassObject)
 
 	// tear down
 	deleteObjectClass(t, "TestObject")

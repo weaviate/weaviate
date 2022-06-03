@@ -57,7 +57,7 @@ func Test_MergeObject(t *testing.T) {
 
 		// outputs
 		expectedOutput *MergeDocument
-		expectedErr    error
+		wantCode       int
 
 		// control return errors
 		errMerge        error
@@ -72,8 +72,8 @@ func Test_MergeObject(t *testing.T) {
 			updated: &models.Object{
 				ID: uuid,
 			},
-			expectedErr: ErrValidation,
-			stage:       stageInit,
+			wantCode: StatusBadRequest,
+			stage:    stageInit,
 		},
 		{
 			name:     "empty uuid",
@@ -81,14 +81,14 @@ func Test_MergeObject(t *testing.T) {
 			updated: &models.Object{
 				Class: cls,
 			},
-			expectedErr: ErrValidation,
-			stage:       stageInit,
+			wantCode: StatusBadRequest,
+			stage:    stageInit,
 		},
 		{
-			name:        "empty updates",
-			previous:    nil,
-			expectedErr: ErrValidation,
-			stage:       stageInit,
+			name:     "empty updates",
+			previous: nil,
+			wantCode: StatusBadRequest,
+			stage:    stageInit,
 		},
 		{
 			name:     "object not found",
@@ -100,8 +100,8 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
-			expectedErr: ErrItemNotFound,
-			stage:       stageObjectExists,
+			wantCode: StatusNotFound,
+			stage:    stageObjectExists,
 		},
 		{
 			name:     "object failure",
@@ -113,7 +113,7 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
-			expectedErr:  ErrServiceInternal,
+			wantCode:     StatusInternalServerError,
 			errGetObject: errAny,
 			stage:        stageObjectExists,
 		},
@@ -132,9 +132,9 @@ func Test_MergeObject(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: ErrValidation,
-			errExists:   errAny,
-			stage:       stageAuthorization,
+			wantCode:  StatusBadRequest,
+			errExists: errAny,
+			stage:     stageAuthorization,
 		},
 		{
 			name: "merge failure",
@@ -164,9 +164,9 @@ func Test_MergeObject(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 			},
-			errMerge:    errAny,
-			expectedErr: ErrServiceInternal,
-			stage:       stageCount,
+			errMerge: errAny,
+			wantCode: StatusInternalServerError,
+			stage:    stageCount,
 		},
 		{
 			name: "vectorization failure",
@@ -188,7 +188,7 @@ func Test_MergeObject(t *testing.T) {
 				},
 			},
 			errUpdateObject: errAny,
-			expectedErr:     ErrServiceInternal,
+			wantCode:        StatusInternalServerError,
 			stage:           stageCount,
 		},
 		{
@@ -421,11 +421,13 @@ func Test_MergeObject(t *testing.T) {
 			m.repo.On("Exists", mock.Anything, mock.Anything).Maybe().Return(true, tc.errExists)
 
 			err := m.MergeObject(context.Background(), nil, tc.updated)
-			if tc.expectedErr != nil {
-				if !errors.Is(err, tc.expectedErr) {
-					t.Fatalf("error want: %v got: %v", tc.expectedErr, err)
-				}
-			} else if err != nil {
+			code := 0
+			if err != nil {
+				code = err.Code
+			}
+			if tc.wantCode != code {
+				t.Fatalf("status code want: %v got: %v", tc.wantCode, code)
+			} else if code == 0 && err != nil {
 				t.Fatal(err)
 			}
 

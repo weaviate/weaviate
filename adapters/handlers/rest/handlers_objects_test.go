@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	stderrors "errors"
-	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -24,7 +23,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	usecasesObjects "github.com/semi-technologies/weaviate/usecases/objects"
+	uco "github.com/semi-technologies/weaviate/usecases/objects"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -527,6 +527,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
+	// New endpoints which uniquely identify objects of a class
 	t.Run("update object", func(t *testing.T) {
 		cls := "MyClass"
 		type test struct {
@@ -581,7 +582,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			},
 			{
 				name: "use case err not found",
-				err:  usecasesObjects.ErrInvalidUserInput{},
+				err:  uco.ErrInvalidUserInput{},
 			},
 			{
 				name: "unknown error",
@@ -626,22 +627,22 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
 			t.Errorf("unexpected result %v", res)
 		}
-		fakeManager.patchObjectReturn = fmt.Errorf("access denied %w", usecasesObjects.ErrValidation)
+		fakeManager.patchObjectReturn = &uco.Error{Code: uco.StatusBadRequest}
 		res = h.patchObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchUnprocessableEntity); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchUnprocessableEntity{}, res)
 		}
-		fakeManager.patchObjectReturn = usecasesObjects.ErrItemNotFound
+		fakeManager.patchObjectReturn = &uco.Error{Code: uco.StatusNotFound}
 		res = h.patchObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchNotFound); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchNotFound{}, res)
 		}
-		fakeManager.patchObjectReturn = usecasesObjects.ErrAuthorization
+		fakeManager.patchObjectReturn = &uco.Error{Code: uco.StatusForbidden}
 		res = h.patchObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchForbidden); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchForbidden{}, res)
 		}
-		fakeManager.patchObjectReturn = stderrors.New("")
+		fakeManager.patchObjectReturn = &uco.Error{Code: uco.StatusInternalServerError}
 		res = h.patchObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchInternalServerError); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchInternalServerError{}, res)
@@ -708,7 +709,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			},
 			{
 				name: "use case err not found",
-				err:  usecasesObjects.ErrNotFound{},
+				err:  uco.ErrNotFound{},
 			},
 			{
 				name: "any other error",
@@ -757,7 +758,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			},
 			{
 				name: "use case err not found",
-				err:  usecasesObjects.ErrNotFound{},
+				err:  uco.ErrNotFound{},
 			},
 			{
 				name: "unknown error",
@@ -802,12 +803,12 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("unexpected result %v", res)
 		}
 
-		m.headObjectErr = usecasesObjects.ErrAuthorization
+		m.headObjectErr = &uco.Error{Code: uco.StatusForbidden}
 		res = h.headObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassHeadForbidden); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadForbidden{}, res)
 		}
-		m.headObjectErr = stderrors.New("")
+		m.headObjectErr = &uco.Error{Code: uco.StatusInternalServerError}
 		res = h.headObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassHeadInternalServerError); !ok {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadInternalServerError{}, res)
@@ -836,12 +837,12 @@ type fakeManager struct {
 	updateObjectReturn *models.Object
 	updateObjectErr    error
 	deleteObjectReturn error
-	patchObjectReturn  error
+	patchObjectReturn  *uco.Error
 	headObjectReturn   bool
-	headObjectErr      error
+	headObjectErr      *uco.Error
 }
 
-func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, error) {
+func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }
 
@@ -873,7 +874,7 @@ func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class
 	return updates, f.updateObjectErr
 }
 
-func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
+func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ *models.Object) *uco.Error {
 	return f.patchObjectReturn
 }
 
