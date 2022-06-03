@@ -14,7 +14,6 @@ package test
 // Acceptance tests for objects.
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -96,86 +95,4 @@ func deleteAllObjectsFromAllClasses(t *testing.T) {
 		require.Equal(t, &objects.ObjectsGetNotFound{}, err)
 		assert.Nil(t, resp)
 	})
-}
-
-func deleteClassObject(t *testing.T) {
-	var (
-		id          strfmt.UUID = "21111111-1111-1111-1111-111111111111"
-		firstClass              = "TestDeleteClassOne"
-		secondClass             = "TestDeleteClassTwo"
-	)
-
-	// test setup
-	object1 := &models.Object{
-		Class: firstClass,
-		ID:    id,
-		Properties: map[string]interface{}{
-			"text": "Test string 1",
-		},
-	}
-	object2 := &models.Object{
-		Class: secondClass,
-		ID:    id,
-		Properties: map[string]interface{}{
-			"text": "Test string 2",
-		},
-	}
-
-	// create objects
-	returnedFields := "ALL"
-	params := batch.NewBatchObjectsCreateParams().WithBody(
-		batch.BatchObjectsCreateBody{
-			Objects: []*models.Object{object1, object2},
-			Fields:  []*string{&returnedFields},
-		})
-
-	resp, err := helper.BatchClient(t).BatchObjectsCreate(params, nil)
-
-	// ensure that the response is OK
-	helper.AssertRequestOk(t, resp, err, func() {
-		objectsCreateResponse := resp.Payload
-
-		// check if the batch response contains two batched responses
-		assert.Equal(t, 2, len(objectsCreateResponse))
-
-		for _, elem := range resp.Payload {
-			assert.Nil(t, elem.Result.Errors)
-		}
-	})
-
-	{ //"delete object from first class
-		params := objects.NewObjectsClassDeleteParams().WithClassName(firstClass).WithID(id)
-		resp, err := helper.Client(t).Objects.ObjectsClassDelete(params, nil)
-		if err != nil {
-			t.Errorf("cannot delete existing object err: %v", err)
-		}
-		assert.Equal(t, &objects.ObjectsClassDeleteNoContent{}, resp)
-	}
-	{ // check if object still exit
-		params := objects.NewObjectsClassGetParams().WithClassName(firstClass).WithID(id)
-		_, err := helper.Client(t).Objects.ObjectsClassGet(params, nil)
-		werr := &objects.ObjectsClassGetNotFound{}
-		if !errors.As(err, &werr) {
-			t.Errorf("Get deleted object error got: %v want %v", err, werr)
-		}
-	}
-	{ // object with a different class must exist
-		params := objects.NewObjectsClassGetParams().WithClassName(secondClass).WithID(id)
-		resp, err := helper.Client(t).Objects.ObjectsClassGet(params, nil)
-		if err != nil {
-			t.Errorf("object must exist err: %v", err)
-		}
-		if resp.Payload == nil {
-			t.Errorf("payload of an existing object cannot be empty")
-		}
-	}
-
-	{ //"delete object again from first class
-		params := objects.NewObjectsClassDeleteParams().WithClassName(firstClass).WithID(id)
-		resp, err := helper.Client(t).Objects.ObjectsClassDelete(params, nil)
-		if err != nil {
-			t.Errorf("cannot delete existing object again err: %v", err)
-		}
-		assert.Equal(t, &objects.ObjectsClassDeleteNoContent{}, resp)
-	}
 }

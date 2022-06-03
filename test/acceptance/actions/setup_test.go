@@ -14,9 +14,7 @@ package test
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
 func Test_Objects(t *testing.T) {
@@ -98,29 +96,9 @@ func Test_Objects(t *testing.T) {
 	t.Run("removing objects", removingObjects)
 	t.Run("object references", objectReferences)
 	t.Run("updating objects deprecated", updateObjectsDeprecated)
-	t.Run("updating object", updateObjects)
-	t.Run("patch object", patchObjects)
-	t.Run("head object", headObject)
 
 	// tear down
-	deleteObjectClass(t, "ObjectTestThing")
-	deleteObjectClass(t, "TestObject")
-	deleteObjectClass(t, "TestObjectTwo")
-}
-
-func assertCreateObjectClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-}
-
-func deleteObjectClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
-	helper.AssertRequestOk(t, delRes, err, nil)
-}
-
-func deleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteOK, error) {
-	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
-	return helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+	assertDeleteObjectClass(t, "ObjectTestThing")
+	assertDeleteObjectClass(t, "TestObject")
+	assertDeleteObjectClass(t, "TestObjectTwo")
 }

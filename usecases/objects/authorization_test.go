@@ -96,7 +96,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "HeadObject",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
+			additionalArgs:   []interface{}{"class", strfmt.UUID("foo")},
+			expectedVerb:     "head",
+			expectedResource: "objects/class/foo",
+		},
+		{ // deprecated by the one above
+			methodName:       "HeadObject",
+			additionalArgs:   []interface{}{"", strfmt.UUID("foo")},
 			expectedVerb:     "head",
 			expectedResource: "objects/foo",
 		},
@@ -164,7 +170,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 				require.Len(t, authorizer.calls, 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
-				if !errors.Is(aerr, ErrAuthorization) {
+				if err, ok := aerr.(*Error); !ok || !err.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}

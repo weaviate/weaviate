@@ -95,11 +95,11 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
-	additional additional.Properties) (res *search.Result, err error) {
+	adds additional.Properties) (res *search.Result, err error) {
 	if class != "" {
-		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, additional)
+		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds)
 	} else {
-		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, additional)
+		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds)
 	}
 	if err != nil {
 		return nil, NewErrInternal("repo: object by id: %v", err)
@@ -110,7 +110,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, additional.ModuleParams)
+		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams)
 		if err != nil {
 			return nil, fmt.Errorf("get extend: %v", err)
 		}

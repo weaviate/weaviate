@@ -33,40 +33,40 @@ type MergeDocument struct {
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 }
 
-func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, updates *models.Object) error {
+func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, updates *models.Object) *Error {
 	if err := m.validateInputs(updates); err != nil {
-		return fmt.Errorf("%w: %v", ErrValidation, err)
+		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
 	path := fmt.Sprintf("objects/%s/%s", cls, id)
 	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
-		return fmt.Errorf("%w: %v", ErrAuthorization, err)
+		return &Error{path, StatusForbidden, err}
 	}
 
 	if err := m.validateObject(ctx, principal, updates); err != nil {
-		return fmt.Errorf("%w: %v", ErrValidation, err)
+		return &Error{"bad request", StatusBadRequest, err}
 	}
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrServiceInternal, err)
+		return &Error{"repo.object", StatusInternalServerError, err}
 	}
 	if obj == nil {
-		return ErrItemNotFound
+		return &Error{"not found", StatusNotFound, err}
 	}
 	return m.patchObject(ctx, principal, obj, updates)
 }
 
 // patchObject patches an existing object obj with updates
-func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, obj *search.Result, updates *models.Object) error {
+func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, obj *search.Result, updates *models.Object) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, obj.Schema,
 		primitive, principal, obj.Vector, updates.Vector)
 	if err != nil {
-		return fmt.Errorf("%w: vectorize merged: %v", ErrServiceInternal, err)
+		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
 	mergeDoc := MergeDocument{
 		Class:           cls,
@@ -82,7 +82,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, 
 	}
 
 	if err := m.vectorRepo.Merge(ctx, mergeDoc); err != nil {
-		return fmt.Errorf("%w: repo: %v", ErrServiceInternal, err)
+		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 
 	return nil
