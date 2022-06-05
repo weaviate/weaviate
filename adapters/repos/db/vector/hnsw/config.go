@@ -32,7 +32,7 @@ type Config struct {
 	MakeCommitLoggerThunk MakeCommitLogger
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
-	DistanceProvider      distancer.Provider
+	DistanceProvider      distancer.Provider // maybe will need to alter this while adding more distances
 }
 
 func (c Config) Validate() error {
@@ -103,7 +103,7 @@ const (
 	DefaultVectorCacheMaxObjects  = 2000000
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
-	DefaultDistanceMetric         = "cosine"
+	DefaultDistanceMetric         = "cosine" // they have set the constant to cosine
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -118,7 +118,7 @@ type UserConfig struct {
 	DynamicEFFactor        int    `json:"dynamicEfFactor"`
 	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
 	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
-	Distance               string `json:"distance"`
+	Distance               string `json:"distance"` // userconfig contains distance
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -139,7 +139,7 @@ func (c *UserConfig) SetDefaults() {
 	c.DynamicEFMin = DefaultDynamicEFMin
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
-	c.Distance = DefaultDistanceMetric
+	c.Distance = DefaultDistanceMetric // the constant set to cosine
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -218,7 +218,7 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}
 
 	if err := optionalStringFromMap(asMap, "distance", func(v string) {
-		uc.Distance = v
+		uc.Distance = v // here also distance is metioned
 	}); err != nil {
 		return uc, err
 	}

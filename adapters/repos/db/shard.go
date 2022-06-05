@@ -103,6 +103,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			distProv = distancer.NewDotProductProvider()
 		case "l2-squared":
 			distProv = distancer.NewL2SquaredProvider()
+		// here I can add new cases for manhattan distance, minowski distance etc
 		default:
 			return nil, errors.Errorf("unrecognized distance metric %q,"+
 				"choose one of [\"cosine\", \"l2-squared\"]", hnswUserConfig.Distance)
