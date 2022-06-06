@@ -9,6 +9,8 @@ type Metrics struct {
 	enabled    bool
 	tombstones prometheus.Gauge
 	threads    prometheus.Gauge
+	insert     prometheus.Gauge
+	delete     prometheus.Gauge
 	cleaned    prometheus.Counter
 }
 
@@ -33,11 +35,25 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	insert := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
+	del := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
 	return &Metrics{
 		enabled:    true,
 		tombstones: tombstones,
 		threads:    threads,
 		cleaned:    cleaned,
+		insert:     insert,
+		delete:     del,
 	}
 }
 
@@ -79,4 +95,20 @@ func (m *Metrics) CleanedUp() {
 	}
 
 	m.cleaned.Inc()
+}
+
+func (m *Metrics) InsertVector() {
+	if !m.enabled {
+		return
+	}
+
+	m.insert.Inc()
+}
+
+func (m *Metrics) DeleteVector() {
+	if !m.enabled {
+		return
+	}
+
+	m.delete.Inc()
 }

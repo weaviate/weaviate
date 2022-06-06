@@ -26,6 +26,7 @@ func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
+	h.metrics.DeleteVector()
 	if err := h.addTombstone(id); err != nil {
 		return err
 	}

@@ -527,6 +527,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
+      "description": "If a node had an outgoing connection to another node that received a tombstone it must be reassigned.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -580,7 +581,7 @@
           "refId": "A"
         }
       ],
-      "title": "Total cleaned up tombstones",
+      "title": "Reassigned Nodes",
       "type": "stat"
     },
     {
@@ -643,8 +644,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 7,
+        "w": 6,
         "x": 0,
         "y": 18
       },
@@ -708,6 +709,92 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 18
+      },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "vector_index_operations{operation=\"create\"}",
+          "interval": "",
+          "legendFormat": "Vectors Inserted",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "vector_index_operations{operation=\"delete\"}",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Vectors Deleted",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": false,
+          "expr": "vector_index_operations{operation=\"create\"} - ignoring(operation) vector_index_operations{operation=\"delete\"} ",
+          "hide": false,
+          "instant": false,
+          "interval": "",
+          "legendFormat": "Net Vectors",
+          "refId": "C"
+        }
+      ],
+      "title": "Vector Index Statistics",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -760,7 +847,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 25
       },
       "id": 4,
       "options": {
@@ -790,7 +877,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "10s",
+  "refresh": "5s",
   "schemaVersion": 34,
   "style": "dark",
   "tags": [],
@@ -798,7 +885,7 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-15min",
     "to": "now"
   },
   "timepicker": {},
