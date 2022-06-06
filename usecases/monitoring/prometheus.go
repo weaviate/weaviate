@@ -55,15 +55,15 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_objects",
 			Help: "Number of objects/entries of segment by level",
-		}, []string{"strategy", "class_name", "shard_name", "level"}),
+		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
 		LSMSegmentSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_size",
 			Help: "Size of segment by level and unit",
-		}, []string{"strategy", "class_name", "shard_name", "level", "unit"}),
+		}, []string{"strategy", "class_name", "shard_name", "path", "level", "unit"}),
 		LSMSegmentCountByLevel: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_count",
 			Help: "Number of segments by level",
-		}, []string{"strategy", "class_name", "shard_name", "level"}),
+		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
