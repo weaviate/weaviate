@@ -116,6 +116,9 @@ func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
 // that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes() error {
+	h.metrics.StartCleanup(1)
+	defer h.metrics.EndCleanup(1)
+
 	deleteList := h.copyTombstonesToAllowList()
 	if len(deleteList) == 0 {
 		return nil
@@ -240,6 +243,8 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
 		neighborNode.unmarkAsMaintenance()
+
+		h.metrics.CleanedUp()
 	}
 
 	return nil
