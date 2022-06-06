@@ -143,16 +143,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	for id := range deleteList {
-		h.tombstoneLock.Lock()
-		h.nodes[id] = nil
-		delete(h.tombstones, id)
-		h.tombstoneLock.Unlock()
-
-		if err := h.commitLog.DeleteNode(id); err != nil {
-			return err
-		}
-
-		if err := h.commitLog.RemoveTombstone(id); err != nil {
+		if err := h.removeTombstoneAndNode(id); err != nil {
 			return err
 		}
 	}
@@ -426,8 +417,27 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 }
 
 func (h *hnsw) addTombstone(id uint64) error {
+	h.metrics.AddTombstone()
 	h.tombstoneLock.Lock()
 	h.tombstones[id] = struct{}{}
 	h.tombstoneLock.Unlock()
 	return h.commitLog.AddTombstone(id)
+}
+
+func (h *hnsw) removeTombstoneAndNode(id uint64) error {
+	h.metrics.RemoveTombstone()
+	h.tombstoneLock.Lock()
+	h.nodes[id] = nil
+	delete(h.tombstones, id)
+	h.tombstoneLock.Unlock()
+
+	if err := h.commitLog.DeleteNode(id); err != nil {
+		return err
+	}
+
+	if err := h.commitLog.RemoveTombstone(id); err != nil {
+		return err
+	}
+
+	return nil
 }
