@@ -263,13 +263,7 @@ func (ig *SegmentGroup) initCompactionCycle(interval time.Duration) {
 					Debug("stop compaction cycle")
 				return
 			case <-t:
-				if ig.metrics != nil {
-					ig.metrics.ActiveSegments.With(prometheus.Labels{
-						"strategy": ig.strategy,
-						"path":     ig.dir,
-					}).
-						Set(float64(ig.Len()))
-				}
+				ig.monitorSegments()
 
 				if ig.eligbleForCompaction() {
 					if err := ig.compactOnce(); err != nil {
@@ -293,4 +287,57 @@ func (ig *SegmentGroup) Len() int {
 	defer ig.maintenanceLock.RUnlock()
 
 	return len(ig.segments)
+}
+
+func (ig *SegmentGroup) monitorSegments() {
+	if ig.metrics == nil {
+		return
+	}
+
+	ig.metrics.ActiveSegments.With(prometheus.Labels{
+		"strategy": ig.strategy,
+		"path":     ig.dir,
+	}).Set(float64(ig.Len()))
+
+	ig.maintenanceLock.RLock()
+	defer ig.maintenanceLock.RUnlock()
+
+	indexes := map[string]int{}
+	payloads := map[string]int{}
+	count := map[string]int{}
+
+	for _, seg := range ig.segments {
+		count[fmt.Sprint(seg.level)]++
+
+		cur := indexes[fmt.Sprint(seg.level)]
+		cur += seg.index.Size()
+		indexes[fmt.Sprint(seg.level)] = cur
+
+		cur = payloads[fmt.Sprint(seg.level)]
+		cur += seg.PayloadSize()
+		payloads[fmt.Sprint(seg.level)] = cur
+	}
+
+	for level, size := range indexes {
+		ig.metrics.SegmentSize.With(prometheus.Labels{
+			"strategy": ig.strategy,
+			"unit":     "index",
+			"level":    level,
+		}).Set(float64(size))
+	}
+
+	for level, size := range payloads {
+		ig.metrics.SegmentSize.With(prometheus.Labels{
+			"strategy": ig.strategy,
+			"unit":     "payload",
+			"level":    level,
+		}).Set(float64(size))
+	}
+
+	for level, count := range count {
+		ig.metrics.SegmentCount.With(prometheus.Labels{
+			"strategy": ig.strategy,
+			"level":    level,
+		}).Set(float64(count))
+	}
 }
