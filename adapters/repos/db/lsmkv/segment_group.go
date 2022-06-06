@@ -104,7 +104,7 @@ func newSegmentGroup(dir string,
 		}
 
 		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger,
-			out.makeExistsOnLower(segmentIndex))
+			metrics, out.makeExistsOnLower(segmentIndex))
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
@@ -142,7 +142,8 @@ func (ig *SegmentGroup) add(path string) error {
 	defer ig.maintenanceLock.Unlock()
 
 	newSegmentIndex := len(ig.segments)
-	segment, err := newSegment(path, ig.logger, ig.makeExistsOnLower(newSegmentIndex))
+	segment, err := newSegment(path, ig.logger, ig.metrics,
+		ig.makeExistsOnLower(newSegmentIndex))
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}

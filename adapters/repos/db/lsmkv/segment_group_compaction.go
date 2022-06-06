@@ -222,7 +222,7 @@ func (ig *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	}
 
 	exists := ig.makeExistsOnLower(old1)
-	seg, err := newSegment(newPath, ig.logger, exists)
+	seg, err := newSegment(newPath, ig.logger, ig.metrics, exists)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

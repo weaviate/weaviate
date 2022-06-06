@@ -18,6 +18,7 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
+	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
 	LSMSegmentCount                    *prometheus.GaugeVec
 	VectorIndexTombstones              *prometheus.GaugeVec
@@ -43,6 +44,11 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "lsm_active_segments",
 			Help: "Number of currently ongoing async operations",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMBloomFilters: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "lsm_bloom_filters_duration_ms",
+			Help:    "Duration of bloom filter operations",
+			Buckets: prometheus.ExponentialBuckets(0.001, 1.25, 60),
+		}, []string{"operation", "strategy", "class_name", "shard_name"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
