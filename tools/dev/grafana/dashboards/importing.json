@@ -753,7 +753,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "vector_index_operations{operation=\"create\"}",
+          "expr": "sum(vector_index_operations{operation=\"create\"})",
           "interval": "",
           "legendFormat": "Vectors Inserted",
           "refId": "A"
@@ -764,7 +764,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "vector_index_operations{operation=\"delete\"}",
+          "expr": "sum(vector_index_operations{operation=\"delete\"})",
           "hide": false,
           "interval": "",
           "legendFormat": "Vectors Deleted",
@@ -776,7 +776,7 @@
             "uid": "Prometheus"
           },
           "exemplar": false,
-          "expr": "vector_index_operations{operation=\"create\"} - ignoring(operation) vector_index_operations{operation=\"delete\"} ",
+          "expr": "sum(vector_index_operations{operation=\"create\"}) - ignoring(operation) sum(vector_index_operations{operation=\"delete\"})",
           "hide": false,
           "instant": false,
           "interval": "",
@@ -885,7 +885,7 @@
     "list": []
   },
   "time": {
-    "from": "now-15min",
+    "from": "now-15m",
     "to": "now"
   },
   "timepicker": {},
