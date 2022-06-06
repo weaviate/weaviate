@@ -17,9 +17,13 @@ import (
 )
 
 type PrometheusMetrics struct {
-	BatchTime       *prometheus.HistogramVec
-	AsyncOperations *prometheus.GaugeVec
-	LSMSegmentCount *prometheus.GaugeVec
+	BatchTime                          *prometheus.HistogramVec
+	AsyncOperations                    *prometheus.GaugeVec
+	LSMSegmentCount                    *prometheus.GaugeVec
+	VectorIndexTombstones              *prometheus.GaugeVec
+	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
+	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
+	VectorIndexOperations              *prometheus.GaugeVec
 }
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
@@ -39,5 +43,22 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "lsm_active_segments",
 			Help: "Number of currently ongoing async operations",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
+
+		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_tombstones",
+			Help: "Number of active vector index tombstones",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexTombstoneCleanupThreads: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_tombstone_cleanup_threads",
+			Help: "Number of threads in use to clean up tombstones",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexTombstoneCleanedCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_tombstone_cleaned",
+			Help: "Total number of deleted objects that have been cleaned up",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_operations",
+			Help: "Total number of mutating operations on the vector index",
+		}, []string{"operation", "class_name", "shard_name"}),
 	}
 }
