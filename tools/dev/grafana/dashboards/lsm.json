@@ -73,7 +73,7 @@
         },
         "textMode": "auto"
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -136,7 +136,7 @@
         },
         "textMode": "auto"
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -158,7 +158,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "SetCollections are used in the inverted index for anything that does not have a frequency, e.g. numbers, bools, etc.",
+      "description": "MapCollections are used in the inverted index for anything that has a frequency, which is mainly text and string props. Those need a frequency for BM25 calculations.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -199,7 +199,7 @@
         },
         "textMode": "auto"
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -213,7 +213,7 @@
           "refId": "A"
         }
       ],
-      "title": "LSM Strategy SetCollection by Level (Inverted without frequency)",
+      "title": "LSM Strategy MapCollection by Level (Inverted with frequency)",
       "type": "stat"
     },
     {
@@ -354,7 +354,7 @@
         "showThresholdLabels": false,
         "showThresholdMarkers": true
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -415,7 +415,7 @@
         "text": {},
         "textMode": "auto"
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -503,7 +503,7 @@
         },
         "showUnfilled": true
       },
-      "pluginVersion": "9.0.0-beta2",
+      "pluginVersion": "8.3.3",
       "targets": [
         {
           "datasource": {
@@ -534,14 +534,14 @@
     }
   ],
   "refresh": false,
-  "schemaVersion": 36,
+  "schemaVersion": 34,
   "style": "dark",
   "tags": [],
   "templating": {
     "list": []
   },
   "time": {
-    "from": "now-5m",
+    "from": "now-15m",
     "to": "now"
   },
   "timepicker": {},
