@@ -44,6 +44,7 @@ type segment struct {
 	index                 diskIndex
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
+	metrics               *Metrics
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
@@ -62,7 +63,7 @@ type diskIndex interface {
 	AllKeys() ([][]byte, error)
 }
 
-func newSegment(path string, logger logrus.FieldLogger,
+func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -111,6 +112,7 @@ func newSegment(path string, logger logrus.FieldLogger,
 		dataEndPos:          header.indexStart,
 		index:               primaryDiskIndex,
 		logger:              logger,
+		metrics:             metrics,
 	}
 
 	if ind.secondaryIndexCount > 0 {
