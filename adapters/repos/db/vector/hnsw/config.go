@@ -99,7 +99,7 @@ func (ec *errorCompounder) toError() error {
 }
 
 const (
-	DefaultCleanupIntervalSeconds = 5 * 60
+	DefaultCleanupIntervalSeconds = 1
 	DefaultMaxConnections         = 64
 	DefaultEFConstruction         = 128
 	DefaultEF                     = -1 // indicates "let Weaviate pick"
