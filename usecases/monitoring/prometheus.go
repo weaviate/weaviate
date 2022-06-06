@@ -21,6 +21,9 @@ type PrometheusMetrics struct {
 	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
 	LSMSegmentCount                    *prometheus.GaugeVec
+	LSMSegmentCountByLevel             *prometheus.GaugeVec
+	LSMSegmentObjects                  *prometheus.GaugeVec
+	LSMSegmentSize                     *prometheus.GaugeVec
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
@@ -42,13 +45,25 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
-			Help: "Number of currently ongoing async operations",
+			Help: "Number of currently present segments per shard",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMBloomFilters: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "lsm_bloom_filters_duration_ms",
 			Help:    "Duration of bloom filter operations",
 			Buckets: prometheus.ExponentialBuckets(0.001, 1.25, 60),
 		}, []string{"operation", "strategy", "class_name", "shard_name"}),
+		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_objects",
+			Help: "Number of objects/entries of segment by level",
+		}, []string{"strategy", "class_name", "shard_name", "level"}),
+		LSMSegmentSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_size",
+			Help: "Size of segment by level and unit",
+		}, []string{"strategy", "class_name", "shard_name", "level", "unit"}),
+		LSMSegmentCountByLevel: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_count",
+			Help: "Number of segments by level",
+		}, []string{"strategy", "class_name", "shard_name", "level"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",

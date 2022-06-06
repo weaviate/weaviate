@@ -22,6 +22,9 @@ type Metrics struct {
 	CompactionMap     *prometheus.GaugeVec
 	ActiveSegments    *prometheus.GaugeVec
 	BloomFilters      prometheus.ObserverVec
+	SegmentObjects    *prometheus.GaugeVec
+	SegmentSize       *prometheus.GaugeVec
+	SegmentCount      *prometheus.GaugeVec
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -53,6 +56,18 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		BloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		SegmentObjects: promMetrics.LSMSegmentObjects.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		SegmentSize: promMetrics.LSMSegmentSize.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		SegmentCount: promMetrics.LSMSegmentCountByLevel.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

@@ -61,6 +61,9 @@ type diskIndex interface {
 
 	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
+
+	// Size of the index in bytes
+	Size() int
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
@@ -233,4 +236,15 @@ func (ind *segment) close() error {
 
 func (ind *segment) drop() error {
 	return os.Remove(ind.path)
+}
+
+// Size returns the total size of the segment in bytes, including the header
+// and index
+func (ind *segment) Size() int {
+	return len(ind.contents)
+}
+
+// Payload Size is only the payload of the index, excluding the index
+func (ind *segment) PayloadSize() int {
+	return int(ind.dataEndPos)
 }
