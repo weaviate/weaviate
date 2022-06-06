@@ -91,7 +91,7 @@ func Test_UserConfig(t *testing.T) {
 		input    interface{}
 		expected UserConfig
 	}
-
+	// these are the tests, I will have to add a test for manhattan distance as well
 	tests := []test{
 		{
 			name:  "nothing specified, all defaults",
