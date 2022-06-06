@@ -26,6 +26,7 @@ func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
+	h.metrics.DeleteVector()
 	if err := h.addTombstone(id); err != nil {
 		return err
 	}
@@ -116,6 +117,9 @@ func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
 // that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes() error {
+	h.metrics.StartCleanup(1)
+	defer h.metrics.EndCleanup(1)
+
 	deleteList := h.copyTombstonesToAllowList()
 	if len(deleteList) == 0 {
 		return nil
@@ -143,16 +147,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	for id := range deleteList {
-		h.tombstoneLock.Lock()
-		h.nodes[id] = nil
-		delete(h.tombstones, id)
-		h.tombstoneLock.Unlock()
-
-		if err := h.commitLog.DeleteNode(id); err != nil {
-			return err
-		}
-
-		if err := h.commitLog.RemoveTombstone(id); err != nil {
+		if err := h.removeTombstoneAndNode(id); err != nil {
 			return err
 		}
 	}
@@ -249,6 +244,8 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
 		neighborNode.unmarkAsMaintenance()
+
+		h.metrics.CleanedUp()
 	}
 
 	return nil
@@ -426,8 +423,27 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 }
 
 func (h *hnsw) addTombstone(id uint64) error {
+	h.metrics.AddTombstone()
 	h.tombstoneLock.Lock()
 	h.tombstones[id] = struct{}{}
 	h.tombstoneLock.Unlock()
 	return h.commitLog.AddTombstone(id)
+}
+
+func (h *hnsw) removeTombstoneAndNode(id uint64) error {
+	h.metrics.RemoveTombstone()
+	h.tombstoneLock.Lock()
+	h.nodes[id] = nil
+	delete(h.tombstones, id)
+	h.tombstoneLock.Unlock()
+
+	if err := h.commitLog.DeleteNode(id); err != nil {
+		return err
+	}
+
+	if err := h.commitLog.RemoveTombstone(id); err != nil {
+		return err
+	}
+
+	return nil
 }
