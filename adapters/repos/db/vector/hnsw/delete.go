@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -126,12 +125,11 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		return nil
 	}
 
-	cleaned, err := h.reassignNeighborsOf(deleteList)
-	if err != nil {
+	if err := h.reassignNeighborsOf(deleteList); err != nil {
 		return errors.Wrap(err, "reassign neighbor edges")
 	}
 
-	for id := range cleaned {
+	for id := range deleteList {
 		if h.getEntrypoint() == id {
 			// this a special case because:
 			//
@@ -148,7 +146,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		}
 	}
 
-	for id := range cleaned {
+	for id := range deleteList {
 		if err := h.removeTombstoneAndNode(id); err != nil {
 			return err
 		}
@@ -163,36 +161,19 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	return nil
 }
 
-func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowList, error) {
-	var chunked helpers.AllowList
-	limit := 25
-	if len(deleteList) > limit {
-		chunked = helpers.AllowList{}
-		i := 0
-		for id := range deleteList {
-			if i >= limit {
-				break
-			}
-			chunked.Insert(id)
-			i++
-		}
-	} else {
-		chunked = deleteList
-	}
-
+func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	h.Lock()
 	size := len(h.nodes)
 	currentEntrypoint := h.entryPointID
 	h.Unlock()
 
-	reassigned := 0
 	for n := 0; n < size; n++ {
 		neighbor := uint64(n)
 		h.Lock()
 		neighborNode := h.nodes[neighbor]
 		h.Unlock()
 
-		if neighborNode == nil || chunked.Contains(neighborNode.id) {
+		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
 			continue
 		}
 
@@ -204,7 +185,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowL
 				continue
 			} else {
 				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrap(err, "get neighbor vec")
+				return errors.Wrap(err, "get neighbor vec")
 			}
 		}
 		neighborNode.Lock()
@@ -212,7 +193,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowL
 		connections := neighborNode.connections
 		neighborNode.Unlock()
 
-		if !connectionsPointTo(connections, chunked) {
+		if !connectionsPointTo(connections, deleteList) {
 			// nothing needs to be changed, skip
 			continue
 		}
@@ -220,7 +201,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowL
 		entryPointID, err := h.findBestEntrypointForNode(h.currentMaximumLayer,
 			neighborLevel, currentEntrypoint, neighborVec)
 		if err != nil {
-			return nil, errors.Wrap(err, "find best entrypoint")
+			return errors.Wrap(err, "find best entrypoint")
 		}
 
 		if entryPointID == neighbor {
@@ -235,7 +216,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowL
 				neighborNode.Unlock()
 
 				if err := h.commitLog.ClearLinks(neighbor); err != nil {
-					return nil, err
+					return err
 				}
 				continue
 			}
@@ -255,23 +236,19 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) (helpers.AllowL
 		neighborNode.connections = map[int][]uint64{}
 		neighborNode.Unlock()
 		if err := h.commitLog.ClearLinks(neighbor); err != nil {
-			return nil, err
+			return err
 		}
 
 		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
 			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
-			return nil, errors.Wrap(err, "find and connect neighbors")
+			return errors.Wrap(err, "find and connect neighbors")
 		}
 		neighborNode.unmarkAsMaintenance()
 
 		h.metrics.CleanedUp()
-		reassigned++
 	}
 
-	fmt.Printf("to-be-deleted: %v\n", chunked)
-	fmt.Printf("reassigned %d out of %d\n", reassigned, size)
-
-	return chunked, nil
+	return nil
 }
 
 func connectionsPointTo(connections map[int][]uint64, needles helpers.AllowList) bool {
