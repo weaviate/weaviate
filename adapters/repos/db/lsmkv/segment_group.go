@@ -52,7 +52,7 @@ type SegmentGroup struct {
 
 func newSegmentGroup(dir string,
 	compactionCycle time.Duration, logger logrus.FieldLogger,
-	mapRequiresSorting bool, metrics *Metrics) (*SegmentGroup, error) {
+	mapRequiresSorting bool, metrics *Metrics, strategy string) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -65,6 +65,7 @@ func newSegmentGroup(dir string,
 		metrics:             metrics,
 		stopCompactionCycle: make(chan struct{}),
 		mapRequiresSorting:  mapRequiresSorting,
+		strategy:            strategy,
 	}
 
 	segmentIndex := 0

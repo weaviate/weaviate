@@ -192,7 +192,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	})
 	var metrics *lsmkv.Metrics
 	if s.promMetrics != nil {
-		lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
 	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)
