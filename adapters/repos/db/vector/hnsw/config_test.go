@@ -187,7 +187,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Skip:                   true,
-				Distance:               "l2-squared",
+				Distance:               "manhattan",
 			},
 		},
 
