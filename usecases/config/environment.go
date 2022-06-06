@@ -181,6 +181,24 @@ func FromEnv(config *Config) error {
 		config.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
 	}
 
+	if v := os.Getenv("GO_BLOCK_PROFILE_RATE"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse GO_BLOCK_PROFILE_RATE as int")
+		}
+
+		config.Profiling.BlockProfileRate = asInt
+	}
+
+	if v := os.Getenv("GO_MUTEX_PROFILE_FRACTION"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse GO_MUTEX_PROFILE_FRACTION as int")
+		}
+
+		config.Profiling.MutexProfileFraction = asInt
+	}
+
 	return nil
 }
 

@@ -11,6 +11,8 @@ export LOG_LEVEL=debug
 export LOG_FORMAT=text
 export PROMETHEUS_MONITORING_ENABLED=true
 export ENABLE_EXPERIMENTAL_BM25=true
+export GO_BLOCK_PROFILE_RATE=20
+export GO_MUTEX_PROFILE_FRACTION=20
 
 case $CONFIG in
   debug)
