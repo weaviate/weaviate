@@ -323,6 +323,7 @@ func (ig *SegmentGroup) monitorSegments() {
 			"strategy": ig.strategy,
 			"unit":     "index",
 			"level":    level,
+			"path":     ig.dir,
 		}).Set(float64(size))
 	}
 
@@ -331,6 +332,7 @@ func (ig *SegmentGroup) monitorSegments() {
 			"strategy": ig.strategy,
 			"unit":     "payload",
 			"level":    level,
+			"path":     ig.dir,
 		}).Set(float64(size))
 	}
 
@@ -338,6 +340,7 @@ func (ig *SegmentGroup) monitorSegments() {
 		ig.metrics.SegmentCount.With(prometheus.Labels{
 			"strategy": ig.strategy,
 			"level":    level,
+			"path":     ig.dir,
 		}).Set(float64(count))
 	}
 }
