@@ -18,6 +18,7 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
+	ObjectsTime                        *prometheus.HistogramVec
 	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
 	LSMSegmentCount                    *prometheus.GaugeVec
@@ -37,6 +38,12 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Help:    "Duration in ms of a single batch",
 			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
+
+		ObjectsTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "objects_durations_ms",
+			Help:    "Duration of an individual object operation. Also as part of batches.",
+			Buckets: prometheus.ExponentialBuckets(0.1, 1.25, 40),
+		}, []string{"operation", "step", "class_name", "shard_name"}),
 
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "async_operations_running",
