@@ -136,7 +136,7 @@ func (n *shardedLockCache) grow(node uint64) {
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
 
-	newSize := node + defaultIndexGrowthDelta
+	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]float32, newSize)
 	copy(newCache, n.cache)
 	n.cache = newCache
