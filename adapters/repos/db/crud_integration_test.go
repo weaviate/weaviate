@@ -1214,6 +1214,56 @@ func TestCRUD(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("query obj by id which has no props", func(t *testing.T) {
+		id := strfmt.UUID("2cd8a381-6568-4724-9d5c-1ef28d439e94")
+
+		t.Run("insert test obj", func(t *testing.T) {
+			vec := []float32{0.1, 0.2, 0.3, 0.4}
+			obj := &models.Object{
+				ID:     id,
+				Class:  "TheBestActionClass",
+				Vector: vec,
+			}
+			require.Nil(t, repo.PutObject(context.Background(), obj, vec))
+		})
+
+		t.Run("perform search with id filter", func(t *testing.T) {
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Pagination: &filters.Pagination{Limit: 10},
+				ClassName:  "TheBestActionClass",
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestActionClass",
+							Property: filters.InternalPropID,
+						},
+						Value: &filters.Value{
+							Value: id.String(),
+							Type:  dtString,
+						},
+					},
+				},
+			})
+
+			require.Nil(t, err)
+
+			expected := []search.Result{
+				{
+					ID:        id,
+					ClassName: "TheBestActionClass",
+					Schema: map[string]interface{}{
+						"id": id,
+					},
+					Score:                1,
+					AdditionalProperties: models.AdditionalProperties{},
+				},
+			}
+
+			assert.Equal(t, expected, res)
+		})
+	})
 }
 
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
