@@ -41,3 +41,14 @@ func (al AllowList) DeepCopy() AllowList {
 
 	return out
 }
+
+func (al AllowList) Slice() []uint64 {
+	out := make([]uint64, len(al))
+	i := 0
+	for id := range al {
+		out[i] = id
+		i++
+	}
+
+	return out
+}

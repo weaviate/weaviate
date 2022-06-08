@@ -14,6 +14,7 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -804,106 +805,42 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 
 func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 	t.Run("with nearObject", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		query := `
 			{
-				Aggregate{
-					City (
-						groupBy: "population"
-						where: {
-							valueBoolean: true,
-							operator: Equal,
-							path: ["isCapital"]
-						}
-						nearObject: {
-							id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
-							certainty: 0.7
-						}
-					){
+				Aggregate {
+					Company
+					(
+						groupBy: "name"
+						nearObject: {id: "cfa3b21e-ca4f-4db7-a432-7fc6a23c534d", certainty: 0.99}
+					) 
+					{
+						groupedBy {
+							value
+					  	}
 						meta {
-							count
-						}
-						isCapital {
-							count
-							percentageFalse
-							percentageTrue
-							totalFalse
-							totalTrue
-							type
-						}
-						population {
-							mean
-							count
-							maximum
-							minimum
-							sum
-							type
-						}
-						inCountry {
-							pointingTo
-							type
-						}
-						name {
-							topOccurrences {
-								occurs
-								value
-							}
-							type
 							count
 						}
 					}
 				}
-			}
-		`)
+			}`
 
-		t.Run("meta count", func(t *testing.T) {
-			meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
-			count := meta.(map[string]interface{})["count"]
-			expected := json.Number("1")
-			assert.Equal(t, expected, count)
-		})
-
-		t.Run("boolean props", func(t *testing.T) {
-			isCapital := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["isCapital"]
-			expected := map[string]interface{}{
-				"count":           json.Number("1"),
-				"percentageTrue":  json.Number("1"),
-				"percentageFalse": json.Number("0"),
-				"totalTrue":       json.Number("1"),
-				"totalFalse":      json.Number("0"),
-				"type":            "boolean",
-			}
-			assert.Equal(t, expected, isCapital)
-		})
-
-		t.Run("ref prop", func(t *testing.T) {
-			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
-			expected := map[string]interface{}{
-				"pointingTo": []interface{}{"Country"},
-				"type":       "cref",
-			}
-			assert.Equal(t, expected, inCountry)
-		})
-
-		t.Run("string prop", func(t *testing.T) {
-			name := result.Get("Aggregate", "City").
-				AsSlice()[0].(map[string]interface{})["name"].(map[string]interface{})
-			typeField := name["type"]
-			topOccurrences := name["topOccurrences"]
-
-			assert.Equal(t, "string", typeField)
-
-			expectedTopOccurrences := []interface{}{
-				map[string]interface{}{
-					"value":  "Berlin",
-					"occurs": json.Number("1"),
+		expected := map[string]interface{}{
+			"Aggregate": map[string]interface{}{
+				"Company": []interface{}{
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "Microsoft Inc.",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
 				},
-				map[string]interface{}{
-					"value":  "Amsterdam",
-					"occurs": json.Number("1"),
-				},
-			}
-			assert.Subset(t, expectedTopOccurrences, topOccurrences)
-		})
+			},
+		}
+
+		result := AssertGraphQL(t, helper.RootAuth, query).Result
+		assert.EqualValues(t, expected, result)
 	})
 
 	t.Run("with nearText", func(t *testing.T) {
@@ -925,54 +862,98 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 						meta {
 							count
 						}
-						isCapital {
-							count
-							percentageFalse
-							percentageTrue
-							totalFalse
-							totalTrue
-							type
-						}
-						population {
-							mean
-							count
-							maximum
-							minimum
-							sum
-							type
-						}
-						inCountry {
-							pointingTo
-							type
-						}
-						name {
-							topOccurrences {
-								occurs
-								value
-							}
-							type
-							count
+						groupedBy {
+							value
 						}
 					}
 				}
 			}
 		`)
 
-		t.Run("meta count", func(t *testing.T) {
-			meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
-			count := meta.(map[string]interface{})["count"]
-			expected := json.Number("1")
-			assert.Equal(t, expected, count)
-		})
+		expected := map[string]interface{}{
+			"Aggregate": map[string]interface{}{
+				"City": []interface{}{
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "1.8e+06",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
+				},
+			},
+		}
 
-		t.Run("ref prop", func(t *testing.T) {
-			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
-			expected := map[string]interface{}{
-				"pointingTo": []interface{}{"Country"},
-				"type":       "cref",
+		assert.EqualValues(t, expected, result.Result)
+	})
+
+	t.Run("with nearVector", func(t *testing.T) {
+		getQuery := `
+			{
+				Get {
+					Company(where: {
+						path: ["name"]
+						operator: Equal
+						valueString: "Google Inc."
+					})
+					{
+						_additional {
+							vector
+						}
+					}
+				}
+			}`
+
+		vectorResult := AssertGraphQL(t, helper.RootAuth, getQuery).
+			Get("Get", "Company").
+			AsSlice()[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
+
+		vector := make([]float32, len(vectorResult))
+		for i, ifc := range vectorResult {
+			val, err := strconv.ParseFloat(ifc.(json.Number).String(), 32)
+			require.Nil(t, err)
+			vector[i] = float32(val)
+		}
+
+		aggQuery := fmt.Sprintf(`
+			{
+				Aggregate {
+					Company
+					(
+						groupBy: "name"
+						nearVector: {vector: %+v, certainty: 0.99}
+					)
+					{
+						groupedBy {
+							value
+						}
+						meta {
+							count
+						}
+					}
+				}
 			}
-			assert.Equal(t, expected, inCountry)
-		})
+		`, vector)
+
+		aggResult := AssertGraphQL(t, helper.RootAuth, aggQuery).Result
+
+		expected := map[string]interface{}{
+			"Aggregate": map[string]interface{}{
+				"Company": []interface{}{
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "Google Inc.",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
+				},
+			},
+		}
+
+		assert.EqualValues(t, expected, aggResult)
 	})
 }
 
@@ -1038,17 +1019,17 @@ func localMetaWithObjectLimit(t *testing.T) {
 		result := AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
-    				RansomNote(
-      					nearText: {
+   				RansomNote(
+     					nearText: {
 							concepts: ["abc"]
 							certainty: 0.0001
-      					}
-    				) {
+     					}
+   				) {
 					  meta {
 						count
 					  }
-   					}
-  				}
+  					}
+ 				}
 			}
 		`)
 
@@ -1065,18 +1046,18 @@ func localMetaWithObjectLimit(t *testing.T) {
 		result := AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
-    				RansomNote(
-      					nearText: {
+   				RansomNote(
+     					nearText: {
 							concepts: ["abc"]
 							certainty: 0.7 # should return about 6 elements
-      					}
+     					}
 						  objectLimit:100,
-    				) {
+   				) {
 					  meta {
 						count
 					  }
-   					}
-  				}
+  					}
+ 				}
 			}
 		`)
 
@@ -1092,74 +1073,66 @@ func localMetaWithObjectLimit(t *testing.T) {
 	})
 
 	t.Run("with nearText and no certainty, where filter and groupBy", func(t *testing.T) {
-		objectLimit := 1
+		objectLimit := 4
 		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate {
-					City (
-					groupBy: "population"
-					where: {
-						valueBoolean: true,
-						operator: Equal,
-						path: ["isCapital"]
-					}
-					objectLimit: %d
-					nearText: {
-						concepts: ["Amsterdam"]
-						certainty: 0.9
-					}
+					Company (
+						groupBy: ["name"]
+						where: {
+							valueString: "Apple*",
+							operator: Like,
+							path: ["name"]
+						}
+						objectLimit: %d
+						nearText: {
+							concepts: ["Apple"]
+							certainty: 0.5
+						}
 					){
 						meta {
 							count
 						}
-						isCapital {
-							count
-							percentageFalse
-							percentageTrue
-							totalFalse
-							totalTrue
-							type
-						}
-						population {
-							mean
-							count
-							maximum
-							minimum
-							sum
-							type
-						}
-						inCountry {
-							pointingTo
-							type
-						}
-						name {
-							topOccurrences {
-								occurs
-								value
-							}
-							type
-							count
+						groupedBy {
+        					value
 						}
 					}
 				}
 			}
 		`, objectLimit))
 
-		t.Run("meta count", func(t *testing.T) {
-			meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
-			count := meta.(map[string]interface{})["count"]
-			expected := json.Number("1")
-			assert.Equal(t, expected, count)
-		})
+		expected := map[string]interface{}{
+			"Aggregate": map[string]interface{}{
+				"Company": []interface{}{
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "Apple Incorporated",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "Apple Inc.",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
+					map[string]interface{}{
+						"groupedBy": map[string]interface{}{
+							"value": "Apple",
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("1"),
+						},
+					},
+				},
+			},
+		}
 
-		t.Run("ref prop", func(t *testing.T) {
-			inCountry := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["inCountry"]
-			expected := map[string]interface{}{
-				"pointingTo": []interface{}{"Country"},
-				"type":       "cref",
-			}
-			assert.Equal(t, expected, inCountry)
-		})
+		assert.EqualValues(t, expected, result.Result)
 	})
 
 	t.Run("with nearObject and certainty, where filter", func(t *testing.T) {
