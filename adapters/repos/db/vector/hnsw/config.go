@@ -218,7 +218,7 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}
 
 	if err := optionalStringFromMap(asMap, "distance", func(v string) {
-		uc.Distance = v
+		uc.Distance = v // here also distance is metioned
 	}); err != nil {
 		return uc, err
 	}

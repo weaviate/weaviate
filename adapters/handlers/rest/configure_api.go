@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -87,14 +88,12 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	go func() {
-		fmt.Println(http.ListenAndServe(":6060", nil))
-	}()
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	appState := startupRoutine(ctx)
+	setupGoProfiling(appState.ServerConfig.Config)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		// only monitoring tool supported at the moment is prometheus
@@ -492,4 +491,18 @@ func reasonableHttpClient() *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 	return &http.Client{Transport: t}
+}
+
+func setupGoProfiling(config config.Config) {
+	go func() {
+		fmt.Println(http.ListenAndServe(":6060", nil))
+	}()
+
+	if config.Profiling.BlockProfileRate > 0 {
+		goruntime.SetBlockProfileRate(config.Profiling.BlockProfileRate)
+	}
+
+	if config.Profiling.MutexProfileFraction > 0 {
+		goruntime.SetMutexProfileFraction(config.Profiling.MutexProfileFraction)
+	}
 }

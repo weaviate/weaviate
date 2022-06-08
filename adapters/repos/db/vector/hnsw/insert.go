@@ -24,6 +24,8 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 		return errors.Errorf("insert called with nil-vector")
 	}
 
+	h.metrics.InsertVector()
+
 	node := &vertex{
 		id: id,
 	}

@@ -107,6 +107,8 @@ type hnsw struct {
 	pools *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
+
+	metrics *Metrics
 }
 
 type CommitLogger interface {
@@ -192,6 +194,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		efMin:    int64(uc.DynamicEFMin),
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
+
+		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 	}
 
 	if err := index.init(cfg); err != nil {

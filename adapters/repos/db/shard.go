@@ -111,9 +111,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 
 		vi, err := hnsw.New(hnsw.Config{
-			Logger:   index.logger,
-			RootPath: s.index.Config.RootPath,
-			ID:       s.ID(),
+			Logger:            index.logger,
+			RootPath:          s.index.Config.RootPath,
+			ID:                s.ID(),
+			ShardName:         s.name,
+			ClassName:         s.index.Config.ClassName.String(),
+			PrometheusMetrics: s.promMetrics,
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				// Previously we had an interval of 10s in here, which was changed to
 				// 0.5s as part of gh-1867. There's really no way to wait so long in
