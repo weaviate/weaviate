@@ -174,7 +174,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           json.Number("18"),
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
-				"distance":               "l2-squared",
+				"distance":               "manhattan",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -191,7 +191,7 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		// ----end of test case------------------------------
+		// ----end of test case for manhattan distance------------------------------
 
 		{
 			// this is the case when reading the json representation from disk, as
