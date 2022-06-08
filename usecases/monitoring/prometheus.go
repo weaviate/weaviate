@@ -29,6 +29,7 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
+	VectorIndexDurations               *prometheus.HistogramVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
 }
@@ -99,5 +100,10 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Help:    "Duration of a sync or async vector index maintenance operation",
 			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
 		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_durations_ms",
+			Help:    "Duration of typical vector index operations (insert, delete)",
+			Buckets: prometheus.ExponentialBuckets(0.1, 1.5, 30),
+		}, []string{"operation", "step", "class_name", "shard_name"}),
 	}
 }

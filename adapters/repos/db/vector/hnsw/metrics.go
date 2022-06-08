@@ -12,7 +12,9 @@ type Metrics struct {
 	tombstones prometheus.Gauge
 	threads    prometheus.Gauge
 	insert     prometheus.Gauge
+	insertTime prometheus.ObserverVec
 	delete     prometheus.Gauge
+	deleteTime prometheus.ObserverVec
 	cleaned    prometheus.Counter
 	size       prometheus.Gauge
 	grow       prometheus.Observer
@@ -45,7 +47,19 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
+	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
 	del := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
+	deleteTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
@@ -68,7 +82,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		threads:    threads,
 		cleaned:    cleaned,
 		insert:     insert,
+		insertTime: insertTime,
 		delete:     del,
+		deleteTime: deleteTime,
 		size:       size,
 		grow:       grow,
 	}
@@ -145,4 +161,22 @@ func (m *Metrics) GrowDuration(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.grow.Observe(took)
+}
+
+func (m *Metrics) TrackInsert(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.insertTime.With(prometheus.Labels{"step": step}).Observe(took)
+}
+
+func (m *Metrics) TrackDelete(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
 }

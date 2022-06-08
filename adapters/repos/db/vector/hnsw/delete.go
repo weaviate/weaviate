@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -25,6 +26,9 @@ import (
 func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
+
+	before := time.Now()
+	defer h.metrics.TrackDelete(before, "total")
 
 	h.metrics.DeleteVector()
 	if err := h.addTombstone(id); err != nil {
@@ -50,6 +54,9 @@ func (h *hnsw) Delete(id uint64) error {
 	}
 
 	if h.getEntrypoint() == id {
+		beforeDeleteEP := time.Now()
+		defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
+
 		denyList := h.tombstonesAsDenyList()
 		if h.isOnlyNode(node, denyList) {
 			if err := h.reset(); err != nil {
