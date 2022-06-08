@@ -20,7 +20,8 @@ import (
 
 const (
 	initialSize             = 25000
-	defaultIndexGrowthDelta = 25000
+	minimumIndexGrowthDelta = 25000
+	indexGrowthRate         = 1.25
 )
 
 // growIndexToAccomodateNode is a wrapper around the growIndexToAccomodateNode
@@ -68,8 +69,14 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		return nil, false, nil
 	}
 
-	// typically grow the index by the delta
-	newSize := previousSize + defaultIndexGrowthDelta
+	var newSize uint64
+
+	if (indexGrowthRate-1)*float64(previousSize) < float64(minimumIndexGrowthDelta) {
+		// typically grow the index by the delta
+		newSize = previousSize + minimumIndexGrowthDelta
+	} else {
+		newSize = uint64(float64(previousSize) * indexGrowthRate)
+	}
 
 	if uint64(newSize) <= id {
 		// There are situations were docIDs are not in order. For example, if  the
@@ -77,7 +84,7 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the
 		// index from disk the first id to be imported would be 20,501, however the
 		// index default size and default delta would only reach up to 20,000.
-		newSize = id + defaultIndexGrowthDelta
+		newSize = id + minimumIndexGrowthDelta
 	}
 
 	newIndex := make([]*vertex, newSize)
