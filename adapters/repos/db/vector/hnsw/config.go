@@ -32,7 +32,7 @@ type Config struct {
 	MakeCommitLoggerThunk MakeCommitLogger
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
-	DistanceProvider      distancer.Provider // maybe will need to alter this while adding more distances
+	DistanceProvider      distancer.Provider
 }
 
 func (c Config) Validate() error {
@@ -218,7 +218,7 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}
 
 	if err := optionalStringFromMap(asMap, "distance", func(v string) {
-		uc.Distance = v // here also distance is metioned
+		uc.Distance = v
 	}); err != nil {
 		return uc, err
 	}
