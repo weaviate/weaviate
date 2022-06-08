@@ -28,14 +28,19 @@ const (
 // its own, make sure that this function is called from a single-thread or
 // locked situation
 func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
+	before := time.Now()
 	newIndex, changed, err := growIndexToAccomodateNode(h.nodes, id, logger)
 	if err != nil {
 		return err
 	}
 
+	h.metrics.SetSize(len(h.nodes))
+
 	if !changed {
 		return nil
 	}
+
+	defer h.metrics.GrowDuration(before)
 
 	h.cache.grow(uint64(len(newIndex)))
 
