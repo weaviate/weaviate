@@ -52,7 +52,7 @@ type SegmentGroup struct {
 
 func newSegmentGroup(dir string,
 	compactionCycle time.Duration, logger logrus.FieldLogger,
-	mapRequiresSorting bool, metrics *Metrics) (*SegmentGroup, error) {
+	mapRequiresSorting bool, metrics *Metrics, strategy string) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -65,6 +65,7 @@ func newSegmentGroup(dir string,
 		metrics:             metrics,
 		stopCompactionCycle: make(chan struct{}),
 		mapRequiresSorting:  mapRequiresSorting,
+		strategy:            strategy,
 	}
 
 	segmentIndex := 0
@@ -103,7 +104,7 @@ func newSegmentGroup(dir string,
 		}
 
 		segment, err := newSegment(filepath.Join(dir, fileInfo.Name()), logger,
-			out.makeExistsOnLower(segmentIndex))
+			metrics, out.makeExistsOnLower(segmentIndex))
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", fileInfo.Name())
 		}
@@ -141,7 +142,8 @@ func (ig *SegmentGroup) add(path string) error {
 	defer ig.maintenanceLock.Unlock()
 
 	newSegmentIndex := len(ig.segments)
-	segment, err := newSegment(path, ig.logger, ig.makeExistsOnLower(newSegmentIndex))
+	segment, err := newSegment(path, ig.logger, ig.metrics,
+		ig.makeExistsOnLower(newSegmentIndex))
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
