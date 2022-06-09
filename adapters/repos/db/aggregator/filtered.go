@@ -61,7 +61,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 			return nil, err
 		}
 	} else {
-		foundIDs = flattenAllowList(allowList)
+		foundIDs = allowList.Slice()
 	}
 
 	if fa.params.IncludeMetaCount {
@@ -76,53 +76,6 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups[0].Properties = props
 
 	return &out, nil
-}
-
-func (fa *filteredAggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err error) {
-	if fa.params.ObjectLimit != nil {
-		ids, err = fa.searchByVector(fa.params.SearchVector, fa.params.ObjectLimit, allow)
-		return
-	}
-
-	ids, err = fa.searchByVectorDistance(fa.params.SearchVector, allow)
-	return
-}
-
-func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, error) {
-	idsFound, dists, err := fa.vectorIndex.SearchByVector(searchVector, *limit, ids)
-	if err != nil {
-		return idsFound, err
-	}
-
-	if fa.params.Certainty > 0 {
-		targetDist := float32(1-fa.params.Certainty) * 2
-
-		i := 0
-		for _, dist := range dists {
-			if dist > targetDist {
-				break
-			}
-			i++
-		}
-
-		return idsFound[:i], nil
-
-	}
-	return idsFound, nil
-}
-
-func (fa *filteredAggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, error) {
-	if fa.params.Certainty <= 0 {
-		return nil, errors.New("must provide certainty or objectLimit with vector search")
-	}
-
-	targetDist := float32(1-fa.params.Certainty) * 2
-	idsFound, _, err := fa.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
-	if err != nil {
-		return nil, errors.Wrap(err, "aggregate search by vector")
-	}
-
-	return idsFound, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
@@ -193,7 +146,7 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) {
 	}
 }
 
-// a helper type to select the right aggreagtor for a prop
+// a helper type to select the right aggregator for a prop
 type propAgg struct {
 	name schema.PropertyName
 
@@ -279,15 +232,4 @@ func (fa *filteredAggregator) prepareAggregatorsForProps() (propAggs, error) {
 	}
 
 	return out, nil
-}
-
-func flattenAllowList(list helpers.AllowList) []uint64 {
-	out := make([]uint64, len(list))
-	i := 0
-	for id := range list {
-		out[i] = id
-		i++
-	}
-
-	return out
 }

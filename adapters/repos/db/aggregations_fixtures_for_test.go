@@ -173,7 +173,7 @@ var companies = []map[string]interface{}{
 }
 
 // Use fixed ids to make the test deterministic. The length of this must match
-// the len(companies)*importFactor These are somewhwat carefully arranged to
+// the len(companies)*importFactor These are somewhat carefully arranged to
 // make sure that we prevent the flakiness that was described in
 // https://github.com/semi-technologies/weaviate/issues/1884
 var companyIDs = []strfmt.UUID{
