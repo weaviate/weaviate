@@ -109,6 +109,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	if err != nil {
 		return status, errors.Wrap(err, "check insert/update status")
 	}
+	s.metrics.PutObjectDetermineStatus(before)
 
 	object.SetDocID(status.docID)
 	data, err := object.MarshalBinary()
