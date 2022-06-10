@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
@@ -21,8 +23,12 @@ type Metrics struct {
 	tombstones prometheus.Gauge
 	threads    prometheus.Gauge
 	insert     prometheus.Gauge
+	insertTime prometheus.ObserverVec
 	delete     prometheus.Gauge
+	deleteTime prometheus.ObserverVec
 	cleaned    prometheus.Counter
+	size       prometheus.Gauge
+	grow       prometheus.Observer
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -52,10 +58,33 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
+	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
 	del := prom.VectorIndexOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
+	})
+
+	deleteTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
+	size := prom.VectorIndexSize.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	grow := prom.VectorIndexMaintenanceDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "grow",
 	})
 
 	return &Metrics{
@@ -64,7 +93,11 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		threads:    threads,
 		cleaned:    cleaned,
 		insert:     insert,
+		insertTime: insertTime,
 		delete:     del,
+		deleteTime: deleteTime,
+		size:       size,
+		grow:       grow,
 	}
 }
 
@@ -122,4 +155,39 @@ func (m *Metrics) DeleteVector() {
 	}
 
 	m.delete.Inc()
+}
+
+func (m *Metrics) SetSize(size int) {
+	if !m.enabled {
+		return
+	}
+
+	m.size.Set(float64(size))
+}
+
+func (m *Metrics) GrowDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.grow.Observe(took)
+}
+
+func (m *Metrics) TrackInsert(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.insertTime.With(prometheus.Labels{"step": step}).Observe(took)
+}
+
+func (m *Metrics) TrackDelete(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
 }

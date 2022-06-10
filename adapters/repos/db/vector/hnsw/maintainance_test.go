@@ -53,7 +53,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    initialSize,
 				index: createVertexSlice(initialSize),
 			},
-			wantIndexSize: initialSize + defaultIndexGrowthDelta,
+			wantIndexSize: initialSize + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -62,7 +62,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    initialSize + 1,
 				index: createVertexSlice(initialSize),
 			},
-			wantIndexSize: initialSize + defaultIndexGrowthDelta,
+			wantIndexSize: initialSize + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -71,7 +71,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    4*initialSize - 1,
 				index: createVertexSlice(initialSize),
 			},
-			wantIndexSize: 4*initialSize - 1 + defaultIndexGrowthDelta,
+			wantIndexSize: 4*initialSize - 1 + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -80,7 +80,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    4 * initialSize,
 				index: createVertexSlice(initialSize),
 			},
-			wantIndexSize: 4*initialSize + defaultIndexGrowthDelta,
+			wantIndexSize: 4*initialSize + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -89,7 +89,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    4*initialSize + 1,
 				index: createVertexSlice(initialSize),
 			},
-			wantIndexSize: 4*initialSize + 1 + defaultIndexGrowthDelta,
+			wantIndexSize: 4*initialSize + 1 + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -98,7 +98,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    uint64(14160016),
 				index: createVertexSlice(14160016),
 			},
-			wantIndexSize: 14160016 + defaultIndexGrowthDelta,
+			wantIndexSize: int(14160016 * indexGrowthRate),
 			changed:       true,
 		},
 		{
@@ -107,7 +107,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 				id:    uint64(2*initialSize + 1),
 				index: createVertexSlice(initialSize + 1),
 			},
-			wantIndexSize: 2*initialSize + 1 + defaultIndexGrowthDelta,
+			wantIndexSize: 2*initialSize + 1 + minimumIndexGrowthDelta,
 			changed:       true,
 		},
 	}
