@@ -29,6 +29,9 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
+	VectorIndexDurations               *prometheus.HistogramVec
+	VectorIndexSize                    *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
 }
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
@@ -88,5 +91,19 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
 		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_size",
+			Help: "The size of the vector index. Typically larger than number of vectors, as it grows proactively.",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexMaintenanceDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_maintenance_durations_ms",
+			Help:    "Duration of a sync or async vector index maintenance operation",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_durations_ms",
+			Help:    "Duration of typical vector index operations (insert, delete)",
+			Buckets: prometheus.ExponentialBuckets(0.1, 1.5, 30),
+		}, []string{"operation", "step", "class_name", "shard_name"}),
 	}
 }
