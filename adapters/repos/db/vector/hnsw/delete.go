@@ -105,11 +105,14 @@ func (h *hnsw) getEntrypoint() uint64 {
 }
 
 func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
+	h.Lock()
+	lenOfNodes := uint64(len(h.nodes))
+	h.Unlock()
+
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
 	deleteList := helpers.AllowList{}
-	lenOfNodes := uint64(len(h.nodes))
 
 	for id := range h.tombstones {
 		if lenOfNodes <= id {
@@ -173,13 +176,14 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	h.Lock()
 	size := len(h.nodes)
-	currentEntrypoint := h.entryPointID
 	h.Unlock()
 
 	for n := 0; n < size; n++ {
 		neighbor := uint64(n)
 		h.Lock()
 		neighborNode := h.nodes[neighbor]
+		currentEntrypoint := h.entryPointID
+		currentMaximumLayer := h.currentMaximumLayer
 		h.Unlock()
 
 		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
@@ -199,15 +203,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 		}
 		neighborNode.Lock()
 		neighborLevel := neighborNode.level
-		connections := neighborNode.connections
-		neighborNode.Unlock()
-
-		if !connectionsPointTo(connections, deleteList) {
+		if !connectionsPointTo(neighborNode.connections, deleteList) {
 			// nothing needs to be changed, skip
+			neighborNode.Unlock()
 			continue
 		}
+		neighborNode.Unlock()
 
-		entryPointID, err := h.findBestEntrypointForNode(h.currentMaximumLayer,
+		entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
 			neighborLevel, currentEntrypoint, neighborVec)
 		if err != nil {
 			return errors.Wrap(err, "find best entrypoint")
@@ -233,7 +236,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			tmpDenyList := deleteList.DeepCopy()
 			tmpDenyList.Insert(entryPointID)
 
-			alternative, level := h.findNewLocalEntrypoint(tmpDenyList, h.currentMaximumLayer,
+			alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 				entryPointID)
 			neighborLevel = level // reduce in case no neighbor is at our level
 			entryPointID = alternative
@@ -249,7 +252,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 		}
 
 		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
-			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
+			neighborLevel, currentMaximumLayer, deleteList); err != nil {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
 		neighborNode.unmarkAsMaintenance()
