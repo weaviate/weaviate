@@ -130,6 +130,9 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 }
 
 func (n *shardedLockCache) prefetch(id uint64) {
+	n.shardedLocks[id%shardFactor].RLock()
+	defer n.shardedLocks[id%shardFactor].RUnlock()
+
 	prefetchFunc(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
