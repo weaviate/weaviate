@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/semi-technologies/weaviate/entities/diskio"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -44,6 +45,9 @@ func (h *hnsw) init(cfg Config) error {
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
 func (h *hnsw) restoreFromDisk() error {
+	beforeAll := time.Now()
+	defer h.metrics.TrackStartupTotal(beforeAll)
+
 	fileNames, err := getCommitFileNames(h.rootPath, h.id)
 	if err != nil {
 		return err
@@ -60,7 +64,9 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	var state *DeserializationResult
-	for _, fileName := range fileNames {
+	for i, fileName := range fileNames {
+		beforeIndividual := time.Now()
+
 		fd, err := os.Open(fileName)
 		if err != nil {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
@@ -68,7 +74,9 @@ func (h *hnsw) restoreFromDisk() error {
 
 		defer fd.Close()
 
-		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+		metered := diskio.NewMeteredReader(fd,
+			h.metrics.TrackStartupReadCommitlogDiskIO)
+		fdBuf := bufio.NewReaderSize(metered, 256*1024)
 
 		var valid int
 		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
@@ -94,6 +102,9 @@ func (h *hnsw) restoreFromDisk() error {
 				return errors.Wrapf(err, "deserialize commit log %q", fileName)
 			}
 		}
+
+		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
+		h.metrics.TrackStartupIndividual(beforeIndividual)
 	}
 
 	h.nodes = state.Nodes
