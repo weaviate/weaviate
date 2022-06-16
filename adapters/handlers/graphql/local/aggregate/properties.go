@@ -86,6 +86,48 @@ func numericPropertyFields(class *models.Class, property *models.Property, prefi
 	})
 }
 
+func datePropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getMetaDateFields := graphql.Fields{
+		"count": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
+			Description: descriptions.AggregateCount,
+			Type:        graphql.Int,
+			Resolve:     makeResolveDateFieldAggregator("count"),
+		},
+		"minimum": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateMin,
+			Type:        graphql.String,
+			Resolve:     makeResolveDateFieldAggregator("minimum"),
+		},
+		"maximum": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateMax,
+			Type:        graphql.String,
+			Resolve:     makeResolveDateFieldAggregator("maximum"),
+		},
+		"mode": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMode", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateMode,
+			Type:        graphql.String,
+			Resolve:     makeResolveDateFieldAggregator("mode"),
+		},
+		"median": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMedian", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateMedian,
+			Type:        graphql.String,
+			Resolve:     makeResolveDateFieldAggregator("median"),
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getMetaDateFields,
+		Description: descriptions.AggregatePropertyObject,
+	})
+}
+
 func nonNumericPropertyFields(class *models.Class,
 	property *models.Property, prefix string) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
@@ -421,4 +463,28 @@ func extractNumericAggregation(source interface{}) (map[string]float64, error) {
 	}
 
 	return property.NumericalAggregations, nil
+}
+
+func makeResolveDateFieldAggregator(aggregator string) func(p graphql.ResolveParams) (interface{}, error) {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		date, err := extractDateAggregation(p.Source)
+		if err != nil {
+			return nil, fmt.Errorf("date aggregator %s: %v", aggregator, err)
+		}
+
+		return date[aggregator], nil
+	}
+}
+
+func extractDateAggregation(source interface{}) (map[string]interface{}, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeDate {
+		return nil, fmt.Errorf("expected property to be of type date, got %s", property.Type)
+	}
+
+	return property.DateAggregations, nil
 }

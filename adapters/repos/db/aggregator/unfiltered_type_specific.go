@@ -146,6 +146,49 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 	return &out, nil
 }
 
+func (ua unfilteredAggregator) dateProperty(ctx context.Context,
+	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type:             aggregation.PropertyTypeDate,
+		DateAggregations: map[string]interface{}{},
+	}
+
+	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
+	if b == nil {
+		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
+	}
+
+	agg := newDateAggregator()
+
+	c := b.SetCursor() // dates don't have frequency, so it's always a Set
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if err := ua.parseAndAddDateRow(agg, k, v); err != nil {
+			return nil, err
+		}
+	}
+
+	addDateAggregations(&out, prop.Aggregators, agg)
+
+	return &out, nil
+}
+
+func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
+	v [][]byte) error {
+	if len(k) != 8 {
+		// dates are stored as epoch nanoseconds, we expect to see an int64
+		return fmt.Errorf("unexpected key length on inverted index, "+
+			"expected 8: got %d", len(k))
+	}
+
+	if err := agg.AddTimestampRow(k, uint64(len(v))); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k []byte,
 	v [][]byte) error {
 	if len(k) != 8 {
