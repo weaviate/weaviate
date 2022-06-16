@@ -167,7 +167,7 @@ func (d *DB) Exists(ctx context.Context, class string, id strfmt.UUID) (bool, er
 	}
 	index := d.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return false, fmt.Errorf("index not found for class %s", class)
+		return false, nil
 	}
 	return index.exists(ctx, id)
 }
