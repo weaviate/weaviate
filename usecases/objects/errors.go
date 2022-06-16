@@ -51,10 +51,6 @@ func (e *Error) BadRequest() bool {
 	return e.Code == StatusBadRequest
 }
 
-func (e *Error) Internal() bool {
-	return e.Code == StatusNotFound
-}
-
 // ErrInvalidUserInput indicates a client-side error
 type ErrInvalidUserInput struct {
 	msg string
