@@ -424,6 +424,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 ) middleware.Responder {
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
+		ClassName:   params.Body.Class,
 		Body:        params.Body,
 		ID:          params.ID,
 	}
