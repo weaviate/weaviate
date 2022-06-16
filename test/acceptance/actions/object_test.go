@@ -323,10 +323,10 @@ func deleteObject(t *testing.T) {
 
 	{ // "delete object again from first class
 		params := objects.NewObjectsClassDeleteParams().WithClassName(classA).WithID(id)
-		resp, err := helper.Client(t).Objects.ObjectsClassDelete(params, nil)
-		if err != nil {
-			t.Errorf("cannot delete existing object again err: %v", err)
+		_, err := helper.Client(t).Objects.ObjectsClassDelete(params, nil)
+		werr := &objects.ObjectsClassDeleteNotFound{}
+		if !errors.As(err, &werr) {
+			t.Errorf("Get deleted object error got: %v want %v", err, werr)
 		}
-		assert.Equal(t, &objects.ObjectsClassDeleteNoContent{}, resp)
 	}
 }

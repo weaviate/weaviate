@@ -224,6 +224,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		case uco.ErrInvalidUserInput:
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrNotFound:
+			return objects.NewObjectsClassDeleteNotFound()
 		default:
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))

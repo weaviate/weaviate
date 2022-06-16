@@ -43,6 +43,15 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 	if class == "" { // deprecated
 		return m.deleteObjectFromRepo(ctx, id)
 	}
+
+	ok, err := m.vectorRepo.Exists(ctx, class, id)
+	if err != nil {
+		return NewErrInternal("check object existence: %v", err)
+	}
+	if !ok {
+		return NewErrNotFound("object %v could not be found", path)
+	}
+
 	err = m.vectorRepo.DeleteObject(ctx, class, id)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
