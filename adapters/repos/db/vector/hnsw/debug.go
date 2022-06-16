@@ -113,6 +113,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	index.currentMaximumLayer = dump.CurrentMaximumLayer
 	index.entryPointID = dump.Entrypoint
 	index.tombstones = dump.Tombstones
+	index.isReset = false
 
 	for _, n := range dump.Nodes {
 		index.nodes[n.ID] = &vertex{

@@ -37,6 +37,8 @@ type hnsw struct {
 
 	tombstoneLock *sync.RWMutex
 
+	resetLock *sync.Mutex
+
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -109,6 +111,8 @@ type hnsw struct {
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
 	metrics *Metrics
+
+	isReset bool
 }
 
 type CommitLogger interface {
@@ -187,6 +191,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		tombstoneLock:     &sync.RWMutex{},
+		resetLock:         &sync.Mutex{},
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
@@ -196,6 +201,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		efFactor: int64(uc.DynamicEFFactor),
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+
+		isReset: true,
 	}
 
 	if err := index.init(cfg); err != nil {

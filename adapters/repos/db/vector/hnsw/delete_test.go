@@ -559,6 +559,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 			8: {7, 6, 4, 3, 5, 2, 1, 0},
 		},
 	}
+	index.isReset = false
 
 	dumpIndex(index, "before delete")
 

@@ -43,6 +43,10 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
+	h.resetLock.Lock()
+	h.isReset = false
+	h.resetLock.Unlock()
+
 	h.Lock()
 	defer h.Unlock()
 
@@ -86,6 +90,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return firstInsertError
 	}
 
+	h.resetLock.Lock()
+	h.isReset = false
+	h.resetLock.Unlock()
+	
 	node.markAsMaintenance()
 
 	h.RLock()
