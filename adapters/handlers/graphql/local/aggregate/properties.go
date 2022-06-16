@@ -128,24 +128,6 @@ func datePropertyFields(class *models.Class,
 	})
 }
 
-func nonNumericPropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
-	getMetaPointingFields := graphql.Fields{
-		"count": &graphql.Field{
-			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
-			Description: descriptions.AggregateCount,
-			Type:        graphql.Int,
-			Resolve:     makeResolveNumericFieldAggregator("count"),
-		},
-	}
-
-	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
-		Fields:      getMetaPointingFields,
-		Description: descriptions.AggregatePropertyObject,
-	})
-}
-
 func referencePropertyFields(class *models.Class,
 	property *models.Property, prefix string) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
