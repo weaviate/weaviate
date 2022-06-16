@@ -577,12 +577,16 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}},
 			},
 			{
-				name: "error forbbiden",
+				name: "forbbiden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
-				name: "use case err not found",
+				name: "validation",
 				err:  uco.ErrInvalidUserInput{},
+			},
+			{
+				name: "not found",
+				err:  uco.ErrNotFound{},
 			},
 			{
 				name: "unknown error",

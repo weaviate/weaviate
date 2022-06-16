@@ -133,7 +133,7 @@ func (d *DB) Object(ctx context.Context, class string,
 	adds additional.Properties) (*search.Result, error) {
 	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
-		return nil, fmt.Errorf("index not found for class %s", class)
+		return nil, nil
 	}
 
 	obj, err := idx.objectByID(ctx, id, props, adds)
