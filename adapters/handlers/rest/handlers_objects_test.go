@@ -615,14 +615,16 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 
 	t.Run("patch object", func(t *testing.T) {
-		fakeManager := &fakeManager{}
-		h := &objectHandlers{manager: fakeManager}
-		req := objects.ObjectsClassPatchParams{
-			HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/MyClass/123", nil),
-			ClassName:   "MyClass",
-			ID:          "123",
-			Body:        &models.Object{Properties: map[string]interface{}{"name": "hello world"}},
-		}
+		var (
+			fakeManager = &fakeManager{}
+			h           = &objectHandlers{manager: fakeManager}
+			req         = objects.ObjectsClassPatchParams{
+				HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/MyClass/123", nil),
+				ClassName:   "MyClass",
+				ID:          "123",
+				Body:        &models.Object{Properties: map[string]interface{}{"name": "hello world"}},
+			}
+		)
 		res := h.patchObject(req, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
 			t.Errorf("unexpected result %v", res)
@@ -648,8 +650,16 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassPatchInternalServerError{}, res)
 		}
 
+		// test deprecated function
 		fakeManager.patchObjectReturn = nil
-		res = h.patchObject(req, nil)
+		res = h.patchObjectDeprecated(objects.ObjectsPatchParams{
+			HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/123", nil),
+			ID:          "123",
+			Body: &models.Object{
+				Class:      "MyClass",
+				Properties: map[string]interface{}{"name": "hello world"},
+			},
+		}, nil)
 		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
 			t.Errorf("unexpected result %v", res)
 		}
