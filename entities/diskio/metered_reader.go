@@ -12,7 +12,7 @@ type MeteredReader struct {
 	cb MeteredReaderCallback
 }
 
-// Read passes the read through to the underlying reader. On a succesful read,
+// Read passes the read through to the underlying reader. On a successful read,
 // it will trigger the attached callback and provide it with metrics. If no
 // callback is set, it will ignore it.
 func (m *MeteredReader) Read(p []byte) (n int, err error) {
