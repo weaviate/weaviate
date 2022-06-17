@@ -67,6 +67,12 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, true))
 
+	t.Run("date aggregations with grouping",
+		testDateAggregationsWithGrouping(repo, true))
+
+	t.Run("date aggregations without grouping",
+		testDateAggregationsWithoutGrouping(repo, true))
+
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
 }
@@ -116,9 +122,12 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 					productClass,
 					companyClass,
 					arrayTypesClass,
+					customerClass,
 				},
 			},
 		}
+
+		schemaGetter.schema = schema
 
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
@@ -127,6 +136,8 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				migrator.AddClass(context.Background(), companyClass, schemaGetter.shardState))
 			require.Nil(t,
 				migrator.AddClass(context.Background(), arrayTypesClass, schemaGetter.shardState))
+			require.Nil(t,
+				migrator.AddClass(context.Background(), customerClass, schemaGetter.shardState))
 		})
 
 		schemaGetter.schema = schema
@@ -167,6 +178,20 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				t.Run(fmt.Sprintf("importing array type %d", i), func(t *testing.T) {
 					fixture := models.Object{
 						Class:      arrayTypesClass.Class,
+						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
+						Properties: schema,
+					}
+					require.Nil(t,
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
+				})
+			}
+		})
+
+		t.Run("import customers", func(t *testing.T) {
+			for i, schema := range customers {
+				t.Run(fmt.Sprintf("importing customer #%d", i), func(t *testing.T) {
+					fixture := models.Object{
+						Class:      customerClass.Class,
 						ID:         strfmt.UUID(uuid.Must(uuid.NewRandom()).String()),
 						Properties: schema,
 					}
@@ -1948,6 +1973,170 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 	}
 }
 
+func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("group on only unique values", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName:        schema.ClassName(customerClass.Class),
+				IncludeMetaCount: true,
+				GroupBy: &filters.Path{
+					Class: schema.ClassName(customerClass.Class),
+					// Each customer obj has a unique value for the `internalId` field
+					Property: schema.PropertyName("internalId"),
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.NotNil(t, res)
+			assert.Len(t, res.Groups, len(customers))
+		})
+
+		t.Run("group on only identical values", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName:        schema.ClassName(customerClass.Class),
+				IncludeMetaCount: true,
+				GroupBy: &filters.Path{
+					Class: schema.ClassName(customerClass.Class),
+					// Each customer obj has the same value for the `countryOfOrigin` field
+					Property: schema.PropertyName("countryOfOrigin"),
+				},
+				Properties: []aggregation.ParamProperty{
+					{
+						Name: "timeArrived",
+						Aggregators: []aggregation.Aggregator{
+							aggregation.CountAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MedianAggregator,
+							aggregation.ModeAggregator,
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.NotNil(t, res)
+			assert.Len(t, res.Groups, 1)
+
+			expectedProperties := map[string]interface{}{
+				"count":   int64(10),
+				"minimum": "2022-06-16T17:30:17.231346Z",
+				"maximum": "2022-06-16T17:30:26.451235Z",
+				"median":  "2022-06-16T17:30:20.123546Z",
+				"mode":    "2022-06-16T17:30:17.231346Z",
+			}
+			receivedProperties := res.Groups[0].Properties["timeArrived"].DateAggregations
+			assert.EqualValues(t, expectedProperties, receivedProperties)
+		})
+
+		t.Run("group on some unique values", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName:        schema.ClassName(customerClass.Class),
+				IncludeMetaCount: true,
+				GroupBy: &filters.Path{
+					Class: schema.ClassName(customerClass.Class),
+					// should result in two groups due to bool value
+					Property: schema.PropertyName("isNewCustomer"),
+				},
+				Properties: []aggregation.ParamProperty{
+					{
+						Name: "timeArrived",
+						Aggregators: []aggregation.Aggregator{
+							aggregation.CountAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MedianAggregator,
+							aggregation.ModeAggregator,
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.NotNil(t, res)
+			assert.Len(t, res.Groups, 2)
+
+			expectedResult := []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"timeArrived": {
+							Type: "date",
+							DateAggregations: map[string]interface{}{
+								"count":   int64(6),
+								"maximum": "2022-06-16T17:30:25.524536Z",
+								"median":  "2022-06-16T17:30:17.231346Z",
+								"minimum": "2022-06-16T17:30:17.231346Z",
+								"mode":    "2022-06-16T17:30:17.231346Z",
+							},
+						},
+					},
+					GroupedBy: &aggregation.GroupedBy{
+						Value: false,
+						Path:  []string{"isNewCustomer"},
+					},
+					Count: 6,
+				},
+				{
+					Properties: map[string]aggregation.Property{
+						"timeArrived": {
+							Type: "date",
+							DateAggregations: map[string]interface{}{
+								"count":   int64(4),
+								"maximum": "2022-06-16T17:30:26.451235Z",
+								"median":  "2022-06-16T17:30:20.123546Z",
+								"minimum": "2022-06-16T17:30:20.123546Z",
+								"mode":    "2022-06-16T17:30:20.123546Z",
+							},
+						},
+					},
+					GroupedBy: &aggregation.GroupedBy{
+						Value: true,
+						Path:  []string{"isNewCustomer"},
+					},
+					Count: 4,
+				},
+			}
+
+			assert.EqualValues(t, expectedResult, res.Groups)
+		})
+	}
+}
+
+func testDateAggregationsWithoutGrouping(repo *DB, exact bool) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("without grouping", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(customerClass.Class),
+				GroupBy:   nil,
+				Properties: []aggregation.ParamProperty{
+					{
+						Name: "timeArrived",
+						Aggregators: []aggregation.Aggregator{
+							aggregation.CountAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MedianAggregator,
+							aggregation.ModeAggregator,
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			require.NotNil(t, res)
+			require.Len(t, res.Groups, 1)
+		})
+	}
+}
+
 func ptInt(in int) *int {
 	return &in
 }
@@ -1966,4 +2155,12 @@ func sectorEqualsFoodFilter() *filters.LocalFilter {
 			},
 		},
 	}
+}
+
+func mustStringToTime(s string) time.Time {
+	asTime, err := time.ParseInLocation(time.RFC3339Nano, s, time.UTC)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse time: %s, %s", s, err))
+	}
+	return asTime
 }

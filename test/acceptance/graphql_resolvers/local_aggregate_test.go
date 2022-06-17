@@ -1101,38 +1101,37 @@ func localMetaWithObjectLimit(t *testing.T) {
 			}
 		`, objectLimit))
 
-		expected := map[string]interface{}{
-			"Aggregate": map[string]interface{}{
-				"Company": []interface{}{
-					map[string]interface{}{
-						"groupedBy": map[string]interface{}{
-							"value": "Apple Incorporated",
-						},
-						"meta": map[string]interface{}{
-							"count": json.Number("1"),
-						},
-					},
-					map[string]interface{}{
-						"groupedBy": map[string]interface{}{
-							"value": "Apple Inc.",
-						},
-						"meta": map[string]interface{}{
-							"count": json.Number("1"),
-						},
-					},
-					map[string]interface{}{
-						"groupedBy": map[string]interface{}{
-							"value": "Apple",
-						},
-						"meta": map[string]interface{}{
-							"count": json.Number("1"),
-						},
-					},
+		expected := []interface{}{
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple Incorporated",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
+				},
+			},
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple Inc.",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
+				},
+			},
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
 				},
 			},
 		}
 
-		assert.EqualValues(t, expected, result.Result)
+		companies := result.Get("Aggregate", "Company").Result.([]interface{})
+		for _, company := range companies {
+			assert.Contains(t, expected, company)
+		}
 	})
 
 	t.Run("with nearObject and certainty, where filter", func(t *testing.T) {
@@ -1166,5 +1165,196 @@ func localMetaWithObjectLimit(t *testing.T) {
 			count := meta.(map[string]interface{})["count"]
 			assert.Equal(t, json.Number(fmt.Sprint(objectLimit)), count)
 		})
+	})
+}
+
+func aggregatesOnDateFields(t *testing.T) {
+	t.Run("without grouping", func(t *testing.T) {
+		query := `
+		{
+			Aggregate {
+				HasDateField {
+					timestamp {
+						count
+						minimum
+						maximum
+						median
+						mode
+					}
+				}
+			}
+		}`
+		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		assert.Len(t, result, 1)
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("10"),
+					"maximum": "2022-06-16T22:19:11.837473Z",
+					"median":  "2022-06-16T22:19:05.894857Z",
+					"minimum": "2022-06-16T22:18:59.640162Z",
+					"mode":    "2022-06-16T22:18:59.640162Z",
+				},
+			},
+		}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("with grouping on a unique field", func(t *testing.T) {
+		query := `
+		{
+			Aggregate {
+				HasDateField 
+				(
+					groupBy: "unique"
+				)
+				{
+					timestamp {
+						count
+						minimum
+						maximum
+						median
+						mode
+					}
+				}
+			}
+		}`
+
+		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		assert.Len(t, result, 10)
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:05.894857Z",
+					"median":  "2022-06-16T22:19:05.894857Z",
+					"minimum": "2022-06-16T22:19:05.894857Z",
+					"mode":    "2022-06-16T22:19:05.894857Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:08.112395Z",
+					"median":  "2022-06-16T22:19:08.112395Z",
+					"minimum": "2022-06-16T22:19:08.112395Z",
+					"mode":    "2022-06-16T22:19:08.112395Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:03.495596Z",
+					"median":  "2022-06-16T22:19:03.495596Z",
+					"minimum": "2022-06-16T22:19:03.495596Z",
+					"mode":    "2022-06-16T22:19:03.495596Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:07.589828Z",
+					"median":  "2022-06-16T22:19:07.589828Z",
+					"minimum": "2022-06-16T22:19:07.589828Z",
+					"mode":    "2022-06-16T22:19:07.589828Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:06.394958Z",
+					"median":  "2022-06-16T22:19:06.394958Z",
+					"minimum": "2022-06-16T22:19:06.394958Z",
+					"mode":    "2022-06-16T22:19:06.394958Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:11.837473Z",
+					"median":  "2022-06-16T22:19:11.837473Z",
+					"minimum": "2022-06-16T22:19:11.837473Z",
+					"mode":    "2022-06-16T22:19:11.837473Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:18:59.640162Z",
+					"median":  "2022-06-16T22:18:59.640162Z",
+					"minimum": "2022-06-16T22:18:59.640162Z",
+					"mode":    "2022-06-16T22:18:59.640162Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:01.495967Z",
+					"median":  "2022-06-16T22:19:01.495967Z",
+					"minimum": "2022-06-16T22:19:01.495967Z",
+					"mode":    "2022-06-16T22:19:01.495967Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:10.339493Z",
+					"median":  "2022-06-16T22:19:10.339493Z",
+					"minimum": "2022-06-16T22:19:10.339493Z",
+					"mode":    "2022-06-16T22:19:10.339493Z",
+				},
+			},
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("1"),
+					"maximum": "2022-06-16T22:19:04.3828349Z",
+					"median":  "2022-06-16T22:19:04.3828349Z",
+					"minimum": "2022-06-16T22:19:04.3828349Z",
+					"mode":    "2022-06-16T22:19:04.3828349Z",
+				},
+			},
+		}
+
+		for _, res := range result {
+			assert.Contains(t, expected, res)
+		}
+	})
+
+	t.Run("group on identical field", func(t *testing.T) {
+		query := `
+		{
+			Aggregate {
+				HasDateField 
+				(
+					groupBy: "identical"
+				)
+				{
+					timestamp {
+						count
+						minimum
+						maximum
+						median
+					}
+				}
+			}
+		}`
+
+		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		t.Logf("result: %+v", result)
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"timestamp": map[string]interface{}{
+					"count":   json.Number("10"),
+					"maximum": "2022-06-16T22:19:11.837473Z",
+					"median":  "2022-06-16T22:19:05.894857Z",
+					"minimum": "2022-06-16T22:18:59.640162Z",
+				},
+			},
+		}
+
+		assert.Equal(t, expected, result)
 	})
 }

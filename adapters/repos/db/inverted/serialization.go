@@ -87,7 +87,7 @@ func ParseLexicographicallySortableFloat64(in []byte) (float64, error) {
 }
 
 // LexicographicallySortableInt64 performs a conversion to a lexicographically
-// sortable byte slice. Fro this, big endian notation is required and the sign
+// sortable byte slice. For this, big endian notation is required and the sign
 // must be flipped
 func LexicographicallySortableInt64(in int64) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
