@@ -751,6 +751,316 @@ func init() {
         ]
       }
     },
+    "/objects/{className}/{id}": {
+      "get": {
+        "description": "Get a single data object",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "operationId": "objects.class.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ]
+      },
+      "put": {
+        "description": "Update an individual data object based on its class and uuid.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update a class object based on its uuid",
+        "operationId": "objects.class.put",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "delete": {
+        "description": "Delete a single data object.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete object based on its class and UUID.",
+        "operationId": "objects.class.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "head": {
+        "description": "Checks if a data object exists without retrieving it.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks object's existence based on its class and uuid.",
+        "operationId": "objects.class.head",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "operationId": "objects.class.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully applied. No content provided."
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      }
+    },
     "/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
@@ -759,6 +1069,7 @@ func init() {
         ],
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "operationId": "objects.get",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -817,6 +1128,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID.",
         "operationId": "objects.update",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -880,6 +1192,7 @@ func init() {
         ],
         "summary": "Delete an Object based on its UUID.",
         "operationId": "objects.delete",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -926,6 +1239,7 @@ func init() {
         ],
         "summary": "Checks Object's existence based on its UUID.",
         "operationId": "objects.head",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -972,6 +1286,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID (using patch semantics).",
         "operationId": "objects.patch",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3754,6 +4069,319 @@ func init() {
         ]
       }
     },
+    "/objects/{className}/{id}": {
+      "get": {
+        "description": "Get a single data object",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "operationId": "objects.class.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+            "name": "include",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ]
+      },
+      "put": {
+        "description": "Update an individual data object based on its class and uuid.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update a class object based on its uuid",
+        "operationId": "objects.class.put",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "delete": {
+        "description": "Delete a single data object.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete object based on its class and UUID.",
+        "operationId": "objects.class.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Object.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "head": {
+        "description": "Checks if a data object exists without retrieving it.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Checks object's existence based on its class and uuid.",
+        "operationId": "objects.class.head",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Object exists."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Object doesn't exist."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "objects"
+        ],
+        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "operationId": "objects.class.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The uuid of the data object to update.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "RFC 7396-style patch, the body contains the object to merge into the existing object.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully applied. No content provided."
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      }
+    },
     "/objects/{id}": {
       "get": {
         "description": "Lists Objects.",
@@ -3762,6 +4390,7 @@ func init() {
         ],
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "operationId": "objects.get",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3823,6 +4452,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID.",
         "operationId": "objects.update",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3886,6 +4516,7 @@ func init() {
         ],
         "summary": "Delete an Object based on its UUID.",
         "operationId": "objects.delete",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3932,6 +4563,7 @@ func init() {
         ],
         "summary": "Checks Object's existence based on its UUID.",
         "operationId": "objects.head",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",
@@ -3978,6 +4610,7 @@ func init() {
         ],
         "summary": "Update an Object based on its UUID (using patch semantics).",
         "operationId": "objects.patch",
+        "deprecated": true,
         "parameters": [
           {
             "type": "string",

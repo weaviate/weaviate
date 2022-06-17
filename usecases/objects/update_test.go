@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -96,7 +97,7 @@ func Test_UpdateAction(t *testing.T) {
 			ID:         id,
 			Properties: map[string]interface{}{"foo": "baz"},
 		}
-		res, err := manager.UpdateObject(context.Background(), &models.Principal{}, id, payload)
+		res, err := manager.UpdateObject(context.Background(), &models.Principal{}, "", id, payload)
 		require.Nil(t, err)
 		expected := &models.Object{
 			Class:            "ActionClass",
@@ -114,4 +115,70 @@ func Test_UpdateAction(t *testing.T) {
 		assert.GreaterOrEqual(t, res.LastUpdateTimeUnix, beforeUpdate)
 		assert.LessOrEqual(t, res.LastUpdateTimeUnix, afterUpdate)
 	})
+}
+
+func Test_UpdateObject(t *testing.T) {
+	var (
+		cls          = "MyClass"
+		id           = strfmt.UUID("34e9df15-0c3b-468d-ab99-f929662834c7")
+		beforeUpdate = (time.Now().UnixNano() - 2*int64(time.Millisecond)) / int64(time.Millisecond)
+		vec          = []float32{0, 1, 2}
+		anyErr       = errors.New("any error")
+	)
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             cls,
+					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					Properties: []*models.Property{
+						{
+							DataType: []string{"string"},
+							Name:     "foo",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	m := newFakeGetManager(schema)
+	payload := &models.Object{
+		Class:      cls,
+		ID:         id,
+		Properties: map[string]interface{}{"foo": "baz"},
+	}
+	// the object might not exist
+	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(nil, anyErr).Once()
+	_, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload)
+	if err == nil {
+		t.Fatalf("must return an error if object() fails")
+	}
+
+	result := &search.Result{
+		ID:        id,
+		ClassName: cls,
+		Schema:    map[string]interface{}{"foo": "bar"},
+		Created:   beforeUpdate,
+		Updated:   beforeUpdate,
+	}
+	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(result, nil).Once()
+	m.vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil).Once()
+	m.repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+
+	expected := &models.Object{
+		Class:            cls,
+		ID:               id,
+		Properties:       map[string]interface{}{"foo": "baz"},
+		CreationTimeUnix: beforeUpdate,
+		Vector:           vec,
+	}
+	res, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload)
+	require.Nil(t, err)
+	if res.LastUpdateTimeUnix <= beforeUpdate {
+		t.Error("time after update must be greather than time before update ")
+	}
+	res.LastUpdateTimeUnix = 0 // to allow for equality
+	assert.Equal(t, expected, res)
 }
