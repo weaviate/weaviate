@@ -20,10 +20,11 @@ import (
 )
 
 type Metrics struct {
-	logger     logrus.FieldLogger
-	monitoring bool
-	batchTime  prometheus.ObserverVec
-	objectTime prometheus.ObserverVec
+	logger           logrus.FieldLogger
+	monitoring       bool
+	batchTime        prometheus.ObserverVec
+	objectTime       prometheus.ObserverVec
+	startupDurations prometheus.ObserverVec
 }
 
 func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
@@ -32,17 +33,23 @@ func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 		logger: logger,
 	}
 
-	if prom != nil {
-		m.monitoring = true
-		m.batchTime = prom.BatchTime.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		})
-		m.objectTime = prom.ObjectsTime.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		})
+	if prom == nil {
+		return m
 	}
+
+	m.monitoring = true
+	m.batchTime = prom.BatchTime.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+	m.objectTime = prom.ObjectsTime.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+	m.startupDurations = prom.StartupDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
 
 	return m
 }
@@ -183,5 +190,16 @@ func (m *Metrics) InvertedExtend(start time.Time, propCount int) {
 	m.objectTime.With(prometheus.Labels{
 		"operation": "put",
 		"step":      "inverted_extend",
+	}).Observe(float64(took) / float64(time.Millisecond))
+}
+
+func (m *Metrics) ShardStartup(start time.Time) {
+	if !m.monitoring {
+		return
+	}
+
+	took := time.Since(start)
+	m.startupDurations.With(prometheus.Labels{
+		"operation": "shard_total_init",
 	}).Observe(float64(took) / float64(time.Millisecond))
 }
