@@ -90,23 +90,24 @@ func (s *Store) bucketDir(bucketName string) string {
 
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption) error {
-	s.bucketAccessLock.RLock()
-	if _, ok := s.bucketsByName[bucketName]; ok {
-		s.bucketAccessLock.RUnlock()
+	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
-	s.bucketAccessLock.RUnlock()
 
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, s.metrics, opts...)
 	if err != nil {
 		return err
 	}
 
-	s.bucketAccessLock.Lock()
-	s.bucketsByName[bucketName] = b
-	s.bucketAccessLock.Unlock()
-
+	s.setBucket(bucketName, b)
 	return nil
+}
+
+func (s *Store) setBucket(name string, b *Bucket) {
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	s.bucketsByName[name] = b
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
