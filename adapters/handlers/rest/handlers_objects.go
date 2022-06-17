@@ -246,7 +246,7 @@ func (h *objectHandlers) headObject(r objects.ObjectsClassHeadParams,
 	ok, err := h.manager.HeadObject(r.HTTPRequest.Context(), principal, r.ClassName, r.ID)
 	if err != nil {
 		switch {
-		case ok && err.Forbidden():
+		case err.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
