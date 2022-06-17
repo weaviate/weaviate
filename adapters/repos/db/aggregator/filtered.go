@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
@@ -116,34 +117,52 @@ func (fa *filteredAggregator) analyzeObject(ctx context.Context,
 			continue
 		}
 
-		fa.addPropValue(prop, value)
+		if err := fa.addPropValue(prop, value); err != nil {
+			return fmt.Errorf("failed to add prop value: %s", err)
+		}
 	}
 
 	return nil
 }
 
-func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) {
+func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) error {
 	switch prop.aggType {
 	case aggregation.PropertyTypeBoolean:
 		asBool, ok := value.(bool)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type boolean, received %T", value)
 		}
-		prop.boolAgg.AddBool(asBool)
+		if err := prop.boolAgg.AddBool(asBool); err != nil {
+			return err
+		}
 	case aggregation.PropertyTypeNumerical:
 		asFloat, ok := value.(float64)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type float64, received %T", value)
 		}
-		prop.numericalAgg.AddFloat64(asFloat)
+		if err := prop.numericalAgg.AddFloat64(asFloat); err != nil {
+			return err
+		}
 	case aggregation.PropertyTypeText:
 		asString, ok := value.(string)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type string, received %T", value)
 		}
-		prop.textAgg.AddText(asString)
+		if err := prop.textAgg.AddText(asString); err != nil {
+			return err
+		}
+	case aggregation.PropertyTypeDate:
+		asString, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("expected property type date, received %T", value)
+		}
+		if err := prop.dateAgg.AddTimestamp(asString); err != nil {
+			return err
+		}
 	default:
 	}
+
+	return nil
 }
 
 // a helper type to select the right aggregator for a prop
@@ -159,10 +178,10 @@ type propAgg struct {
 	// use aggType to chose with agg to use
 	aggType aggregation.PropertyType
 
-	// only one of the following three would ever best
 	boolAgg      *boolAggregator
 	textAgg      *textAggregator
 	numericalAgg *numericalAggregator
+	dateAgg      *dateAggregator
 }
 
 // propAggs groups propAgg helpers by prop name
@@ -177,6 +196,8 @@ func (pa *propAgg) initAggregator() {
 		pa.boolAgg = newBoolAggregator()
 	case aggregation.PropertyTypeNumerical:
 		pa.numericalAgg = newNumericalAggregator()
+	case aggregation.PropertyTypeDate:
+		pa.dateAgg = newDateAggregator()
 	default:
 	}
 }
@@ -204,6 +225,11 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 				prop.numericalAgg)
 			out[prop.name.String()] = aggProp
 
+		case aggregation.PropertyTypeDate:
+			prop.dateAgg.buildPairsFromCounts()
+			addDateAggregations(&aggProp, prop.specifiedAggregators,
+				prop.dateAgg)
+			out[prop.name.String()] = aggProp
 		default:
 		}
 	}

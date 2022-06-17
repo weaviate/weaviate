@@ -87,12 +87,16 @@ func (a *Aggregator) aggTypeOfProperty(
 
 	dt := schema.DataType(schemaProp.DataType[0])
 	switch dt {
-	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeIntArray, schema.DataTypeNumberArray:
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeIntArray,
+		schema.DataTypeNumberArray:
 		return aggregation.PropertyTypeNumerical, dt, nil
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
 		return aggregation.PropertyTypeBoolean, dt, nil
-	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray, schema.DataTypeStringArray:
+	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray,
+		schema.DataTypeStringArray:
 		return aggregation.PropertyTypeText, dt, nil
+	case schema.DataTypeDate:
+		return aggregation.PropertyTypeDate, dt, nil
 	case schema.DataTypeGeoCoordinates:
 		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")
 	case schema.DataTypePhoneNumber:
