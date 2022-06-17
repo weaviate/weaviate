@@ -25,6 +25,7 @@ import (
 
 // executed in setup_test.go
 func addingObjects(t *testing.T) {
+	class := "TestObject"
 	t.Run("can create object", func(t *testing.T) {
 		// Set all object values to compare
 		objectTestString := "Test string"
@@ -35,7 +36,7 @@ func addingObjects(t *testing.T) {
 
 		params := objects.NewObjectsCreateParams().WithBody(
 			&models.Object{
-				Class: "TestObject",
+				Class: class,
 				Properties: map[string]interface{}{
 					"testString":      objectTestString,
 					"testWholeNumber": objectTestInt,
@@ -76,14 +77,14 @@ func addingObjects(t *testing.T) {
 		objectTestNumber := 1.337
 		objectTestDate := "2017-10-06T08:15:30+01:00"
 
-		objectID := assertCreateObject(t, "TestObject", map[string]interface{}{
+		objectID := assertCreateObject(t, class, map[string]interface{}{
 			"testString":      objectTestString,
 			"testWholeNumber": objectTestInt,
 			"testTrueFalse":   objectTestBoolean,
 			"testNumber":      objectTestNumber,
 			"testDateTime":    objectTestDate,
 		})
-		assertGetObjectEventually(t, objectID)
+		assertGetObjectEventually(t, class, objectID)
 
 		// Now fetch the object
 		getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(objectID), nil)
@@ -110,8 +111,8 @@ func addingObjects(t *testing.T) {
 
 	t.Run("can add single ref", func(t *testing.T) {
 		fmt.Println("before first")
-		firstID := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, firstID)
+		firstID := assertCreateObject(t, class, map[string]interface{}{})
+		assertGetObjectEventually(t, class, firstID)
 
 		secondID := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testString": "stringy",
@@ -122,7 +123,7 @@ func addingObjects(t *testing.T) {
 			},
 		})
 
-		secondObject := assertGetObjectEventually(t, secondID)
+		secondObject := assertGetObjectEventually(t, "TestObjectTwo", secondID)
 
 		singleRef := secondObject.Properties.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/%s", firstID))

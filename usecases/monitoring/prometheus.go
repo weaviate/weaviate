@@ -18,12 +18,24 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
+	ObjectsTime                        *prometheus.HistogramVec
+	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
 	LSMSegmentCount                    *prometheus.GaugeVec
+	LSMSegmentCountByLevel             *prometheus.GaugeVec
+	LSMSegmentObjects                  *prometheus.GaugeVec
+	LSMSegmentSize                     *prometheus.GaugeVec
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
+	VectorIndexDurations               *prometheus.HistogramVec
+	VectorIndexSize                    *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
+
+	StartupProgress  *prometheus.GaugeVec
+	StartupDurations *prometheus.HistogramVec
+	StartupDiskIO    *prometheus.HistogramVec
 }
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
@@ -34,6 +46,12 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
 
+		ObjectsTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "objects_durations_ms",
+			Help:    "Duration of an individual object operation. Also as part of batches.",
+			Buckets: prometheus.ExponentialBuckets(10, 1.25, 25),
+		}, []string{"operation", "step", "class_name", "shard_name"}),
+
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "async_operations_running",
 			Help: "Number of currently ongoing async operations",
@@ -41,8 +59,25 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
-			Help: "Number of currently ongoing async operations",
+			Help: "Number of currently present segments per shard",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMBloomFilters: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "lsm_bloom_filters_duration_ms",
+			Help:    "Duration of bloom filter operations",
+			Buckets: prometheus.ExponentialBuckets(0.001, 1.25, 60),
+		}, []string{"operation", "strategy", "class_name", "shard_name"}),
+		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_objects",
+			Help: "Number of objects/entries of segment by level",
+		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
+		LSMSegmentSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_size",
+			Help: "Size of segment by level and unit",
+		}, []string{"strategy", "class_name", "shard_name", "path", "level", "unit"}),
+		LSMSegmentCountByLevel: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_count",
+			Help: "Number of segments by level",
+		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
@@ -59,6 +94,35 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 		VectorIndexOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_size",
+			Help: "The size of the vector index. Typically larger than number of vectors, as it grows proactively.",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexMaintenanceDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_maintenance_durations_ms",
+			Help:    "Duration of a sync or async vector index maintenance operation",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vector_index_durations_ms",
+			Help:    "Duration of typical vector index operations (insert, delete)",
+			Buckets: prometheus.ExponentialBuckets(0.1, 1.5, 30),
+		}, []string{"operation", "step", "class_name", "shard_name"}),
+
+		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "startup_progress",
+			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
+		}, []string{"operation", "class_name", "shard_name"}),
+		StartupDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "startup_durations_ms",
+			Help:    "Duration of inidividual startup operations in ms",
+			Buckets: prometheus.ExponentialBuckets(100, 1.25, 40),
+		}, []string{"operation", "class_name", "shard_name"}),
+		StartupDiskIO: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "startup_diskio_throughput",
+			Help:    "Disk I/O throuhput in bytes per second",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
 	}
 }

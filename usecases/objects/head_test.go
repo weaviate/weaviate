@@ -17,68 +17,74 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 func Test_HeadObject(t *testing.T) {
+	t.Parallel()
 	var (
-		manager    *Manager
-		vectorRepo *fakeVectorRepo
+		cls    = "MyClass"
+		id     = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+		m      = newFakeGetManager(schema.Schema{})
+		errAny = errors.New("any")
 	)
 
-	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
-		schemaManager := &fakeSchemaManager{}
-		locks := &fakeLocks{}
-		cfg := &config.WeaviateConfig{}
-		authorizer := &fakeAuthorizer{}
-		logger, _ := test.NewNullLogger()
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			vectorRepo, getFakeModulesProvider())
+	tests := []struct {
+		class     string
+		mockedOk  bool
+		mockedErr error
+		authErr   error
+		lockErr   error
+		wantOK    bool
+		wantCode  int
+	}{
+		{
+			mockedOk: true,
+			wantOK:   true,
+		},
+		{
+			class:    cls,
+			mockedOk: true,
+			wantOK:   true,
+		},
+		{
+			class:    cls,
+			mockedOk: false,
+			wantOK:   false,
+		},
+		{
+			class:     cls,
+			mockedOk:  false,
+			mockedErr: errAny,
+			wantOK:    false,
+			wantCode:  StatusInternalServerError,
+		},
+		{
+			class:    cls,
+			authErr:  errAny,
+			wantOK:   false,
+			wantCode: StatusForbidden,
+		},
+		{
+			class:    cls,
+			lockErr:  errAny,
+			wantOK:   false,
+			wantCode: StatusInternalServerError,
+		},
 	}
-
-	reset()
-
-	t.Run("object exists", func(t *testing.T) {
-		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
-		vectorRepo.On("Exists", id).Return(true, nil).Once()
-
-		exists, err := manager.HeadObject(context.Background(), nil, id)
-
-		assert.Nil(t, err)
-		assert.True(t, exists)
-
-		vectorRepo.AssertExpectations(t)
-	})
-
-	t.Run("object doesn't exist", func(t *testing.T) {
-		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31ee")
-		vectorRepo.On("Exists", id).Return(false, nil).Once()
-
-		exists, err := manager.HeadObject(context.Background(), nil, id)
-
-		assert.Nil(t, err)
-		assert.False(t, exists)
-
-		vectorRepo.AssertExpectations(t)
-	})
-
-	t.Run("should throw an error", func(t *testing.T) {
-		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31dd")
-		throwErr := errors.New("something went wrong")
-		vectorRepo.On("Exists", id).Return(false, throwErr).Once()
-
-		exists, err := manager.HeadObject(context.Background(), nil, id)
-
-		require.NotNil(t, err)
-		assert.EqualError(t, err, "could not check object's existence: something went wrong")
-		assert.False(t, exists)
-
-		vectorRepo.AssertExpectations(t)
-	})
+	for i, tc := range tests {
+		m.authorizer.Err = tc.authErr
+		m.locks.Err = tc.lockErr
+		if tc.authErr == nil && tc.lockErr == nil {
+			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()
+		}
+		ok, err := m.Manager.HeadObject(context.Background(), nil, tc.class, id)
+		code := 0
+		if err != nil {
+			code = err.Code
+		}
+		if tc.wantOK != ok || tc.wantCode != code {
+			t.Errorf("case %d expected:(%v, %v) got:(%v, %v)", i+1, tc.wantOK, tc.wantCode, ok, code)
+		}
+	}
 }

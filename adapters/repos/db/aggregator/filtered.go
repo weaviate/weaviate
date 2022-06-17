@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
@@ -61,7 +62,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 			return nil, err
 		}
 	} else {
-		foundIDs = flattenAllowList(allowList)
+		foundIDs = allowList.Slice()
 	}
 
 	if fa.params.IncludeMetaCount {
@@ -76,53 +77,6 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups[0].Properties = props
 
 	return &out, nil
-}
-
-func (fa *filteredAggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err error) {
-	if fa.params.ObjectLimit != nil {
-		ids, err = fa.searchByVector(fa.params.SearchVector, fa.params.ObjectLimit, allow)
-		return
-	}
-
-	ids, err = fa.searchByVectorDistance(fa.params.SearchVector, allow)
-	return
-}
-
-func (fa *filteredAggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, error) {
-	idsFound, dists, err := fa.vectorIndex.SearchByVector(searchVector, *limit, ids)
-	if err != nil {
-		return idsFound, err
-	}
-
-	if fa.params.Certainty > 0 {
-		targetDist := float32(1-fa.params.Certainty) * 2
-
-		i := 0
-		for _, dist := range dists {
-			if dist > targetDist {
-				break
-			}
-			i++
-		}
-
-		return idsFound[:i], nil
-
-	}
-	return idsFound, nil
-}
-
-func (fa *filteredAggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, error) {
-	if fa.params.Certainty <= 0 {
-		return nil, errors.New("must provide certainty or objectLimit with vector search")
-	}
-
-	targetDist := float32(1-fa.params.Certainty) * 2
-	idsFound, _, err := fa.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
-	if err != nil {
-		return nil, errors.Wrap(err, "aggregate search by vector")
-	}
-
-	return idsFound, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
@@ -163,37 +117,55 @@ func (fa *filteredAggregator) analyzeObject(ctx context.Context,
 			continue
 		}
 
-		fa.addPropValue(prop, value)
+		if err := fa.addPropValue(prop, value); err != nil {
+			return fmt.Errorf("failed to add prop value: %s", err)
+		}
 	}
 
 	return nil
 }
 
-func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) {
+func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) error {
 	switch prop.aggType {
 	case aggregation.PropertyTypeBoolean:
 		asBool, ok := value.(bool)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type boolean, received %T", value)
 		}
-		prop.boolAgg.AddBool(asBool)
+		if err := prop.boolAgg.AddBool(asBool); err != nil {
+			return err
+		}
 	case aggregation.PropertyTypeNumerical:
 		asFloat, ok := value.(float64)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type float64, received %T", value)
 		}
-		prop.numericalAgg.AddFloat64(asFloat)
+		if err := prop.numericalAgg.AddFloat64(asFloat); err != nil {
+			return err
+		}
 	case aggregation.PropertyTypeText:
 		asString, ok := value.(string)
 		if !ok {
-			return
+			return fmt.Errorf("expected property type string, received %T", value)
 		}
-		prop.textAgg.AddText(asString)
+		if err := prop.textAgg.AddText(asString); err != nil {
+			return err
+		}
+	case aggregation.PropertyTypeDate:
+		asString, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("expected property type date, received %T", value)
+		}
+		if err := prop.dateAgg.AddTimestamp(asString); err != nil {
+			return err
+		}
 	default:
 	}
+
+	return nil
 }
 
-// a helper type to select the right aggreagtor for a prop
+// a helper type to select the right aggregator for a prop
 type propAgg struct {
 	name schema.PropertyName
 
@@ -206,10 +178,10 @@ type propAgg struct {
 	// use aggType to chose with agg to use
 	aggType aggregation.PropertyType
 
-	// only one of the following three would ever best
 	boolAgg      *boolAggregator
 	textAgg      *textAggregator
 	numericalAgg *numericalAggregator
+	dateAgg      *dateAggregator
 }
 
 // propAggs groups propAgg helpers by prop name
@@ -224,6 +196,8 @@ func (pa *propAgg) initAggregator() {
 		pa.boolAgg = newBoolAggregator()
 	case aggregation.PropertyTypeNumerical:
 		pa.numericalAgg = newNumericalAggregator()
+	case aggregation.PropertyTypeDate:
+		pa.dateAgg = newDateAggregator()
 	default:
 	}
 }
@@ -251,6 +225,11 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 				prop.numericalAgg)
 			out[prop.name.String()] = aggProp
 
+		case aggregation.PropertyTypeDate:
+			prop.dateAgg.buildPairsFromCounts()
+			addDateAggregations(&aggProp, prop.specifiedAggregators,
+				prop.dateAgg)
+			out[prop.name.String()] = aggProp
 		default:
 		}
 	}
@@ -279,15 +258,4 @@ func (fa *filteredAggregator) prepareAggregatorsForProps() (propAggs, error) {
 	}
 
 	return out, nil
-}
-
-func flattenAllowList(list helpers.AllowList) []uint64 {
-	out := make([]uint64, len(list))
-	i := 0
-	for id := range list {
-		out[i] = id
-		i++
-	}
-
-	return out
 }

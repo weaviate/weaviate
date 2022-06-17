@@ -1,0 +1,553 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Replace is used primarly for object storage, but also for inverted index hash buckets.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"replace\"})",
+          "legendFormat": "Level {{level}} / {{unit}} ",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "LSM Strategy Replace by Level (Object Storage)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "SetCollections are used in the inverted index for anything that does not have a frequency, e.g. numbers, bools, etc.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"setcollection\"})",
+          "legendFormat": "Level {{level}} / {{unit}} ",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "LSM Strategy SetCollection by Level (Inverted without frequency)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "MapCollections are used in the inverted index for anything that has a frequency, which is mainly text and string props. Those need a frequency for BM25 calculations.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"mapcollection\"})",
+          "legendFormat": "Level {{level}} / {{unit}} ",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "LSM Strategy MapCollection by Level (Inverted with frequency)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "The bloom filters are designed to quickly produce true negatives, but sometimes they have false positive which require an actual disk lookup.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(lsm_bloom_filters_duration_ms_sum{strategy=\"replace\"}[5s])/rate(lsm_bloom_filters_duration_ms_count{strategy=\"replace\"}[5s])",
+          "legendFormat": "{{operation}} ({{class_name}}/{{shard_name}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Bloom Filter Hits and Misses Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Ratio of false-positive to all requests to the bloom filter, i.e. those that required an unnecessary disk lookup.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 3,
+        "x": 8,
+        "y": 10
+      },
+      "id": 4,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"})/(sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_negative\"})+sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_positive\"})+sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Bloom Filter False Positive Ratio",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 11,
+        "y": 10
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_positive\"})",
+          "legendFormat": "True Positives",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_negative\"})",
+          "hide": false,
+          "legendFormat": "True Negatives",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"})",
+          "hide": false,
+          "legendFormat": "False Positives",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Bloom Filter Access",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "The grouping is done by strategy which means the reported Object storage value is slightly too high, as all inverted index hash buckets are also of type replace.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "id": 12,
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(lsm_segment_size{strategy=\"replace\"})",
+          "legendFormat": "Object Storage",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(lsm_segment_size{strategy=\"mapcollection\"}) + ignoring(strategy) sum(lsm_segment_size{strategy=\"setcollection\"})",
+          "hide": false,
+          "legendFormat": "Inverted Index",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Estimated Sizes LSM stores",
+      "type": "bargauge"
+    }
+  ],
+  "refresh": false,
+  "schemaVersion": 34,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "LSM Store",
+  "uid": "hPd0sernz",
+  "version": 1,
+  "weekStart": ""
+}

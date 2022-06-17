@@ -45,11 +45,11 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 	return nil
 }
 
-func (d *DB) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID) error {
-	idx := d.GetIndex(schema.ClassName(className))
+// DeleteObject from of a specific class giving its ID
+func (d *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID) error {
+	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
-		return fmt.Errorf("delete from non-existing index for %s", className)
+		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
 	err := idx.deleteObject(ctx, id)
@@ -100,6 +100,8 @@ func (d *DB) MultiGet(ctx context.Context,
 }
 
 // ObjectByID checks every index of the particular kind for the ID
+//
+// @warning: this function is deprecated by Object()
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties) (*search.Result, error) {
@@ -125,6 +127,29 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	return d.enrichRefsForSingle(ctx, result, props, additional)
 }
 
+// Object gets object with id from index of specified class.
+func (d *DB) Object(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	adds additional.Properties) (*search.Result, error) {
+	idx := d.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return nil, nil
+	}
+
+	obj, err := idx.objectByID(ctx, id, props, adds)
+	if err != nil {
+		return nil, errors.Wrapf(err, "search index %s", idx.ID())
+	}
+	var r *search.Result
+	if obj != nil {
+		r = obj.SearchResult(adds)
+	}
+	if r == nil {
+		return nil, nil
+	}
+	return d.enrichRefsForSingle(ctx, r, props, adds)
+}
+
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
@@ -136,7 +161,18 @@ func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	return &res[0], nil
 }
 
-func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (d *DB) Exists(ctx context.Context, class string, id strfmt.UUID) (bool, error) {
+	if class == "" {
+		return d.anyExists(ctx, id)
+	}
+	index := d.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return false, nil
+	}
+	return index.exists(ctx, id)
+}
+
+func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {

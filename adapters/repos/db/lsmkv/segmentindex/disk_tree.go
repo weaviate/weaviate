@@ -187,3 +187,7 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 
 	return out, nil
 }
+
+func (t *DiskTree) Size() int {
+	return len(t.data)
+}

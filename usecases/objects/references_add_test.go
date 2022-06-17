@@ -53,7 +53,7 @@ func Test_ReferencesAdd(t *testing.T) {
 
 	t.Run("without prior refs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("Exists", mock.Anything).Return(true, nil)
+		vectorRepo.On("Exists", "", mock.Anything).Return(true, nil)
 		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "Zoo",
 			Schema: map[string]interface{}{

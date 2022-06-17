@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -25,6 +26,9 @@ import (
 func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
+
+	before := time.Now()
+	defer h.metrics.TrackDelete(before, "total")
 
 	h.metrics.DeleteVector()
 	if err := h.addTombstone(id); err != nil {
@@ -50,6 +54,9 @@ func (h *hnsw) Delete(id uint64) error {
 	}
 
 	if h.getEntrypoint() == id {
+		beforeDeleteEP := time.Now()
+		defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
+
 		denyList := h.tombstonesAsDenyList()
 		if h.isOnlyNode(node, denyList) {
 			if err := h.reset(); err != nil {
@@ -114,8 +121,8 @@ func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
 	return deleteList
 }
 
-// CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
-// that were previously pointing to the tombstoned nodes
+// CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
+// edges that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes() error {
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
@@ -134,7 +141,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			// this a special case because:
 			//
 			// 1. we need to find a new entrypoint, if this is the last point on this
-			// level, we need to find an entyrpoint on a lower level
+			// level, we need to find an entrypoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
 			// this case we must reset the graph
 			h.Lock()

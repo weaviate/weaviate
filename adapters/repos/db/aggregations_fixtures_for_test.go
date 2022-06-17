@@ -87,6 +87,26 @@ var arrayTypesClass = &models.Class{
 	},
 }
 
+var customerClass = &models.Class{
+	Class:               "AggregationsTestCustomer",
+	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
+	Properties: []*models.Property{
+		{
+			Name:     "internalId",
+			DataType: []string{"string"},
+		},
+		{
+			Name:     "timeArrived",
+			DataType: []string{"date"},
+		},
+		{
+			Name:     "countryOfOrigin",
+			DataType: []string{"string"},
+		},
+	},
+}
+
 var products = []map[string]interface{}{
 	{
 		"name": "Superbread",
@@ -173,7 +193,7 @@ var companies = []map[string]interface{}{
 }
 
 // Use fixed ids to make the test deterministic. The length of this must match
-// the len(companies)*importFactor These are somewhwat carefully arranged to
+// the len(companies)*importFactor These are somewhat carefully arranged to
 // make sure that we prevent the flakiness that was described in
 // https://github.com/semi-technologies/weaviate/issues/1884
 var companyIDs = []strfmt.UUID{
@@ -277,5 +297,68 @@ var arrayTypes = []map[string]interface{}{
 	{
 		"strings": []string{"a"},
 		"numbers": []float64{1.0, 2.0},
+	},
+}
+
+var customers = []map[string]interface{}{
+	{
+		"internalId":      "customer 1",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:17.231346Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 2",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:17.231346Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 3",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:17.231346Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 4",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:20.123546Z"),
+		"isNewCustomer":   true,
+	},
+	{
+		"internalId":      "customer 5",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:20.123546Z"),
+		"isNewCustomer":   true,
+	},
+	{
+		"internalId":      "customer 6",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:22.112435Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 7",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:23.754272Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 8",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:24.325698Z"),
+		"isNewCustomer":   true,
+	},
+	{
+		"internalId":      "customer 9",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:25.524536Z"),
+		"isNewCustomer":   false,
+	},
+	{
+		"internalId":      "customer 10",
+		"countryOfOrigin": "US",
+		"timeArrived":     mustStringToTime("2022-06-16T17:30:26.451235Z"),
+		"isNewCustomer":   true,
 	},
 }

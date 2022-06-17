@@ -17,11 +17,15 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 )
 
 func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
+	beforeAll := time.Now()
+	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
+
 	// the context is only ever checked once at the beginning, as there is no
 	// point in aborting an ongoing recovery. It makes more sense to let it
 	// complete and have the next recovery (this is called once per bucket) run
@@ -95,7 +99,7 @@ func (b *Bucket) parseWALIntoMemtable(fname string) error {
 	b.active.commitlog.pause()
 	defer b.active.commitlog.unpause()
 
-	err := newCommitLoggerParser(fname, b.active, b.strategy).Do()
+	err := newCommitLoggerParser(fname, b.active, b.strategy, b.metrics).Do()
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		// we need to check for both EOF or UnexpectedEOF, as we don't know where
 		// the commit log got corrupted, a field ending that weset a longer

@@ -1,0 +1,322 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "Operations typically happen highly concurrently, so the per object time is often close to the overall batch time. Use this data to draw conclusions about relative changes over time, not for interpreting absolute values.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(objects_durations_ms_sum{operation=\"put\"}[5s])/rate(objects_durations_ms_count{operation=\"put\"}[5s])",
+          "legendFormat": "{{step}} ({{class_name}}/{{shard_name}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "PUT (individual operations)",
+      "type": "timeseries"
+    },
+    {
+      "cards": {},
+      "color": {
+        "cardColor": "#b4ff00",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateGreens",
+        "exponent": 0.5,
+        "mode": "spectrum"
+      },
+      "dataFormat": "tsbuckets",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 4,
+      "legend": {
+        "show": false
+      },
+      "maxDataPoints": 25,
+      "reverseYBuckets": false,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(increase(objects_durations_ms_bucket{step=\"total\"}[$__interval])) by (le)",
+          "format": "heatmap",
+          "interval": "",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PUT Object (Total)",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "yAxis": {
+        "decimals": 2,
+        "format": "ms",
+        "logBase": 1,
+        "show": true
+      },
+      "yBucketBound": "auto"
+    },
+    {
+      "cards": {},
+      "color": {
+        "cardColor": "#b4ff00",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateBlues",
+        "exponent": 0.5,
+        "mode": "spectrum"
+      },
+      "dataFormat": "tsbuckets",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 5,
+      "legend": {
+        "show": false
+      },
+      "maxDataPoints": 25,
+      "reverseYBuckets": false,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(increase(objects_durations_ms_bucket{step=\"upsert_object_store\"}[$__interval])) by (le)",
+          "format": "heatmap",
+          "interval": "",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PUT Object (Upsert Object)",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "yAxis": {
+        "decimals": 2,
+        "format": "ms",
+        "logBase": 1,
+        "show": true
+      },
+      "yBucketBound": "auto"
+    },
+    {
+      "cards": {},
+      "color": {
+        "cardColor": "#b4ff00",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateOranges",
+        "exponent": 0.5,
+        "mode": "spectrum"
+      },
+      "dataFormat": "tsbuckets",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 6,
+      "legend": {
+        "show": false
+      },
+      "maxDataPoints": 25,
+      "reverseYBuckets": false,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(increase(objects_durations_ms_bucket{step=\"inverted_total\"}[$__interval])) by (le)",
+          "format": "heatmap",
+          "interval": "",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PUT Object (Inverted Index)",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "yAxis": {
+        "decimals": 2,
+        "format": "ms",
+        "logBase": 1,
+        "show": true
+      },
+      "yBucketBound": "auto"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 34,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Object Operations",
+  "uid": "X48CZzj7k",
+  "version": 1,
+  "weekStart": ""
+}

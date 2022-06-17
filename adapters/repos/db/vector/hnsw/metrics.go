@@ -12,17 +12,26 @@
 package hnsw
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 type Metrics struct {
-	enabled    bool
-	tombstones prometheus.Gauge
-	threads    prometheus.Gauge
-	insert     prometheus.Gauge
-	delete     prometheus.Gauge
-	cleaned    prometheus.Counter
+	enabled          bool
+	tombstones       prometheus.Gauge
+	threads          prometheus.Gauge
+	insert           prometheus.Gauge
+	insertTime       prometheus.ObserverVec
+	delete           prometheus.Gauge
+	deleteTime       prometheus.ObserverVec
+	cleaned          prometheus.Counter
+	size             prometheus.Gauge
+	grow             prometheus.Observer
+	startupProgress  prometheus.Gauge
+	startupDurations prometheus.ObserverVec
+	startupDiskIO    prometheus.ObserverVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -52,19 +61,65 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
+	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
 	del := prom.VectorIndexOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
 	})
 
+	deleteTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
+	size := prom.VectorIndexSize.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	grow := prom.VectorIndexMaintenanceDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "grow",
+	})
+
+	startupProgress := prom.StartupProgress.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "hnsw_read_commitlogs",
+	})
+
+	startupDurations := prom.StartupDurations.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	startupDiskIO := prom.StartupDiskIO.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	return &Metrics{
-		enabled:    true,
-		tombstones: tombstones,
-		threads:    threads,
-		cleaned:    cleaned,
-		insert:     insert,
-		delete:     del,
+		enabled:          true,
+		tombstones:       tombstones,
+		threads:          threads,
+		cleaned:          cleaned,
+		insert:           insert,
+		insertTime:       insertTime,
+		delete:           del,
+		deleteTime:       deleteTime,
+		size:             size,
+		grow:             grow,
+		startupProgress:  startupProgress,
+		startupDurations: startupDurations,
+		startupDiskIO:    startupDiskIO,
 	}
 }
 
@@ -122,4 +177,75 @@ func (m *Metrics) DeleteVector() {
 	}
 
 	m.delete.Inc()
+}
+
+func (m *Metrics) SetSize(size int) {
+	if !m.enabled {
+		return
+	}
+
+	m.size.Set(float64(size))
+}
+
+func (m *Metrics) GrowDuration(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.grow.Observe(took)
+}
+
+func (m *Metrics) TrackInsert(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.insertTime.With(prometheus.Labels{"step": step}).Observe(took)
+}
+
+func (m *Metrics) TrackDelete(start time.Time, step string) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
+}
+
+func (m *Metrics) StartupProgress(ratio float64) {
+	if !m.enabled {
+		return
+	}
+
+	m.startupProgress.Set(ratio)
+}
+
+func (m *Metrics) TrackStartupTotal(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_all_commitlogs"}).Observe(took)
+}
+
+func (m *Metrics) TrackStartupIndividual(start time.Time) {
+	if !m.enabled {
+		return
+	}
+
+	took := float64(time.Since(start)) / float64(time.Millisecond)
+	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_single_commitlog"}).Observe(took)
+}
+
+func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64) {
+	if !m.enabled {
+		return
+	}
+
+	seconds := float64(nanoseconds) / float64(time.Second)
+	throughput := float64(read) / float64(seconds)
+	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
 }

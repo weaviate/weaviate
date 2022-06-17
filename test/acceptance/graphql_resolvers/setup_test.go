@@ -38,6 +38,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (array class)", addTestDataArrayClasses)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
+	t.Run("import test data (date field class)", addDateFieldClass)
 
 	// get tests
 	t.Run("getting objects", gettingObjects)
@@ -61,6 +62,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where and nearVector nearMedia", localMetaWithWhereAndNearVectorFilters)
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
+	t.Run("aggregates on date fields", aggregatesOnDateFields)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
@@ -73,6 +75,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "ArrayClass")
 	deleteObjectClass(t, "RansomNote")
 	deleteObjectClass(t, "MultiShard")
+	deleteObjectClass(t, "HasDateField")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -456,6 +459,29 @@ func addTestSchema(t *testing.T) {
 			"key":                 "_id",
 			"strategy":            "hash",
 			"virtualPerPhysical":  float64(128),
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "HasDateField",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "unique",
+				DataType: []string{"string"},
+			},
+			{
+				Name:     "timestamp",
+				DataType: []string{"date"},
+			},
+			{
+				Name:     "identical",
+				DataType: []string{"string"},
+			},
 		},
 	})
 }
@@ -961,6 +987,32 @@ func addTestDataMultiShard(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, multiShardID3)
+}
+
+func addDateFieldClass(t *testing.T) {
+	timestamps := []string{
+		"2022-06-16T22:18:59.640162Z",
+		"2022-06-16T22:19:01.495967Z",
+		"2022-06-16T22:19:03.495596Z",
+		"2022-06-16T22:19:04.3828349Z",
+		"2022-06-16T22:19:05.894857Z",
+		"2022-06-16T22:19:06.394958Z",
+		"2022-06-16T22:19:07.589828Z",
+		"2022-06-16T22:19:08.112395Z",
+		"2022-06-16T22:19:10.339493Z",
+		"2022-06-16T22:19:11.837473Z",
+	}
+
+	for i := 0; i < len(timestamps); i++ {
+		createObject(t, &models.Object{
+			Class: "HasDateField",
+			Properties: map[string]interface{}{
+				"unique":    fmt.Sprintf("#%d", i+1),
+				"timestamp": timestamps[i],
+				"identical": "hello!",
+			},
+		})
+	}
 }
 
 func mustParseYear(year string) time.Time {

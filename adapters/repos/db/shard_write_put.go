@@ -45,12 +45,8 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "store object in LSM store")
 	}
 
-	// vector is now optional as of
-	// https://github.com/semi-technologies/weaviate/issues/1800
-	if object.Vector != nil {
-		if err := s.updateVectorIndex(object.Vector, status); err != nil {
-			return errors.Wrap(err, "update vector index")
-		}
+	if err := s.updateVectorIndex(object.Vector, status); err != nil {
+		return errors.Wrap(err, "update vector index")
 	}
 
 	if err := s.updatePropertySpecificIndices(object, status); err != nil {
@@ -74,17 +70,20 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
-	// on occasion, objects are updated which
-	// do not have vector embeddings. in this
-	// case, there is nothing to update here.
-	if len(vector) == 0 {
-		return nil
-	}
-
+	// even if no vector is provided in an update, we still need
+	// to delete the previous vector from the index, if it
+	// exists. otherwise, the associated doc id is left dangling,
+	// resulting in failed attempts to merge an object on restarts.
 	if status.docIDChanged {
 		if err := s.vectorIndex.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
 		}
+	}
+
+	// vector is now optional as of
+	// https://github.com/semi-technologies/weaviate/issues/1800
+	if len(vector) == 0 {
+		return nil
 	}
 
 	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
@@ -109,6 +108,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	if err != nil {
 		return status, errors.Wrap(err, "check insert/update status")
 	}
+	s.metrics.PutObjectDetermineStatus(before)
 
 	object.SetDocID(status.docID)
 	data, err := object.MarshalBinary()

@@ -20,73 +20,69 @@ import (
 )
 
 func Test_Objects(t *testing.T) {
-	t.Run("setup", func(t *testing.T) {
-		createObjectClass(t, &models.Class{
-			Class: "TestObject",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
+	createObjectClass(t, &models.Class{
+		Class: "TestObject",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
 			},
-			Properties: []*models.Property{
-				{
-					Name:     "testString",
-					DataType: []string{"string"},
-				},
-				{
-					Name:     "testWholeNumber",
-					DataType: []string{"int"},
-				},
-				{
-					Name:     "testNumber",
-					DataType: []string{"number"},
-				},
-				{
-					Name:     "testDateTime",
-					DataType: []string{"date"},
-				},
-				{
-					Name:     "testTrueFalse",
-					DataType: []string{"boolean"},
-				},
-				{
-					Name:     "testPhoneNumber",
-					DataType: []string{"phoneNumber"},
-				},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "testString",
+				DataType: []string{"string"},
 			},
-		})
-
-		createObjectClass(t, &models.Class{
-			Class:      "TestObjectCustomVector",
-			Vectorizer: "none",
-			Properties: []*models.Property{
-				{
-					Name:     "description",
-					DataType: []string{"text"},
-				},
+			{
+				Name:     "testWholeNumber",
+				DataType: []string{"int"},
 			},
-		})
-
-		createObjectClass(t, &models.Class{
-			Class:      "TestDeleteClassOne",
-			Vectorizer: "none",
-			Properties: []*models.Property{
-				{
-					Name:     "text",
-					DataType: []string{"text"},
-				},
+			{
+				Name:     "testNumber",
+				DataType: []string{"number"},
 			},
-		})
-		createObjectClass(t, &models.Class{
-			Class:      "TestDeleteClassTwo",
-			Vectorizer: "none",
-			Properties: []*models.Property{
-				{
-					Name:     "text",
-					DataType: []string{"text"},
-				},
+			{
+				Name:     "testDateTime",
+				DataType: []string{"date"},
 			},
-		})
+			{
+				Name:     "testTrueFalse",
+				DataType: []string{"boolean"},
+			},
+			{
+				Name:     "testPhoneNumber",
+				DataType: []string{"phoneNumber"},
+			},
+		},
+	})
+	createObjectClass(t, &models.Class{
+		Class:      "TestObjectCustomVector",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "description",
+				DataType: []string{"text"},
+			},
+		},
+	})
+	createObjectClass(t, &models.Class{
+		Class:      "TestDeleteClassOne",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "text",
+				DataType: []string{"text"},
+			},
+		},
+	})
+	createObjectClass(t, &models.Class{
+		Class:      "TestDeleteClassTwo",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "text",
+				DataType: []string{"text"},
+			},
+		},
 	})
 
 	// tests
@@ -99,6 +95,7 @@ func Test_Objects(t *testing.T) {
 	t.Run("auto schema", autoSchemaObjects)
 	t.Run("checking object's existence", checkObjects)
 	t.Run("delete request deletes all objects with a given ID", deleteAllObjectsFromAllClasses)
+
 	// tear down
 	deleteObjectClass(t, "TestObject")
 	deleteObjectClass(t, "TestObjectCustomVector")

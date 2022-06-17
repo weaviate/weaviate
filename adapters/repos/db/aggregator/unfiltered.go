@@ -134,6 +134,8 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 		}
 	case aggregation.PropertyTypeText:
 		return ua.textProperty(ctx, prop)
+	case aggregation.PropertyTypeDate:
+		return ua.dateProperty(ctx, prop)
 	case aggregation.PropertyTypeReference:
 		// ignore, as this is handled outside the repo in the uc
 		return nil, nil

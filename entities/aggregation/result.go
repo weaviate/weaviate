@@ -22,12 +22,13 @@ type Group struct {
 }
 
 type Property struct {
-	Type                  PropertyType       `json:"type"`
-	NumericalAggregations map[string]float64 `json:"numericalAggregations"`
-	TextAggregation       Text               `json:"textAggregation"`
-	BooleanAggregation    Boolean            `json:"booleanAggregation"`
-	SchemaType            string             `json:"schemaType"`
-	ReferenceAggregation  Reference          `json:"referenceAggregation"`
+	Type                  PropertyType           `json:"type"`
+	NumericalAggregations map[string]float64     `json:"numericalAggregations"`
+	TextAggregation       Text                   `json:"textAggregation"`
+	BooleanAggregation    Boolean                `json:"booleanAggregation"`
+	SchemaType            string                 `json:"schemaType"`
+	ReferenceAggregation  Reference              `json:"referenceAggregation"`
+	DateAggregations      map[string]interface{} `json:"dateAggregation"`
 }
 
 type Text struct {
@@ -41,6 +42,7 @@ const (
 	PropertyTypeNumerical PropertyType = "numerical"
 	PropertyTypeBoolean   PropertyType = "boolean"
 	PropertyTypeText      PropertyType = "text"
+	PropertyTypeDate      PropertyType = "date"
 	PropertyTypeReference PropertyType = "cref"
 )
 
