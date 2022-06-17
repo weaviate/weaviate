@@ -46,7 +46,7 @@ func (p *commitloggerParser) Do() error {
 	}
 
 	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
-	p.reader = bufio.NewReader(metered)
+	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
 	for {
 		var commitType CommitType

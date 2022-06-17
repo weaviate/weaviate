@@ -118,7 +118,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "",
+      "description": "These times do not represent wall time. Some init processes are running in parallel, so this is CPU time. For a wall clock measurement look at total shard startup time.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -245,6 +245,73 @@
         }
       ],
       "title": "Startup all HNSW indexes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "This represents the total wall time per shard.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 3,
+        "x": 18,
+        "y": 0
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "8.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "startup_durations_ms_sum{operation=\"shard_total_init\"}",
+          "interval": "",
+          "legendFormat": "{{class_name}}/{{shard_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Total shard Startup",
       "type": "stat"
     },
     {
