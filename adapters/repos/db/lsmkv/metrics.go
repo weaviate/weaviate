@@ -105,11 +105,6 @@ func (m *Metrics) TrackStartupBucket(start time.Time) {
 	m.startupDurations.With(prometheus.Labels{"operation": "lsm_startup_bucket"}).Observe(took)
 }
 
-// func (m *Metrics) TrackStartupBucketBloomFilter(start time.Time) {
-// 	took := float64(time.Since(start)) / float64(time.Millisecond)
-// 	m.startupDurations.With(prometheus.Labels{"operation": "lsm_startup_bucket_bloomfilter"}).Observe(took)
-// }
-
 func (m *Metrics) TrackStartupBucketRecovery(start time.Time) {
 	if m == nil {
 		return
