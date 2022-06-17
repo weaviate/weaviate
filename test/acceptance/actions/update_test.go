@@ -26,10 +26,10 @@ import (
 )
 
 // run from setup_test.go
-func updateObjects(t *testing.T) {
+func updateObjectsDeprecated(t *testing.T) {
 	t.Run("update and set number", func(t *testing.T) {
 		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, uuid)
+		assertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testNumber": 41.0,
@@ -45,7 +45,7 @@ func updateObjects(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, uuid)
+			updatedObject := assertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			if updatedSchema["testNumber"] == nil {
 				return nil
@@ -58,7 +58,7 @@ func updateObjects(t *testing.T) {
 
 	t.Run("update and set string", func(t *testing.T) {
 		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, uuid)
+		assertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testString": "wibbly wobbly",
@@ -74,7 +74,7 @@ func updateObjects(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, uuid)
+			updatedObject := assertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testString"]
 		}
@@ -84,7 +84,7 @@ func updateObjects(t *testing.T) {
 	t.Run("update and set bool", func(t *testing.T) {
 		t.Parallel()
 		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, uuid)
+		assertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testTrueFalse": true,
@@ -101,7 +101,7 @@ func updateObjects(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, uuid)
+			updatedObject := assertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testTrueFalse"]
 		}
@@ -110,9 +110,9 @@ func updateObjects(t *testing.T) {
 
 	t.Run("can patch object with cref", func(t *testing.T) {
 		thingToRefID := assertCreateObject(t, "ObjectTestThing", nil)
-		assertGetObjectEventually(t, thingToRefID)
+		assertGetObjectEventually(t, "ObjectTestThing", thingToRefID)
 		objectID := assertCreateObject(t, "TestObject", nil)
-		assertGetObjectEventually(t, objectID)
+		assertGetObjectEventually(t, "TestObject", objectID)
 
 		merge := &models.Object{
 			Class: "TestObject",
@@ -134,7 +134,7 @@ func updateObjects(t *testing.T) {
 		helper.AssertRequestOk(t, patchResp, err, nil)
 
 		actualThunk := func() interface{} {
-			patchedObject := assertGetObject(t, objectID)
+			patchedObject := assertGetObject(t, merge.Class, objectID)
 
 			rawRef, ok := patchedObject.Properties.(map[string]interface{})["testReference"]
 			if !ok {

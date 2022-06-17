@@ -15,6 +15,7 @@ package test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -33,20 +34,34 @@ func creatingObjects(t *testing.T) {
 	const fakeObjectId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 	t.Run("create object with user specified id", func(t *testing.T) {
-		id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
+		var (
+			id        = strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
+			className = "TestObject"
+			// Set all object values to compare
+			objectTestString = "Test string"
+		)
 		// clean up to make sure we can run this test multiple times in a row
 		defer func() {
 			params := objects.NewObjectsDeleteParams().WithID(id)
 			helper.Client(t).Objects.ObjectsDelete(params, nil)
+			{
+				params := objects.NewObjectsClassGetParams()
+				params.WithClassName(className).WithID(id)
+				_, err := helper.Client(t).Objects.ObjectsClassGet(params, nil)
+				if err == nil {
+					t.Errorf("Object %v cannot exist after deletion", id)
+				}
+				werr := new(objects.ObjectsClassGetNotFound)
+				if ok := errors.As(err, &werr); !ok {
+					t.Errorf("get deleted object err got: %v want: %v", err, werr)
+				}
+			}
 		}()
-
-		// Set all object values to compare
-		objectTestString := "Test string"
 
 		params := objects.NewObjectsCreateParams().WithBody(
 			&models.Object{
 				ID:    id,
-				Class: "TestObject",
+				Class: className,
 				Properties: map[string]interface{}{
 					"testString": objectTestString,
 				},
@@ -70,7 +85,19 @@ func creatingObjects(t *testing.T) {
 
 		// wait for the object to be created
 		testhelper.AssertEventuallyEqual(t, id, func() interface{} {
-			object, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(id), nil)
+			params := objects.NewObjectsClassGetParams()
+			params.WithClassName(className).WithID(id)
+			object, err := helper.Client(t).Objects.ObjectsClassGet(params, nil)
+			if err != nil {
+				return nil
+			}
+
+			return object.Payload.ID
+		})
+		// deprecated: is here because of backward compatibility reasons
+		testhelper.AssertEventuallyEqual(t, id, func() interface{} {
+			params := objects.NewObjectsGetParams().WithID(id)
+			object, err := helper.Client(t).Objects.ObjectsGet(params, nil)
 			if err != nil {
 				return nil
 			}

@@ -11,7 +11,45 @@
 
 package objects
 
-import "fmt"
+import (
+	"fmt"
+)
+
+// objects status code
+const (
+	StatusForbidden           = 403
+	StatusBadRequest          = 400
+	StatusNotFound            = 404
+	StatusInternalServerError = 500
+)
+
+type Error struct {
+	Msg  string
+	Code int
+	Err  error
+}
+
+// Error implements error interface
+func (e *Error) Error() string {
+	return fmt.Sprintf("msg:%s code:%v err:%v", e.Msg, e.Code, e.Err)
+}
+
+// Unwrap underlying error
+func (e *Error) Unwrap() error {
+	return e.Err
+}
+
+func (e *Error) NotFound() bool {
+	return e.Code == StatusNotFound
+}
+
+func (e *Error) Forbidden() bool {
+	return e.Code == StatusForbidden
+}
+
+func (e *Error) BadRequest() bool {
+	return e.Code == StatusBadRequest
+}
 
 // ErrInvalidUserInput indicates a client-side error
 type ErrInvalidUserInput struct {

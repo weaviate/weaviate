@@ -123,7 +123,7 @@ func TestCRUD(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), thingID)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID)
 		require.Nil(t, err)
 		assert.False(t, ok)
 	})
@@ -175,7 +175,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("validating that the thing exists now", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), thingID)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID)
 		require.Nil(t, err)
 		assert.True(t, ok)
 	})
