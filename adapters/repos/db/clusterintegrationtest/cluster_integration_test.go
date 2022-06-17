@@ -55,7 +55,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const vectorDims = 20
+const (
+	vectorDims       = 20
+	distributedClass = "Distributed"
+)
 
 // TestDistributedSetup uses as many real components and only mocks out
 // non-essential parts. Essentially we fix the shard/cluster state and schema
@@ -173,7 +176,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
-			ok, err := node.repo.Exists(context.Background(), obj.ID)
+			ok, err := node.repo.Exists(context.Background(), distributedClass, obj.ID)
 			require.Nil(t, err)
 			assert.True(t, ok)
 		}
@@ -215,7 +218,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Pagination: &filters.Pagination{
 					Limit: 25,
 				},
-				ClassName: "Distributed",
+				ClassName: distributedClass,
 			})
 			assert.Nil(t, err)
 			for i, obj := range res {
@@ -251,7 +254,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 						IsPrimitive: false,
 						Refs: []search.SelectClass{
 							{
-								ClassName: "Distributed",
+								ClassName: distributedClass,
 								RefProperties: search.SelectProperties{
 									search.SelectProperty{
 										Name:        "description",
@@ -291,7 +294,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			params := traverser.GetParams{
-				ClassName:      "Distributed",
+				ClassName:      distributedClass,
 				KeywordRanking: keywordRanking,
 				Pagination:     &filters.Pagination{Limit: 100},
 			}
@@ -309,7 +312,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 	t.Run("aggregate count", func(t *testing.T) {
 		params := aggregation.Params{
-			ClassName:        schema.ClassName("Distributed"),
+			ClassName:        schema.ClassName(distributedClass),
 			IncludeMetaCount: true,
 		}
 
@@ -333,7 +336,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 
 		node := nodes[rand.Intn(len(nodes))]
 		err := node.repo.Merge(context.Background(), objects.MergeDocument{
-			Class: "Distributed",
+			Class: distributedClass,
 			ID:    obj.ID,
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
@@ -367,7 +370,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
 					On: &filters.Path{
-						Class:    "Distributed",
+						Class:    distributedClass,
 						Property: schema.PropertyName("date_property"),
 					},
 					Value: &filters.Value{
@@ -376,7 +379,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 					},
 				},
 			},
-			ClassName: "Distributed",
+			ClassName: distributedClass,
 			Pagination: &filters.Pagination{
 				Limit: len(data),
 			},
@@ -397,7 +400,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
 					On: &filters.Path{
-						Class:    "Distributed",
+						Class:    distributedClass,
 						Property: schema.PropertyName("date_array_property"),
 					},
 					Value: &filters.Value{
@@ -406,7 +409,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 					},
 				},
 			},
-			ClassName: "Distributed",
+			ClassName: distributedClass,
 			Pagination: &filters.Pagination{
 				Limit: len(data),
 			},
@@ -523,7 +526,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, td := range testData {
 			t.Run(td.name, func(t *testing.T) {
 				params := traverser.GetParams{
-					ClassName:  "Distributed",
+					ClassName:  distributedClass,
 					Sort:       td.sort,
 					Pagination: &filters.Pagination{Limit: 100},
 				}
@@ -550,7 +553,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), "Distributed", obj.ID)
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID)
 			require.Nil(t, err)
 		}
 	})
@@ -563,7 +566,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			actual, err := node.repo.Exists(context.Background(), obj.ID)
+			actual, err := node.repo.Exists(context.Background(), distributedClass, obj.ID)
 			require.Nil(t, err)
 			assert.Equal(t, expected, actual)
 		}
@@ -596,15 +599,14 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			})
 		}
 		node := nodes[rand.Intn(len(nodes))]
-		className := "Distributed"
 		// get the initial count of the objects
-		res, err := performClassSearch(node.repo, className)
+		res, err := performClassSearch(node.repo, distributedClass)
 		require.Nil(t, err)
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
 		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(),
-			getParams(className, false))
+			getParams(distributedClass, false))
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -612,7 +614,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			require.Nil(t, batchRes.Err)
 		}
 		// check that every object is deleted
-		res, err = performClassSearch(node.repo, className)
+		res, err = performClassSearch(node.repo, distributedClass)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(res))
 	})
@@ -812,7 +814,7 @@ func class() *models.Class {
 	cfg := hnsw.NewDefaultUserConfig()
 	cfg.EF = 500
 	return &models.Class{
-		Class:               "Distributed",
+		Class:               distributedClass,
 		VectorIndexConfig:   cfg,
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
@@ -859,7 +861,7 @@ func secondClassWithRef() *models.Class {
 			},
 			{
 				Name:     "toFirst",
-				DataType: []string{"Distributed"},
+				DataType: []string{distributedClass},
 			},
 		},
 	}
@@ -884,7 +886,7 @@ func exampleData(size int) []*models.Object {
 		phoneNumber := uint64(1000000 + rand.Intn(10000))
 
 		out[i] = &models.Object{
-			Class: "Distributed",
+			Class: distributedClass,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
 				"description":         fmt.Sprintf("object-%d", i),

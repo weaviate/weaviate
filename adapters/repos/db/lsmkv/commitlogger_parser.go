@@ -18,6 +18,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/diskio"
 )
 
 type commitloggerParser struct {
@@ -25,14 +26,16 @@ type commitloggerParser struct {
 	strategy string
 	memtable *Memtable
 	reader   io.Reader
+	metrics  *Metrics
 }
 
 func newCommitLoggerParser(path string, activeMemtable *Memtable,
-	strategy string) *commitloggerParser {
+	strategy string, metrics *Metrics) *commitloggerParser {
 	return &commitloggerParser{
 		path:     path,
 		memtable: activeMemtable,
 		strategy: strategy,
+		metrics:  metrics,
 	}
 }
 
@@ -42,7 +45,8 @@ func (p *commitloggerParser) Do() error {
 		return err
 	}
 
-	p.reader = bufio.NewReader(f)
+	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
+	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
 	for {
 		var commitType CommitType

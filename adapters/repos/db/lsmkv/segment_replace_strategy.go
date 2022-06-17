@@ -14,8 +14,10 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -24,19 +26,24 @@ func (i *segment) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
+	before := time.Now()
+
 	if !i.bloomFilter.Test(key) {
+		i.observeBloomFilter(before, "get_true_negative")
 		return nil, NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
+			i.observeBloomFilter(before, "get_false_positive")
 			return nil, NotFound
 		} else {
 			return nil, err
 		}
 	}
 
+	defer i.observeBloomFilter(before, "get_true_positive")
 	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
 
@@ -126,4 +133,15 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	}
 
 	return nil
+}
+
+func (i *segment) observeBloomFilter(before time.Time, op string) {
+	if i.metrics == nil {
+		return
+	}
+
+	i.metrics.BloomFilters.With(prometheus.Labels{
+		"strategy":  "replace",
+		"operation": op,
+	}).Observe(float64(time.Since(before)) / float64(time.Millisecond))
 }

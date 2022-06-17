@@ -94,10 +94,12 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 	return nil
 }
 
-type fakeLocks struct{}
+type fakeLocks struct {
+	Err error
+}
 
 func (f *fakeLocks) LockConnector() (func() error, error) {
-	return func() error { return nil }, nil
+	return func() error { return nil }, f.Err
 }
 
 func (f *fakeLocks) LockSchema() (func() error, error) {
@@ -126,20 +128,31 @@ func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, 
 	panic("not implemented")
 }
 
-type fakeAuthorizer struct{}
+type fakeAuthorizer struct {
+	Err error
+}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
+	return f.Err
 }
 
 type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) Exists(ctx context.Context,
+func (f *fakeVectorRepo) Exists(ctx context.Context, class string,
 	id strfmt.UUID) (bool, error) {
-	args := f.Called(id)
+	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
+}
+
+func (f *fakeVectorRepo) Object(ctx context.Context, cls string,
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	args := f.Called(cls, id, props, additional)
+	if args.Get(0) != nil {
+		return args.Get(0).(*search.Result), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,

@@ -123,7 +123,7 @@ func TestCRUD(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 
 	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), thingID)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID)
 		require.Nil(t, err)
 		assert.False(t, ok)
 	})
@@ -175,7 +175,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("validating that the thing exists now", func(t *testing.T) {
-		ok, err := repo.Exists(context.Background(), thingID)
+		ok, err := repo.Exists(context.Background(), "TheBestThingClass", thingID)
 		require.Nil(t, err)
 		assert.True(t, ok)
 	})
@@ -1567,6 +1567,117 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 				assert.True(t, props.expected, "result id was not intended to meet threshold %s", res.ID)
 			}
 		}
+	})
+}
+
+func Test_PutPatchRestart(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+
+	testClass := &models.Class{
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "PutPatchRestart",
+		Properties: []*models.Property{
+			{
+				Name:         "description",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
+			},
+		},
+	}
+
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       100,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(ctx)
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	require.Nil(t,
+		migrator.AddClass(ctx, testClass, schemaGetter.shardState))
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{testClass},
+		},
+	}
+
+	testID := strfmt.UUID("93c31577-922e-4184-87a5-5ac6db12f73c")
+	testVec := []float32{0.1, 0.2, 0.1, 0.3}
+
+	t.Run("create initial object", func(t *testing.T) {
+		err = repo.PutObject(ctx, &models.Object{
+			ID:         testID,
+			Class:      testClass.Class,
+			Properties: map[string]interface{}{"description": "test object init"},
+		}, testVec)
+		require.Nil(t, err)
+	})
+
+	t.Run("repeatedly put with nil vec, patch with vec, and restart", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			err = repo.PutObject(ctx, &models.Object{
+				ID:    testID,
+				Class: testClass.Class,
+				Properties: map[string]interface{}{
+					"description": fmt.Sprintf("test object, put #%d", i+1),
+				},
+			}, nil)
+			require.Nil(t, err)
+
+			err = repo.Merge(ctx, objects.MergeDocument{
+				ID:    testID,
+				Class: testClass.Class,
+				PrimitiveSchema: map[string]interface{}{
+					"description": fmt.Sprintf("test object, patch #%d", i+1),
+				},
+				Vector:     testVec,
+				UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
+			})
+			require.Nil(t, err)
+
+			require.Nil(t, repo.Shutdown(ctx))
+			require.Nil(t, repo.WaitForStartup(ctx))
+		}
+	})
+
+	t.Run("assert the final result is correct", func(t *testing.T) {
+		findByIDFilter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    schema.ClassName(testClass.Class),
+					Property: filters.InternalPropID,
+				},
+				Value: &filters.Value{
+					Value: testID.String(),
+					Type:  dtString,
+				},
+			},
+		}
+		res, err := repo.ObjectSearch(ctx, 0, 10, findByIDFilter,
+			nil, additional.Properties{})
+		require.Nil(t, err)
+		assert.Len(t, res, 1)
+
+		expectedDescription := "test object, patch #10"
+		resultDescription := res[0].Schema.(map[string]interface{})["description"]
+		assert.Equal(t, expectedDescription, resultDescription)
 	})
 }
 

@@ -218,7 +218,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeBoolean:
 		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDate:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, datePropertyFields)
 	case schema.DataTypeCRef:
 		return makePropertyField(class, property, referencePropertyFields)
 	case schema.DataTypeGeoCoordinates:
@@ -236,7 +236,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeBooleanArray:
 		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDateArray:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, datePropertyFields)
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}

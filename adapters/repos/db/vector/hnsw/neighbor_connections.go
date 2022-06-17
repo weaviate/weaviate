@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -75,6 +77,7 @@ func (n *neighborFinderConnector) Do() error {
 }
 
 func (n *neighborFinderConnector) doAtLevel(level int) error {
+	before := time.Now()
 	if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
 		return err
 	}
@@ -88,11 +91,17 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
+	n.graph.metrics.TrackInsert(before, "find_and_connect_search")
+	before = time.Now()
+
 	// max := n.maximumConnections(level)
 	max := n.graph.maximumConnections
 	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
 		return err
 	}
+
+	n.graph.metrics.TrackInsert(before, "find_and_connect_heuristic")
+	before = time.Now()
 
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
@@ -136,6 +145,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		n.entryPointDist = dist
 	}
 
+	n.graph.metrics.TrackInsert(before, "find_and_connect_update_connections")
 	return nil
 }
 

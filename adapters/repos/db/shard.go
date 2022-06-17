@@ -64,6 +64,8 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index) (*Shard, error) {
+	before := time.Now()
+
 	rand, err := newBufferedRandomGen(64 * 1024)
 	if err != nil {
 		return nil, errors.Wrap(err, "init bufferend random generator")
@@ -85,6 +87,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		randomSource:  rand,
 		diskScanState: newDiskScanState(),
 	}
+	defer s.metrics.ShardStartup(before)
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
 	if !ok {
@@ -194,7 +197,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	})
 	var metrics *lsmkv.Metrics
 	if s.promMetrics != nil {
-		lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
 	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)

@@ -40,7 +40,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 	// get object to see if it exists
-	objectRes, err := m.getObjectFromRepo(ctx, id, additional.Properties{})
+	objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
 		return err
 	}

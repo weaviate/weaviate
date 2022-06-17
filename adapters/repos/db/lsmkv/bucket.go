@@ -49,10 +49,13 @@ type Bucket struct {
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
+
+	metrics *Metrics
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
+	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultStrategy := StrategyReplace
@@ -68,6 +71,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
+		metrics:           metrics,
 	}
 
 	for _, opt := range opts {
@@ -77,7 +81,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	}
 
 	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
-		b.legacyMapSortingBeforeCompaction, metrics)
+		b.legacyMapSortingBeforeCompaction, metrics, b.strategy)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -93,6 +97,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	}
 
 	b.initFlushCycle()
+	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
 }

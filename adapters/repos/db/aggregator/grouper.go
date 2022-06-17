@@ -28,7 +28,7 @@ import (
 )
 
 // grouper is the component which identifies the top-n groups for a specific
-// group-by parameter. It is used as part of the goruped aggregator, which then
+// group-by parameter. It is used as part of the grouped aggregator, which then
 // additionally performs an aggregation for each group.
 type grouper struct {
 	*Aggregator
@@ -50,7 +50,7 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 		return nil, fmt.Errorf("grouping by cross-refs not supported")
 	}
 
-	if g.params.Filters == nil {
+	if g.params.Filters == nil && len(g.params.SearchVector) == 0 {
 		return g.groupAll(ctx)
 	} else {
 		return g.groupFiltered(ctx)
@@ -69,16 +69,12 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
-	s := g.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(g.store, s, g.invertedRowCache, nil,
-		g.classSearcher, g.deletedDocIDs, g.stopwords, g.shardVersion).
-		DocIDs(ctx, g.params.Filters, additional.Properties{},
-			g.params.ClassName)
+	ids, err := g.fetchDocIDs(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+		return nil, err
 	}
 
-	if err := docid.ScanObjectsLSM(g.store, flattenAllowList(ids),
+	if err := docid.ScanObjectsLSM(g.store, ids,
 		func(obj *storobj.Object) (bool, error) {
 			return true, g.addElement(obj)
 		}); err != nil {
@@ -86,6 +82,34 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	}
 
 	return g.aggregateAndSelect()
+}
+
+func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
+	var (
+		schema    = g.getSchema.GetSchemaSkipAuth()
+		allowList helpers.AllowList
+	)
+
+	if g.params.Filters != nil {
+		allowList, err = inverted.NewSearcher(g.store, schema, g.invertedRowCache, nil,
+			g.classSearcher, g.deletedDocIDs, g.stopwords, g.shardVersion).
+			DocIDs(ctx, g.params.Filters, additional.Properties{},
+				g.params.ClassName)
+		if err != nil {
+			return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+		}
+	}
+
+	if len(g.params.SearchVector) > 0 {
+		ids, err = g.vectorSearch(allowList)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to perform vector search")
+		}
+	} else {
+		ids = allowList.Slice()
+	}
+
+	return
 }
 
 func (g *grouper) addElement(obj *storobj.Object) error {
@@ -158,7 +182,7 @@ func (g *grouper) insertOrdered(elem group) {
 			continue
 		}
 
-		// we have found the first one that's smaller so me must insert before i
+		// we have found the first one that's smaller so we must insert before i
 		g.topGroups = append(
 			g.topGroups[:i], append(
 				[]group{elem},

@@ -24,7 +24,7 @@ func removingObjects(t *testing.T) {
 	objectId := assertCreateObject(t, "TestObject", map[string]interface{}{})
 
 	// Yes, it's created
-	_ = assertGetObjectEventually(t, objectId)
+	_ = assertGetObjectEventually(t, "TestObject", objectId)
 
 	// Now perorm the the deletion
 	delResp, err := helper.Client(t).Objects.ObjectsDelete(objects.NewObjectsDeleteParams().WithID(objectId), nil)

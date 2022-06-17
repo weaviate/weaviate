@@ -18,8 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 )
 
-// groupedAggregator performs aggregation in groups. This is a two step
-// processes. First a whole-db scan is performed to identify the groups, then
+// groupedAggregator performs aggregation in groups. This is a two-step
+// process. First a whole-db scan is performed to identify the groups, then
 // the top-n groups are selected (the rest is discarded). Only for those top
 // groups an actual aggregation is performed
 type groupedAggregator struct {
@@ -52,7 +52,7 @@ func (ga *groupedAggregator) Do(ctx context.Context) (*aggregation.Result, error
 }
 
 // group is a helper construct that contains the final aggregation.Group which
-// will evenetually be served to the user. But it also contains the list of
+// will eventually be served to the user. But it also contains the list of
 // docIDs in that group, so we can use those to perform the actual aggregation
 // (for each group) in a second step
 type group struct {
