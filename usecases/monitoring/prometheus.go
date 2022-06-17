@@ -32,6 +32,10 @@ type PrometheusMetrics struct {
 	VectorIndexDurations               *prometheus.HistogramVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
+
+	StartupProgress  *prometheus.GaugeVec
+	StartupDurations *prometheus.HistogramVec
+	StartupDiskIO    *prometheus.HistogramVec
 }
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
@@ -105,5 +109,20 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Help:    "Duration of typical vector index operations (insert, delete)",
 			Buckets: prometheus.ExponentialBuckets(0.1, 1.5, 30),
 		}, []string{"operation", "step", "class_name", "shard_name"}),
+
+		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "startup_progress",
+			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
+		}, []string{"operation", "class_name", "shard_name"}),
+		StartupDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "startup_durations_ms",
+			Help:    "Duration of inidividual startup operations in ms",
+			Buckets: prometheus.ExponentialBuckets(100, 1.25, 40),
+		}, []string{"operation", "class_name", "shard_name"}),
+		StartupDiskIO: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "startup_diskio_throughput",
+			Help:    "Disk I/O throuhput in bytes per second",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 40),
+		}, []string{"operation", "class_name", "shard_name"}),
 	}
 }
