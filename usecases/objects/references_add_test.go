@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -20,60 +21,217 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ReferencesAdd(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	var (
-		vectorRepo    *fakeVectorRepo
-		schemaManager *fakeSchemaManager
-		locks         *fakeLocks
-		cfg           *config.WeaviateConfig
-		manager       *Manager
-		authorizer    *fakeAuthorizer
-		vectorizer    *fakeVectorizer
-	)
-
-	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
-		schemaManager = &fakeSchemaManager{}
-		locks = &fakeLocks{}
-		cfg = &config.WeaviateConfig{}
-		authorizer = &fakeAuthorizer{}
-		vectorizer = &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager,
-			cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
-	}
+func Test_ReferencesAddDeprecated(t *testing.T) {
+	cls := "Zoo"
 
 	t.Run("without prior refs", func(t *testing.T) {
-		reset()
-		vectorRepo.On("Exists", "", mock.Anything).Return(true, nil)
-		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
-			ClassName: "Zoo",
+		req := AddReferenceInput{
+			ID:       strfmt.UUID("my-id"),
+			Property: "hasAnimals",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			},
+		}
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.repo.On("Exists", "", mock.Anything).Return(true, nil)
+		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
+			ClassName: cls,
 			Schema: map[string]interface{}{
 				"name": "MyZoo",
 			},
 		}, nil)
-		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
-		newRef := &models.SingleRef{
-			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
-		}
 		expectedRef := &models.SingleRef{
 			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedRefProperty := "hasAnimals"
-		vectorRepo.On("AddReference", mock.Anything, expectedRefProperty, expectedRef).Return(nil)
+		m.repo.On("AddReference", cls, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
 
-		err := manager.AddObjectReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := m.AddObjectReference(context.Background(), nil, &req)
 		require.Nil(t, err)
-		vectorRepo.AssertExpectations(t)
+		m.repo.AssertExpectations(t)
 	})
+	t.Run("source object missing", func(t *testing.T) {
+		req := AddReferenceInput{
+			ID:       strfmt.UUID("my-id"),
+			Property: "hasAnimals",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			},
+		}
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+		err := m.AddObjectReference(context.Background(), nil, &req)
+		require.NotNil(t, err)
+		if !err.BadRequest() {
+			t.Errorf("error expected: not found error got: %v", err)
+		}
+	})
+	t.Run("source object missing", func(t *testing.T) {
+		req := AddReferenceInput{
+			ID:       strfmt.UUID("my-id"),
+			Property: "hasAnimals",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			},
+		}
+		m := newFakeGetManager(zooAnimalSchemaForTest())
+		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("any"))
+		err := m.AddObjectReference(context.Background(), nil, &req)
+		require.NotNil(t, err)
+		if err.Code != StatusInternalServerError {
+			t.Errorf("error expected: internal error, got: %v", err)
+		}
+	})
+}
+
+func Test_ReferenceAdd(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "Zoo"
+		prop        = "hasAnimals"
+		id          = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
+		refID       = strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		uri         = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		anyErr      = errors.New("any")
+		ref         = models.SingleRef{Beacon: uri}
+		expectedRef = models.SingleRef{Beacon: uri}
+		req         = AddReferenceInput{
+			Class:    cls,
+			ID:       id,
+			Property: prop,
+			Ref:      ref,
+		}
+	)
+
+	tests := []struct {
+		Name string
+		// inputs
+		Req AddReferenceInput
+
+		// outputs
+		ExpectedRef models.SingleRef
+		WantCode    int
+		WantErr     error
+		SrcNotFound bool
+		// control errors
+		ErrAddRef      error
+		ErrTagetExists error
+		ErrSrcExists   error
+		ErrAuth        error
+		ErrLock        error
+		ErrSchema      error
+		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> target exists(), 4 -> AddReference()
+		Stage int
+	}{
+		{
+			Name: "locking", Req: req, Stage: 0,
+			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+		},
+		{
+			Name: "authorization", Req: req, Stage: 0,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+		},
+		{
+			Name: "get schema",
+			Req:  req, Stage: 2,
+			ErrSchema: anyErr,
+			WantCode:  StatusBadRequest,
+		},
+		{
+			Name: "empty data type",
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "emptyType", Ref: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "primitive data type",
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "name", Ref: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "unknown property",
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "unknown", Ref: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "valid class name",
+			Req:  AddReferenceInput{Class: "-", ID: id, Property: prop}, Stage: 1,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "reserved property name",
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "_id"}, Stage: 1,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "valid property name",
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "-"}, Stage: 1,
+			WantCode: StatusBadRequest,
+		},
+
+		{Name: "add valid reference", Req: req, Stage: 4},
+		{
+			Name: "referenced class not found", Req: req, Stage: 2,
+			WantCode:       StatusBadRequest,
+			ErrTagetExists: anyErr,
+			WantErr:        anyErr,
+		},
+		{
+			Name: "source object internal error", Req: req, Stage: 3,
+			WantCode:     StatusInternalServerError,
+			ErrSrcExists: anyErr,
+			WantErr:      anyErr,
+		},
+		{
+			Name: "source object missing", Req: req, Stage: 3,
+			WantCode:    StatusNotFound,
+			SrcNotFound: true,
+		},
+		{
+			Name: "internal error", Req: req, Stage: 4,
+			WantCode:  StatusInternalServerError,
+			ErrAddRef: anyErr,
+			WantErr:   anyErr,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.Name, func(t *testing.T) {
+			m := newFakeGetManager(zooAnimalSchemaForTest())
+			m.authorizer.Err = tc.ErrAuth
+			m.locks.Err = tc.ErrLock
+			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
+			if tc.Stage >= 2 {
+				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
+			}
+			if tc.Stage >= 3 {
+				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
+			}
+			if tc.Stage >= 4 {
+				m.repo.On("AddReference", cls, id, prop, &expectedRef).Return(tc.ErrAddRef).Once()
+			}
+
+			err := m.AddObjectReference(context.Background(), nil, &tc.Req)
+			if tc.WantCode != 0 {
+				code := 0
+				if err != nil {
+					code = err.Code
+				}
+				if code != tc.WantCode {
+					t.Fatalf("code expected: %v, got %v", tc.WantCode, code)
+				}
+
+				if tc.WantErr != nil && !errors.Is(err, tc.WantErr) {
+					t.Errorf("wrapped error expected: %v, got %v", tc.WantErr, err.Err)
+				}
+
+			}
+			m.repo.AssertExpectations(t)
+		})
+	}
 }
 
 func zooAnimalSchemaForTest() schema.Schema {
@@ -147,6 +305,10 @@ func zooAnimalSchemaForTest() schema.Schema {
 						{
 							Name:     "hasAnimals",
 							DataType: []string{"Animal"},
+						},
+						{
+							Name:     "emptyType",
+							DataType: []string{""},
 						},
 					},
 				},

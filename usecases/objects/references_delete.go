@@ -18,11 +18,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // DeleteObjectReference from connected DB
 func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+	id strfmt.UUID, propertyName string, property *models.SingleRef,
+) error {
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
@@ -38,7 +40,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 }
 
 func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+	id strfmt.UUID, propertyName string, property *models.SingleRef,
+) error {
 	// get object to see if it exists
 	objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
@@ -69,7 +72,8 @@ func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, princi
 }
 
 func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName string,
-	property *models.SingleRef) (interface{}, error) {
+	property *models.SingleRef,
+) (interface{}, error) {
 	if props == nil {
 		props = map[string]interface{}{}
 	}
@@ -107,4 +111,44 @@ func removeRef(refs models.MultipleRef, property *models.SingleRef) models.Multi
 	}
 
 	return refs
+}
+
+func (m *Manager) validateCanModifyReference(principal *models.Principal,
+	className string, propertyName string,
+) error {
+	class, err := schema.ValidateClassName(className)
+	if err != nil {
+		return NewErrInvalidUserInput("invalid class name in reference: %v", err)
+	}
+
+	err = schema.ValidateReservedPropertyName(propertyName)
+	if err != nil {
+		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
+	}
+
+	propName, err := schema.ValidatePropertyName(propertyName)
+	if err != nil {
+		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
+	}
+
+	schema, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
+	prop, err := schema.GetProperty(class, propName)
+	if err != nil {
+		return NewErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
+	}
+
+	propertyDataType, err := schema.FindPropertyDataType(prop.DataType)
+	if err != nil {
+		return NewErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
+	}
+
+	if propertyDataType.IsPrimitive() {
+		return NewErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
+	}
+
+	return nil
 }
