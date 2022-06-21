@@ -387,6 +387,8 @@ func (e *Explorer) Concepts(ctx context.Context,
 			return nil, errors.Errorf("res %s: %v", item.Beacon, err)
 		}
 		item.Certainty = 1 - dist
+		item.Dist = dist
+		item.Score = -dist
 		certainty := extractCertaintyFromExploreParams(params)
 		if item.Certainty >= float32(certainty) {
 			results = append(results, item)
