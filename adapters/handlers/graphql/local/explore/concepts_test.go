@@ -16,6 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	helper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
+					Dist:      helper.CertaintyToDist(t, 0.7),
+					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -374,6 +377,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
+					Dist:      helper.CertaintyToDist(t, 0.7),
+					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -407,6 +412,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
+					Dist:      helper.CertaintyToDist(t, 0.7),
+					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
