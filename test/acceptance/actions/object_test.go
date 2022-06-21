@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
@@ -32,6 +33,7 @@ func Test_ObjectHTTP(t *testing.T) {
 	t.Run("PUT", updateObjects)
 	t.Run("PATCH", patchObjects)
 	t.Run("DELETE", deleteObject)
+	t.Run("AddReference", addObjectReference)
 }
 
 func headObject(t *testing.T) {
@@ -328,5 +330,78 @@ func deleteObject(t *testing.T) {
 		if !errors.As(err, &werr) {
 			t.Errorf("Get deleted object error got: %v want %v", err, werr)
 		}
+	}
+}
+
+func addObjectReference(t *testing.T) {
+	t.Parallel()
+	var (
+		cls        = "TestObjectHTTPAddReference"
+		friend_cls = "TestObjectHTTPAddReferenceFriend"
+		mconfig    = map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		}
+	)
+	// test setup
+	assertCreateObjectClass(t, &models.Class{
+		Class:        friend_cls,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	assertCreateObjectClass(t, &models.Class{
+		Class:        cls,
+		ModuleConfig: mconfig,
+		Properties: []*models.Property{
+			{
+				Name:     "number",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "friend",
+				DataType: []string{friend_cls},
+			},
+		},
+	})
+
+	// tear down
+	defer deleteClassObject(t, cls)
+	defer deleteClassObject(t, friend_cls)
+
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"number": 2.0,
+	})
+	friendID := assertCreateObject(t, friend_cls, nil)
+	expected := map[string]interface{}{
+		"number": json.Number("2"),
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+			},
+		},
+	}
+	updateObj := crossref.New("localhost", friendID).SingleRef()
+	params := objects.NewObjectsClassReferencesCreateParams().WithClassName(cls)
+	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
+	resp, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj := assertGetObject(t, cls, uuid)
+	actual := obj.Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
+
+	params.WithPropertyName("unknown")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesCreateUnprocessableEntity); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, err)
+	}
+
+	params.WithPropertyName("friend")
+	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
+	fmt.Printf("%+v\n", *params)
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesCreateNotFound); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateNotFound{}, err)
 	}
 }

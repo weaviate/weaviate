@@ -840,6 +840,56 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassHeadNotFound{}, res)
 		}
 	})
+
+	t.Run("add reference", func(t *testing.T) {
+		m := &fakeManager{}
+		h := &objectHandlers{manager: m}
+		req := objects.ObjectsClassReferencesCreateParams{
+			HTTPRequest:  httptest.NewRequest("HEAD", "/v1/objects/MyClass/123/references/prop", nil),
+			ClassName:    "MyClass",
+			ID:           "123",
+			Body:         new(models.SingleRef),
+			PropertyName: "prop",
+		}
+		res := h.addObjectReference(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateOK); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+
+		m.addRefErr = &uco.Error{Code: uco.StatusForbidden}
+		res = h.addObjectReference(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateForbidden); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateForbidden{}, res)
+		}
+		// source object not found
+		m.addRefErr = &uco.Error{Code: uco.StatusNotFound}
+		res = h.addObjectReference(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateNotFound); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateNotFound{}, res)
+		}
+
+		m.addRefErr = &uco.Error{Code: uco.StatusInternalServerError}
+		res = h.addObjectReference(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateInternalServerError); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateInternalServerError{}, res)
+		}
+		m.addRefErr = &uco.Error{Code: uco.StatusBadRequest}
+		res = h.addObjectReference(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, res)
+		}
+		// same test as before but using old request
+		oldRequest := objects.ObjectsReferencesCreateParams{
+			HTTPRequest:  req.HTTPRequest,
+			Body:         req.Body,
+			ID:           req.ID,
+			PropertyName: req.ClassName,
+		}
+		res = h.addObjectReferenceDeprecated(oldRequest, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesCreateUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, res)
+		}
+	})
 }
 
 type fakeManager struct {
@@ -854,6 +904,7 @@ type fakeManager struct {
 	patchObjectReturn  *uco.Error
 	headObjectReturn   bool
 	headObjectErr      *uco.Error
+	addRefErr          *uco.Error
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, *uco.Error) {
@@ -896,8 +947,8 @@ func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal, class
 	return f.deleteObjectReturn
 }
 
-func (f *fakeManager) AddObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
-	panic("not implemented") // TODO: Implement
+func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput) *uco.Error {
+	return f.addRefErr
 }
 
 func (f *fakeManager) UpdateObjectReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
