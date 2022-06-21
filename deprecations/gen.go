@@ -124,9 +124,10 @@ var packageTemplate = template.Must(template.New("").Funcs(
 package deprecations
 
 import (
+	"time"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"time"
 )
 
 func timeMust(t time.Time, err error) strfmt.DateTime {
