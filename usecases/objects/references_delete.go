@@ -22,7 +22,8 @@ import (
 
 // DeleteObjectReference from connected DB
 func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+	id strfmt.UUID, propertyName string, property *models.SingleRef,
+) error {
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return err
@@ -38,7 +39,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 }
 
 func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+	id strfmt.UUID, propertyName string, property *models.SingleRef,
+) error {
 	// get object to see if it exists
 	objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
@@ -69,7 +71,8 @@ func (m *Manager) deleteObjectReferenceFromConnector(ctx context.Context, princi
 }
 
 func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName string,
-	property *models.SingleRef) (interface{}, error) {
+	property *models.SingleRef,
+) (interface{}, error) {
 	if props == nil {
 		props = map[string]interface{}{}
 	}
