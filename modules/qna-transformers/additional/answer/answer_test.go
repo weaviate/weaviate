@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
 	qnamodels "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/models"
 	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
@@ -181,8 +182,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		// then
 		require.Nil(t, err)
 		require.NotEmpty(t, out)
-		assert.Equal(t, 1, len(in))
-		answer, answerOK := in[0].AdditionalProperties["answer"]
+		assert.Equal(t, 1, len(out))
+		answer, answerOK := out[0].AdditionalProperties["answer"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
 		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
@@ -190,6 +191,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "answer", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.8, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.8)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.8)), *answerAdditional.Score)
 		assert.Equal(t, 13, answerAdditional.StartPosition)
 		assert.Equal(t, 19, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -234,6 +237,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, answerAdditional.Result == nil)
 		assert.True(t, answerAdditional.Property == nil)
 		assert.True(t, answerAdditional.Certainty == nil)
+		assert.True(t, answerAdditional.Distance == nil)
+		assert.True(t, answerAdditional.Score == nil)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 0, answerAdditional.EndPosition)
 		assert.Equal(t, false, answerAdditional.HasAnswer)
@@ -289,6 +294,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.9", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.9, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.9)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.9)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -301,6 +308,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.5", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.5, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.5)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.5)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -313,6 +322,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.2", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.2, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.2)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.2)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -368,6 +379,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.5", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.5, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.5)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.5)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -380,6 +393,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.2", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.2, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.2)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.2)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -392,6 +407,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.9", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.9, *answerAdditional.Certainty)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.9)), *answerAdditional.Distance)
+		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.9)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -420,6 +437,8 @@ func (c *fakeQnAClient) getAnswer(question, answer string, certainty float64) *e
 		Question:  question,
 		Answer:    &answer,
 		Certainty: &certainty,
+		Distance:  additional.CertaintyToDist(&certainty),
+		Score:     additional.CertaintyToScore(&certainty),
 	}
 }
 
@@ -459,4 +478,8 @@ func (h *fakeParamsHelper) GetRerank(params interface{}) bool {
 		}
 	}
 	return false
+}
+
+func ptFloat(f float64) *float64 {
+	return &f
 }
