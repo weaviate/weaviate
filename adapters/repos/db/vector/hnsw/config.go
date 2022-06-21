@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,11 +33,6 @@ type Config struct {
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
-	PrometheusMetrics     *monitoring.PrometheusMetrics
-
-	// metadata for monitoring
-	ShardName string
-	ClassName string
 }
 
 func (c Config) Validate() error {
