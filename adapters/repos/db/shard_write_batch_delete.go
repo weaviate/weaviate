@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -58,6 +59,9 @@ func (b *deleteObjectsBatcher) delete(ctx context.Context,
 
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	batch []uint64, dryRun bool) objects.BatchSimpleObjects {
+	before := time.Now()
+	defer b.shard.metrics.BatchDelete(before, "shard_delete_all")
+
 	result := make(objects.BatchSimpleObjects, len(batch))
 	objLock := &sync.Mutex{}
 
@@ -88,6 +92,9 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 
 func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
 	docID uint64, dryRun bool) objects.BatchSimpleObject {
+	before := time.Now()
+	defer b.shard.metrics.BatchDelete(before, "shard_delete_individual_total")
+
 	uuid, err := b.shard.uuidFromDocID(docID)
 	if err != nil {
 		return objects.BatchSimpleObject{UUID: uuid, Err: err}
@@ -102,6 +109,9 @@ func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
 }
 
 func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
+	before := time.Now()
+	defer b.shard.metrics.BatchDelete(before, "shard_flush_wals")
+
 	if err := b.shard.store.WriteWALs(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)

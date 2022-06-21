@@ -18,6 +18,7 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
+	BatchDeleteTime                    *prometheus.HistogramVec
 	ObjectsTime                        *prometheus.HistogramVec
 	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
@@ -43,6 +44,11 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
+			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
+		}, []string{"operation", "class_name", "shard_name"}),
+		BatchDeleteTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "batch_delete_durations_ms",
+			Help:    "Duration in ms of a single delete batch",
 			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
 
