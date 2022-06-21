@@ -30,7 +30,7 @@ func ptString(in string) *string {
 }
 
 var ByID = map[string]models.Deprecation{
-	"rest-meta-prop": { 
+	"rest-meta-prop": {
 		ID: "rest-meta-prop",
 		Locations: []string{
 			"GET /v1/thing/{id}",
@@ -38,30 +38,28 @@ var ByID = map[string]models.Deprecation{
 			"GET /v1/action/{id}",
 			"GET /v1/actions",
 		},
-		Status: "deprecated",
-		APIType: "REST",
-		Mitigation: "Use ?include=<propName>, e.g. ?include=_classification for classification meta or ?include=_vector to show the vector position or ?include=_classification,_vector for both. When consuming the response use the additional fields such as _vector, as the meta object in the reponse, such as meta.vector will be removed.",
-		Msg: "use of deprecated property ?meta=true/false",
+		Status:       "deprecated",
+		APIType:      "REST",
+		Mitigation:   "Use ?include=<propName>, e.g. ?include=_classification for classification meta or ?include=_vector to show the vector position or ?include=_classification,_vector for both. When consuming the response use the additional fields such as _vector, as the meta object in the reponse, such as meta.vector will be removed.",
+		Msg:          "use of deprecated property ?meta=true/false",
 		SinceVersion: "0.22.8",
-		SinceTime: timeMust(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
-		RemovedIn: ptString("0.23.0"),
-		RemovedTime: timeMustPtr(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
 	},
-	"config-files": { 
+	"config-files": {
 		ID: "config-files",
 		Locations: []string{
 			"--config-file=\"\"",
 		},
-		Status: "deprecated",
-		APIType: "Configuration",
-		Mitigation: "Configure Weaviate using environment variables.",
-		Msg: "use of deprecated command line argument --config-file",
+		Status:       "deprecated",
+		APIType:      "Configuration",
+		Mitigation:   "Configure Weaviate using environment variables.",
+		Msg:          "use of deprecated command line argument --config-file",
 		SinceVersion: "0.22.16",
-		SinceTime: timeMust(time.Parse(time.RFC3339, "2020-09-08T09:46:00.000Z")),
-		
-		
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-09-08T09:46:00.000Z")),
 	},
-	"cardinality": { 
+	"cardinality": {
 		ID: "cardinality",
 		Locations: []string{
 			"GET /v1/schema",
@@ -70,16 +68,16 @@ var ByID = map[string]models.Deprecation{
 			"POST /v1/schema/things/{className}/properties",
 			"POST /v1/schema/actions/{className}/properties",
 		},
-		Status: "deprecated",
-		APIType: "REST",
-		Mitigation: "Omit this field. Starting in 0.22.7 it no longer has any effect.",
-		Msg: "use of deprecated property option 'cardinality'",
+		Status:       "deprecated",
+		APIType:      "REST",
+		Mitigation:   "Omit this field. Starting in 0.22.7 it no longer has any effect.",
+		Msg:          "use of deprecated property option 'cardinality'",
 		SinceVersion: "0.22.17",
-		SinceTime: timeMust(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
-		RemovedIn: ptString("0.23.0"),
-		RemovedTime: timeMustPtr(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
 	},
-	"ref-meta-deprecated-fields": { 
+	"ref-meta-deprecated-fields": {
 		ID: "ref-meta-deprecated-fields",
 		Locations: []string{
 			"GET /v1/thing/{id}",
@@ -87,28 +85,27 @@ var ByID = map[string]models.Deprecation{
 			"GET /v1/action/{id}",
 			"GET /v1/actions",
 		},
-		Status: "deprecated",
-		APIType: "REST",
-		Mitigation: "when using _classification the reference meta after a successful\nclassification contains various counts and distances. Starting in 0.22.20\nthe fields winningDistance and losingDistance are considered deprecated.\nNew fields were added and they have more descriptive names. User\nmeanWinningDistance instead of winningDistance and use meanLosingDistance\ninstead of losingDistance",
-		Msg: "response contains deprecated fields winningDistance and losingDistance",
+		Status:       "deprecated",
+		APIType:      "REST",
+		Mitigation:   "when using _classification the reference meta after a successful\nclassification contains various counts and distances. Starting in 0.22.20\nthe fields winningDistance and losingDistance are considered deprecated.\nNew fields were added and they have more descriptive names. User\nmeanWinningDistance instead of winningDistance and use meanLosingDistance\ninstead of losingDistance",
+		Msg:          "response contains deprecated fields winningDistance and losingDistance",
 		SinceVersion: "0.22.20",
-		SinceTime: timeMust(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
-		RemovedIn: ptString("0.23.0"),
-		RemovedTime: timeMustPtr(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
 	},
-	"additional-prop-certainty": { 
+	"additional-prop-certainty": {
 		ID: "additional-prop-certainty",
 		Locations: []string{
 			"Get {}",
 			"Explore {}",
 		},
-		Status: "deprecated",
-		APIType: "GraphQL",
-		Mitigation: "when making Get/Explore queries, refer to 'distance' and 'score' as similarity metrics",
-		Msg: "response contains deprecated additional property certainty",
+		Status:       "deprecated",
+		APIType:      "GraphQL",
+		Mitigation:   "when making Get/Explore queries, refer to 'distance' and 'score' as similarity metrics",
+		Msg:          "response contains deprecated additional property certainty",
 		SinceVersion: "1.14.0",
-		SinceTime: timeMust(time.Parse(time.RFC3339, "2022-06-21T19:12:31.000Z")),
-		RemovedIn: ptString("TBD"),
-		
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2022-06-21T19:12:31.000Z")),
+		RemovedIn:    ptString("TBD"),
 	},
 }
