@@ -175,6 +175,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
 				"distance":               "l2-squared",
+				"distance":               "manhattan",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -192,9 +193,7 @@ func Test_UserConfig(t *testing.T) {
 		},
 
 		// ----end of test case------------------------------
-
 		{
-			// this is the case when reading the json representation from disk, as
 			// opposed to from the API
 			name: "with raw data as floats",
 			input: map[string]interface{}{
