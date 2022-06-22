@@ -87,7 +87,7 @@ func exploreObject() *graphql.Object {
 		},
 
 		"certainty": &graphql.Field{
-			Name:        "ExploreBeacon",
+			Name:        "ExploreCertainty",
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -101,7 +101,7 @@ func exploreObject() *graphql.Object {
 		},
 
 		"distance": &graphql.Field{
-			Name:        "ExploreBeacon",
+			Name:        "ExploreDistance",
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -115,7 +115,7 @@ func exploreObject() *graphql.Object {
 		},
 
 		"score": &graphql.Field{
-			Name:        "ExploreBeacon",
+			Name:        "ExploreScore",
 			Description: descriptions.Score,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
