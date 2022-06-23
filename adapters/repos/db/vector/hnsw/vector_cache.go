@@ -72,6 +72,18 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	return n.handleCacheMiss(ctx, id)
 }
 
+func (n *shardedLockCache) delete(ctx context.Context, id uint64) {
+	n.shardedLocks[id%shardFactor].Lock()
+	defer n.shardedLocks[id%shardFactor].Unlock()
+
+	if n.cache[id] == nil {
+		return
+	}
+
+	n.cache[id] = nil
+	atomic.AddInt64(&n.count, -1)
+}
+
 func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
@@ -146,8 +158,24 @@ func (n *shardedLockCache) len() int32 {
 	return int32(len(n.cache))
 }
 
+func (n *shardedLockCache) countVectors() int64 {
+	return atomic.LoadInt64(&n.count)
+}
+
 func (n *shardedLockCache) drop() {
+	n.deleteAllVectors()
 	n.cancel <- true
+}
+
+func (n *shardedLockCache) deleteAllVectors() {
+	n.obtainAllLocks()
+	defer n.releaseAllLocks()
+
+	for i := range n.cache {
+		n.cache[i] = nil
+	}
+
+	atomic.StoreInt64(&n.count, 0)
 }
 
 func (c *shardedLockCache) watchForDeletion() {
