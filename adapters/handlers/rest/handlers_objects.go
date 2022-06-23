@@ -52,7 +52,7 @@ type objectsManager interface {
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
 	MergeObject(context.Context, *models.Principal, *models.Object) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput) *uco.Error
-	UpdateObjectReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	UpdateObjectReferences(context.Context, *models.Principal, *uco.PutReferenceInput) *uco.Error
 	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
@@ -315,25 +315,33 @@ func (h *objectHandlers) addObjectReference(
 	return objects.NewObjectsClassReferencesCreateOK()
 }
 
-func (h *objectHandlers) updateObjectReferences(params objects.ObjectsReferencesUpdateParams,
+func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferencesPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
+	input := uco.PutReferenceInput{
+		Class:    params.ClassName,
+		ID:       params.ID,
+		Property: params.PropertyName,
+		Refs:     params.Body,
+	}
+	err := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input)
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return objects.NewObjectsReferencesUpdateForbidden().
+		switch {
+		case err.Forbidden():
+			return objects.NewObjectsClassReferencesPutForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrNotFound, uco.ErrInvalidUserInput:
-			return objects.NewObjectsReferencesUpdateUnprocessableEntity().
+		case err.NotFound():
+			return objects.NewObjectsClassReferencesPutNotFound()
+		case err.BadRequest():
+			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return objects.NewObjectsReferencesUpdateInternalServerError().
+			return objects.NewObjectsClassReferencesPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return objects.NewObjectsReferencesUpdateOK()
+	return objects.NewObjectsClassReferencesPutOK()
 }
 
 func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
@@ -382,8 +390,8 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsClassReferencesCreateHandlerFunc(h.addObjectReference)
 	api.ObjectsObjectsReferencesDeleteHandler = objects.
 		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReference)
-	api.ObjectsObjectsReferencesUpdateHandler = objects.
-		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferences)
+	api.ObjectsObjectsClassReferencesPutHandler = objects.
+		ObjectsClassReferencesPutHandlerFunc(h.putObjectReferences)
 	// deprecated handlers
 	api.ObjectsObjectsGetHandler = objects.
 		ObjectsGetHandlerFunc(h.getObjectDeprecated)
@@ -397,6 +405,8 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsPatchHandlerFunc(h.patchObjectDeprecated)
 	api.ObjectsObjectsReferencesCreateHandler = objects.
 		ObjectsReferencesCreateHandlerFunc(h.addObjectReferenceDeprecated)
+	api.ObjectsObjectsReferencesUpdateHandler = objects.
+		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferencesDeprecated)
 }
 
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
@@ -464,6 +474,18 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 		PropertyName: params.PropertyName,
 	}
 	return h.addObjectReference(req, principal)
+}
+
+func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.ObjectsReferencesUpdateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	req := objects.ObjectsClassReferencesPutParams{
+		HTTPRequest:  params.HTTPRequest,
+		ID:           params.ID,
+		PropertyName: params.PropertyName,
+		Body:         params.Body,
+	}
+	return h.putObjectReferences(req, principal)
 }
 
 func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {

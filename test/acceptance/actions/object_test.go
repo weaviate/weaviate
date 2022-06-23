@@ -33,7 +33,8 @@ func Test_ObjectHTTP(t *testing.T) {
 	t.Run("PUT", updateObjects)
 	t.Run("PATCH", patchObjects)
 	t.Run("DELETE", deleteObject)
-	t.Run("AddReference", addObjectReference)
+	t.Run("PostReference", postReference)
+	t.Run("PutReferences", putReferences)
 }
 
 func headObject(t *testing.T) {
@@ -333,7 +334,7 @@ func deleteObject(t *testing.T) {
 	}
 }
 
-func addObjectReference(t *testing.T) {
+func postReference(t *testing.T) {
 	t.Parallel()
 	var (
 		cls        = "TestObjectHTTPAddReference"
@@ -344,12 +345,14 @@ func addObjectReference(t *testing.T) {
 			},
 		}
 	)
+
 	// test setup
 	assertCreateObjectClass(t, &models.Class{
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
+	defer deleteClassObject(t, friend_cls)
 	assertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
@@ -364,11 +367,7 @@ func addObjectReference(t *testing.T) {
 			},
 		},
 	})
-
-	// tear down
 	defer deleteClassObject(t, cls)
-	defer deleteClassObject(t, friend_cls)
-
 	uuid := assertCreateObject(t, cls, map[string]interface{}{
 		"number": 2.0,
 	})
@@ -399,9 +398,123 @@ func addObjectReference(t *testing.T) {
 
 	params.WithPropertyName("friend")
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
-	fmt.Printf("%+v\n", *params)
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
 	if _, ok := err.(*objects.ObjectsClassReferencesCreateNotFound); !ok {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateNotFound{}, err)
+	}
+}
+
+func putReferences(t *testing.T) {
+	t.Parallel()
+	var (
+		cls           = "TestObjectHTTPUpdateReferences"
+		first_friend  = "TestObjectHTTPUpdateReferencesFriendFirst"
+		second_friend = "TestObjectHTTPUpdateReferencesFriendSecond"
+		mconfig       = map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		}
+	)
+	// test setup
+	assertCreateObjectClass(t, &models.Class{
+		Class:        first_friend,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	defer deleteClassObject(t, first_friend)
+
+	assertCreateObjectClass(t, &models.Class{
+		Class:        second_friend,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	defer deleteClassObject(t, second_friend)
+
+	assertCreateObjectClass(t, &models.Class{
+		Class:        cls,
+		ModuleConfig: mconfig,
+		Properties: []*models.Property{
+			{
+				Name:     "number",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "friend",
+				DataType: []string{first_friend, second_friend},
+			},
+		},
+	})
+	defer deleteClassObject(t, cls)
+
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"number": 2.0,
+	})
+	first_friendID := assertCreateObject(t, first_friend, nil)
+	second_friendID := assertCreateObject(t, second_friend, nil)
+
+	expected := map[string]interface{}{
+		"number": json.Number("2"),
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+			},
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", second_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
+			},
+		},
+	}
+	updateObj := models.MultipleRef{
+		crossref.New("localhost", first_friendID).SingleRef(),
+		crossref.New("localhost", second_friendID).SingleRef(),
+	}
+	// add two references
+	params := objects.NewObjectsClassReferencesPutParams().WithClassName(cls)
+	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
+	resp, err := helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj := assertGetObject(t, cls, uuid)
+	actual := obj.Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
+
+	//  exclude one reference
+	params.WithID(uuid).WithBody(updateObj[:1]).WithPropertyName("friend")
+	resp, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj = assertGetObject(t, cls, uuid)
+	actual = obj.Properties.(map[string]interface{})
+	expected["friend"] = expected["friend"].([]interface{})[:1]
+	assert.Equal(t, expected, actual)
+
+	params.WithPropertyName("unknown")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
+	}
+	params.WithPropertyName("friend")
+
+	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesPutNotFound); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutNotFound{}, err)
+	}
+	params.WithID(uuid)
+
+	// exclude all
+	params.WithBody(models.MultipleRef{}).WithPropertyName("friend")
+	resp, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj = assertGetObject(t, cls, uuid)
+	actual = obj.Properties.(map[string]interface{})
+	expected["friend"] = expected["friend"].([]interface{})[1:]
+	assert.Equal(t, expected, actual)
+
+	// bad request since body is required
+	params.WithID(uuid).WithBody(nil).WithPropertyName("friend")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
 	}
 }
