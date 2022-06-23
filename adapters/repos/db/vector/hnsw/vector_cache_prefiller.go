@@ -27,6 +27,8 @@ type vectorCachePrefiller struct {
 type cache interface {
 	get(ctx context.Context, id uint64) ([]float32, error)
 	len() int32
+	countVectors() int64
+	delete(ctx context.Context, id uint64)
 	preload(id uint64, vec []float32)
 	prefetch(id uint64)
 	grow(size uint64)
