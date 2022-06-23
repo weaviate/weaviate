@@ -2124,7 +2124,8 @@
         "summary": "Add a single reference to a class-property.",
         "tags": ["objects"],
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "deprecated" : true
       },
       "put": {
         "description": "Replace all references to a class-property.",
@@ -2242,6 +2243,78 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "tags": ["objects"],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/objects/{className}/{id}/references/{propertyName}": {
+      "post": {
+        "description": "Add a single reference to a class-property.",
+        "operationId": "objects.class.references.create",
+        "x-serviceIds": ["weaviate.local.manipulate"],
+        "parameters": [
+          {
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the Object.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully added the reference."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Source object doesn't exist."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
         "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
