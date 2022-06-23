@@ -35,6 +35,8 @@ func (h *hnsw) Delete(id uint64) error {
 		return err
 	}
 
+	h.cache.delete(context.TODO(), id)
+
 	// Adding a tombstone might not be enough in some cases, if the tombstoned
 	// entry was the entrypoint this might lead to issues for following inserts:
 	// On a nearly empty graph the entrypoint might be the only viable element to

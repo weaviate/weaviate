@@ -56,6 +56,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 	var control []uint64
 
+	t.Run("vectors are cached correctly", func(t *testing.T) {
+		assert.Equal(t, len(vectors), int(vectorIndex.cache.countVectors()))
+	})
+
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
 		allowList := helpers.AllowList{}
 		for i := range vectors {
@@ -83,6 +87,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 		}
 	})
 
+	t.Run("vector cache holds half the original vectors", func(t *testing.T) {
+		assert.Equal(t, len(vectors)/2, int(vectorIndex.cache.countVectors()))
+	})
+
 	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
@@ -99,6 +107,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 	t.Run("destroy the index", func(t *testing.T) {
 		vectorIndex.Drop()
+	})
+
+	t.Run("vector cache holds no vectors", func(t *testing.T) {
+		assert.Equal(t, 0, int(vectorIndex.cache.countVectors()))
 	})
 }
 

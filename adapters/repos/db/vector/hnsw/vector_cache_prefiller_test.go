@@ -86,6 +86,10 @@ func (f *fakeCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	return nil, nil
 }
 
+func (f *fakeCache) delete(ctx context.Context, id uint64) {
+	panic("not implemented")
+}
+
 func (f *fakeCache) preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
@@ -116,6 +120,10 @@ func (f *fakeCache) reset() {
 
 func (f *fakeCache) len() int32 {
 	return int32(len(f.store))
+}
+
+func (f *fakeCache) countVectors() int64 {
+	panic("not implemented")
 }
 
 func generateDummyVertices(amount int) []*vertex {
