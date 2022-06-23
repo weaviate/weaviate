@@ -180,7 +180,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 // DocIDsPreventCaching is the same as DocIDs, but makes sure that no filter
 // cache entries are written. This can be used when we can guarantee that the
 // filter is part of an operation that will lead to a state change, such as
-// batch delete. The state change would make the cached filter unusuable
+// batch delete. The state change would make the cached filter unusable
 // anyway, so we don't need to unnecessarily populate the cache with an entry.
 func (f *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
