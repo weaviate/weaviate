@@ -168,8 +168,8 @@ func (n *shardedLockCache) drop() {
 }
 
 func (n *shardedLockCache) deleteAllVectors() {
-	// this operation is lockless, because the assumption is that it will only be
-	// called as part of the drop() operation
+	n.obtainAllLocks()
+	defer n.releaseAllLocks()
 
 	for i := range n.cache {
 		n.cache[i] = nil
