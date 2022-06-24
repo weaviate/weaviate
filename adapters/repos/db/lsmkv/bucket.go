@@ -39,6 +39,7 @@ type Bucket struct {
 
 	memTableThreshold uint64
 	walThreshold      uint64
+	flushAfterIdle    time.Duration
 	strategy          string
 	secondaryIndices  uint16
 
@@ -58,6 +59,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
+	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -68,6 +70,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		dir:               dir,
 		memTableThreshold: defaultMemTableThreshold,
 		walThreshold:      defaultWalThreshold,
+		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
@@ -491,8 +494,11 @@ func (b *Bucket) initFlushCycle() {
 						Fatal("flush and switch failed")
 				}
 
-				shouldSwitch := b.active.Size() >= b.memTableThreshold ||
-					uint64(stat.Size()) >= b.walThreshold
+				memtableTooLarge := b.active.Size() >= b.memTableThreshold
+				walTooLarge := uint64(stat.Size()) >= b.walThreshold
+				dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+					b.active.IdleDuration() >= b.flushAfterIdle
+				shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
 				// If true, the parent shard has indicated that it has
 				// entered an immutable state. During this time, the
