@@ -222,6 +222,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 0, len(bucket.disk.segments))
 		})
 
@@ -230,6 +233,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist even after passing the idle threshold", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 0, len(bucket.disk.segments))
 		})
 
@@ -261,6 +267,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 0, len(bucket.disk.segments))
 		})
 
@@ -269,6 +278,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 1, len(bucket.disk.segments))
 		})
 
@@ -300,6 +312,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 0, len(bucket.disk.segments))
 		})
 
@@ -317,6 +332,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert that no flushing has occurred", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 0, len(bucket.disk.segments))
 		})
 
@@ -325,6 +343,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
 			assert.Equal(t, 1, len(bucket.disk.segments))
 		})
 
