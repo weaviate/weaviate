@@ -55,6 +55,7 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
+	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
