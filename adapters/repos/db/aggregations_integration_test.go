@@ -206,14 +206,6 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 func cleanupCompanyTestSchemaAndData(repo *DB,
 	migrator *Migrator) func(t *testing.T) {
 	return func(t *testing.T) {
-		for _, c := range []*models.Class{
-			productClass, companyClass, arrayTypesClass,
-			customerClass,
-		} {
-			err := migrator.DropClass(context.Background(), c.Class)
-			assert.Nil(t, err)
-		}
-
 		assert.Nil(t, repo.Shutdown(context.Background()))
 	}
 }
