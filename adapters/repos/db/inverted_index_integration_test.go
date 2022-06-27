@@ -146,6 +146,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("add class", func(t *testing.T) {
