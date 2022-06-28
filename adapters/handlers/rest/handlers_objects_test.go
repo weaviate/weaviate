@@ -890,6 +890,49 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, res)
 		}
 	})
+
+	t.Run("PutReferences", func(t *testing.T) {
+		m := &fakeManager{}
+		h := &objectHandlers{manager: m}
+		req := objects.ObjectsClassReferencesPutParams{
+			HTTPRequest:  httptest.NewRequest("HEAD", "/v1/objects/MyClass/123/references/prop", nil),
+			ClassName:    "MyClass",
+			ID:           "123",
+			Body:         models.MultipleRef{},
+			PropertyName: "prop",
+		}
+		res := h.putObjectReferences(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesPutOK); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+
+		m.putRefErr = &uco.Error{Code: uco.StatusForbidden}
+		res = h.putObjectReferences(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesPutForbidden); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesPutForbidden{}, res)
+		}
+		m.putRefErr = &uco.Error{Code: uco.StatusInternalServerError}
+		res = h.putObjectReferences(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesPutInternalServerError); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesPutInternalServerError{}, res)
+		}
+		m.putRefErr = &uco.Error{Code: uco.StatusBadRequest}
+		res = h.putObjectReferences(req, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, res)
+		}
+		// same test as before but using old request
+		oldRequest := objects.ObjectsReferencesUpdateParams{
+			HTTPRequest:  req.HTTPRequest,
+			Body:         req.Body,
+			ID:           req.ID,
+			PropertyName: req.ClassName,
+		}
+		res = h.updateObjectReferencesDeprecated(oldRequest, nil)
+		if _, ok := res.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, res)
+		}
+	})
 }
 
 type fakeManager struct {
@@ -905,6 +948,7 @@ type fakeManager struct {
 	headObjectReturn   bool
 	headObjectErr      *uco.Error
 	addRefErr          *uco.Error
+	putRefErr          *uco.Error
 }
 
 func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, *uco.Error) {
@@ -951,8 +995,8 @@ func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uc
 	return f.addRefErr
 }
 
-func (f *fakeManager) UpdateObjectReferences(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ models.MultipleRef) error {
-	panic("not implemented") // TODO: Implement
+func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal, *uco.PutReferenceInput) *uco.Error {
+	return f.putRefErr
 }
 
 func (f *fakeManager) DeleteObjectReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
