@@ -183,7 +183,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			break
 		}
 		candidate := candidates.Pop()
+		h.RLock()
 		candidateNode := h.nodes[candidate.ID]
+		h.RUnlock()
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
 			// just cleaned up while we were waiting for a read lock

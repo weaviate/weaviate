@@ -37,8 +37,9 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
+		if err := os.RemoveAll(dirName); err != nil {
+			fmt.Println(err)
+		}
 	}()
 
 	amount := 100
@@ -133,8 +134,9 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
+		if err := os.RemoveAll(dirName); err != nil {
+			fmt.Println(err)
+		}
 	}()
 
 	amount := 10000
@@ -199,4 +201,157 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 
 func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, tolerance float64) bool {
 	return float64(detectedSize) <= float64(threshold)*(tolerance+1)
+}
+
+func TestMemtableFlushesIfIdle(t *testing.T) {
+	t.Run("an empty memtable is not flushed", func(t *testing.T) {
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			if err := os.RemoveAll(dirName); err != nil {
+				fmt.Println(err)
+			}
+		}()
+
+		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace),
+			WithMemtableThreshold(1e12), // large enough to not affect this test
+			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithIdleThreshold(10*time.Millisecond),
+		)
+		require.Nil(t, err)
+
+		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(bucket.disk.segments))
+		})
+
+		t.Run("wait until idle threshold has passed", func(t *testing.T) {
+			time.Sleep(50 * time.Millisecond)
+		})
+
+		t.Run("assert no segments exist even after passing the idle threshold", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(bucket.disk.segments))
+		})
+
+		t.Run("shutdown bucket", func(t *testing.T) {
+			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			require.Nil(t, bucket.Shutdown(ctx))
+		})
+	})
+
+	t.Run("a dirty memtable is flushed once the idle period is over", func(t *testing.T) {
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			if err := os.RemoveAll(dirName); err != nil {
+				fmt.Println(err)
+			}
+		}()
+
+		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace),
+			WithMemtableThreshold(1e12), // large enough to not affect this test
+			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithIdleThreshold(50*time.Millisecond),
+		)
+		require.Nil(t, err)
+
+		t.Run("import something to make it dirty", func(t *testing.T) {
+			require.Nil(t, bucket.Put([]byte("some-key"), []byte("some-value")))
+		})
+
+		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(bucket.disk.segments))
+		})
+
+		t.Run("wait until idle threshold has passed", func(t *testing.T) {
+			time.Sleep(500 * time.Millisecond)
+		})
+
+		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 1, len(bucket.disk.segments))
+		})
+
+		t.Run("shutdown bucket", func(t *testing.T) {
+			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			require.Nil(t, bucket.Shutdown(ctx))
+		})
+	})
+
+	t.Run("a dirty memtable is not flushed as long as the next write occurs before the idle threshold", func(t *testing.T) {
+		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		os.MkdirAll(dirName, 0o777)
+		defer func() {
+			if err := os.RemoveAll(dirName); err != nil {
+				fmt.Println(err)
+			}
+		}()
+
+		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			WithStrategy(StrategyReplace),
+			WithMemtableThreshold(1e12), // large enough to not affect this test
+			WithWalThreshold(1e12),      // large enough to not affect this test
+			WithIdleThreshold(50*time.Millisecond),
+		)
+		require.Nil(t, err)
+
+		t.Run("import something to make it dirty", func(t *testing.T) {
+			require.Nil(t, bucket.Put([]byte("some-key"), []byte("some-value")))
+		})
+
+		t.Run("assert no segments exist initially", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(bucket.disk.segments))
+		})
+
+		t.Run("keep importing without ever crossing the idle threshold", func(t *testing.T) {
+			rounds := 20
+			data := make([]byte, rounds*4)
+			_, err := rand.Read(data)
+			require.Nil(t, err)
+
+			for i := 0; i < rounds; i++ {
+				key := data[(i * 4) : (i+1)*4]
+				bucket.Put(key, []byte("value"))
+				time.Sleep(25 * time.Millisecond)
+			}
+		})
+
+		t.Run("assert that no flushing has occurred", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(bucket.disk.segments))
+		})
+
+		t.Run("wait until idle threshold has passed", func(t *testing.T) {
+			time.Sleep(500 * time.Millisecond)
+		})
+
+		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
+			bucket.disk.maintenanceLock.RLock()
+			defer bucket.disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 1, len(bucket.disk.segments))
+		})
+
+		t.Run("shutdown bucket", func(t *testing.T) {
+			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			require.Nil(t, bucket.Shutdown(ctx))
+		})
+	})
 }

@@ -11,7 +11,11 @@
 
 package lsmkv
 
-import "github.com/pkg/errors"
+import (
+	"time"
+
+	"github.com/pkg/errors"
+)
 
 type BucketOption func(b *Bucket) error
 
@@ -38,6 +42,13 @@ func WithMemtableThreshold(threshold uint64) BucketOption {
 func WithWalThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.walThreshold = threshold
+		return nil
+	}
+}
+
+func WithIdleThreshold(threshold time.Duration) BucketOption {
+	return func(b *Bucket) error {
+		b.flushAfterIdle = threshold
 		return nil
 	}
 }
@@ -69,6 +80,16 @@ func WithSecondaryKey(pos int, key []byte) SecondaryKeyOption {
 
 		s[pos] = key
 
+		return nil
+	}
+}
+
+func WithMonitorCount() BucketOption {
+	return func(b *Bucket) error {
+		if b.strategy != StrategyReplace {
+			return errors.Errorf("count monitoring only supported on 'replace' buckets")
+		}
+		b.monitorCount = true
 		return nil
 	}
 }

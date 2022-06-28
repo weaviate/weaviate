@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -29,6 +30,7 @@ type Memtable struct {
 	strategy           string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
+	lastWrite          time.Time
 }
 
 func newMemtable(path string, strategy string,
@@ -47,6 +49,7 @@ func newMemtable(path string, strategy string,
 		path:             path,
 		strategy:         strategy,
 		secondaryIndices: secondaryIndices,
+		lastWrite:        time.Now(),
 	}
 
 	if m.secondaryIndices > 0 {
@@ -138,6 +141,8 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		l.secondaryToPrimary[i][string(sec)] = key
 	}
 
+	l.lastWrite = time.Now()
+
 	return nil
 }
 
@@ -171,6 +176,7 @@ func (l *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	l.key.setTombstone(key, secondaryKeys)
 	l.size += uint64(len(key)) + 1 // 1 byte for tombstone
+	l.lastWrite = time.Now()
 
 	return nil
 }
@@ -230,6 +236,7 @@ func (l *Memtable) append(key []byte, values []value) error {
 		l.size += uint64(len(value.value))
 	}
 
+	l.lastWrite = time.Now()
 	return nil
 }
 
@@ -262,6 +269,7 @@ func (l *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	// TODO: actual size diff
 	l.size += uint64(len(key) + len(valuesForCommitLog))
+	l.lastWrite = time.Now()
 
 	return nil
 }
@@ -271,6 +279,13 @@ func (l *Memtable) Size() uint64 {
 	defer l.RUnlock()
 
 	return l.size
+}
+
+func (l *Memtable) IdleDuration() time.Duration {
+	l.RLock()
+	defer l.RUnlock()
+
+	return time.Since(l.lastWrite)
 }
 
 func (l *Memtable) countStats() *countStats {
