@@ -35,6 +35,7 @@ func (f *fakeT) Errorf(msg string, args ...interface{}) {
 // 300ms. If a single one succeeds, it returns, if all fails it eventually
 // fails
 func AssertEventuallyEqual(t *testing.T, expected interface{}, actualThunk func() interface{}, msg ...interface{}) {
+	t.Helper()
 	interval := 10 * time.Millisecond
 	timeout := 4000 * time.Millisecond
 	elapsed := 0 * time.Millisecond

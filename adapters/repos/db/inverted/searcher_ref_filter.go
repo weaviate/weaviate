@@ -94,7 +94,12 @@ func (r *refFilterExtractor) innerFilter() *filters.LocalFilter {
 	}
 }
 
-func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]strfmt.UUID, error) {
+type classUUIDPair struct {
+	class string
+	id    strfmt.UUID
+}
+
+func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]classUUIDPair, error) {
 	params, err := r.paramsForNestedRequest()
 	if err != nil {
 		return nil, err
@@ -105,15 +110,15 @@ func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]strfmt.UUID, error
 		return nil, err
 	}
 
-	out := make([]strfmt.UUID, len(res))
+	out := make([]classUUIDPair, len(res))
 	for i, elem := range res {
-		out[i] = elem.ID
+		out[i] = classUUIDPair{class: elem.ClassName, id: elem.ID}
 	}
 
 	return out, nil
 }
 
-func (r *refFilterExtractor) resultsToPropValuePairs(ids []strfmt.UUID,
+func (r *refFilterExtractor) resultsToPropValuePairs(ids []classUUIDPair,
 ) (*propValuePair, error) {
 	switch len(ids) {
 	case 0:
@@ -134,26 +139,21 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	}
 }
 
-func (r *refFilterExtractor) idToPropValuePair(id strfmt.UUID) (*propValuePair, error) {
-	beacon, err := r.beacon(id)
-	if err != nil {
-		return nil, errors.Wrap(err, "id to beacon")
-	}
-
+func (r *refFilterExtractor) idToPropValuePair(p classUUIDPair) (*propValuePair, error) {
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
-		value:        []byte(beacon),
+		value:        []byte(crossref.New("localhost", p.class, p.id).String()),
 		operator:     filters.OperatorEqual,
 	}, nil
 }
 
-func (r *refFilterExtractor) beacon(id strfmt.UUID) (strfmt.URI, error) {
-	return strfmt.URI(crossref.New("localhost", id).String()), nil
-}
+// func (r *refFilterExtractor) beacon(id strfmt.UUID) (strfmt.URI, error) {
+// 	return strfmt.URI(crossref.New("localhost", id).String()), nil
+// }
 
 // chain multiple alternatives using an OR operator
-func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []strfmt.UUID) (*propValuePair, error) {
+func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
 	children, err := r.idsToPropValuePairs(ids)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []strfmt.UUID) (*prop
 	}, nil
 }
 
-func (r *refFilterExtractor) idsToPropValuePairs(ids []strfmt.UUID) ([]*propValuePair, error) {
+func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
 	out := make([]*propValuePair, len(ids))
 	for i, id := range ids {
 		pv, err := r.idToPropValuePair(id)

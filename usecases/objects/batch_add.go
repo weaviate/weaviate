@@ -23,9 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 )
 
@@ -174,7 +172,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		object.LastUpdateTimeUnix = now
 	}
 
-	err = validation.New(s, b.exists, b.config).Object(ctx, object)
+	err = validation.New(s, b.vectorRepo.Exists, b.config).Object(ctx, object)
 	ec.add(err)
 
 	err = newVectorObtainer(b.vectorizerProvider, b.schemaManager,
@@ -188,11 +186,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		OriginalIndex: originalIndex,
 		Vector:        object.Vector,
 	}
-}
-
-func (b *BatchManager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	res, err := b.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
-	return res != nil, err
 }
 
 func objectsChanToSlice(c chan BatchObject) BatchObjects {
