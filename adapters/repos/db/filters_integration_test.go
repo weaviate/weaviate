@@ -55,6 +55,7 @@ func TestFilters(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(testCtx())
 
 	migrator := NewMigrator(repo, logger)
 	t.Run("prepare test schema and data ",

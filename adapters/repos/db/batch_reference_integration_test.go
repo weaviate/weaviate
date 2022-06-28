@@ -57,6 +57,9 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
+
+	defer repo.Shutdown(context.Background())
+
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
