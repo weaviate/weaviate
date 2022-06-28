@@ -336,13 +336,19 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
-			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+			}
 			nearVectorParams = &p
 		}
 
 		var nearObjectParams *searchparams.NearObject
 		if nearObject, ok := p.Args["nearObject"]; ok {
-			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+			}
 			nearObjectParams = &p
 		}
 
@@ -406,19 +412,21 @@ func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 		}
 	}
 
-	if params.NearVector != nil && params.NearVector.Certainty != 0 {
+	if params.NearVector != nil &&
+		(params.NearVector.Certainty != 0 || params.NearVector.Distance != 0) {
 		setLimit(params)
 		return
 	}
 
-	if params.NearObject != nil && params.NearObject.Certainty != 0 {
+	if params.NearObject != nil &&
+		(params.NearObject.Certainty != 0 || params.NearObject.Distance != 0) {
 		setLimit(params)
 		return
 	}
 
 	for _, param := range params.ModuleParams {
 		nearParam, ok := param.(modulecapabilities.NearParam)
-		if ok && nearParam.GetCertainty() != 0 {
+		if ok && nearParam.SimilarityMetricProvided() {
 			setLimit(params)
 			return
 		}

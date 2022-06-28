@@ -222,6 +222,8 @@ func TestModulesProvider(t *testing.T) {
 			withRestApiArg("classification", []string{"classification"}).
 			withGraphQLArg("certainty", []string{"certainty"}).
 			withRestApiArg("certainty", []string{"certainty"}).
+			withGraphQLArg("distance", []string{"distance"}).
+			withRestApiArg("distance", []string{"distance"}).
 			withGraphQLArg("id", []string{"id"}).
 			withRestApiArg("id", []string{"id"}),
 		)
@@ -237,9 +239,11 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "searcher: limit conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: classification conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "rest api additional property: distance conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "rest api additional property: id conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: classification conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod3]")
+		assert.Contains(t, err.Error(), "graphql additional property: distance conflicts with weaviate's internal searcher in modules: [mod3]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod3]")
 	})
 

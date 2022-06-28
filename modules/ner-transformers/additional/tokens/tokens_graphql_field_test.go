@@ -31,13 +31,13 @@ func Test_additionalTokensField(t *testing.T) {
 	// Args: {
 	// 	    "properties": ["summary"],
 	// 	    "limit": 1,
-	//     	"certainty": 0.7
+	//     	"distance": 0.7
 	// }
 	// Type: {
 	//   tokens: {
 	//     "property": "summary",
 	//     "entity": "I-PER",
-	//     "certainty": 0.8,
+	//     "distance": 0.8,
 	//     "word": "original word",
 	//     "startPosition": 1,
 	//     "endPosition": 2,
@@ -51,17 +51,19 @@ func Test_additionalTokensField(t *testing.T) {
 	assert.True(t, tokensObjectListOK)
 	tokensObject, tokensObjectOK := tokensObjectList.OfType.(*graphql.Object)
 	assert.True(t, tokensObjectOK)
-	assert.Equal(t, 6, len(tokensObject.Fields()))
+	assert.Equal(t, 7, len(tokensObject.Fields()))
 	assert.NotNil(t, tokensObject.Fields()["property"])
 	assert.NotNil(t, tokensObject.Fields()["entity"])
 	assert.NotNil(t, tokensObject.Fields()["certainty"])
+	assert.NotNil(t, tokensObject.Fields()["distance"])
 	assert.NotNil(t, tokensObject.Fields()["word"])
 	assert.NotNil(t, tokensObject.Fields()["startPosition"])
 	assert.NotNil(t, tokensObject.Fields()["endPosition"])
 
 	assert.NotNil(t, tokens.Args)
-	assert.Equal(t, 3, len(tokens.Args))
+	assert.Equal(t, 4, len(tokens.Args))
 	assert.NotNil(t, tokens.Args["certainty"])
+	assert.NotNil(t, tokens.Args["distance"])
 	assert.NotNil(t, tokens.Args["limit"])
 	assert.NotNil(t, tokens.Args["properties"])
 }

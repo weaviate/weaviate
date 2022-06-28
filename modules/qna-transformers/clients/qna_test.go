@@ -25,7 +25,44 @@ import (
 )
 
 func TestGetAnswer(t *testing.T) {
-	t.Run("when the server has a successful answer", func(t *testing.T) {
+	t.Run("when the server has a successful answer (with distance)", func(t *testing.T) {
+		server := httptest.NewServer(&testAnswerHandler{
+			t: t,
+			answer: answersResponse{
+				answersInput: answersInput{
+					Text:     "My name is John",
+					Question: "What is my name?",
+				},
+				Answer:    ptString("John"),
+				Certainty: ptFloat(0.7),
+				Distance:  ptFloat(0.3),
+				Score:     ptFloat(-0.3),
+			},
+		})
+		defer server.Close()
+		c := New(server.URL, nullLogger())
+		res, err := c.Answer(context.Background(), "My name is John",
+			"What is my name?")
+		assert.Nil(t, err)
+
+		expectedResult := ent.AnswerResult{
+			Text:      "My name is John",
+			Question:  "What is my name?",
+			Answer:    ptString("John"),
+			Certainty: ptFloat(0.7),
+			Distance:  ptFloat(0.3),
+			Score:     ptFloat(-0.3),
+		}
+
+		assert.Equal(t, expectedResult.Text, res.Text)
+		assert.Equal(t, expectedResult.Question, res.Question)
+		assert.Equal(t, expectedResult.Answer, res.Answer)
+		assert.Equal(t, expectedResult.Certainty, res.Certainty)
+		assert.InDelta(t, *expectedResult.Distance, *res.Distance, 1e-9)
+		assert.InDelta(t, *expectedResult.Score, *res.Score, 1e-9)
+	})
+
+	t.Run("when the server has a successful answer (with certainty)", func(t *testing.T) {
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
 			answer: answersResponse{

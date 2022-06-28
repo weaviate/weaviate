@@ -38,6 +38,11 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 		args.Certainty = certainty.(float64)
 	}
 
+	distance, ok := source["distance"]
+	if ok {
+		args.Distance = distance.(float64)
+	}
+
 	properties, ok := source["properties"].([]interface{})
 	if ok {
 		args.Properties = make([]string, len(properties))

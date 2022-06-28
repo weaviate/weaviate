@@ -118,6 +118,7 @@ type nearCustomTextParams struct {
 	MoveTo       nearExploreMove
 	MoveAwayFrom nearExploreMove
 	Certainty    float64
+	Distance     float64
 }
 
 type nearExploreMove struct {
@@ -252,6 +253,10 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 						Description: descriptions.Certainty,
 						Type:        graphql.Float,
 					},
+					"distance": &graphql.InputObjectFieldConfig{
+						Description: descriptions.Distance,
+						Type:        graphql.Float,
+					},
 				},
 				Description: descriptions.GetWhereInpObj,
 			},
@@ -271,6 +276,11 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 	certainty, ok := source["certainty"]
 	if ok {
 		args.Certainty = certainty.(float64)
+	}
+
+	distance, ok := source["distance"]
+	if ok {
+		args.Distance = distance.(float64)
 	}
 
 	// moveTo is an optional arg, so it could be nil

@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
@@ -48,8 +47,13 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 		params.SearchVector = searchVector
-		params.Certainty = t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
+		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
 			params.NearObject, params.ModuleParams)
+
+		if certainty == 0 && params.ObjectLimit == nil {
+			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
+		}
+		params.Certainty = certainty
 	}
 
 	res, err := t.vectorSearcher.Aggregate(ctx, *params)

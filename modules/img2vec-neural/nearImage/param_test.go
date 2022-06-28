@@ -55,6 +55,17 @@ func Test_validateNearImageFn(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "should not pass with distance and certainty set",
+			args: args{
+				param: &NearImageParams{
+					Image:     "image",
+					Distance:  0.4,
+					Certainty: 0.7,
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

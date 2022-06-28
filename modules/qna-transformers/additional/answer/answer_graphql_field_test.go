@@ -34,7 +34,7 @@ func TestAnswerField(t *testing.T) {
 		//     result: "answer",
 		//     startPosition: 1
 		//     endPosition: 2
-		//     certainty: 0.2
+		//     distance: 0.2
 		//     property: "propName"
 		//     hasAnswer: true
 		//   }

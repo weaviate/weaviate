@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
 
@@ -127,6 +128,44 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			wantErr:    true,
 			errMessage: "found 'nearText' and 'nearVector' and 'nearObject' parameters which are conflicting, choose one instead",
 		},
+		{
+			name: "Should throw error, when nearVector certainty and distance are set",
+			args: args{
+				nearVector: &searchparams.NearVector{
+					Certainty: 0.1,
+					Distance:  0.9,
+				},
+				className: nil,
+			},
+			wantErr:    true,
+			errMessage: "found 'certainty' and 'distance' set in nearVector which are conflicting, choose one instead",
+		},
+		{
+			name: "Should throw error, when nearObject certainty and distance are set",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					Certainty: 0.1,
+					Distance:  0.9,
+				},
+				className: nil,
+			},
+			wantErr:    true,
+			errMessage: "found 'certainty' and 'distance' set in nearObject which are conflicting, choose one instead",
+		},
+		{
+			name: "Should throw error, when nearText certainty and distance are set",
+			args: args{
+				moduleParams: map[string]interface{}{
+					"nearCustomText": &nearCustomTextParams{
+						Certainty: 0.1,
+						Distance:  0.9,
+					},
+				},
+				className: nil,
+			},
+			wantErr:    true,
+			errMessage: "nearText cannot provide both distance and certainty",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -222,6 +261,15 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 		want float64
 	}{
 		{
+			name: "Should extract distance from nearVector",
+			args: args{
+				nearVector: &searchparams.NearVector{
+					Distance: 0.88,
+				},
+			},
+			want: 1 - 0.88,
+		},
+		{
 			name: "Should extract certainty from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
@@ -231,6 +279,15 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			want: 0.88,
 		},
 		{
+			name: "Should extract distance from nearObject",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					Distance: 0.99,
+				},
+			},
+			want: 1 - 0.99,
+		},
+		{
 			name: "Should extract certainty from nearObject",
 			args: args{
 				nearObject: &searchparams.NearObject{
@@ -238,6 +295,17 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 				},
 			},
 			want: 0.99,
+		},
+		{
+			name: "Should extract distance from nearText",
+			args: args{
+				moduleParams: map[string]interface{}{
+					"nearCustomText": &nearCustomTextParams{
+						Distance: 0.77,
+					},
+				},
+			},
+			want: 1 - 0.77,
 		},
 		{
 			name: "Should extract certainty from nearText",
@@ -257,7 +325,8 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			if got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams); got != tt.want {
+			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams)
+			if !assert.InDelta(t, tt.want, got, 1e-9) {
 				t.Errorf("nearParamsVector.extractCertaintyFromParams() = %v, want %v", got, tt.want)
 			}
 		})

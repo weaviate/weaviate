@@ -38,6 +38,7 @@ type tokenResponse struct {
 	// Property      string  `json:"property"`
 	Entity        string  `json:"entity"`
 	Certainty     float64 `json:"certainty"`
+	Distance      float64 `json:"distance"`
 	Word          string  `json:"word"`
 	StartPosition int     `json:"startPosition"`
 	EndPosition   int     `json:"endPosition"`
@@ -96,6 +97,7 @@ func (v *ner) GetTokens(ctx context.Context, property,
 
 	for i, elem := range resBody.Tokens {
 		out[i].Certainty = elem.Certainty
+		out[i].Distance = elem.Distance
 		out[i].Entity = elem.Entity
 		out[i].Word = elem.Word
 		out[i].StartPosition = elem.StartPosition

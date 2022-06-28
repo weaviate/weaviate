@@ -330,10 +330,19 @@ type nearCustomTextParams struct {
 	MoveTo       nearExploreMove
 	MoveAwayFrom nearExploreMove
 	Certainty    float64
+	Distance     float64
 }
 
 func (p nearCustomTextParams) GetCertainty() float64 {
 	return p.Certainty
+}
+
+func (p nearCustomTextParams) GetDistance() float64 {
+	return p.Distance
+}
+
+func (p nearCustomTextParams) SimilarityMetricProvided() bool {
+	return p.Certainty != 0 || p.Distance != 0
 }
 
 type nearExploreMove struct {
@@ -461,6 +470,10 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 						Description: descriptions.Certainty,
 						Type:        graphql.Float,
 					},
+					"distance": &graphql.InputObjectFieldConfig{
+						Description: descriptions.Distance,
+						Type:        graphql.Float,
+					},
 				},
 				Description: descriptions.GetWhereInpObj,
 			},
@@ -480,6 +493,11 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 	certainty, ok := source["certainty"]
 	if ok {
 		args.Certainty = certainty.(float64)
+	}
+
+	distance, ok := source["distance"]
+	if ok {
+		args.Distance = distance.(float64)
 	}
 
 	// moveTo is an optional arg, so it could be nil
@@ -559,6 +577,19 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 				return errors.Errorf("'nearCustomText.moveAwayFrom' parameter " +
 					"needs to have defined either 'concepts' or 'objects' fields")
 			}
+
+			if nearText.Certainty != 0 && nearText.Distance != 0 {
+				return errors.Errorf(
+					"nearText cannot provide both distance and certainty")
+			}
+
+			// because the modules all still accept certainty as
+			// the only similarity metric input, me must make the
+			// conversion to certainty if distance is provided
+			if nearText.Distance != 0 {
+				nearText.Certainty = 1 - nearText.Distance
+			}
+
 			return nil
 		},
 	}

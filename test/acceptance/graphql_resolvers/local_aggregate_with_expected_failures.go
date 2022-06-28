@@ -117,8 +117,6 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 			"unexpected error message: %s", result[0].Message)
 	})
 
-	// with where
-
 	t.Run("with nearVector, where filter, no certainty", func(t *testing.T) {
 		result := ErrorGraphQL(t, helper.RootAuth, `
 			{
