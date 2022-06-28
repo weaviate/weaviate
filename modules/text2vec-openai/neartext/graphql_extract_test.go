@@ -37,6 +37,23 @@ func Test_extractNearTextFn(t *testing.T) {
 			},
 		},
 		{
+			"Extract with concepts, distance, limit and network",
+			args{
+				source: map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.4),
+					"limit":    100,
+					"network":  true,
+				},
+			},
+			&NearTextParams{
+				Values:   []string{"c1", "c2", "c3"},
+				Distance: 0.4,
+				Limit:    100,
+				Network:  true,
+			},
+		},
+		{
 			"Extract with concepts, certainty, limit and network",
 			args{
 				source: map[string]interface{}{
@@ -54,7 +71,40 @@ func Test_extractNearTextFn(t *testing.T) {
 			},
 		},
 		{
-			"Extract with moveTo and moveAwayFrom",
+			"Extract with moveTo, moveAwayFrom, and distance",
+			args{
+				source: map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.89),
+					"limit":    500,
+					"network":  false,
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				},
+			},
+			&NearTextParams{
+				Values:   []string{"c1", "c2", "c3"},
+				Distance: 0.89,
+				Limit:    500,
+				Network:  false,
+				MoveTo: ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+				},
+				MoveAwayFrom: ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+				},
+			},
+		},
+		{
+			"Extract with moveTo, moveAwayFrom, and certainty",
 			args{
 				source: map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -87,7 +137,76 @@ func Test_extractNearTextFn(t *testing.T) {
 			},
 		},
 		{
-			"Extract with moveTo and moveAwayFrom (and objects)",
+			"Extract with moveTo, moveAwayFrom, distance (and objects)",
+			args{
+				source: map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.89),
+					"limit":    500,
+					"network":  false,
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveTo-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid3",
+							},
+						},
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveAwayFrom-uuid1",
+							},
+							map[string]interface{}{
+								"id": "moveAwayFrom-uuid2",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid3",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid4",
+							},
+						},
+					},
+				},
+			},
+			&NearTextParams{
+				Values:   []string{"c1", "c2", "c3"},
+				Distance: 0.89,
+				Limit:    500,
+				Network:  false,
+				MoveTo: ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+					Objects: []ObjectMove{
+						{ID: "moveTo-uuid1"},
+						{Beacon: "weaviate://localhost/moveTo-uuid2"},
+						{Beacon: "weaviate://localhost/moveTo-uuid3"},
+					},
+				},
+				MoveAwayFrom: ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+					Objects: []ObjectMove{
+						{ID: "moveAwayFrom-uuid1"},
+						{ID: "moveAwayFrom-uuid2"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid4"},
+					},
+				},
+			},
+		},
+		{
+			"Extract with moveTo, moveAwayFrom, certainty (and objects)",
 			args{
 				source: map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -156,7 +275,76 @@ func Test_extractNearTextFn(t *testing.T) {
 			},
 		},
 		{
-			"Extract with moveTo and moveAwayFrom (and doubled objects)",
+			"Extract with moveTo, moveAwayFrom, distance (and doubled objects)",
+			args{
+				source: map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.89),
+					"limit":    500,
+					"network":  false,
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id":     "moveTo-uuid1",
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+							map[string]interface{}{
+								"id":     "moveTo-uuid1",
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+						},
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id":     "moveAwayFrom-uuid1",
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid1",
+							},
+							map[string]interface{}{
+								"id":     "moveAwayFrom-uuid2",
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid2",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid3",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid4",
+							},
+						},
+					},
+				},
+			},
+			&NearTextParams{
+				Values:   []string{"c1", "c2", "c3"},
+				Distance: 0.89,
+				Limit:    500,
+				Network:  false,
+				MoveTo: ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+					Objects: []ObjectMove{
+						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
+						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
+					},
+				},
+				MoveAwayFrom: ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+					Objects: []ObjectMove{
+						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
+						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid4"},
+					},
+				},
+			},
+		},
+		{
+			"Extract with moveTo, moveAwayFrom, certainty (and doubled objects)",
 			args{
 				source: map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
@@ -258,7 +446,78 @@ func Test_extractNearTextFn(t *testing.T) {
 			},
 		},
 		{
-			"Extract with moveTo and moveAwayFrom (and doubled objects) and autocorrect",
+			"Extract with moveTo, moveAwayFrom, distance (and doubled objects) and autocorrect",
+			args{
+				source: map[string]interface{}{
+					"concepts":    []interface{}{"transform this", "c1", "c2", "c3", "transform this"},
+					"distance":    float64(0.89),
+					"limit":       500,
+					"network":     false,
+					"autocorrect": true,
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id":     "moveTo-uuid1",
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+							map[string]interface{}{
+								"id":     "moveTo-uuid1",
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+						},
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id":     "moveAwayFrom-uuid1",
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid1",
+							},
+							map[string]interface{}{
+								"id":     "moveAwayFrom-uuid2",
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid2",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid3",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAwayFrom-uuid4",
+							},
+						},
+					},
+				},
+			},
+			&NearTextParams{
+				Values:      []string{"transformed text", "c1", "c2", "c3", "transformed text"},
+				Distance:    0.89,
+				Limit:       500,
+				Network:     false,
+				Autocorrect: true,
+				MoveTo: ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+					Objects: []ObjectMove{
+						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
+						{ID: "moveTo-uuid1", Beacon: "weaviate://localhost/moveTo-uuid2"},
+					},
+				},
+				MoveAwayFrom: ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+					Objects: []ObjectMove{
+						{ID: "moveAwayFrom-uuid1", Beacon: "weaviate://localhost/moveAwayFrom-uuid1"},
+						{ID: "moveAwayFrom-uuid2", Beacon: "weaviate://localhost/moveAwayFrom-uuid2"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid3"},
+						{Beacon: "weaviate://localhost/moveAwayFrom-uuid4"},
+					},
+				},
+			},
+		},
+		{
+			"Extract with moveTo, moveAwayFrom, certainty (and doubled objects) and autocorrect",
 			args{
 				source: map[string]interface{}{
 					"concepts":    []interface{}{"transform this", "c1", "c2", "c3", "transform this"},

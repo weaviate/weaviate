@@ -26,7 +26,20 @@ func Test_extractNearImageFn(t *testing.T) {
 		want interface{}
 	}{
 		{
-			name: "should extract properly with all params set",
+			name: "should extract properly with distance and image params set",
+			args: args{
+				source: map[string]interface{}{
+					"image":    "base64;encoded",
+					"distance": float64(0.9),
+				},
+			},
+			want: &NearImageParams{
+				Image:    "base64;encoded",
+				Distance: 0.9,
+			},
+		},
+		{
+			name: "should extract properly with certainty and image params set",
 			args: args{
 				source: map[string]interface{}{
 					"image":     "base64;encoded",
@@ -39,7 +52,7 @@ func Test_extractNearImageFn(t *testing.T) {
 			},
 		},
 		{
-			name: "should extract properly with image set",
+			name: "should extract properly with only image set",
 			args: args{
 				source: map[string]interface{}{
 					"image": "base64;encoded",

@@ -28,7 +28,7 @@ import (
 
 var (
 	internalSearchers            = []string{"nearObject", "nearVector", "where", "group", "limit"}
-	internalAdditionalProperties = []string{"classification", "certainty", "id"}
+	internalAdditionalProperties = []string{"classification", "certainty", "id", "distance"}
 )
 
 type Provider struct {

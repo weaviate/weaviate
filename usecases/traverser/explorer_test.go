@@ -87,182 +87,158 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when an explore param is set for nearObject without id and beacon", func(t *testing.T) {
-		// TODO: this is a module specific test case, which relies on the
-		// text2vec-contextionary module
-		params := GetParams{
-			ClassName: "BestClass",
-			NearObject: &searchparams.NearObject{
-				Certainty: 0.9,
-			},
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-		}
-
-		search := &fakeVectorSearcher{}
-		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("vector search must be called with right params", func(t *testing.T) {
-			assert.NotNil(t, err)
-			assert.Nil(t, res)
-			assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
-		})
-	})
-
-	t.Run("when an explore param is set for nearObject with beacon", func(t *testing.T) {
-		// TODO: this is a module specific test case, which relies on the
-		// text2vec-contextionary module
-		params := GetParams{
-			ClassName: "BestClass",
-			NearObject: &searchparams.NearObject{
-				Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-				Certainty: 0.9,
-			},
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-		}
-
-		searchRes := search.Result{
-			ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-			Schema: map[string]interface{}{
-				"name": "Foo",
-			},
-		}
-
-		searchResults := []search.Result{
-			{
-				ID: "id1",
-				Schema: map[string]interface{}{
-					"name": "Foo",
-				},
-			},
-			{
-				ID: "id2",
-				Schema: map[string]interface{}{
-					"age": 200,
-				},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
-		expectedParamsToSearch := params
-		search.
-			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
-			Return(&searchRes, nil)
-		search.
-			On("VectorClassSearch", expectedParamsToSearch).
-			Return(searchResults, nil)
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("vector search must be called with right params", func(t *testing.T) {
-			assert.Nil(t, err)
-			search.AssertExpectations(t)
-		})
-
-		t.Run("response must contain object", func(t *testing.T) {
-			require.Len(t, res, 2)
-			assert.Equal(t,
-				map[string]interface{}{
-					"name": "Foo",
-				}, res[0])
-			assert.Equal(t,
-				map[string]interface{}{
-					"age": 200,
-				}, res[1])
-		})
-	})
-
-	t.Run("when an explore param is set for nearObject with id", func(t *testing.T) {
-		// TODO: this is a module specific test case, which relies on the
-		// text2vec-contextionary module
-		params := GetParams{
-			ClassName: "BestClass",
-			NearObject: &searchparams.NearObject{
-				ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-				Certainty: 0.9,
-			},
-			Pagination: &filters.Pagination{Limit: 100},
-			Filters:    nil,
-		}
-
-		searchRes := search.Result{
-			ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
-			Schema: map[string]interface{}{
-				"name": "Foo",
-			},
-		}
-
-		searchResults := []search.Result{
-			{
-				ID: "id1",
-				Schema: map[string]interface{}{
-					"name": "Foo",
-				},
-			},
-			{
-				ID: "id2",
-				Schema: map[string]interface{}{
-					"age": 200,
-				},
-			},
-		}
-
-		search := &fakeVectorSearcher{}
-		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
-		expectedParamsToSearch := params
-		search.
-			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
-			Return(&searchRes, nil)
-		search.
-			On("VectorClassSearch", expectedParamsToSearch).
-			Return(searchResults, nil)
-
-		res, err := explorer.GetClass(context.Background(), params)
-
-		t.Run("vector search must be called with right params", func(t *testing.T) {
-			assert.Nil(t, err)
-			search.AssertExpectations(t)
-		})
-
-		t.Run("response must contain object", func(t *testing.T) {
-			require.Len(t, res, 2)
-			assert.Equal(t,
-				map[string]interface{}{
-					"name": "Foo",
-				}, res[0])
-			assert.Equal(t,
-				map[string]interface{}{
-					"age": 200,
-				}, res[1])
-		})
-	})
-
-	t.Run("when an explore param is set for nearVector and the required certainty not met",
-		func(t *testing.T) {
+		t.Run("with distance", func(t *testing.T) {
+			// TODO: this is a module specific test case, which relies on the
+			// text2vec-contextionary module
 			params := GetParams{
 				ClassName: "BestClass",
-				NearVector: &searchparams.NearVector{
-					Vector:    []float32{0.8, 0.2, 0.7},
-					Certainty: 0.8,
+				NearObject: &searchparams.NearObject{
+					Distance: 0.1,
 				},
 				Pagination: &filters.Pagination{Limit: 100},
 				Filters:    nil,
 			}
 
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.NotNil(t, err)
+				assert.Nil(t, res)
+				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+			})
+		})
+
+		t.Run("with certainty", func(t *testing.T) {
+			// TODO: this is a module specific test case, which relies on the
+			// text2vec-contextionary module
+			params := GetParams{
+				ClassName: "BestClass",
+				NearObject: &searchparams.NearObject{
+					Certainty: 0.9,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.NotNil(t, err)
+				assert.Nil(t, res)
+				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+			})
+		})
+	})
+
+	t.Run("when an explore param is set for nearObject with beacon", func(t *testing.T) {
+		t.Run("with distance", func(t *testing.T) {
+			t.Run("with certainty", func(t *testing.T) {
+				// TODO: this is a module specific test case, which relies on the
+				// text2vec-contextionary module
+				params := GetParams{
+					ClassName: "BestClass",
+					NearObject: &searchparams.NearObject{
+						Beacon:   "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+						Distance: 0.1,
+					},
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    nil,
+				}
+
+				searchRes := search.Result{
+					ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+				}
+
+				searchResults := []search.Result{
+					{
+						ID: "id1",
+						Schema: map[string]interface{}{
+							"name": "Foo",
+						},
+					},
+					{
+						ID: "id2",
+						Schema: map[string]interface{}{
+							"age": 200,
+						},
+					},
+				}
+
+				search := &fakeVectorSearcher{}
+				log, _ := test.NewNullLogger()
+				explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+				expectedParamsToSearch := params
+				search.
+					On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+					Return(&searchRes, nil)
+				search.
+					On("VectorClassSearch", expectedParamsToSearch).
+					Return(searchResults, nil)
+
+				res, err := explorer.GetClass(context.Background(), params)
+
+				t.Run("vector search must be called with right params", func(t *testing.T) {
+					assert.Nil(t, err)
+					search.AssertExpectations(t)
+				})
+
+				t.Run("response must contain object", func(t *testing.T) {
+					require.Len(t, res, 2)
+					assert.Equal(t,
+						map[string]interface{}{
+							"name": "Foo",
+						}, res[0])
+					assert.Equal(t,
+						map[string]interface{}{
+							"age": 200,
+						}, res[1])
+				})
+			})
+		})
+
+		t.Run("with certainty", func(t *testing.T) {
+			// TODO: this is a module specific test case, which relies on the
+			// text2vec-contextionary module
+			params := GetParams{
+				ClassName: "BestClass",
+				NearObject: &searchparams.NearObject{
+					Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+					Certainty: 0.9,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchRes := search.Result{
+				ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			}
+
 			searchResults := []search.Result{
 				{
-					ID:   "id1",
-					Dist: 2 * 0.69,
+					ID: "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
 				},
 				{
-					ID:   "id2",
-					Dist: 2 * 0.69,
+					ID: "id2",
+					Schema: map[string]interface{}{
+						"age": 200,
+					},
 				},
 			}
 
@@ -270,7 +246,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
 			expectedParamsToSearch := params
-			expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
+			search.
+				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				Return(&searchRes, nil)
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
@@ -282,8 +260,240 @@ func Test_Explorer_GetClass(t *testing.T) {
 				search.AssertExpectations(t)
 			})
 
-			t.Run("no concept met the required certainty", func(t *testing.T) {
-				assert.Len(t, res, 0)
+			t.Run("response must contain object", func(t *testing.T) {
+				require.Len(t, res, 2)
+				assert.Equal(t,
+					map[string]interface{}{
+						"name": "Foo",
+					}, res[0])
+				assert.Equal(t,
+					map[string]interface{}{
+						"age": 200,
+					}, res[1])
+			})
+		})
+	})
+
+	t.Run("when an explore param is set for nearObject with id", func(t *testing.T) {
+		t.Run("with distance", func(t *testing.T) {
+			// TODO: this is a module specific test case, which relies on the
+			// text2vec-contextionary module
+			params := GetParams{
+				ClassName: "BestClass",
+				NearObject: &searchparams.NearObject{
+					ID:       "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+					Distance: 0.1,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchRes := search.Result{
+				ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			}
+
+			searchResults := []search.Result{
+				{
+					ID: "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+				},
+				{
+					ID: "id2",
+					Schema: map[string]interface{}{
+						"age": 200,
+					},
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+			expectedParamsToSearch := params
+			search.
+				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				Return(&searchRes, nil)
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("response must contain object", func(t *testing.T) {
+				require.Len(t, res, 2)
+				assert.Equal(t,
+					map[string]interface{}{
+						"name": "Foo",
+					}, res[0])
+				assert.Equal(t,
+					map[string]interface{}{
+						"age": 200,
+					}, res[1])
+			})
+		})
+
+		t.Run("with certainty", func(t *testing.T) {
+			// TODO: this is a module specific test case, which relies on the
+			// text2vec-contextionary module
+			params := GetParams{
+				ClassName: "BestClass",
+				NearObject: &searchparams.NearObject{
+					ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+					Certainty: 0.9,
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchRes := search.Result{
+				ID: "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			}
+
+			searchResults := []search.Result{
+				{
+					ID: "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+				},
+				{
+					ID: "id2",
+					Schema: map[string]interface{}{
+						"age": 200,
+					},
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+			expectedParamsToSearch := params
+			search.
+				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				Return(&searchRes, nil)
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("response must contain object", func(t *testing.T) {
+				require.Len(t, res, 2)
+				assert.Equal(t,
+					map[string]interface{}{
+						"name": "Foo",
+					}, res[0])
+				assert.Equal(t,
+					map[string]interface{}{
+						"age": 200,
+					}, res[1])
+			})
+		})
+	})
+
+	t.Run("when an explore param is set for nearVector and the required distance not met",
+		func(t *testing.T) {
+			t.Run("with distance", func(t *testing.T) {
+				params := GetParams{
+					ClassName: "BestClass",
+					NearVector: &searchparams.NearVector{
+						Vector:   []float32{0.8, 0.2, 0.7},
+						Distance: 0.2,
+					},
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    nil,
+				}
+
+				searchResults := []search.Result{
+					{
+						ID:   "id1",
+						Dist: 2 * 0.69,
+					},
+					{
+						ID:   "id2",
+						Dist: 2 * 0.69,
+					},
+				}
+
+				search := &fakeVectorSearcher{}
+				log, _ := test.NewNullLogger()
+				explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+				expectedParamsToSearch := params
+				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
+				search.
+					On("VectorClassSearch", expectedParamsToSearch).
+					Return(searchResults, nil)
+
+				res, err := explorer.GetClass(context.Background(), params)
+
+				t.Run("vector search must be called with right params", func(t *testing.T) {
+					assert.Nil(t, err)
+					search.AssertExpectations(t)
+				})
+
+				t.Run("no concept met the required certainty", func(t *testing.T) {
+					assert.Len(t, res, 0)
+				})
+			})
+
+			t.Run("with certainty", func(t *testing.T) {
+				params := GetParams{
+					ClassName: "BestClass",
+					NearVector: &searchparams.NearVector{
+						Vector:    []float32{0.8, 0.2, 0.7},
+						Certainty: 0.8,
+					},
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    nil,
+				}
+
+				searchResults := []search.Result{
+					{
+						ID:   "id1",
+						Dist: 2 * 0.69,
+					},
+					{
+						ID:   "id2",
+						Dist: 2 * 0.69,
+					},
+				}
+
+				search := &fakeVectorSearcher{}
+				log, _ := test.NewNullLogger()
+				explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+				expectedParamsToSearch := params
+				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
+				search.
+					On("VectorClassSearch", expectedParamsToSearch).
+					Return(searchResults, nil)
+
+				res, err := explorer.GetClass(context.Background(), params)
+
+				t.Run("vector search must be called with right params", func(t *testing.T) {
+					assert.Nil(t, err)
+					search.AssertExpectations(t)
+				})
+
+				t.Run("no concept met the required certainty", func(t *testing.T) {
+					assert.Len(t, res, 0)
+				})
 			})
 		})
 
@@ -1651,6 +1861,52 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		})
 	})
 
+	t.Run("when an explore param is set for nearCustomText and the required distance not met",
+		func(t *testing.T) {
+			params := GetParams{
+				ClassName: "BestClass",
+				ModuleParams: map[string]interface{}{
+					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
+						"concepts": []interface{}{"foo"},
+						"distance": float64(0.2),
+					}),
+				},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
+			}
+
+			searchResults := []search.Result{
+				{
+					ID:   "id1",
+					Dist: 2 * 0.69,
+				},
+				{
+					ID:   "id2",
+					Dist: 2 * 0.69,
+				},
+			}
+
+			search := &fakeVectorSearcher{}
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+			expectedParamsToSearch := params
+			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+			search.
+				On("VectorClassSearch", expectedParamsToSearch).
+				Return(searchResults, nil)
+
+			res, err := explorer.GetClass(context.Background(), params)
+
+			t.Run("vector search must be called with right params", func(t *testing.T) {
+				assert.Nil(t, err)
+				search.AssertExpectations(t)
+			})
+
+			t.Run("no object met the required distance", func(t *testing.T) {
+				assert.Len(t, res, 0)
+			})
+		})
+
 	t.Run("when an explore param is set for nearCustomText and the required certainty not met",
 		func(t *testing.T) {
 			params := GetParams{
@@ -1813,6 +2069,66 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
+	})
+
+	t.Run("when the distance prop is set", func(t *testing.T) {
+		params := GetParams{
+			Filters:      nil,
+			ClassName:    "BestClass",
+			Pagination:   &filters.Pagination{Limit: 100},
+			SearchVector: []float32{1.0, 2.0, 3.0},
+			AdditionalProperties: additional.Properties{
+				Distance: true,
+			},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
+					"concepts": []interface{}{"foobar"},
+					"limit":    100,
+					"distance": float64(0.69),
+				}),
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+				Vector: []float32{0.5, 1.5, 0.0},
+				Dist:   2 * 0.69,
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, newFakeDistancer69(), log, getFakeModulesProvider())
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
+		// expectedParamsToSearch.SearchVector = nil
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 1)
+
+			resMap := res[0].(map[string]interface{})
+			assert.Equal(t, 2, len(resMap))
+			assert.Contains(t, resMap, "age")
+			assert.Equal(t, 200, resMap["age"])
+			additionalMap := resMap["_additional"]
+			assert.Contains(t, additionalMap, "distance")
+			// Distance is fixed to 0.31 in this mock
+			assert.InEpsilon(t, 0.69, additionalMap.(map[string]interface{})["distance"].(float32), 0.000001)
+		})
 	})
 
 	t.Run("when the certainty prop is set", func(t *testing.T) {

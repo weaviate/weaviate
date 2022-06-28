@@ -621,7 +621,62 @@ func Test_Resolve(t *testing.T) {
 		},
 
 		testCase{
-			name: "with objectLimit + nearObject",
+			name: "with objectLimit + nearObject (distance)",
+			query: `
+				{
+					Aggregate{
+						Car(
+							objectLimit: 1
+							nearObject: {
+								id: "123"
+								distance: 0.3
+							}
+						) {
+							modelName {
+								count
+							}
+						}
+					}
+				}
+			`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+				},
+			},
+			expectedObjectLimit: ptInt(1),
+			expectedNearObjectFilter: &searchparams.NearObject{
+				ID:       "123",
+				Beacon:   "",
+				Distance: 0.3,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"modelName": {
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 7,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with objectLimit + nearObject (certainty)",
 			query: `
 				{
 					Aggregate{
@@ -676,7 +731,61 @@ func Test_Resolve(t *testing.T) {
 		},
 
 		testCase{
-			name: "with objectLimit + nearVector",
+			name: "with objectLimit + nearVector (distance)",
+			query: `
+				{
+					Aggregate{
+						Car(
+							objectLimit: 1
+							nearVector: {
+								vector: [1, 2, 3]
+								distance: 0.3
+							}
+						) {
+							modelName {
+								count
+							}
+						}
+					}
+				}
+			`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+				},
+			},
+			expectedObjectLimit: ptInt(1),
+			expectedNearVectorFilter: &searchparams.NearVector{
+				Vector:   []float32{1, 2, 3},
+				Distance: 0.3,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"modelName": {
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 7,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with objectLimit + nearVector (certainty)",
 			query: `
 				{
 					Aggregate{

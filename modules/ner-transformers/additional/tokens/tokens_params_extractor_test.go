@@ -34,7 +34,22 @@ func Test_parseTokenArguments(t *testing.T) {
 			want: &Params{},
 		},
 		{
-			name: "Should create with all params",
+			name: "Should create with all params (and distance)",
+			args: args{
+				args: []*ast.Argument{
+					createArg("distance", "0.4"),
+					createArg("limit", "1"),
+					createListArg("properties", []string{"prop1", "prop2"}),
+				},
+			},
+			want: &Params{
+				Properties: []string{"prop1", "prop2"},
+				Distance:   ptFloat64(0.4),
+				Limit:      ptInt(1),
+			},
+		},
+		{
+			name: "Should create with all params (and certainty)",
 			args: args{
 				args: []*ast.Argument{
 					createArg("certainty", "0.4"),

@@ -38,6 +38,13 @@ func (p *ParamsHelper) GetCertainty(params interface{}) float64 {
 	return 0
 }
 
+func (p *ParamsHelper) GetDistance(params interface{}) float64 {
+	if parameters, ok := params.(*AskParams); ok {
+		return parameters.Distance
+	}
+	return 0
+}
+
 func (p *ParamsHelper) GetRerank(params interface{}) bool {
 	if parameters, ok := params.(*AskParams); ok {
 		return parameters.Rerank

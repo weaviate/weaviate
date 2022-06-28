@@ -28,6 +28,9 @@ func (p *TokenProvider) parseTokenArguments(args []*ast.Argument) *Params {
 		case "certainty":
 			asFloat, _ := strconv.ParseFloat(arg.Value.GetValue().(string), 64)
 			out.Certainty = &asFloat
+		case "distance":
+			asFloat, _ := strconv.ParseFloat(arg.Value.GetValue().(string), 64)
+			out.Distance = &asFloat
 		case "properties":
 			inp := arg.Value.GetValue().([]ast.Value)
 			out.Properties = make([]string, len(inp))

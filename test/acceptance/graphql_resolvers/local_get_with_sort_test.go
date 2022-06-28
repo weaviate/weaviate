@@ -469,7 +469,88 @@ func gettingObjectsWithSort(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
-	t.Run("sort with nearText", func(t *testing.T) {
+	t.Run("sort with nearText (with distance)", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				City(
+					nearText: {
+						concepts: ["Berlin"]
+						distance: 0.3
+					}
+					%s
+				) {
+					name
+				}
+			}
+		}
+		`
+		tests := []struct {
+			name     string
+			sort     []string
+			expected []interface{}
+		}{
+			{
+				name: "name asc",
+				sort: []string{
+					buildSort([]string{"name"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Dusseldorf"},
+					map[string]interface{}{"name": "Rotterdam"},
+				},
+			},
+			{
+				name: "name desc",
+				sort: []string{
+					buildSort([]string{"name"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": "Dusseldorf"},
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+				},
+			},
+			{
+				name: "population asc",
+				sort: []string{
+					buildSort([]string{"population"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Dusseldorf"},
+					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+				},
+			},
+			{
+				name: "population desc",
+				sort: []string{
+					buildSort([]string{"population"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Dusseldorf"},
+					map[string]interface{}{"name": "Rotterdam"},
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				got := result.Get("Get", "City").AsSlice()
+				if !reflect.DeepEqual(got, tt.expected) {
+					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("sort with nearText (with certainty)", func(t *testing.T) {
 		query := `
 		{
 			Get {
@@ -550,7 +631,81 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 	})
 
-	t.Run("sort with nearText and limit", func(t *testing.T) {
+	t.Run("sort with nearText and limit (with distance)", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				City(
+					nearText: {
+						concepts: ["Berlin"]
+						distance: 0.3
+					}
+					%s
+					limit: 2
+				) {
+					name
+				}
+			}
+		}
+		`
+		tests := []struct {
+			name     string
+			sort     []string
+			expected []interface{}
+		}{
+			{
+				name: "name asc",
+				sort: []string{
+					buildSort([]string{"name"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+				},
+			},
+			{
+				name: "name desc",
+				sort: []string{
+					buildSort([]string{"name"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+				},
+			},
+			{
+				name: "population asc",
+				sort: []string{
+					buildSort([]string{"population"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+				},
+			},
+			{
+				name: "population desc",
+				sort: []string{
+					buildSort([]string{"population"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				got := result.Get("Get", "City").AsSlice()
+				if !reflect.DeepEqual(got, tt.expected) {
+					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("sort with nearText and limit (with certainty)", func(t *testing.T) {
 		query := `
 		{
 			Get {
@@ -624,7 +779,86 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 	})
 
-	t.Run("sort with where and nearText and limit", func(t *testing.T) {
+	t.Run("sort with where and nearText and limit (with distance)", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				City(
+					where: {
+						valueBoolean: true,
+						operator: Equal,
+						path: ["isCapital"]
+					}
+					nearText: {
+						concepts: ["Amsterdam"]
+						distance: 0.3
+					}
+					%s
+					limit: 2
+				) {
+					name
+				}
+			}
+		}
+		`
+		tests := []struct {
+			name     string
+			sort     []string
+			expected []interface{}
+		}{
+			{
+				name: "name asc",
+				sort: []string{
+					buildSort([]string{"name"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+				},
+			},
+			{
+				name: "name desc",
+				sort: []string{
+					buildSort([]string{"name"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+				},
+			},
+			{
+				name: "population asc",
+				sort: []string{
+					buildSort([]string{"population"}, "asc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": "Berlin"},
+				},
+			},
+			{
+				name: "population desc",
+				sort: []string{
+					buildSort([]string{"population"}, "desc"),
+				},
+				expected: []interface{}{
+					map[string]interface{}{"name": "Berlin"},
+					map[string]interface{}{"name": "Amsterdam"},
+				},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				got := result.Get("Get", "City").AsSlice()
+				if !reflect.DeepEqual(got, tt.expected) {
+					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("sort with where and nearText and limit (with certainty)", func(t *testing.T) {
 		query := `
 		{
 			Get {

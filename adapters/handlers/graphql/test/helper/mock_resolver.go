@@ -78,7 +78,7 @@ func (mr *MockResolver) AssertResolve(t *testing.T, query string) *GraphQLResult
 func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
 	result := mr.Resolve(query)
 	if len(result.Errors) == 0 {
-		t.Fatalf("Expected to not resulve resolve; %#v", result.Errors)
+		t.Fatalf("Expected to not resolve; %#v", result.Errors)
 	} else {
 		t.Log("Resolve failed, as expected, with error", result.Errors)
 	}

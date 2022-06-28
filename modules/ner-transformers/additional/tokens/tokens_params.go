@@ -14,6 +14,7 @@ package tokens
 type Params struct {
 	Limit      *int     // optional parameter
 	Certainty  *float64 // optional parameter
+	Distance   *float64 // optional parameter
 	Properties []string
 }
 

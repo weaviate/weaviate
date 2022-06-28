@@ -23,6 +23,14 @@ import (
 
 type Params struct{}
 
+type RerankType int
+
+const (
+	RerankByCertainty RerankType = iota
+	RerankByDistance
+	RerankNone
+)
+
 type qnaClient interface {
 	Answer(ctx context.Context,
 		text, question string) (*ent.AnswerResult, error)
@@ -32,6 +40,7 @@ type paramsHelper interface {
 	GetQuestion(params interface{}) string
 	GetProperties(params interface{}) []string
 	GetCertainty(params interface{}) float64
+	GetDistance(params interface{}) float64
 	GetRerank(params interface{}) bool
 }
 

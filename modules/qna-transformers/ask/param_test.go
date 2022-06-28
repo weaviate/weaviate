@@ -47,6 +47,16 @@ func Test_validateAskFn(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "should not validate when distance and certainty are present",
+			args: args{
+				param: &AskParams{
+					Distance:  0.1,
+					Certainty: 0.1,
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "should not validate when param passed is struct, not a pointer to struct",
 			args: args{
 				param: AskParams{

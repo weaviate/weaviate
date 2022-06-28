@@ -110,6 +110,14 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 		return 0
 	}
 
+	if params.NearVector != nil && params.NearVector.Distance != 0 {
+		return float32(params.NearVector.Distance)
+	}
+
+	if params.NearObject != nil && params.NearObject.Distance != 0 {
+		return float32(params.NearObject.Distance)
+	}
+
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	return float32(1-certainty) * 2
 }

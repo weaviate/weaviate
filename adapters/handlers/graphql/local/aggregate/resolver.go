@@ -95,13 +95,19 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 
 		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
-			p := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+			}
 			nearVectorParams = &p
 		}
 
 		var nearObjectParams *searchparams.NearObject
 		if nearObject, ok := p.Args["nearObject"]; ok {
-			p := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+			}
 			nearObjectParams = &p
 		}
 

@@ -24,7 +24,43 @@ import (
 )
 
 func TestGetAnswer(t *testing.T) {
-	t.Run("when the server has a successful answer", func(t *testing.T) {
+	t.Run("when the server has a successful answer (with distance)", func(t *testing.T) {
+		server := httptest.NewServer(&testNERHandler{
+			t: t,
+			res: nerResponse{
+				nerInput: nerInput{
+					Text: "I work at Apple",
+				},
+				Tokens: []tokenResponse{
+					{
+						Entity:        "I-ORG",
+						Distance:      0.3,
+						Word:          "Apple",
+						StartPosition: 20,
+						EndPosition:   25,
+					},
+				},
+			},
+		})
+		defer server.Close()
+		c := New(server.URL, nullLogger())
+		res, err := c.GetTokens(context.Background(), "prop",
+			"I work at Apple")
+
+		assert.Nil(t, err)
+		assert.Equal(t, []ent.TokenResult{
+			{
+				Entity:        "I-ORG",
+				Distance:      0.3,
+				Word:          "Apple",
+				StartPosition: 20,
+				EndPosition:   25,
+				Property:      "prop",
+			},
+		}, res)
+	})
+
+	t.Run("when the server has a successful answer (with certainty)", func(t *testing.T) {
 		server := httptest.NewServer(&testNERHandler{
 			t: t,
 			res: nerResponse{

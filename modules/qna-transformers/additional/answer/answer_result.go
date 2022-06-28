@@ -14,6 +14,7 @@ package answer
 import (
 	"context"
 	"errors"
+	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"sort"
 	"strings"
 
@@ -62,12 +63,26 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 				ap = models.AdditionalProperties{}
 			}
 
-			certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
-			if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
-				ap["answer"] = &qnamodels.Answer{
-					HasAnswer: false,
-				}
-			} else {
+			//certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
+			//if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
+			//	ap["answer"] = &qnamodels.Answer{
+			//		HasAnswer: false,
+			//	}
+			//} else {
+			//	propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
+			//	ap["answer"] = &qnamodels.Answer{
+			//		Result:        answer.Answer,
+			//		Property:      propertyName,
+			//		StartPosition: startPos,
+			//		EndPosition:   endPos,
+			//		Certainty:     answer.Certainty,
+			//		Distance:      answer.Distance,
+			//		Score:         answer.Score,
+			//		HasAnswer:     answer.Answer != nil,
+			//	}
+			//}
+
+			if answerMeetsSimilarityThreshold(argumentModuleParams["ask"], p.paramsHelper, answer) {
 				propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
 				ap["answer"] = &qnamodels.Answer{
 					Result:        answer.Answer,
@@ -78,6 +93,10 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 					Distance:      answer.Distance,
 					Score:         answer.Score,
 					HasAnswer:     answer.Answer != nil,
+				}
+			} else {
+				ap["answer"] = &qnamodels.Answer{
+					HasAnswer: false,
 				}
 			}
 
@@ -90,6 +109,20 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 		return p.rerank(in), nil
 	}
 	return in, nil
+}
+
+func answerMeetsSimilarityThreshold(params interface{}, helper paramsHelper, ans *ent.AnswerResult) bool {
+	certainty := helper.GetCertainty(params)
+	if certainty > 0 && ans.Certainty != nil && *ans.Certainty < certainty {
+		return false
+	}
+
+	distance := helper.GetDistance(params)
+	if distance > 0 && ans.Distance != nil && *ans.Distance > distance {
+		return false
+	}
+
+	return true
 }
 
 func (p *AnswerProvider) rerank(in []search.Result) []search.Result {
