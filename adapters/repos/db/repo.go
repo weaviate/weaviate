@@ -32,7 +32,6 @@ type DB struct {
 	nodeResolver nodeResolver
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
-	metrics      *Metrics
 
 	indexLock sync.Mutex
 }
