@@ -174,14 +174,29 @@ func (f *Searcher) objectsByDocID(ids []uint64,
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
+	return f.docIDs(ctx, filter, additional, className, true)
+}
+
+// DocIDsPreventCaching is the same as DocIDs, but makes sure that no filter
+// cache entries are written. This can be used when we can guarantee that the
+// filter is part of an operation that will lead to a state change, such as
+// batch delete. The state change would make the cached filter unusable
+// anyway, so we don't need to unnecessarily populate the cache with an entry.
+func (f *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
+	return f.docIDs(ctx, filter, additional, className, false)
+}
+
+func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName,
+	allowCaching bool) (helpers.AllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
 	cacheable := pv.cacheable()
-	if !cacheable {
-	} else {
+	if cacheable && allowCaching {
 		if err := pv.fetchHashes(f); err != nil {
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
@@ -208,7 +223,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		out.Insert(p)
 	}
 
-	if cacheable {
+	if cacheable && allowCaching {
 		f.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
 			Type:      CacheTypeAllowList,
 			AllowList: out,
