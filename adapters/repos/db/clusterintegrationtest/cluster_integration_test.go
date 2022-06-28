@@ -618,6 +618,12 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		require.Nil(t, err)
 		require.Equal(t, 0, len(res))
 	})
+
+	t.Run("shutdown", func(t *testing.T) {
+		for _, node := range nodes {
+			node.repo.Shutdown(context.Background())
+		}
+	})
 }
 
 func setupDirectory() (string, func()) {

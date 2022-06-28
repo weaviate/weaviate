@@ -48,6 +48,7 @@ import (
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	repo, logger, dirName := setupMultiShardTest()
 	defer func() {
+		repo.Shutdown(context.Background())
 		err := os.RemoveAll(dirName)
 		if err != nil {
 			fmt.Println(err)
@@ -86,6 +87,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	repo, logger, dirName := setupMultiShardTest()
 	defer func() {
+		repo.Shutdown(context.Background())
 		err := os.RemoveAll(dirName)
 		if err != nil {
 			fmt.Println(err)
@@ -159,6 +161,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	repo, logger, dirName := setupMultiShardTest()
 	defer func() {
+		repo.Shutdown(context.Background())
 		err := os.RemoveAll(dirName)
 		if err != nil {
 			fmt.Println(err)
