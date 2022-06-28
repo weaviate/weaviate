@@ -39,6 +39,7 @@ type Bucket struct {
 
 	memTableThreshold uint64
 	walThreshold      uint64
+	flushAfterIdle    time.Duration
 	strategy          string
 	secondaryIndices  uint16
 
@@ -51,6 +52,11 @@ type Bucket struct {
 	statusLock sync.RWMutex
 
 	metrics *Metrics
+
+	// all "replace" buckets support counting through net additions, but not all
+	// produce a meaningful count. Typically we the only count we're interested
+	// in is that of the bucket that holds objects
+	monitorCount bool
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
@@ -58,6 +64,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
+	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -68,6 +75,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		dir:               dir,
 		memTableThreshold: defaultMemTableThreshold,
 		walThreshold:      defaultWalThreshold,
+		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
 		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
@@ -81,7 +89,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	}
 
 	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy)
+		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -410,6 +418,9 @@ func (b *Bucket) Count() int {
 	}
 	diskCount := b.disk.count()
 
+	if b.monitorCount {
+		b.metrics.ObjectCount(memtableCount + diskCount)
+	}
 	return memtableCount + diskCount
 }
 
@@ -491,8 +502,11 @@ func (b *Bucket) initFlushCycle() {
 						Fatal("flush and switch failed")
 				}
 
-				shouldSwitch := b.active.Size() >= b.memTableThreshold ||
-					uint64(stat.Size()) >= b.walThreshold
+				memtableTooLarge := b.active.Size() >= b.memTableThreshold
+				walTooLarge := uint64(stat.Size()) >= b.walThreshold
+				dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+					b.active.IdleDuration() >= b.flushAfterIdle
+				shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
 				// If true, the parent shard has indicated that it has
 				// entered an immutable state. During this time, the
@@ -583,6 +597,12 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 		return err
 	}
 	b.flushing = nil
+
+	if b.strategy == StrategyReplace && b.monitorCount {
+		// having just flushed the memtable we now have the most up2date count which
+		// is a good place to udpate the metric
+		b.metrics.ObjectCount(b.disk.count())
+	}
 
 	return nil
 }

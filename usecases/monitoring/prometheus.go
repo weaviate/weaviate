@@ -18,6 +18,7 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
+	BatchDeleteTime                    *prometheus.HistogramVec
 	ObjectsTime                        *prometheus.HistogramVec
 	LSMBloomFilters                    *prometheus.HistogramVec
 	AsyncOperations                    *prometheus.GaugeVec
@@ -32,6 +33,7 @@ type PrometheusMetrics struct {
 	VectorIndexDurations               *prometheus.HistogramVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
+	ObjectCount                        *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
@@ -45,12 +47,21 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Help:    "Duration in ms of a single batch",
 			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
+		BatchDeleteTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "batch_delete_durations_ms",
+			Help:    "Duration in ms of a single delete batch",
+			Buckets: prometheus.ExponentialBuckets(10, 1.25, 40),
+		}, []string{"operation", "class_name", "shard_name"}),
 
 		ObjectsTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "objects_durations_ms",
 			Help:    "Duration of an individual object operation. Also as part of batches.",
 			Buckets: prometheus.ExponentialBuckets(10, 1.25, 25),
 		}, []string{"operation", "step", "class_name", "shard_name"}),
+		ObjectCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "object_count",
+			Help: "Number of currently ongoing async operations",
+		}, []string{"class_name", "shard_name"}),
 
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "async_operations_running",

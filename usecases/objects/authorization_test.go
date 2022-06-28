@@ -118,9 +118,9 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// reference on objects
 		{
 			methodName:       "AddObjectReference",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
+			additionalArgs:   []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
 			expectedVerb:     "update",
-			expectedResource: "objects/foo",
+			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "DeleteObjectReference",
@@ -130,9 +130,9 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "UpdateObjectReferences",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (models.MultipleRef)(nil)},
+			additionalArgs:   []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
 			expectedVerb:     "update",
-			expectedResource: "objects/foo",
+			expectedResource: "objects/class/foo",
 		},
 	}
 
