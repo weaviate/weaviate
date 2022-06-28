@@ -48,6 +48,10 @@ type ClientService interface {
 
 	ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPutOK, error)
 
+	ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesCreateOK, error)
+
+	ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesPutOK, error)
+
 	ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsCreateOK, error)
 
 	ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsDeleteNoContent, error)
@@ -255,6 +259,80 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for objects.class.put: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  ObjectsClassReferencesCreate adds a single reference to a class property
+
+  Add a single reference to a class-property.
+*/
+func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewObjectsClassReferencesCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "objects.class.references.create",
+		Method:             "POST",
+		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ObjectsClassReferencesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ObjectsClassReferencesCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for objects.class.references.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  ObjectsClassReferencesPut replaces all references to a class property
+
+  Update all references of a property of a data object.
+*/
+func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesPutOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewObjectsClassReferencesPutParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "objects.class.references.put",
+		Method:             "PUT",
+		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ObjectsClassReferencesPutReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ObjectsClassReferencesPutOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for objects.class.references.put: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

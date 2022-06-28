@@ -92,6 +92,10 @@ func (rc *RowCacher) deleteExistingEntries(sizeToDelete uint64) {
 	})
 }
 
+func (rc *RowCacher) Size() uint64 {
+	return atomic.LoadUint64(&rc.currentSize)
+}
+
 func (rc *RowCacher) Load(id []byte) (*CacheEntry, bool) {
 	retrieved, ok := rc.rowStore.Load(string(id))
 	if !ok {

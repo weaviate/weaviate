@@ -205,7 +205,9 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 
 	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndicies(1))
+		lsmkv.WithSecondaryIndicies(1),
+		lsmkv.WithMonitorCount(),
+	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
 	}

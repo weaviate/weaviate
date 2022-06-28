@@ -101,6 +101,7 @@ func TestCRUD(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -1291,6 +1292,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
+	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
@@ -1454,6 +1456,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
+	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
@@ -1604,6 +1607,7 @@ func Test_PutPatchRestart(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(ctx)
+	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
 	migrator := NewMigrator(repo, logger)
 
