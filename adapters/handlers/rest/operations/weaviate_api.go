@@ -105,6 +105,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsClassPutHandler: objects.ObjectsClassPutHandlerFunc(func(params objects.ObjectsClassPutParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassPut has not yet been implemented")
 		}),
+		ObjectsObjectsClassReferencesCreateHandler: objects.ObjectsClassReferencesCreateHandlerFunc(func(params objects.ObjectsClassReferencesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsClassReferencesCreate has not yet been implemented")
+		}),
+		ObjectsObjectsClassReferencesPutHandler: objects.ObjectsClassReferencesPutHandlerFunc(func(params objects.ObjectsClassReferencesPutParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation objects.ObjectsClassReferencesPut has not yet been implemented")
+		}),
 		ObjectsObjectsCreateHandler: objects.ObjectsCreateHandlerFunc(func(params objects.ObjectsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsCreate has not yet been implemented")
 		}),
@@ -248,6 +254,10 @@ type WeaviateAPI struct {
 	ObjectsObjectsClassPatchHandler objects.ObjectsClassPatchHandler
 	// ObjectsObjectsClassPutHandler sets the operation handler for the objects class put operation
 	ObjectsObjectsClassPutHandler objects.ObjectsClassPutHandler
+	// ObjectsObjectsClassReferencesCreateHandler sets the operation handler for the objects class references create operation
+	ObjectsObjectsClassReferencesCreateHandler objects.ObjectsClassReferencesCreateHandler
+	// ObjectsObjectsClassReferencesPutHandler sets the operation handler for the objects class references put operation
+	ObjectsObjectsClassReferencesPutHandler objects.ObjectsClassReferencesPutHandler
 	// ObjectsObjectsCreateHandler sets the operation handler for the objects create operation
 	ObjectsObjectsCreateHandler objects.ObjectsCreateHandler
 	// ObjectsObjectsDeleteHandler sets the operation handler for the objects delete operation
@@ -406,6 +416,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsClassPutHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassPutHandler")
+	}
+	if o.ObjectsObjectsClassReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsClassReferencesCreateHandler")
+	}
+	if o.ObjectsObjectsClassReferencesPutHandler == nil {
+		unregistered = append(unregistered, "objects.ObjectsClassReferencesPutHandler")
 	}
 	if o.ObjectsObjectsCreateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsCreateHandler")
@@ -629,6 +645,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/objects/{className}/{id}"] = objects.NewObjectsClassPut(o.context, o.ObjectsObjectsClassPutHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesCreate(o.context, o.ObjectsObjectsClassReferencesCreateHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/objects/{className}/{id}/references/{propertyName}"] = objects.NewObjectsClassReferencesPut(o.context, o.ObjectsObjectsClassReferencesPutHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

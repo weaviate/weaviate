@@ -132,8 +132,8 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 // production. However, keeping this method around may be valuable for future
 // investigations where the amount of links may be a problem.
 func (h *hnsw) ValidateLinkIntegrity() {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	for i, node := range h.nodes {
 		if node == nil {

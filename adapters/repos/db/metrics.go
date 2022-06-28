@@ -23,6 +23,7 @@ type Metrics struct {
 	logger           logrus.FieldLogger
 	monitoring       bool
 	batchTime        prometheus.ObserverVec
+	batchDeleteTime  prometheus.ObserverVec
 	objectTime       prometheus.ObserverVec
 	startupDurations prometheus.ObserverVec
 }
@@ -39,6 +40,10 @@ func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 
 	m.monitoring = true
 	m.batchTime = prom.BatchTime.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+	m.batchDeleteTime = prom.BatchDeleteTime.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 	})
@@ -201,5 +206,16 @@ func (m *Metrics) ShardStartup(start time.Time) {
 	took := time.Since(start)
 	m.startupDurations.With(prometheus.Labels{
 		"operation": "shard_total_init",
+	}).Observe(float64(took) / float64(time.Millisecond))
+}
+
+func (m *Metrics) BatchDelete(start time.Time, op string) {
+	if !m.monitoring {
+		return
+	}
+
+	took := time.Since(start)
+	m.batchDeleteTime.With(prometheus.Labels{
+		"operation": op,
 	}).Observe(float64(took) / float64(time.Millisecond))
 }

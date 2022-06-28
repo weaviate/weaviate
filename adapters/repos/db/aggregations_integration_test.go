@@ -73,8 +73,8 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("date aggregations without grouping",
 		testDateAggregationsWithoutGrouping(repo, true))
 
-	// t.Run("clean up",
-	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
+	t.Run("clean up",
+		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
 
 func Test_Aggregations_MultiShard(t *testing.T) {
@@ -206,7 +206,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 func cleanupCompanyTestSchemaAndData(repo *DB,
 	migrator *Migrator) func(t *testing.T) {
 	return func(t *testing.T) {
-		migrator.DropClass(context.Background(), companyClass.Class)
+		assert.Nil(t, repo.Shutdown(context.Background()))
 	}
 }
 

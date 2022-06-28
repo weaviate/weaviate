@@ -60,6 +60,8 @@ func TestBatchPutObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -88,6 +90,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -117,6 +120,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -624,6 +628,13 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 	}
 }
 
+func filterCacheSize(index *Index) (size uint64) {
+	for _, shard := range index.Shards {
+		size += shard.invertedRowCache.Size()
+	}
+	return
+}
+
 func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		getParams := func(dryRun bool, output string) objects.BatchDeleteParams {
@@ -656,10 +667,12 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			res, err := performClassSearch()
 			require.Nil(t, err)
 			beforeDelete := len(res)
+			cacheSizeBefore := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
 			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
 				getParams(true, "verbose"))
+			cacheSizeAfter := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -669,7 +682,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			res, err = performClassSearch()
 			require.Nil(t, err)
 			assert.Equal(t, beforeDelete, len(res))
-			fmt.Printf("beforeDelete: %v\n", beforeDelete)
+			assert.Equal(t, cacheSizeBefore, cacheSizeAfter)
 		})
 
 		t.Run("batch delete with dryRun set to true and output to minimal", func(t *testing.T) {
@@ -697,6 +710,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			res, err := performClassSearch()
 			require.Nil(t, err)
 			beforeDelete := len(res)
+			cacheSizeBefore := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
 			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
@@ -734,12 +748,14 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 					DryRun: false,
 					Output: "verbose",
 				})
+			cacheSizeAfter := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.Nil(t, err)
 			require.Equal(t, int64(2), batchDeleteRes.Matches)
 			require.Equal(t, 2, len(batchDeleteRes.Objects))
 			for _, batchRes := range batchDeleteRes.Objects {
 				require.Nil(t, batchRes.Err)
 			}
+			assert.Equal(t, cacheSizeBefore, cacheSizeAfter)
 			res, err = performClassSearch()
 			require.Nil(t, err)
 			assert.Equal(t, beforeDelete-2, len(res))
@@ -750,10 +766,12 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			res, err := performClassSearch()
 			require.Nil(t, err)
 			beforeDelete := len(res)
+			cacheSizeBefore := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
 			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
 				getParams(false, "verbose"))
+			cacheSizeAfter := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -762,6 +780,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			}
 			res, err = performClassSearch()
 			require.Nil(t, err)
+			assert.Equal(t, cacheSizeBefore, cacheSizeAfter)
 			assert.Equal(t, 0, len(res))
 		})
 	}

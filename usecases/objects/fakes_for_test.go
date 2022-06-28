@@ -39,6 +39,7 @@ type fakeSchemaManager struct {
 		toClass   string
 	}
 	GetSchemaResponse schema.Schema
+	GetschemaErr      error
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -56,7 +57,7 @@ func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, princ
 }
 
 func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	return f.GetSchemaResponse, nil
+	return f.GetSchemaResponse, f.GetschemaErr
 }
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
@@ -103,7 +104,7 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 }
 
 func (f *fakeLocks) LockSchema() (func() error, error) {
-	return func() error { return nil }, nil
+	return func() error { return nil }, f.Err
 }
 
 type fakeVectorizerProvider struct {
@@ -205,7 +206,7 @@ func (f *fakeVectorRepo) DeleteObject(ctx context.Context,
 func (f *fakeVectorRepo) AddReference(ctx context.Context,
 	class string, source strfmt.UUID, prop string,
 	ref *models.SingleRef) error {
-	args := f.Called(source, prop, ref)
+	args := f.Called(class, source, prop, ref)
 	return args.Error(0)
 }
 
