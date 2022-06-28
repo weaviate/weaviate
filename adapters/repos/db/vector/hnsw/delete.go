@@ -98,18 +98,21 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 }
 
 func (h *hnsw) getEntrypoint() uint64 {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	return h.entryPointID
 }
 
 func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
+	h.RLock()
+	lenOfNodes := uint64(len(h.nodes))
+	h.RUnlock()
+
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
 	deleteList := helpers.AllowList{}
-	lenOfNodes := uint64(len(h.nodes))
 
 	for id := range h.tombstones {
 		if lenOfNodes <= id {
@@ -146,9 +149,9 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			// level, we need to find an entrypoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
 			// this case we must reset the graph
-			h.Lock()
+			h.RLock()
 			node := h.nodes[id]
-			h.Unlock()
+			h.RUnlock()
 			if err := h.deleteEntrypoint(node, deleteList); err != nil {
 				return errors.Wrap(err, "delete entrypoint")
 			}
@@ -171,16 +174,17 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
-	h.Lock()
+	h.RLock()
 	size := len(h.nodes)
-	currentEntrypoint := h.entryPointID
-	h.Unlock()
+	h.RUnlock()
 
 	for n := 0; n < size; n++ {
 		neighbor := uint64(n)
-		h.Lock()
+		h.RLock()
 		neighborNode := h.nodes[neighbor]
-		h.Unlock()
+		currentEntrypoint := h.entryPointID
+		currentMaximumLayer := h.currentMaximumLayer
+		h.RUnlock()
 
 		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
 			continue
@@ -199,15 +203,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 		}
 		neighborNode.Lock()
 		neighborLevel := neighborNode.level
-		connections := neighborNode.connections
-		neighborNode.Unlock()
-
-		if !connectionsPointTo(connections, deleteList) {
+		if !connectionsPointTo(neighborNode.connections, deleteList) {
 			// nothing needs to be changed, skip
+			neighborNode.Unlock()
 			continue
 		}
+		neighborNode.Unlock()
 
-		entryPointID, err := h.findBestEntrypointForNode(h.currentMaximumLayer,
+		entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
 			neighborLevel, currentEntrypoint, neighborVec)
 		if err != nil {
 			return errors.Wrap(err, "find best entrypoint")
@@ -233,7 +236,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			tmpDenyList := deleteList.DeepCopy()
 			tmpDenyList.Insert(entryPointID)
 
-			alternative, level := h.findNewLocalEntrypoint(tmpDenyList, h.currentMaximumLayer,
+			alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 				entryPointID)
 			neighborLevel = level // reduce in case no neighbor is at our level
 			entryPointID = alternative
@@ -249,7 +252,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 		}
 
 		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
-			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
+			neighborLevel, currentMaximumLayer, deleteList); err != nil {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
 		neighborNode.unmarkAsMaintenance()
@@ -318,9 +321,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		// that level, in that case we need to look at the next lower level for a
 		// better candidate
 
-		h.Lock()
+		h.RLock()
 		maxNodes := len(h.nodes)
-		h.Unlock()
+		h.RUnlock()
 
 		for i := 0; i < maxNodes; i++ {
 			if h.getEntrypoint() != oldEntrypoint {
@@ -332,9 +335,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.Lock()
+			h.RLock()
 			candidate := h.nodes[i]
-			h.Unlock()
+			h.RUnlock()
 
 			if candidate == nil {
 				continue
@@ -371,9 +374,9 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		return h.getEntrypoint(), h.currentMaximumLayer
 	}
 
-	h.Lock()
+	h.RLock()
 	maxNodes := len(h.nodes)
-	h.Unlock()
+	h.RUnlock()
 
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
@@ -384,9 +387,9 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.Lock()
+			h.RLock()
 			candidate := h.nodes[i]
-			h.Unlock()
+			h.RUnlock()
 
 			if candidate == nil {
 				continue
@@ -410,8 +413,8 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	for _, node := range h.nodes {
 		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
