@@ -57,6 +57,8 @@ type Index struct {
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
+
+	metrics *Metrics
 }
 
 func (i *Index) ID() string {
@@ -91,6 +93,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		stopwords:             sd,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
+		metrics: NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -1007,6 +1010,9 @@ func (i *Index) notifyReady() {
 
 func (i *Index) findDocIDs(ctx context.Context,
 	filters *filters.LocalFilter) (map[string][]uint64, error) {
+	before := time.Now()
+	defer i.metrics.BatchDelete(before, "filter_total")
+
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	shardNames := shardState.AllPhysicalShards()
 
@@ -1049,6 +1055,9 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 
 func (i *Index) batchDeleteObjects(ctx context.Context,
 	shardDocIDs map[string][]uint64, dryRun bool) (objects.BatchSimpleObjects, error) {
+	before := time.Now()
+	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
+
 	type result struct {
 		objs objects.BatchSimpleObjects
 	}
