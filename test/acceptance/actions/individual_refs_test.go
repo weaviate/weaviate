@@ -26,16 +26,20 @@ import (
 
 // run from setup_test.go
 func objectReferences(t *testing.T) {
+	var (
+		class1 = "TestObject"
+		class2 = "TestObjectTwo"
+	)
 	t.Run("can add reference individually", func(t *testing.T) {
 		t.Parallel()
 
 		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", toPointToUuid)
+		assertGetObjectEventually(t, class1, toPointToUuid)
 
-		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{})
+		uuid := assertCreateObject(t, class2, map[string]interface{}{})
 
 		// Verify that testReferences is empty
-		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
+		updatedObject := assertGetObjectEventually(t, class2, uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.Nil(t, updatedSchema["testReferences"])
 
@@ -43,7 +47,7 @@ func objectReferences(t *testing.T) {
 		params := objects.NewObjectsReferencesCreateParams().
 			WithID(uuid).
 			WithPropertyName("testReferences").
-			WithBody(crossref.New("localhost", toPointToUuid).SingleRef())
+			WithBody(crossref.NewLocalhost(class1, toPointToUuid).SingleRef())
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesCreate(params, nil)
 		helper.AssertRequestOk(t, updateResp, err, nil)
@@ -72,7 +76,7 @@ func objectReferences(t *testing.T) {
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuidFirst).SingleRef(),
+				crossref.NewLocalhost("TestObject", toPointToUuidFirst).SingleRef(),
 			},
 		})
 
@@ -86,7 +90,7 @@ func objectReferences(t *testing.T) {
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(models.MultipleRef{
-				crossref.New("localhost", toPointToUuidLater).SingleRef(),
+				crossref.NewLocalhost("TestObject", toPointToUuidLater).SingleRef(),
 			})
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesUpdate(params, nil)
@@ -114,7 +118,7 @@ func objectReferences(t *testing.T) {
 
 		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
-				crossref.New("localhost", toPointToUuid).SingleRef(),
+				crossref.NewLocalhost("TestObject", toPointToUuid).SingleRef(),
 			},
 		})
 
@@ -128,7 +132,7 @@ func objectReferences(t *testing.T) {
 			WithID(uuid).
 			WithPropertyName("testReferences").
 			WithBody(
-				crossref.New("localhost", toPointToUuid).SingleRef(),
+				crossref.NewLocalhost("TestObject", toPointToUuid).SingleRef(),
 			)
 
 		updateResp, err := helper.Client(t).Objects.ObjectsReferencesDelete(params, nil)

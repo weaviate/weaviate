@@ -29,13 +29,71 @@ import (
 )
 
 func Test_ObjectHTTP(t *testing.T) {
+	t.Run("GET", findObject)
 	t.Run("HEAD", headObject)
-	t.Run("PUT", updateObjects)
-	t.Run("PATCH", patchObjects)
+	t.Run("PUT", putObject)
+	t.Run("PATCH", patchObject)
 	t.Run("DELETE", deleteObject)
 	t.Run("PostReference", postReference)
 	t.Run("PutReferences", putReferences)
 	t.Run("DeleteReference", deleteReference)
+}
+
+func findObject(t *testing.T) {
+	t.Parallel()
+	var (
+		cls           = "TestObjectHTTPGet"
+		first_friend  = "TestObjectHTTPGetFriendFirst"
+		second_friend = "TestObjectHTTPGetFriendSecond"
+	)
+
+	// test setup
+	first_uuid := assertCreateObject(t, first_friend, map[string]interface{}{})
+	defer deleteClassObject(t, first_friend)
+	second_uuid := assertCreateObject(t, second_friend, map[string]interface{}{})
+	defer deleteClassObject(t, second_friend)
+
+	assertCreateObjectClass(t, &models.Class{
+		Class:      cls,
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+			{
+				Name:     "friend",
+				DataType: []string{first_friend, second_friend},
+			},
+		},
+	})
+	// tear down
+	defer deleteClassObject(t, cls)
+	link1 := map[string]interface{}{
+		"beacon": crossref.NewLocalhost("", first_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s", first_uuid),
+	}
+	link2 := map[string]interface{}{
+		"beacon": crossref.NewLocalhost(second_friend, second_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s", second_uuid),
+	}
+	expected := map[string]interface{}{
+		"number": json.Number("2"),
+		"friend": []interface{}{link1, link2},
+	}
+
+	uuid := assertCreateObject(t, cls, expected)
+
+	r := objects.NewObjectsClassGetParams().WithID(uuid).WithClassName(cls)
+	resp, err := helper.Client(t).Objects.ObjectsClassGet(r, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	assert.Equal(t, expected, resp.Payload.Properties.(map[string]interface{}))
+
+	// check for an object which doesn't exist
+	unknown_uuid := strfmt.UUID("11110000-0000-0000-0000-000011110000")
+	r = objects.NewObjectsClassGetParams().WithID(unknown_uuid).WithClassName(cls)
+	resp, err = helper.Client(t).Objects.ObjectsClassGet(r, nil)
+	helper.AssertRequestFail(t, resp, err, nil)
 }
 
 func headObject(t *testing.T) {
@@ -70,10 +128,17 @@ func headObject(t *testing.T) {
 	helper.AssertRequestFail(t, resp, err, nil)
 }
 
-func updateObjects(t *testing.T) {
+func putObject(t *testing.T) {
 	t.Parallel()
-	cls := "TestObjectHTTPUpdate"
+	var (
+		cls        = "TestObjectHTTPUpdate"
+		friend_cls = "TestObjectHTTPUpdateFriend"
+	)
+
 	// test setup
+	friend_uuid := assertCreateObject(t, friend_cls, map[string]interface{}{})
+	defer deleteClassObject(t, friend_cls)
+
 	assertCreateObjectClass(t, &models.Class{
 		Class: cls,
 		ModuleConfig: map[string]interface{}{
@@ -102,21 +167,33 @@ func updateObjects(t *testing.T) {
 				Name:     "testTrueFalse",
 				DataType: []string{"boolean"},
 			},
+			{
+				Name:     "friend",
+				DataType: []string{friend_cls},
+			},
 		},
 	})
 	// tear down
 	defer deleteClassObject(t, cls)
-
 	uuid := assertCreateObject(t, cls, map[string]interface{}{
 		"testWholeNumber": 2.0,
 		"testDateTime":    time.Now(),
 		"testString":      "wibbly",
 	})
-	assertGetObjectEventually(t, cls, uuid)
+
+	link1 := map[string]interface{}{
+		"beacon": crossref.NewLocalhost("", friend_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s", friend_uuid),
+	}
+	link2 := map[string]interface{}{
+		"beacon": crossref.NewLocalhost(friend_cls, friend_uuid).String(),
+		"href":   fmt.Sprintf("/v1/objects/%s", friend_uuid),
+	}
 	expected := map[string]interface{}{
-		"testNumber":    2.0,
+		"testNumber":    json.Number("2"),
 		"testTrueFalse": true,
 		"testString":    "wibbly wobbly",
+		"friend":        []interface{}{link1, link2},
 	}
 	update := models.Object{
 		Class:      cls,
@@ -126,18 +203,11 @@ func updateObjects(t *testing.T) {
 	params := objects.NewObjectsClassPutParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
-	actual := func() interface{} {
-		obj := assertGetObject(t, cls, uuid)
-		props := obj.Properties.(map[string]interface{})
-		if props["testNumber"] != nil {
-			props["testNumber"], _ = props["testNumber"].(json.Number).Float64()
-		}
-		return props
-	}
-	testhelper.AssertEventuallyEqual(t, expected, actual)
+	actual := assertGetObject(t, cls, uuid).Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
 }
 
-func patchObjects(t *testing.T) {
+func patchObject(t *testing.T) {
 	t.Parallel()
 	var (
 		cls        = "TestObjectHTTPPatch"
@@ -149,12 +219,13 @@ func patchObjects(t *testing.T) {
 		}
 	)
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	assertCreateObjectClass(t, &models.Class{ // friend
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	assertCreateObjectClass(t, &models.Class{
+	defer deleteClassObject(t, friend_cls)
+	assertCreateObjectClass(t, &models.Class{ // class
 		Class:        cls,
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
@@ -180,27 +251,27 @@ func patchObjects(t *testing.T) {
 			},
 		},
 	})
-
-	// tear down
 	defer deleteClassObject(t, cls)
-	defer deleteClassObject(t, friend_cls)
 
 	uuid := assertCreateObject(t, cls, map[string]interface{}{
 		"integer1": 2.0,
 		"string1":  "wibbly",
 	})
 	friendID := assertCreateObject(t, friend_cls, nil)
+	link1 := map[string]interface{}{
+		"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+	}
+	link2 := map[string]interface{}{
+		"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
+		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+	}
 	expected := map[string]interface{}{
 		"integer1": json.Number("2"),
 		"number1":  json.Number("3"),
 		"boolean1": true,
 		"string1":  "wibbly wobbly",
-		"friend": []interface{}{
-			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", friendID),
-			},
-		},
+		"friend":   []interface{}{link1, link2},
 	}
 	update := map[string]interface{}{
 		"number1":  3.0,
@@ -208,7 +279,9 @@ func patchObjects(t *testing.T) {
 		"string1":  "wibbly wobbly",
 		"friend": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+				"beacon": link1["beacon"],
+			}, map[string]interface{}{
+				"beacon": link2["beacon"],
 			},
 		},
 	}
@@ -252,6 +325,8 @@ func deleteObject(t *testing.T) {
 		Vectorizer: "none",
 		Properties: props,
 	})
+	defer deleteClassObject(t, classA)
+
 	assertCreateObjectClass(t, &models.Class{
 		Class:      classB,
 		Vectorizer: "none",
@@ -259,7 +334,6 @@ func deleteObject(t *testing.T) {
 	})
 
 	defer deleteClassObject(t, classB)
-	defer deleteClassObject(t, classA)
 
 	object1 := &models.Object{
 		Class: classA,
@@ -377,12 +451,12 @@ func postReference(t *testing.T) {
 		"number": json.Number("2"),
 		"friend": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", friendID),
 			},
 		},
 	}
-	updateObj := crossref.New("localhost", friendID).SingleRef()
+	updateObj := crossref.NewLocalhost(friend_cls, friendID).SingleRef()
 	params := objects.NewObjectsClassReferencesCreateParams().WithClassName(cls)
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
@@ -458,18 +532,18 @@ func putReferences(t *testing.T) {
 		"number": json.Number("2"),
 		"friend": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
 			},
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", second_friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
 			},
 		},
 	}
 	updateObj := models.MultipleRef{
-		crossref.New("localhost", first_friendID).SingleRef(),
-		crossref.New("localhost", second_friendID).SingleRef(),
+		crossref.NewLocalhost(first_friend, first_friendID).SingleRef(),
+		crossref.NewLocalhost(second_friend, second_friendID).SingleRef(),
 	}
 	// add two references
 	params := objects.NewObjectsClassReferencesPutParams().WithClassName(cls)
@@ -569,11 +643,11 @@ func deleteReference(t *testing.T) {
 		"number": 2.0,
 		"friend": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
 			},
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", second_friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
 			},
 		},
@@ -582,13 +656,13 @@ func deleteReference(t *testing.T) {
 		"number": json.Number("2"),
 		"friend": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
 				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
 			},
 		},
 	}
 
-	updateObj := crossref.New("localhost", second_friendID).SingleRef()
+	updateObj := crossref.NewLocalhost(second_friend, second_friendID).SingleRef()
 	// delete second reference
 	params := objects.NewObjectsClassReferencesDeleteParams().WithClassName(cls)
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
@@ -610,7 +684,7 @@ func deleteReference(t *testing.T) {
 		"number": json.Number("2"),
 		"friend": []interface{}{},
 	}
-	updateObj = crossref.New("localhost", first_friendID).SingleRef()
+	updateObj = crossref.NewLocalhost(first_friend, first_friendID).SingleRef()
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)

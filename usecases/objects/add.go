@@ -46,7 +46,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	return m.addObjectToConnectorAndSchema(ctx, principal, object)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context,
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 	id strfmt.UUID) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -57,7 +57,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context,
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.exists(ctx, id); ok {
+	if ok, err := m.vectorRepo.Exists(ctx, class, id); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -67,7 +67,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context,
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.ID)
+	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +122,5 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	return validation.New(s, m.exists, m.config).Object(ctx, object)
-}
-
-func (m *Manager) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	return m.vectorRepo.Exists(ctx, "", id)
+	return validation.New(s, m.vectorRepo.Exists, m.config).Object(ctx, object)
 }
