@@ -52,6 +52,11 @@ type Bucket struct {
 	statusLock sync.RWMutex
 
 	metrics *Metrics
+
+	// all "replace" buckets support counting through net additions, but not all
+	// produce a meaningful count. Typically we the only count we're interested
+	// in is that of the bucket that holds objects
+	monitorCount bool
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
@@ -84,7 +89,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 	}
 
 	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy)
+		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -413,6 +418,9 @@ func (b *Bucket) Count() int {
 	}
 	diskCount := b.disk.count()
 
+	if b.monitorCount {
+		b.metrics.ObjectCount(memtableCount + diskCount)
+	}
 	return memtableCount + diskCount
 }
 
@@ -589,6 +597,12 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 		return err
 	}
 	b.flushing = nil
+
+	if b.strategy == StrategyReplace && b.monitorCount {
+		// having just flushed the memtable we now have the most up2date count which
+		// is a good place to udpate the metric
+		b.metrics.ObjectCount(b.disk.count())
+	}
 
 	return nil
 }

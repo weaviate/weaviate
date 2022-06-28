@@ -83,3 +83,13 @@ func WithSecondaryKey(pos int, key []byte) SecondaryKeyOption {
 		return nil
 	}
 }
+
+func WithMonitorCount() BucketOption {
+	return func(b *Bucket) error {
+		if b.strategy != StrategyReplace {
+			return errors.Errorf("count monitoring only supported on 'replace' buckets")
+		}
+		b.monitorCount = true
+		return nil
+	}
+}

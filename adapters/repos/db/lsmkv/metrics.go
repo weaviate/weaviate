@@ -29,6 +29,7 @@ type Metrics struct {
 	SegmentCount      *prometheus.GaugeVec
 	startupDurations  prometheus.ObserverVec
 	startupDiskIO     prometheus.ObserverVec
+	objectCount       prometheus.Gauge
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -83,6 +84,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
+		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
 	}
 }
 
@@ -112,4 +117,12 @@ func (m *Metrics) TrackStartupBucketRecovery(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.startupDurations.With(prometheus.Labels{"operation": "lsm_startup_bucket_recovery"}).Observe(took)
+}
+
+func (m *Metrics) ObjectCount(count int) {
+	if m == nil {
+		return
+	}
+
+	m.objectCount.Set(float64(count))
 }

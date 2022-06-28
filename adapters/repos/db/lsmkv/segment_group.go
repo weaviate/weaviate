@@ -48,11 +48,17 @@ type SegmentGroup struct {
 	status     storagestate.Status
 	statusLock sync.Mutex
 	metrics    *Metrics
+
+	// all "replace" buckets support counting through net additions, but not all
+	// produce a meaningful count. Typically we the only count we're interested
+	// in is that of the bucket that holds objects
+	monitorCount bool
 }
 
 func newSegmentGroup(dir string,
 	compactionCycle time.Duration, logger logrus.FieldLogger,
-	mapRequiresSorting bool, metrics *Metrics, strategy string) (*SegmentGroup, error) {
+	mapRequiresSorting bool, metrics *Metrics, strategy string,
+	monitorCount bool) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -63,6 +69,7 @@ func newSegmentGroup(dir string,
 		dir:                 dir,
 		logger:              logger,
 		metrics:             metrics,
+		monitorCount:        monitorCount,
 		stopCompactionCycle: make(chan struct{}),
 		mapRequiresSorting:  mapRequiresSorting,
 		strategy:            strategy,
@@ -114,6 +121,10 @@ func newSegmentGroup(dir string,
 	}
 
 	out.segments = out.segments[:segmentIndex]
+
+	if out.monitorCount {
+		out.metrics.ObjectCount(out.count())
+	}
 
 	out.initCompactionCycle(compactionCycle)
 	return out, nil
