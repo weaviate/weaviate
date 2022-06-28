@@ -53,7 +53,7 @@ type objectsManager interface {
 	MergeObject(context.Context, *models.Principal, *models.Object) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal, *uco.PutReferenceInput) *uco.Error
-	DeleteObjectReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	DeleteObjectReference(context.Context, *models.Principal, *uco.DeleteReferenceInput) *uco.Error
 	GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error)
 }
 
@@ -344,25 +344,33 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 	return objects.NewObjectsClassReferencesPutOK()
 }
 
-func (h *objectHandlers) deleteObjectReference(params objects.ObjectsReferencesDeleteParams,
+func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassReferencesDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
+	input := uco.DeleteReferenceInput{
+		Class:     params.ClassName,
+		ID:        params.ID,
+		Property:  params.PropertyName,
+		Reference: *params.Body,
+	}
+	err := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input)
 	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return objects.NewObjectsReferencesDeleteForbidden().
+		switch err.Code {
+		case uco.StatusForbidden:
+			return objects.NewObjectsClassReferencesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrNotFound, uco.ErrInvalidUserInput:
-			return objects.NewObjectsReferencesDeleteNotFound().
+		case uco.StatusNotFound:
+			return objects.NewObjectsClassReferencesDeleteNotFound()
+		case uco.StatusBadRequest:
+			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return objects.NewObjectsReferencesDeleteInternalServerError().
+			return objects.NewObjectsClassReferencesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return objects.NewObjectsReferencesDeleteNoContent()
+	return objects.NewObjectsClassReferencesDeleteNoContent()
 }
 
 func setupObjectHandlers(api *operations.WeaviateAPI,
@@ -388,8 +396,8 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsClassPatchHandlerFunc(h.patchObject)
 	api.ObjectsObjectsClassReferencesCreateHandler = objects.
 		ObjectsClassReferencesCreateHandlerFunc(h.addObjectReference)
-	api.ObjectsObjectsReferencesDeleteHandler = objects.
-		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReference)
+	api.ObjectsObjectsClassReferencesDeleteHandler = objects.
+		ObjectsClassReferencesDeleteHandlerFunc(h.deleteObjectReference)
 	api.ObjectsObjectsClassReferencesPutHandler = objects.
 		ObjectsClassReferencesPutHandlerFunc(h.putObjectReferences)
 	// deprecated handlers
@@ -407,6 +415,8 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 		ObjectsReferencesCreateHandlerFunc(h.addObjectReferenceDeprecated)
 	api.ObjectsObjectsReferencesUpdateHandler = objects.
 		ObjectsReferencesUpdateHandlerFunc(h.updateObjectReferencesDeprecated)
+	api.ObjectsObjectsReferencesDeleteHandler = objects.
+		ObjectsReferencesDeleteHandlerFunc(h.deleteObjectReferenceDeprecated)
 }
 
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
@@ -486,6 +496,18 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 		Body:         params.Body,
 	}
 	return h.putObjectReferences(req, principal)
+}
+
+func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsReferencesDeleteParams,
+	principal *models.Principal,
+) middleware.Responder {
+	req := objects.ObjectsClassReferencesDeleteParams{
+		HTTPRequest:  params.HTTPRequest,
+		Body:         params.Body,
+		ID:           params.ID,
+		PropertyName: params.PropertyName,
+	}
+	return h.deleteObjectReference(req, principal)
 }
 
 func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
