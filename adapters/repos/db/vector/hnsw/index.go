@@ -28,7 +28,7 @@ import (
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
-	sync.Mutex
+	sync.RWMutex
 
 	// certain operations related to deleting, such as finding a new entrypoint
 	// can only run sequentially, this separate lock helps assuring this without
@@ -498,8 +498,8 @@ func (h *hnsw) Stats() {
 }
 
 func (h *hnsw) isEmpty() bool {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	for _, node := range h.nodes {
 		if node != nil {
@@ -511,8 +511,8 @@ func (h *hnsw) isEmpty() bool {
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	if id >= uint64(len(h.nodes)) {
 		// See https://github.com/semi-technologies/weaviate/issues/1838 for details.
@@ -554,8 +554,8 @@ func (h *hnsw) Flush() error {
 }
 
 func (h *hnsw) Entrypoint() uint64 {
-	h.Lock()
-	defer h.Unlock()
+	h.RLock()
+	defer h.RUnlock()
 
 	return h.entryPointID
 }
