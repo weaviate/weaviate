@@ -49,11 +49,14 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[node.Start:node.End])
+
+	// make sure to set the next offset before checking the error. The error
+	// could be 'Deleted' which would require that the offset is still advanced
+	// for the next cycle
+	s.nextOffset = node.End
 	if err != nil {
 		return parsed.primaryKey, nil, err
 	}
-
-	s.nextOffset = node.End
 
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
@@ -97,11 +100,14 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
+
+	// make sure to set the next offset before checking the error. The error
+	// could be 'Deleted' which would require that the offset is still advanced
+	// for the next cycle
+	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
 		return parsed.primaryKey, nil, err
 	}
-
-	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
