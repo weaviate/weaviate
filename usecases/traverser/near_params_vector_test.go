@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/stretchr/testify/assert"
 )
 
 func Test_nearParamsVector_validateNearParams(t *testing.T) {
