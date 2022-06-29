@@ -43,22 +43,22 @@ var (
 )
 
 func Test_Classifications(t *testing.T) {
-	//t.Run("article/category setup for contextual classification", setupArticleCategory)
-	//t.Run("recipe setup for knn classification", setupRecipe)
-	//t.Run("food types and recipes setup for zeroshot classification", setupFoodTypes)
-	//
-	//// tests
-	//t.Run("contextual classification", contextualClassification)
-	//t.Run("knn classification", knnClassification)
-	//t.Run("zeroshot classification", zeroshotClassification)
-	//
-	//// tear down
-	//deleteObjectClass(t, "Article")
-	//deleteObjectClass(t, "Category")
-	//deleteObjectClass(t, "Recipe")
-	//deleteObjectClass(t, "RecipeType")
-	//deleteObjectClass(t, "FoodType")
-	//deleteObjectClass(t, "Recipes")
+	t.Run("article/category setup for contextual classification", setupArticleCategory)
+	t.Run("recipe setup for knn classification", setupRecipe)
+	t.Run("food types and recipes setup for zeroshot classification", setupFoodTypes)
+
+	// tests
+	t.Run("contextual classification", contextualClassification)
+	t.Run("knn classification", knnClassification)
+	t.Run("zeroshot classification", zeroshotClassification)
+
+	// tear down
+	deleteObjectClass(t, "Article")
+	deleteObjectClass(t, "Category")
+	deleteObjectClass(t, "Recipe")
+	deleteObjectClass(t, "RecipeType")
+	deleteObjectClass(t, "FoodType")
+	deleteObjectClass(t, "Recipes")
 }
 
 func setupArticleCategory(t *testing.T) {
