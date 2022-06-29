@@ -394,19 +394,6 @@ func (e *Explorer) Concepts(ctx context.Context,
 		if err != nil {
 			return nil, errors.Errorf("append results based on similarity: %s", err)
 		}
-		//dist, err := e.distancer(vector, item.Vector)
-		//if err != nil {
-		//	return nil, errors.Errorf("res %s: %v", item.Beacon, err)
-		//}
-		//item.Certainty = 1 - dist
-		//item.Dist = dist
-		//item.Score = -dist
-		//
-		//if distance := extractDistanceFromExploreParams(params); distance != 0 && item.Dist <= float32(distance) {
-		//	results = append(results, item)
-		//} else if certainty := extractCertaintyFromExploreParams(params); certainty != 0 && item.Certainty >= float32(certainty) {
-		//	results = append(results, item)
-		//}
 	}
 
 	return results, nil
