@@ -547,8 +547,6 @@ func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64)
 	}
 
 	return
-
-	//panic("extractCertaintyFromExploreParams was called without any known params present")
 }
 
 func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
@@ -567,8 +565,6 @@ func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
 	}
 
 	return
-
-	//panic("extractDistanceFromExploreParams was called without any known params present")
 }
 
 func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
