@@ -63,25 +63,6 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 				ap = models.AdditionalProperties{}
 			}
 
-			//certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
-			//if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
-			//	ap["answer"] = &qnamodels.Answer{
-			//		HasAnswer: false,
-			//	}
-			//} else {
-			//	propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-			//	ap["answer"] = &qnamodels.Answer{
-			//		Result:        answer.Answer,
-			//		Property:      propertyName,
-			//		StartPosition: startPos,
-			//		EndPosition:   endPos,
-			//		Certainty:     answer.Certainty,
-			//		Distance:      answer.Distance,
-			//		Score:         answer.Score,
-			//		HasAnswer:     answer.Answer != nil,
-			//	}
-			//}
-
 			if answerMeetsSimilarityThreshold(argumentModuleParams["ask"], p.paramsHelper, answer) {
 				propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
 				ap["answer"] = &qnamodels.Answer{

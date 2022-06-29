@@ -664,7 +664,6 @@ func Test_ExploreWithNoText2VecClasses(t *testing.T) {
 		require.Len(t, res.Errors, 1)
 		assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearCustomText\" on field \"Explore\"")
 	})
-
 }
 
 func Test_ExploreWithNoModules(t *testing.T) {
