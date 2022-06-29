@@ -411,7 +411,7 @@ func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 	item.Score = -dist
 
 	distance := extractDistanceFromExploreParams(params)
-	if distance != 0 && item.Dist <= float32(distance) {
+	if distance != 0 && item.Dist <= float32(distance/2) {
 		*results = append(*results, item)
 	}
 	certainty := extractCertaintyFromExploreParams(params)
@@ -488,11 +488,11 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 
 func ExtractDistanceFromParams(params GetParams) float64 {
 	if params.NearVector != nil {
-		return params.NearVector.Distance
+		return params.NearVector.Distance * 2
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Distance
+		return params.NearObject.Distance * 2
 	}
 
 	if len(params.ModuleParams) == 1 {
@@ -538,12 +538,12 @@ func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64)
 
 func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
 	if params.NearVector != nil {
-		distance = params.NearVector.Distance
+		distance = params.NearVector.Distance * 2
 		return
 	}
 
 	if params.NearObject != nil {
-		distance = params.NearObject.Distance
+		distance = params.NearObject.Distance * 2
 		return
 	}
 
@@ -575,9 +575,9 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) float6
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
 			if nearParam.SimilarityMetricProvided() {
 				if distance := nearParam.GetDistance(); distance != 0 {
-					return distance
+					return distance * 2
 				} else {
-					return 1 - nearParam.GetCertainty()
+					return (1 - nearParam.GetCertainty()) * 2
 				}
 			}
 		}
