@@ -2246,7 +2246,8 @@
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": ["objects"],
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "deprecated": true
       }
     },
     "/objects/{className}/{id}/references/{propertyName}": {
@@ -2386,6 +2387,79 @@
           }
         },
         "summary": "Replace all references to a class-property.",
+        "tags": ["objects"],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "delete": {
+        "description": "Delete the single reference that is given in the body from the list of references that this property of a data object has",
+        "operationId": "objects.class.references.delete",
+        "x-serviceIds": ["weaviate.local.manipulate"],
+        "parameters": [
+          {
+            "description": "The class name as defined in the schema",
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique ID of the Object.",
+            "format": "uuid",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the Object.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": ["objects"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false

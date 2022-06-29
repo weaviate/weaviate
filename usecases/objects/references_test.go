@@ -269,7 +269,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 		ErrAuth        error
 		ErrLock        error
 		ErrSchema      error
-		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> UpdateReference()
+		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
 	}{
 		{
@@ -377,6 +377,200 @@ func Test_ReferenceUpdate(t *testing.T) {
 				}
 
 			}
+			m.repo.AssertExpectations(t)
+		})
+	}
+}
+
+func Test_ReferenceDelete(t *testing.T) {
+	t.Parallel()
+	var (
+		cls    = "Zoo"
+		prop   = "hasAnimals"
+		id     = strfmt.UUID("d18c8e5e-000-0000-0000-56b0cfe33ce7")
+		uri    = strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		anyErr = errors.New("any")
+		ref    = models.SingleRef{Beacon: uri}
+		ref2   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce5")}
+		ref3   = &models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce6")}
+		req    = DeleteReferenceInput{
+			Class:     cls,
+			ID:        id,
+			Property:  prop,
+			Reference: ref,
+		}
+	)
+
+	fake_properties := func(refs ...*models.SingleRef) map[string]interface{} {
+		mrefs := make(models.MultipleRef, len(refs))
+		for i, r := range refs {
+			mrefs[i] = r
+		}
+		return map[string]interface{}{
+			"name": "MyZoo",
+			prop:   mrefs,
+		}
+	}
+
+	tests := []struct {
+		Name string
+		// inputs
+		Req           DeleteReferenceInput
+		properties    interface{}
+		NewSrcRefsLen int
+		// outputs
+		ExpectedRef models.SingleRef
+		WantCode    int
+		WantErr     error
+		SrcNotFound bool
+		// control errors
+		ErrPutRefs     error
+		ErrTagetExists error
+		ErrSrcExists   error
+		ErrAuth        error
+		ErrLock        error
+		ErrSchema      error
+		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
+		Stage int
+	}{
+		{
+			Name: "source object internal error", Req: req,
+			WantCode:     StatusInternalServerError,
+			ErrSrcExists: anyErr,
+			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+		},
+		{
+			Name: "source object missing", Req: req,
+			WantCode:    StatusNotFound,
+			SrcNotFound: true,
+		},
+		{
+			Name: "locking", Req: req,
+			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+		},
+		{
+			Name: "authorization", Req: req,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+		},
+		{
+			Name: "get schema",
+			Req:  req, Stage: 2,
+			ErrSchema: anyErr,
+			WantCode:  StatusBadRequest,
+		},
+		{
+			Name: "empty data type",
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "emptyType", Reference: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "primitive data type",
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "name", Reference: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "unknown property",
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "unknown", Reference: ref}, Stage: 2,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "reserved property name",
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "_id"}, Stage: 1,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name: "valid property name",
+			Req:  DeleteReferenceInput{Class: cls, ID: id, Property: "-"}, Stage: 1,
+			WantCode: StatusBadRequest,
+		},
+		{
+			Name:       "delete one reference",
+			Req:        req,
+			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 2,
+			Stage: 3,
+		},
+		{
+			Name:       "delete two references",
+			Req:        req,
+			properties: fake_properties(&ref, ref2, &ref), NewSrcRefsLen: 1,
+			Stage: 3,
+		},
+		{
+			Name:       "delete all references",
+			Req:        req,
+			properties: fake_properties(&ref, &ref), NewSrcRefsLen: 0,
+			Stage: 3,
+		},
+		{
+			Name:       "reference not found",
+			Req:        req,
+			properties: fake_properties(ref2, ref3), NewSrcRefsLen: 2,
+			Stage: 2,
+		},
+		{
+			Name:       "wrong reference type",
+			Req:        req,
+			properties: map[string]interface{}{prop: "wrong reference type"}, NewSrcRefsLen: 0,
+			Stage: 2,
+		},
+		{
+			Name:       "empty properties list",
+			Req:        req,
+			properties: nil, NewSrcRefsLen: 0,
+			Stage: 2,
+		},
+		{
+			Name:       "internal error",
+			Req:        req,
+			properties: fake_properties(ref2, &ref, ref3), NewSrcRefsLen: 3,
+			Stage:      3,
+			WantCode:   StatusInternalServerError,
+			ErrPutRefs: anyErr,
+			WantErr:    anyErr,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.Name, func(t *testing.T) {
+			m := newFakeGetManager(zooAnimalSchemaForTest())
+			m.authorizer.Err = tc.ErrAuth
+			m.locks.Err = tc.ErrLock
+			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
+			srcObj := &search.Result{
+				ClassName: cls,
+				Schema:    tc.properties,
+			}
+			if tc.SrcNotFound {
+				srcObj = nil
+			}
+			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+
+			if tc.Stage >= 3 {
+				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
+			}
+
+			err := m.DeleteObjectReference(context.Background(), nil, &tc.Req)
+			if tc.WantCode != 0 {
+				code := 0
+				if err != nil {
+					code = err.Code
+				}
+				if code != tc.WantCode {
+					t.Fatalf("code expected: %v, got %v", tc.WantCode, code)
+				}
+
+				if tc.WantErr != nil && !errors.Is(err, tc.WantErr) {
+					t.Errorf("wrapped error expected: %v, got %v", tc.WantErr, err.Err)
+				}
+
+			} else if tc.properties != nil {
+				refs, ok := srcObj.Schema.(map[string]interface{})[prop].(models.MultipleRef)
+				if g, w := len(refs), tc.NewSrcRefsLen; ok && g != w {
+					t.Errorf("length of source reference after deletion got:%v, want:%v", g, w)
+				}
+
+			}
+
 			m.repo.AssertExpectations(t)
 		})
 	}
