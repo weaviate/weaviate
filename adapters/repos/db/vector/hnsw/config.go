@@ -99,6 +99,11 @@ func (ec *errorCompounder) toError() error {
 }
 
 const (
+	DistanceCosine    = "cosine"
+	DistanceL2Squared = "l2-squared"
+)
+
+const (
 	DefaultCleanupIntervalSeconds = 5 * 60
 	DefaultMaxConnections         = 64
 	DefaultEFConstruction         = 128
@@ -109,7 +114,7 @@ const (
 	DefaultVectorCacheMaxObjects  = 2000000
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
-	DefaultDistanceMetric         = "cosine"
+	DefaultDistanceMetric         = DistanceCosine
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
