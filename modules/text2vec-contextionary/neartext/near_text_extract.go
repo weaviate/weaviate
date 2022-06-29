@@ -11,14 +11,10 @@
 
 package neartext
 
-import "log"
-
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
 func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) interface{} {
 	var args NearTextParams
-
-	log.Printf("ARGSARGS: %+v", args)
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})

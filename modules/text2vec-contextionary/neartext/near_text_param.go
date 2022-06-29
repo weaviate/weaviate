@@ -13,7 +13,6 @@ package neartext
 
 import (
 	"github.com/pkg/errors"
-	"log"
 )
 
 type NearTextParams struct {
@@ -69,19 +68,10 @@ func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
 			"needs to have defined either 'concepts' or 'objects' fields")
 	}
 
-	log.Printf("NEAR_TEXT_PARAM: %+v", nearText)
-
 	if nearText.Certainty != 0 && nearText.Distance != 0 {
 		return errors.Errorf(
 			"nearText cannot provide both distance and certainty")
 	}
-
-	//// because the modules all still accept certainty as
-	//// the only similarity metric input, me must make the
-	//// conversion to certainty if distance is provided
-	//if nearText.Distance != 0 {
-	//	nearText.Certainty = 1 - nearText.Distance
-	//}
 
 	return nil
 }
