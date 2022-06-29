@@ -205,8 +205,6 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 	}
 
 	return 0
-
-	//panic("extractCertainty was called without any known params present")
 }
 
 func (v *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
@@ -223,6 +221,4 @@ func (v *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[str
 	}
 
 	return 0
-
-	//panic("extractCertaintyFromModuleParams was called without any known module near param present")
 }

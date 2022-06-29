@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
