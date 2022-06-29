@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
+	helper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,23 +56,29 @@ func TestExtractAdditionalFields(t *testing.T) {
 	tests := []test{
 		{
 			name:  "with _additional certainty",
-			query: "{ Get { SomeAction { _additional { certainty } } } }",
+			query: "{ Get { SomeAction { _additional { certainty distance score } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					Certainty: true,
+					Distance:  true,
+					Score:     true,
 				},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"certainty": 0.69,
+						"distance":  helper.CertaintyToDist(t, 0.69),
+						"score":     helper.CertaintyToScore(t, 0.69),
 					},
 				},
 			},
 			expectedResult: map[string]interface{}{
 				"_additional": map[string]interface{}{
 					"certainty": 0.69,
+					"distance":  helper.CertaintyToDist(t, 0.69),
+					"score":     helper.CertaintyToScore(t, 0.69),
 				},
 			},
 		},
@@ -483,7 +490,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(nearText: {concepts: ["car", "best brand"]}) {
-							beacon className certainty
+							beacon className certainty distance score
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -498,6 +505,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Beacon:    "weaviate://localhost/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
+					Dist:      helper.CertaintyToDist(t, 0.7),
+					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -507,6 +516,8 @@ func Test_ResolveExplore(t *testing.T) {
 						"beacon":    "weaviate://localhost/some-uuid",
 						"className": "bestClass",
 						"certainty": float32(0.7),
+						"distance":  helper.CertaintyToDist(t, 0.7),
+						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},

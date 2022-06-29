@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -30,6 +31,10 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	if params.AdditionalProperties.Certainty {
+		deprecations.Log(t.logger, "additional-prop-certainty")
+	}
 
 	return t.explorer.GetClass(ctx, params)
 }

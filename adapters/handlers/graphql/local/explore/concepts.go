@@ -87,8 +87,8 @@ func exploreObject() *graphql.Object {
 		},
 
 		"certainty": &graphql.Field{
-			Name:        "ExploreBeacon",
-			Description: descriptions.Distance,
+			Name:        "ExploreCertainty",
+			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				vsr, ok := p.Source.(search.Result)
@@ -97,6 +97,34 @@ func exploreObject() *graphql.Object {
 				}
 
 				return vsr.Certainty, nil
+			},
+		},
+
+		"distance": &graphql.Field{
+			Name:        "ExploreDistance",
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				vsr, ok := p.Source.(search.Result)
+				if !ok {
+					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
+				}
+
+				return vsr.Dist, nil
+			},
+		},
+
+		"score": &graphql.Field{
+			Name:        "ExploreScore",
+			Description: descriptions.Score,
+			Type:        graphql.Float,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				vsr, ok := p.Source.(search.Result)
+				if !ok {
+					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
+				}
+
+				return vsr.Score, nil
 			},
 		},
 	}
