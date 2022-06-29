@@ -14,13 +14,13 @@ package answer
 import (
 	"context"
 	"errors"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"sort"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	qnamodels "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/models"
+	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context,
