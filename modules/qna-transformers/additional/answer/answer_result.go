@@ -75,6 +75,8 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 					StartPosition: startPos,
 					EndPosition:   endPos,
 					Certainty:     answer.Certainty,
+					Distance:      answer.Distance,
+					Score:         answer.Score,
 					HasAnswer:     answer.Answer != nil,
 				}
 			}

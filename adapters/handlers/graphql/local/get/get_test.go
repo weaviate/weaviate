@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	helper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -314,6 +315,8 @@ func TestExtractAdditionalFields(t *testing.T) {
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"certainty": 0.69,
+						"distance":  helper.CertaintyToDist(t, 0.69),
+						"score":     helper.CertaintyToScore(t, 0.69),
 					},
 				},
 			},

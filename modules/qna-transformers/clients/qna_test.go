@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,8 @@ func TestGetAnswer(t *testing.T) {
 			Question:  "What is my name?",
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
+			Distance:  additional.CertaintyToDist(ptFloat(0.7)),
+			Score:     additional.CertaintyToScore(ptFloat(0.7)),
 		}, res)
 	})
 

@@ -124,9 +124,10 @@ var packageTemplate = template.Must(template.New("").Funcs(
 package deprecations
 
 import (
+	"time"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"time"
 )
 
 func timeMust(t time.Time, err error) strfmt.DateTime {
@@ -154,6 +155,11 @@ var ByID = map[string]models.Deprecation{
 {{- range .Deprecations }}
 	{{ printf "%q" .ID }}: { 
 		ID: {{ printf "%q" .ID }},
+		Locations: []string{
+		{{- range $index, $element := .Locations }}
+			{{ printf "%q," $element }}
+		{{- end }}
+		},
 		Status: {{ printf "%q" .Status }},
 		APIType: {{ printf "%q" .APIType }},
 		Mitigation: {{ printf "%q" .Mitigation }},
