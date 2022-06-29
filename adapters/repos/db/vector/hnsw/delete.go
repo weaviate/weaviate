@@ -60,12 +60,9 @@ func (h *hnsw) Delete(id uint64) error {
 		defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
 		denyList := h.tombstonesAsDenyList()
-		if h.isOnlyNode(node, denyList) {
-			// TODO make sure isEmpty + reset are atomic (no insert occurred in the meantime)
-			if err := h.reset(); err != nil {
-				return errors.Wrap(err, "reset index")
-			}
-		} else {
+		if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
+			return errors.Wrap(err, "reset index")
+		} else if !onlyNode {
 			if err := h.deleteEntrypoint(node, denyList); err != nil {
 				return errors.Wrap(err, "delete entrypoint")
 			}
@@ -74,12 +71,31 @@ func (h *hnsw) Delete(id uint64) error {
 	return nil
 }
 
-func (h *hnsw) reset() error {
+func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.resetLock.Lock()
 	h.Lock()
 	defer h.Unlock()
 	defer h.resetLock.Unlock()
 
+	if h.isEmptyUnsecured() {
+		return true, h.resetUnsecured()
+	}
+	return false, nil
+}
+
+func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool, err error) {
+	h.resetLock.Lock()
+	h.Lock()
+	defer h.Unlock()
+	defer h.resetLock.Unlock()
+
+	if h.isOnlyNodeUnsecured(needle, denyList) {
+		return true, h.resetUnsecured()
+	}
+	return false, nil
+}
+
+func (h *hnsw) resetUnsecured() error {
 	h.resetCtxCancel()
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	h.resetCtx = resetCtx
@@ -178,11 +194,8 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		return nil
 	}
 
-	if h.isEmpty() {
-		// TODO make sure isEmpty + reset are atomic (no insert occurred in the meantime)
-		if err := h.reset(); err != nil {
-			return err
-		}
+	if _, err := h.resetIfEmpty(); err != nil {
+		return err
 	}
 
 	return nil
@@ -474,14 +487,16 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	h.RLock()
 	defer h.RUnlock()
 
+	return h.isOnlyNodeUnsecured(needle, denyList)
+}
+
+func (h *hnsw) isOnlyNodeUnsecured(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
 		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
 			continue
 		}
-
 		return false
 	}
-
 	return true
 }
 

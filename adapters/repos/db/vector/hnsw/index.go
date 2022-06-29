@@ -512,12 +512,15 @@ func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
 
+	return h.isEmptyUnsecured()
+}
+
+func (h *hnsw) isEmptyUnsecured() bool {
 	for _, node := range h.nodes {
 		if node != nil {
 			return false
 		}
 	}
-
 	return true
 }
 
