@@ -35,6 +35,7 @@ func Test_ObjectHTTP(t *testing.T) {
 	t.Run("DELETE", deleteObject)
 	t.Run("PostReference", postReference)
 	t.Run("PutReferences", putReferences)
+	t.Run("DeleteReference", deleteReference)
 }
 
 func headObject(t *testing.T) {
@@ -516,5 +517,127 @@ func putReferences(t *testing.T) {
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	if _, ok := err.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
+	}
+}
+
+func deleteReference(t *testing.T) {
+	t.Parallel()
+	var (
+		cls           = "TestObjectHTTPDeleteReference"
+		first_friend  = "TestObjectHTTPDeleteReferenceFriendFirst"
+		second_friend = "TestObjectHTTPDeleteReferenceFriendSecond"
+		mconfig       = map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		}
+	)
+	// test setup
+	assertCreateObjectClass(t, &models.Class{
+		Class:        first_friend,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	defer deleteClassObject(t, first_friend)
+
+	assertCreateObjectClass(t, &models.Class{
+		Class:        second_friend,
+		ModuleConfig: mconfig,
+		Properties:   []*models.Property{},
+	})
+	defer deleteClassObject(t, second_friend)
+
+	assertCreateObjectClass(t, &models.Class{
+		Class:        cls,
+		ModuleConfig: mconfig,
+		Properties: []*models.Property{
+			{
+				Name:     "number",
+				DataType: []string{"number"},
+			},
+			{
+				Name:     "friend",
+				DataType: []string{first_friend, second_friend},
+			},
+		},
+	})
+	defer deleteClassObject(t, cls)
+
+	first_friendID := assertCreateObject(t, first_friend, nil)
+	second_friendID := assertCreateObject(t, second_friend, nil)
+	uuid := assertCreateObject(t, cls, map[string]interface{}{
+		"number": 2.0,
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+			},
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", second_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
+			},
+		},
+	})
+	expected := map[string]interface{}{
+		"number": json.Number("2"),
+		"friend": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+			},
+		},
+	}
+
+	updateObj := crossref.New("localhost", second_friendID).SingleRef()
+	// delete second reference
+	params := objects.NewObjectsClassReferencesDeleteParams().WithClassName(cls)
+	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
+	resp, err := helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj := assertGetObject(t, cls, uuid)
+	actual := obj.Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
+
+	// delete same reference again
+	resp, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj = assertGetObject(t, cls, uuid)
+	actual = obj.Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
+
+	// delete last reference
+	expected = map[string]interface{}{
+		"number": json.Number("2"),
+		"friend": []interface{}{},
+	}
+	updateObj = crossref.New("localhost", first_friendID).SingleRef()
+	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
+	resp, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	obj = assertGetObject(t, cls, uuid)
+	actual = obj.Properties.(map[string]interface{})
+	assert.Equal(t, expected, actual)
+
+	// property is not part of the schema
+	params.WithPropertyName("unknown")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesDeleteUnprocessableEntity); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
+	}
+	params.WithPropertyName("friend")
+
+	// This ID doesn't exist
+	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesDeleteNotFound); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteNotFound{}, err)
+	}
+	params.WithID(uuid)
+
+	// bad request since body is required
+	params.WithID(uuid).WithBody(nil).WithPropertyName("friend")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	if _, ok := err.(*objects.ObjectsClassReferencesDeleteUnprocessableEntity); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
 	}
 }
