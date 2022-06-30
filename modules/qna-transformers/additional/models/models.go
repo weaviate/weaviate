@@ -20,6 +20,5 @@ type Answer struct {
 	EndPosition   int      `json:"endPosition,omitempty"`
 	Certainty     *float64 `json:"certainty,omitempty"`
 	Distance      *float64 `json:"distance,omitempty"`
-	Score         *float64 `json:"score,omitempty"`
 	HasAnswer     bool     `json:"hasAnswer,omitempty"`
 }

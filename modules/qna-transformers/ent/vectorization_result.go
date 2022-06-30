@@ -17,5 +17,4 @@ type AnswerResult struct {
 	Answer    *string
 	Certainty *float64
 	Distance  *float64
-	Score     *float64
 }

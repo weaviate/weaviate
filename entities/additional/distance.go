@@ -18,11 +18,3 @@ func CertaintyToDist(maybeCertainty *float64) (distPtr *float64) {
 	}
 	return
 }
-
-func CertaintyToScore(maybeCertainty *float64) (scorePtr *float64) {
-	if distPtr := CertaintyToDist(maybeCertainty); distPtr != nil {
-		score := -(*distPtr)
-		scorePtr = &score
-	}
-	return
-}

@@ -62,7 +62,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -378,7 +377,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -413,7 +411,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
