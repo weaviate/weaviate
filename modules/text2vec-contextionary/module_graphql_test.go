@@ -56,13 +56,12 @@ func TestExtractAdditionalFields(t *testing.T) {
 	tests := []test{
 		{
 			name:  "with _additional certainty",
-			query: "{ Get { SomeAction { _additional { certainty distance score } } } }",
+			query: "{ Get { SomeAction { _additional { certainty distance } } } }",
 			expectedParams: traverser.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					Certainty: true,
 					Distance:  true,
-					Score:     true,
 				},
 			},
 			resolverReturn: []interface{}{
@@ -70,7 +69,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"certainty": 0.69,
 						"distance":  helper.CertaintyToDist(t, 0.69),
-						"score":     helper.CertaintyToScore(t, 0.69),
 					},
 				},
 			},
@@ -78,7 +76,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 				"_additional": map[string]interface{}{
 					"certainty": 0.69,
 					"distance":  helper.CertaintyToDist(t, 0.69),
-					"score":     helper.CertaintyToScore(t, 0.69),
 				},
 			},
 		},
@@ -490,7 +487,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(nearText: {concepts: ["car", "best brand"]}) {
-							beacon className certainty distance score
+							beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -506,7 +503,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -517,7 +513,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},

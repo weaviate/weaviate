@@ -82,7 +82,6 @@ func (v *qna) Answer(ctx context.Context,
 		Answer:    resBody.Answer,
 		Certainty: resBody.Certainty,
 		Distance:  additional.CertaintyToDist(resBody.Certainty),
-		Score:     additional.CertaintyToScore(resBody.Certainty),
 	}, nil
 }
 
@@ -100,6 +99,5 @@ type answersResponse struct {
 	Answer       *string  `json:"answer"`
 	Certainty    *float64 `json:"certainty"`
 	Distance     *float64 `json:"distance"`
-	Score        *float64 `json:"score"`
 	Error        string   `json:"error"`
 }
