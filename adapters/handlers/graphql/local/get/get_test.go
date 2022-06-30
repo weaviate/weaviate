@@ -316,7 +316,6 @@ func TestExtractAdditionalFields(t *testing.T) {
 					"_additional": map[string]interface{}{
 						"certainty": 0.69,
 						"distance":  helper.CertaintyToDist(t, 0.69),
-						"score":     helper.CertaintyToScore(t, 0.69),
 					},
 				},
 			},

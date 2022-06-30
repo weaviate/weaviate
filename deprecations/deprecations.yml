@@ -71,7 +71,7 @@ deprecations:
     - 'Explore {}'
     msg: "response contains deprecated additional property certainty"
     mitigation: |-
-      when making Get/Explore queries, refer to 'distance' and 'score' as similarity metrics
+      when making Get/Explore queries, refer to 'distance'
     sinceVersion: "1.14.0"
     sinceTime: "2022-06-21T19:12:31+00:00"
     plannedRemovalVersion: "TBD"

@@ -278,10 +278,6 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			if params.AdditionalProperties.Distance {
 				additionalProperties["distance"] = res.Dist
 			}
-
-			if params.AdditionalProperties.Score {
-				additionalProperties["score"] = -res.Dist
-			}
 		}
 
 		if params.AdditionalProperties.ID {
@@ -388,7 +384,6 @@ func (e *Explorer) Concepts(ctx context.Context,
 		}
 		item.Certainty = 1 - dist
 		item.Dist = dist
-		item.Score = -dist
 		certainty := extractCertaintyFromExploreParams(params)
 		if item.Certainty >= float32(certainty) {
 			results = append(results, item)

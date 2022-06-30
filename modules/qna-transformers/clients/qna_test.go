@@ -49,7 +49,6 @@ func TestGetAnswer(t *testing.T) {
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
 			Distance:  additional.CertaintyToDist(ptFloat(0.7)),
-			Score:     additional.CertaintyToScore(ptFloat(0.7)),
 		}, res)
 	})
 
