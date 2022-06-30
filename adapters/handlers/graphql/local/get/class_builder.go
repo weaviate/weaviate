@@ -125,7 +125,6 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["classification"] = b.additionalClassificationField(class)
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["distance"] = b.additionalDistanceField(class)
-	additionalProperties["score"] = b.additionalScoreField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
@@ -173,12 +172,6 @@ func (b *classBuilder) additionalCertaintyField(class *models.Class) *graphql.Fi
 }
 
 func (b *classBuilder) additionalDistanceField(class *models.Class) *graphql.Field {
-	return &graphql.Field{
-		Type: graphql.Float,
-	}
-}
-
-func (b *classBuilder) additionalScoreField(class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Float,
 	}

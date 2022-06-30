@@ -98,7 +98,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -106,7 +105,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
@@ -150,7 +148,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -158,7 +155,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
@@ -209,7 +205,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -217,7 +212,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
@@ -267,7 +261,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -275,7 +268,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
@@ -403,7 +395,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -411,7 +402,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
@@ -514,7 +504,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 			{
 				ClassName: "AnAction",
@@ -522,7 +511,6 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
-				Score:     -0.5,
 			},
 		}, res)
 
