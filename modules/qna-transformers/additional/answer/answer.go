@@ -23,14 +23,6 @@ import (
 
 type Params struct{}
 
-type RerankType int
-
-const (
-	RerankByCertainty RerankType = iota
-	RerankByDistance
-	RerankNone
-)
-
 type qnaClient interface {
 	Answer(ctx context.Context,
 		text, question string) (*ent.AnswerResult, error)

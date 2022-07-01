@@ -46,7 +46,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(nearCustomText: {concepts: ["car", "best brand"]}) {
-							beacon className certainty distance score
+							beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -62,7 +62,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -73,7 +72,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},
@@ -402,7 +400,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(nearVector: {vector: [0, 1, 0.8]}) {
-							beacon className certainty distance score
+							beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -416,7 +414,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -427,7 +424,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},
@@ -438,7 +434,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(limit: 17, nearVector: {vector: [0, 1, 0.8]}) {
-							beacon className certainty distance score
+							beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -453,7 +449,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -464,7 +459,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},
@@ -479,7 +473,7 @@ func Test_ResolveExplore(t *testing.T) {
 						beacon: "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d"
 						distance: 0.3
 					}) {
-						beacon className certainty distance score
+						beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -494,7 +488,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -505,7 +498,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},
@@ -520,7 +512,7 @@ func Test_ResolveExplore(t *testing.T) {
 						beacon: "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d"
 						certainty: 0.7
 					}) {
-						beacon className certainty distance score
+						beacon className certainty distance
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -535,7 +527,6 @@ func Test_ResolveExplore(t *testing.T) {
 					ClassName: "bestClass",
 					Certainty: 0.7,
 					Dist:      helper.CertaintyToDist(t, 0.7),
-					Score:     helper.CertaintyToScore(t, 0.7),
 				},
 			},
 			expectedResults: []result{{
@@ -546,7 +537,6 @@ func Test_ResolveExplore(t *testing.T) {
 						"className": "bestClass",
 						"certainty": float32(0.7),
 						"distance":  helper.CertaintyToDist(t, 0.7),
-						"score":     helper.CertaintyToScore(t, 0.7),
 					},
 				},
 			}},

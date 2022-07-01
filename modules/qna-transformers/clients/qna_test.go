@@ -36,7 +36,6 @@ func TestGetAnswer(t *testing.T) {
 				Answer:    ptString("John"),
 				Certainty: ptFloat(0.7),
 				Distance:  ptFloat(0.3),
-				Score:     ptFloat(-0.3),
 			},
 		})
 		defer server.Close()
@@ -51,7 +50,6 @@ func TestGetAnswer(t *testing.T) {
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
 			Distance:  ptFloat(0.3),
-			Score:     ptFloat(-0.3),
 		}
 
 		assert.Equal(t, expectedResult.Text, res.Text)
@@ -59,7 +57,6 @@ func TestGetAnswer(t *testing.T) {
 		assert.Equal(t, expectedResult.Answer, res.Answer)
 		assert.Equal(t, expectedResult.Certainty, res.Certainty)
 		assert.InDelta(t, *expectedResult.Distance, *res.Distance, 1e-9)
-		assert.InDelta(t, *expectedResult.Score, *res.Score, 1e-9)
 	})
 
 	t.Run("when the server has a successful answer (with certainty)", func(t *testing.T) {
@@ -86,7 +83,6 @@ func TestGetAnswer(t *testing.T) {
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
 			Distance:  additional.CertaintyToDist(ptFloat(0.7)),
-			Score:     additional.CertaintyToScore(ptFloat(0.7)),
 		}, res)
 	})
 

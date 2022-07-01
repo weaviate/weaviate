@@ -148,7 +148,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.8, *answerAdditional.Certainty)
 		assert.InDelta(t, 0.2, *answerAdditional.Distance, 1e-9)
-		assert.InDelta(t, -0.2, *answerAdditional.Score, 1e-9)
 		assert.Equal(t, 13, answerAdditional.StartPosition)
 		assert.Equal(t, 19, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -194,7 +193,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.8, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.8)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.8)), *answerAdditional.Score)
 		assert.Equal(t, 13, answerAdditional.StartPosition)
 		assert.Equal(t, 19, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -240,7 +238,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.8, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.8)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.8)), *answerAdditional.Score)
 		assert.Equal(t, 13, answerAdditional.StartPosition)
 		assert.Equal(t, 19, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -286,7 +283,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, answerAdditional.Property == nil)
 		assert.True(t, answerAdditional.Certainty == nil)
 		assert.True(t, answerAdditional.Distance == nil)
-		assert.True(t, answerAdditional.Score == nil)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 0, answerAdditional.EndPosition)
 		assert.Equal(t, false, answerAdditional.HasAnswer)
@@ -332,7 +328,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, answerAdditional.Property == nil)
 		assert.True(t, answerAdditional.Certainty == nil)
 		assert.True(t, answerAdditional.Distance == nil)
-		assert.True(t, answerAdditional.Score == nil)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 0, answerAdditional.EndPosition)
 		assert.Equal(t, false, answerAdditional.HasAnswer)
@@ -389,7 +384,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.9, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.9)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.9)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -403,7 +397,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.5, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.5)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.5)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -416,8 +409,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "rerank 0.2", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.2, *answerAdditional.Certainty)
-		assert.InDelta(t, *additional.CertaintyToDist(ptFloat(0.2)), *answerAdditional.Distance, 1e-9)
-		assert.InDelta(t, *additional.CertaintyToScore(ptFloat(0.2)), *answerAdditional.Score, 1e-9)
+		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.2)), *answerAdditional.Distance)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -474,7 +466,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.5, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.5)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.5)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -488,7 +479,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.2, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.2)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.2)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -502,7 +492,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "content", *answerAdditional.Property)
 		assert.Equal(t, 0.9, *answerAdditional.Certainty)
 		assert.Equal(t, *additional.CertaintyToDist(ptFloat(0.9)), *answerAdditional.Distance)
-		assert.Equal(t, *additional.CertaintyToScore(ptFloat(0.9)), *answerAdditional.Score)
 		assert.Equal(t, 0, answerAdditional.StartPosition)
 		assert.Equal(t, 10, answerAdditional.EndPosition)
 		assert.Equal(t, true, answerAdditional.HasAnswer)
@@ -532,7 +521,6 @@ func (c *fakeQnAClient) getAnswer(question, answer string, certainty float64) *e
 		Answer:    &answer,
 		Certainty: &certainty,
 		Distance:  additional.CertaintyToDist(&certainty),
-		Score:     additional.CertaintyToScore(&certainty),
 	}
 }
 
