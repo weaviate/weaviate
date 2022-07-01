@@ -286,10 +286,6 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			if params.AdditionalProperties.Distance {
 				additionalProperties["distance"] = normalizedResultDist
 			}
-
-			if params.AdditionalProperties.Score {
-				additionalProperties["score"] = -normalizedResultDist
-			}
 		}
 
 		if params.AdditionalProperties.ID {
@@ -408,7 +404,6 @@ func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 
 	item.Certainty = 1 - dist
 	item.Dist = dist
-	item.Score = -dist
 
 	distance := extractDistanceFromExploreParams(params)
 	if distance != 0 && item.Dist <= float32(distance/2) {

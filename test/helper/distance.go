@@ -26,8 +26,3 @@ func CertaintyToDist(t *testing.T, in float32) float32 {
 	}
 	return float32(*dist)
 }
-
-func CertaintyToScore(t *testing.T, in float32) float32 {
-	dist := CertaintyToDist(t, in)
-	return -dist
-}
