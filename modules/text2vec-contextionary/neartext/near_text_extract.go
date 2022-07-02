@@ -50,6 +50,11 @@ func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface
 		args.Certainty = certainty.(float64)
 	}
 
+	distance, ok := source["distance"]
+	if ok {
+		args.Distance = distance.(float64)
+	}
+
 	// moveTo is an optional arg, so it could be nil
 	moveTo, ok := source["moveTo"]
 	if ok {

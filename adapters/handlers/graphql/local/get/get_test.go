@@ -303,6 +303,28 @@ func TestExtractAdditionalFields(t *testing.T) {
 
 	tests := []test{
 		{
+			name:  "with _additional distance",
+			query: "{ Get { SomeAction { _additional { distance } } } }",
+			expectedParams: traverser.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					Distance: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"distance": helper.CertaintyToDist(t, 0.69),
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"distance": helper.CertaintyToDist(t, 0.69),
+				},
+			},
+		},
+		{
 			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty } } } }",
 			expectedParams: traverser.GetParams{
@@ -717,6 +739,45 @@ func TestNearCustomTextRanker(t *testing.T) {
 		assert.Contains(t, res.Errors[0].Message, "Unknown argument \"nearCustomText\" on field \"CustomVectorClass\"")
 	})
 
+	t.Run("for things with optional distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearCustomText: {
+	            concepts: ["c1", "c2", "c3"],
+								distance: 0.6,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+	    			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.6),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearCustomText: {
 	            concepts: ["c1", "c2", "c3"],
@@ -746,6 +807,73 @@ func TestNearCustomTextRanker(t *testing.T) {
 					"moveAwayFrom": map[string]interface{}{
 						"concepts": []interface{}{"epic"},
 						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional distance and objects set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearCustomText: {
+								concepts: ["c1", "c2", "c3"],
+								distance: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+									objects: [
+										{ id: "moveTo-uuid1" }
+										{ beacon: "weaviate://localhost/moveTo-uuid1" },
+										{ beacon: "weaviate://localhost/moveTo-uuid2" }
+									]
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+									objects: [
+										{ id: "moveAway-uuid1" }
+										{ beacon: "weaviate://localhost/moveAway-uuid2" }
+									]
+								}
+							}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveTo-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveTo-uuid2",
+							},
+						},
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+						"objects": []interface{}{
+							map[string]interface{}{
+								"id": "moveAway-uuid1",
+							},
+							map[string]interface{}{
+								"beacon": "weaviate://localhost/moveAway-uuid2",
+							},
+						},
 					},
 				}),
 			},
@@ -823,6 +951,47 @@ func TestNearCustomTextRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for things with optional distance and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+							limit: 6
+							nearCustomText: {
+	            				concepts: ["c1", "c2", "c3"],
+								distance: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+	    			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: 6},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 							limit: 6
@@ -847,6 +1016,47 @@ func TestNearCustomTextRanker(t *testing.T) {
 				"nearCustomText": extractNearTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"c1", "c2", "c3"},
 					"certainty": float64(0.4),
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+				}),
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional distance and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+							limit: -1
+							nearCustomText: {
+	            				concepts: ["c1", "c2", "c3"],
+								distance: 0.4,
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+	    			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"distance": float64(0.4),
 					"moveTo": map[string]interface{}{
 						"concepts": []interface{}{"positive"},
 						"force":    float64(0.5),
@@ -930,6 +1140,27 @@ func TestNearVectorRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for things with optional distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearVector: {
+							  vector: [0.123, 0.984] 
+							  distance: 0.4
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{0.123, 0.984},
+				Distance: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
 							  vector: [0.123, 0.984] 
@@ -951,6 +1182,30 @@ func TestNearVectorRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for things with optional distance and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+					limit: 4  
+    				nearVector: {
+					  vector: [0.123, 0.984] 
+					  distance: 0.1
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: 4},
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{0.123, 0.984},
+				Distance: 0.1,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for things with optional certainty and limit set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 					limit: 4  
@@ -966,6 +1221,30 @@ func TestNearVectorRanker(t *testing.T) {
 			NearVector: &searchparams.NearVector{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.1,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional distance and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+					limit: -1  
+    				nearVector: {
+					  vector: [0.123, 0.984] 
+					  distance: 0.1
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{0.123, 0.984},
+				Distance: 0.1,
 			},
 		}
 
@@ -1239,6 +1518,28 @@ func TestNearObject(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for objects with beacon and optional distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									beacon: "weaviate://localhost/some-other-uuid"
+									distance: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearObject: &searchparams.NearObject{
+				Beacon:   "weaviate://localhost/some-other-uuid",
+				Distance: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for objects with beacon and optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 								nearObject: {
@@ -1281,6 +1582,28 @@ func TestNearObject(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for objects with id and optional distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									id: "some-other-uuid"
+									distance: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-other-uuid",
+				Distance: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for objects with id and optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 								nearObject: {
@@ -1295,6 +1618,29 @@ func TestNearObject(t *testing.T) {
 			NearObject: &searchparams.NearObject{
 				ID:        "some-other-uuid",
 				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with optional distance and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: 5
+						nearObject: {
+						  id: "some-other-uuid"
+						  distance: 0.7
+						}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: 5},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-other-uuid",
+				Distance: 0.7,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1318,6 +1664,29 @@ func TestNearObject(t *testing.T) {
 			NearObject: &searchparams.NearObject{
 				ID:        "some-other-uuid",
 				Certainty: 0.7,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with optional distance and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: -1
+						nearObject: {
+						  id: "some-other-uuid"
+						  distance: 0.7
+						}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-other-uuid",
+				Distance: 0.7,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1405,6 +1774,29 @@ func TestNearObjectNoModules(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for objects with ID and distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								nearObject: {
+									id: "some-uuid"
+									distance: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-uuid",
+				Distance: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for objects with ID and certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(
 								nearObject: {
@@ -1419,6 +1811,30 @@ func TestNearObjectNoModules(t *testing.T) {
 			NearObject: &searchparams.NearObject{
 				ID:        "some-uuid",
 				Certainty: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with distance and limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								limit: 12
+								nearObject: {
+									id: "some-uuid"
+									distance: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: 12},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-uuid",
+				Distance: 0.7,
 			},
 		}
 
@@ -1443,6 +1859,30 @@ func TestNearObjectNoModules(t *testing.T) {
 			NearObject: &searchparams.NearObject{
 				ID:        "some-uuid",
 				Certainty: 0.7,
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for objects with distance and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+								limit: -1
+								nearObject: {
+									id: "some-uuid"
+									distance: 0.7
+								}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearObject: &searchparams.NearObject{
+				ID:       "some-uuid",
+				Distance: 0.7,
 			},
 		}
 
@@ -1501,6 +1941,27 @@ func TestNearVectorNoModules(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for things with optional distance set", func(t *testing.T) {
+		query := `{ Get { SomeThing(nearVector: {
+							  vector: [0.123, 0.984] 
+								distance: 0.4
+        			}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{0.123, 0.984},
+				Distance: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { SomeThing(nearVector: {
 							  vector: [0.123, 0.984] 
@@ -1537,6 +1998,29 @@ func TestNearVectorNoModules(t *testing.T) {
 			NearVector: &searchparams.NearVector{
 				Vector:    []float32{0.123, 0.984},
 				Certainty: 0.4,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for things with optional distance and negative limit set", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						limit: -1
+						nearVector: {
+						  vector: [0.123, 0.984] 
+						  distance: 0.4
+        				}) { intField } } }`
+
+		expectedParams := traverser.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{0.123, 0.984},
+				Distance: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).

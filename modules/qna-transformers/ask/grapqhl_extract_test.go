@@ -37,6 +37,19 @@ func Test_extractAskFn(t *testing.T) {
 			},
 		},
 		{
+			name: "should parse properly with question and distance",
+			args: args{
+				source: map[string]interface{}{
+					"question": "some question",
+					"distance": 0.8,
+				},
+			},
+			want: &AskParams{
+				Question: "some question",
+				Distance: 0.8,
+			},
+		},
+		{
 			name: "should parse properly with question and certainty",
 			args: args{
 				source: map[string]interface{}{
@@ -57,17 +70,17 @@ func Test_extractAskFn(t *testing.T) {
 			want: &AskParams{},
 		},
 		{
-			name: "should parse properly with question and certainty and properties",
+			name: "should parse properly with question, distance, and properties",
 			args: args{
 				source: map[string]interface{}{
 					"question":   "some question",
-					"certainty":  0.8,
+					"distance":   0.8,
 					"properties": []interface{}{"prop1", "prop2"},
 				},
 			},
 			want: &AskParams{
 				Question:   "some question",
-				Certainty:  0.8,
+				Distance:   0.8,
 				Properties: []string{"prop1", "prop2"},
 			},
 		},
@@ -84,6 +97,23 @@ func Test_extractAskFn(t *testing.T) {
 				Question:   "some question",
 				Certainty:  0.8,
 				Properties: []string{"prop1", "prop2"},
+			},
+		},
+		{
+			name: "should parse properly with question, distance, properties, and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":   "some question",
+					"distance":   0.8,
+					"properties": []interface{}{"prop1", "prop2"},
+					"rerank":     true,
+				},
+			},
+			want: &AskParams{
+				Question:   "some question",
+				Distance:   0.8,
+				Properties: []string{"prop1", "prop2"},
+				Rerank:     true,
 			},
 		},
 		{
@@ -150,6 +180,23 @@ func Test_extractAskFn(t *testing.T) {
 			},
 		},
 		{
+			name: "should parse properly with question, distance, properties, and autocorrect",
+			args: args{
+				source: map[string]interface{}{
+					"question":    "transform this",
+					"distance":    0.8,
+					"properties":  []interface{}{"prop1", "prop2"},
+					"autocorrect": true,
+				},
+			},
+			want: &AskParams{
+				Question:    "transformed text",
+				Distance:    0.8,
+				Properties:  []string{"prop1", "prop2"},
+				Autocorrect: true,
+			},
+		},
+		{
 			name: "should parse properly with question and certainty and properties and autocorrect",
 			args: args{
 				source: map[string]interface{}{
@@ -164,6 +211,25 @@ func Test_extractAskFn(t *testing.T) {
 				Certainty:   0.8,
 				Properties:  []string{"prop1", "prop2"},
 				Autocorrect: true,
+			},
+		},
+		{
+			name: "should parse properly with question, distance, properties, autocorrect, and rerank",
+			args: args{
+				source: map[string]interface{}{
+					"question":    "transform this",
+					"distance":    0.8,
+					"properties":  []interface{}{"prop1", "prop2"},
+					"autocorrect": true,
+					"rerank":      true,
+				},
+			},
+			want: &AskParams{
+				Question:    "transformed text",
+				Distance:    0.8,
+				Properties:  []string{"prop1", "prop2"},
+				Autocorrect: true,
+				Rerank:      true,
 			},
 		},
 		{

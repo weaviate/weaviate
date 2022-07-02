@@ -11,10 +11,14 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/entities/searchparams"
+import (
+	"fmt"
+
+	"github.com/semi-technologies/weaviate/entities/searchparams"
+)
 
 // ExtractNearObject arguments, such as "vector" and "certainty"
-func ExtractNearObject(source map[string]interface{}) searchparams.NearObject {
+func ExtractNearObject(source map[string]interface{}) (searchparams.NearObject, error) {
 	var args searchparams.NearObject
 
 	id, ok := source["id"]
@@ -27,10 +31,20 @@ func ExtractNearObject(source map[string]interface{}) searchparams.NearObject {
 		args.Beacon = beacon.(string)
 	}
 
-	certainty, ok := source["certainty"]
-	if ok {
+	certainty, certaintyOK := source["certainty"]
+	if certaintyOK {
 		args.Certainty = certainty.(float64)
 	}
 
-	return args
+	distance, distanceOK := source["distance"]
+	if distanceOK {
+		args.Distance = distance.(float64)
+	}
+
+	if certaintyOK && distanceOK {
+		return searchparams.NearObject{},
+			fmt.Errorf("cannot provide distance and certainty")
+	}
+
+	return args, nil
 }

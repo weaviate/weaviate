@@ -53,6 +53,10 @@ func (g *GraphQLArgumentsProvider) askFields(prefix string) graphql.InputObjectC
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "Properties which contains text",
 			Type:        graphql.NewList(graphql.String),

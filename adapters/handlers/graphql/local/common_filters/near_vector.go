@@ -11,10 +11,14 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/entities/searchparams"
+import (
+	"fmt"
 
-// ExtractNearVector arguments, such as "vector" and "certainty"
-func ExtractNearVector(source map[string]interface{}) searchparams.NearVector {
+	"github.com/semi-technologies/weaviate/entities/searchparams"
+)
+
+// ExtractNearVector arguments, such as "vector" and "distance"
+func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, error) {
 	var args searchparams.NearVector
 
 	// vector is a required argument, so we don't need to check for its existing
@@ -24,10 +28,20 @@ func ExtractNearVector(source map[string]interface{}) searchparams.NearVector {
 		args.Vector[i] = float32(value.(float64))
 	}
 
-	certainty, ok := source["certainty"]
-	if ok {
+	certainty, certaintyOK := source["certainty"]
+	if certaintyOK {
 		args.Certainty = certainty.(float64)
 	}
 
-	return args
+	distance, distanceOK := source["distance"]
+	if distanceOK {
+		args.Distance = distance.(float64)
+	}
+
+	if certaintyOK && distanceOK {
+		return searchparams.NearVector{},
+			fmt.Errorf("cannot provide distance and certainty")
+	}
+
+	return args, nil
 }

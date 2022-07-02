@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	qnamodels "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/models"
+	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context,
@@ -62,12 +63,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 				ap = models.AdditionalProperties{}
 			}
 
-			certainty := p.paramsHelper.GetCertainty(argumentModuleParams["ask"])
-			if certainty > 0 && answer.Certainty != nil && *answer.Certainty < certainty {
-				ap["answer"] = &qnamodels.Answer{
-					HasAnswer: false,
-				}
-			} else {
+			if answerMeetsSimilarityThreshold(argumentModuleParams["ask"], p.paramsHelper, answer) {
 				propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
 				ap["answer"] = &qnamodels.Answer{
 					Result:        answer.Answer,
@@ -77,6 +73,10 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 					Certainty:     answer.Certainty,
 					Distance:      answer.Distance,
 					HasAnswer:     answer.Answer != nil,
+				}
+			} else {
+				ap["answer"] = &qnamodels.Answer{
+					HasAnswer: false,
 				}
 			}
 
@@ -89,6 +89,20 @@ func (p *AnswerProvider) findAnswer(ctx context.Context,
 		return p.rerank(in), nil
 	}
 	return in, nil
+}
+
+func answerMeetsSimilarityThreshold(params interface{}, helper paramsHelper, ans *ent.AnswerResult) bool {
+	certainty := helper.GetCertainty(params)
+	if certainty > 0 && ans.Certainty != nil && *ans.Certainty < certainty {
+		return false
+	}
+
+	distance := helper.GetDistance(params)
+	if distance > 0 && ans.Distance != nil && *ans.Distance > distance {
+		return false
+	}
+
+	return true
 }
 
 func (p *AnswerProvider) rerank(in []search.Result) []search.Result {

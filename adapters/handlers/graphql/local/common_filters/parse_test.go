@@ -20,13 +20,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // Basic test on filter
 func TestExtractFilterToplevelField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 	/*localfilter is a struct containing a clause struct
 		type filters.Clause struct {
 		Operator Operator
@@ -56,7 +57,7 @@ func TestExtractFilterToplevelField(t *testing.T) {
 func TestExtractFilterLike(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLike,
 		On: &filters.Path{
@@ -83,7 +84,7 @@ func TestExtractFilterLike(t *testing.T) {
 func TestExtractFilterLike_ValueText(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLike,
 		On: &filters.Path{
@@ -111,7 +112,7 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("with all fields set as required", func(t *testing.T) {
-		resolver := newMockResolver()
+		resolver := newMockResolver(t, mockParams{reportFilter: true})
 		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 			Operator: filters.OperatorWithinGeoRange,
 			On: &filters.Path{
@@ -142,7 +143,7 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 	})
 
 	t.Run("with only some of the fields set", func(t *testing.T) {
-		resolver := newMockResolver()
+		resolver := newMockResolver(t, mockParams{reportFilter: true})
 		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 			Operator: filters.OperatorWithinGeoRange,
 			On: &filters.Path{
@@ -183,7 +184,7 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 func TestExtractFilterNestedField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorEqual,
@@ -211,7 +212,7 @@ func TestExtractFilterNestedField(t *testing.T) {
 func TestExtractOperand(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorAnd,
@@ -258,7 +259,7 @@ func TestExtractOperand(t *testing.T) {
 func TestExtractCompareOpFailsIfOperandPresent(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 
 	query := `{ SomeAction(where: { operator: Equal, operands: []}) }`
 	resolver.AssertFailToResolve(t, query)
@@ -267,10 +268,102 @@ func TestExtractCompareOpFailsIfOperandPresent(t *testing.T) {
 func TestExtractOperandFailsIfPathPresent(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
 
 	query := `{ SomeAction(where: { path:["should", "not", "be", "present"], operator: And  })}`
 	resolver.AssertFailToResolve(t, query)
+}
+
+func TestExtractNearVector(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with certainty provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], certainty: 0.7})}`
+		expectedparams := searchparams.NearVector{
+			Vector:    []float32{1, 2, 3},
+			Certainty: 0.7,
+		}
+
+		resolver := newMockResolver(t, mockParams{reportNearVector: true})
+
+		resolver.On("ReportNearVector", expectedparams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with distance provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], distance: 0.4})}`
+		expectedparams := searchparams.NearVector{
+			Vector:   []float32{1, 2, 3},
+			Distance: 0.4,
+		}
+
+		resolver := newMockResolver(t, mockParams{reportNearVector: true})
+
+		resolver.On("ReportNearVector", expectedparams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with distance and certainty provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], distance: 0.4, certainty: 0.7})}`
+		resolver := newMockResolver(t, mockParams{reportNearVector: true})
+		resolver.AssertFailToResolve(t, query)
+	})
+}
+
+func TestExtractNearObject(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with certainty provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearObject: {id: "123", certainty: 0.7})}`
+		expectedparams := searchparams.NearObject{
+			ID:        "123",
+			Certainty: 0.7,
+		}
+
+		resolver := newMockResolver(t, mockParams{reportNearObject: true})
+
+		resolver.On("ReportNearObject", expectedparams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with distance provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearObject: {id: "123", distance: 0.4})}`
+		expectedparams := searchparams.NearObject{
+			ID:       "123",
+			Distance: 0.4,
+		}
+
+		resolver := newMockResolver(t, mockParams{reportNearObject: true})
+
+		resolver.On("ReportNearObject", expectedparams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with distance and certainty provided", func(t *testing.T) {
+		t.Parallel()
+
+		query := `{ SomeAction(nearObject: {id: "123", distance: 0.4, certainty: 0.7})}`
+		resolver := newMockResolver(t, mockParams{reportNearObject: true})
+		resolver.AssertFailToResolve(t, query)
+	})
 }
 
 func ptFloat32(in float32) *float32 {

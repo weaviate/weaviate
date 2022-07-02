@@ -30,6 +30,8 @@ type ExtractFn = func(param map[string]interface{}) interface{}
 // NearParam defines params with certainty information
 type NearParam interface {
 	GetCertainty() float64
+	GetDistance() float64
+	SimilarityMetricProvided() bool
 }
 
 // ValidateFn validates a given module param

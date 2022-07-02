@@ -119,6 +119,20 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 		}
 	}
 
+	if nearVector != nil {
+		if nearVector.Certainty != 0 && nearVector.Distance != 0 {
+			return errors.Errorf("found 'certainty' and 'distance' set in nearVector " +
+				"which are conflicting, choose one instead")
+		}
+	}
+
+	if nearObject != nil {
+		if nearObject.Certainty != 0 && nearObject.Distance != 0 {
+			return errors.Errorf("found 'certainty' and 'distance' set in nearObject " +
+				"which are conflicting, choose one instead")
+		}
+	}
+
 	return nil
 }
 
@@ -171,26 +185,40 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
 	nearObject *searchparams.NearObject, moduleParams map[string]interface{}) float64 {
 	if nearVector != nil {
-		return nearVector.Certainty
+		if nearVector.Certainty != 0 {
+			return nearVector.Certainty
+		} else if nearVector.Distance != 0 {
+			return 1 - nearVector.Distance
+		}
 	}
 
 	if nearObject != nil {
-		return nearObject.Certainty
+		if nearObject.Certainty != 0 {
+			return nearObject.Certainty
+		} else if nearObject.Distance != 0 {
+			return 1 - nearObject.Distance
+		}
 	}
 
 	if len(moduleParams) == 1 {
 		return v.extractCertaintyFromModuleParams(moduleParams)
 	}
 
-	panic("extractCertainty was called without any known params present")
+	return 0
 }
 
 func (v *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float64 {
 	for _, param := range moduleParams {
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
-			return nearParam.GetCertainty()
+			if nearParam.SimilarityMetricProvided() {
+				if certainty := nearParam.GetCertainty(); certainty != 0 {
+					return certainty
+				} else {
+					return 1 - nearParam.GetDistance()
+				}
+			}
 		}
 	}
 
-	panic("extractCertaintyFromModuleParams was called without any known module near param present")
+	return 0
 }

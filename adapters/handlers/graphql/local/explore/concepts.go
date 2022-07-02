@@ -174,5 +174,9 @@ func nearObjectFields() graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
 	}
 }

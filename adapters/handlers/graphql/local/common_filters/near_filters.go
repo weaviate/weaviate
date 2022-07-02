@@ -41,6 +41,10 @@ func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
 	}
 }
 
@@ -68,6 +72,10 @@ func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
 			Type:        graphql.Float,
 		},
 	}

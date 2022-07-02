@@ -31,6 +31,11 @@ func (p *TokenProvider) additionalTokensField(classname string) *graphql.Field {
 				Type:         graphql.Float,
 				DefaultValue: nil,
 			},
+			"distance": &graphql.ArgumentConfig{
+				Description:  descriptions.Distance,
+				Type:         graphql.Float,
+				DefaultValue: nil,
+			},
 			"limit": &graphql.ArgumentConfig{
 				Type:         graphql.Int,
 				Description:  descriptions.Limit,
@@ -43,6 +48,7 @@ func (p *TokenProvider) additionalTokensField(classname string) *graphql.Field {
 				"property":      &graphql.Field{Type: graphql.String},
 				"entity":        &graphql.Field{Type: graphql.String},
 				"certainty":     &graphql.Field{Type: graphql.Float},
+				"distance":      &graphql.Field{Type: graphql.Float},
 				"word":          &graphql.Field{Type: graphql.String},
 				"startPosition": &graphql.Field{Type: graphql.Int},
 				"endPosition":   &graphql.Field{Type: graphql.Int},

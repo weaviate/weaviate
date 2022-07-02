@@ -30,7 +30,7 @@ func TestAskGraphQLArgument(t *testing.T) {
 		// the built graphQL field needs to support this structure:
 		// ask {
 		//   question: "question?",
-		//   certainty: 0.9
+		//   distance: 0.9
 		//   properties: ["prop1", "prop2"]
 		//   rerank: true
 		// }
@@ -39,7 +39,7 @@ func TestAskGraphQLArgument(t *testing.T) {
 		askFields, ok := ask.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, askFields)
-		assert.Equal(t, 4, len(askFields.Fields()))
+		assert.Equal(t, 5, len(askFields.Fields()))
 		fields := askFields.Fields()
 		question := fields["question"]
 		questionNonNull, questionNonNullOK := question.Type.(*graphql.NonNull)
@@ -47,6 +47,7 @@ func TestAskGraphQLArgument(t *testing.T) {
 		assert.Equal(t, "String", questionNonNull.OfType.Name())
 		assert.NotNil(t, question)
 		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
 		properties := fields["properties"]
 		propertiesList, propertiesListOK := properties.Type.(*graphql.List)
 		assert.True(t, propertiesListOK)
@@ -67,7 +68,7 @@ func TestAskGraphQLArgumentWithAutocorrect(t *testing.T) {
 		// the built graphQL field needs to support this structure:
 		// ask {
 		//   question: "question?",
-		//   certainty: 0.9
+		//   distance: 0.9
 		//   properties: ["prop1", "prop2"]
 		//   autocorrect: true
 		//   rerank: true
@@ -77,7 +78,7 @@ func TestAskGraphQLArgumentWithAutocorrect(t *testing.T) {
 		askFields, ok := ask.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, askFields)
-		assert.Equal(t, 5, len(askFields.Fields()))
+		assert.Equal(t, 6, len(askFields.Fields()))
 		fields := askFields.Fields()
 		question := fields["question"]
 		questionNonNull, questionNonNullOK := question.Type.(*graphql.NonNull)
@@ -85,6 +86,7 @@ func TestAskGraphQLArgumentWithAutocorrect(t *testing.T) {
 		assert.Equal(t, "String", questionNonNull.OfType.Name())
 		assert.NotNil(t, question)
 		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
 		properties := fields["properties"]
 		propertiesList, propertiesListOK := properties.Type.(*graphql.List)
 		assert.True(t, propertiesListOK)
