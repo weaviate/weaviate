@@ -284,7 +284,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if params.AdditionalProperties.Distance {
-				additionalProperties["distance"] = normalizedResultDist
+				additionalProperties["distance"] = res.Dist
 			}
 		}
 

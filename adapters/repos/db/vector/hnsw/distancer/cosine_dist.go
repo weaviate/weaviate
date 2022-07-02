@@ -35,15 +35,6 @@ func NewCosineDistanceProvider() CosineDistanceProvider {
 	return CosineDistanceProvider{}
 }
 
-func CosineDistanceGo(a, b []float32) float32 {
-	var sum float32
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-
-	return 1 - sum
-}
-
 func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
 		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
