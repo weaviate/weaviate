@@ -49,7 +49,8 @@ func addTestDataDot(t *testing.T) {
 }
 
 func testDot(t *testing.T) {
-	res := AssertGraphQL(t, nil, `
+	t.Run("without any limiting distance", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
 	{
 	  Get{
 			Dot_Class(nearVector:{vector: [3,4,5]}){
@@ -59,13 +60,134 @@ func testDot(t *testing.T) {
 		}
 	}
 	`)
-	results := res.Get("Get", "Dot_Class").AsSlice()
-	expectedDistances := []float32{
-		-50, // the same vector as the query
-		-12, // the same angle as the query vector,
-		0,   // the vector in between,
-		50,  // the negative of the query vec
-	}
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			-50, // the same vector as the query
+			-12, // the same angle as the query vector,
+			0,   // the vector in between,
+			50,  // the negative of the query vec
+		}
 
-	compareDistances(t, expectedDistances, results)
+		compareDistances(t, expectedDistances, results)
+	})
+
+	t.Run("with a specified certainty - should error", func(t *testing.T) {
+		ErrorGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{certainty: 0.7, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+	})
+
+	t.Run("with a max distancer higher than all results, should contain all elements", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: 50, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			-50, // the same vector as the query
+			-12, // the same angle as the query vector,
+			0,   // the vector in between,
+			50,  // the negative of the query vec
+		}
+
+		compareDistances(t, expectedDistances, results)
+	})
+
+	t.Run("with a positive max distance that does not match all results, should contain 3 elems", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: 30, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			-50, // the same vector as the query
+			-12, // the same angle as the query vector,
+			0,   // the vector in between,
+			// the last one is not contained as it would have a distance of 50, which is > 30
+		}
+
+		compareDistances(t, expectedDistances, results)
+	})
+
+	t.Run("with distance 0, should contain 3 elems", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: 0, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			-50, // the same vector as the query
+			-12, // the same angle as the query vector,
+			0,   // the vector in between,
+			// the last one is not contained as it would have a distance of 50, which is > 0
+		}
+
+		compareDistances(t, expectedDistances, results)
+	})
+
+	t.Run("with a negative distance that should only leave the first element", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: -40, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			-50, // the same vector as the query
+			// the second element's distance would be -12 which is > -40
+			// the third element's distance would be 0 which is > -40
+			// the last one is not contained as it would have a distance of 50, which is > 0
+		}
+
+		compareDistances(t, expectedDistances, results)
+	})
+
+	t.Run("with a distance so small that no element should be left", func(t *testing.T) {
+		res := AssertGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: -60, vector: [3,4,5]}){
+		  	name 
+		  	_additional{distance certainty}
+		  }
+		}
+	}
+	`)
+		results := res.Get("Get", "Dot_Class").AsSlice()
+		expectedDistances := []float32{
+			// all elements have a distance > -60, so nothing matches
+		}
+
+		compareDistances(t, expectedDistances, results)
+	})
 }
