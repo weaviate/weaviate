@@ -63,7 +63,6 @@ func testCosine(t *testing.T) {
 	}
 	`)
 	results := res.Get("Get", "Cosine_Class").AsSlice()
-
 	expectedDistances := []float32{
 		0,      // the same vector as the query
 		0,      // the same angle as the query vector,
@@ -71,6 +70,10 @@ func testCosine(t *testing.T) {
 		2,      // the perfect opposite vector,
 	}
 
+	compareDistances(t, expectedDistances, results)
+}
+
+func compareDistances(t *testing.T, expectedDistances []float32, results []interface{}) {
 	require.Equal(t, len(expectedDistances), len(results))
 	for i, expected := range expectedDistances {
 		actual, err := results[i].(map[string]interface{})["_additional"].(map[string]interface{})["distance"].(json.Number).Float64()
