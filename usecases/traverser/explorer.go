@@ -70,7 +70,7 @@ func NewExplorer(search vectorClassSearch,
 	modulesProvider ModulesProvider) *Explorer {
 	return &Explorer{
 		search:           search,
-		distancer:        distancer,
+		distancer:        distancer, // TODO: should be removed as we can't know distancer was used by the vector index
 		logger:           logger,
 		modulesProvider:  modulesProvider,
 		schemaGetter:     nil, // schemaGetter is set later
@@ -397,6 +397,9 @@ func (e *Explorer) Concepts(ctx context.Context,
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 	results *[]search.Result, vec []float32, params ExploreParams) error {
+
+	// TODO: The distancer should no longer be needed because we should get the
+	// raw distances as part of the search.Result
 	dist, err := e.distancer(vec, item.Vector)
 	if err != nil {
 		return errors.Errorf("res %s: %v", item.Beacon, err)
