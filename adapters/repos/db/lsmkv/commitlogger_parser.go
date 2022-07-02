@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 
@@ -23,26 +22,36 @@ import (
 )
 
 type commitloggerParser struct {
-	path     string
-	strategy string
-	memtable *Memtable
-	reader   io.Reader
-	metrics  *Metrics
-	unique   map[string]segmentReplaceNode
+	path         string
+	strategy     string
+	memtable     *Memtable
+	reader       io.Reader
+	metrics      *Metrics
+	replaceCache map[string]segmentReplaceNode
 }
 
 func newCommitLoggerParser(path string, activeMemtable *Memtable,
 	strategy string, metrics *Metrics) *commitloggerParser {
 	return &commitloggerParser{
-		path:     path,
-		memtable: activeMemtable,
-		strategy: strategy,
-		metrics:  metrics,
-		unique:   map[string]segmentReplaceNode{},
+		path:         path,
+		memtable:     activeMemtable,
+		strategy:     strategy,
+		metrics:      metrics,
+		replaceCache: map[string]segmentReplaceNode{},
 	}
 }
 
 func (p *commitloggerParser) Do() error {
+	if p.strategy == StrategyReplace {
+		return p.doReplace()
+	}
+
+	return p.doCollection()
+}
+
+// doReplace parsers all entries into a cache for deduplication first and only
+// imports unique entries into the actual memtable as a final step.
+func (p *commitloggerParser) doReplace() error {
 	f, err := os.Open(p.path)
 	if err != nil {
 		return err
@@ -51,10 +60,11 @@ func (p *commitloggerParser) Do() error {
 	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
 	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
-	count := 0
+	// errUnexpectedLength indicates that we could not read the commit log to the
+	// end, for example because the last element on the log was corrupt.
+	var errUnexpectedLength error
+
 	for {
-		fmt.Printf("read commit %d\n", count)
-		count++
 		var commitType CommitType
 
 		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
@@ -63,24 +73,24 @@ func (p *commitloggerParser) Do() error {
 		}
 
 		if err != nil {
-			return errors.Wrap(err, "read commit type")
+			errUnexpectedLength = errors.Wrap(err, "read commit type")
+			break
 		}
 
 		switch commitType {
+		case CommitTypeCollection:
+			f.Close()
+			return errors.Errorf("found a collection commit on a replace bucket")
 		case CommitTypeReplace:
 			if err := p.parseReplaceNode(); err != nil {
-				return errors.Wrap(err, "read replace node")
-			}
-		case CommitTypeCollection:
-			if err := p.parseCollectionNode(); err != nil {
-				return errors.Wrap(err, "read collection node")
+				errUnexpectedLength = errors.Wrap(err, "read replace node")
+				break
 			}
 		}
 	}
 
-	count = 0
 	if p.strategy == StrategyReplace {
-		for _, node := range p.unique {
+		for _, node := range p.replaceCache {
 			var opts []SecondaryKeyOption
 			if p.memtable.secondaryIndices > 0 {
 				for i, secKey := range node.secondaryKeys {
@@ -93,62 +103,34 @@ func (p *commitloggerParser) Do() error {
 				p.memtable.put(node.primaryKey, node.value, opts...)
 			}
 
-			fmt.Printf("inserted %d elements\n", count)
 		}
+	}
+
+	if errUnexpectedLength != nil {
+		f.Close()
+		return errUnexpectedLength
 	}
 
 	return f.Close()
 }
 
+// parseReplaceNode only parses into the deduplication cache, not into the
+// final memtable yet. A second step is required to parse from the cache into
+// the actual memtable.
 func (p *commitloggerParser) parseReplaceNode() error {
 	n, err := ParseReplaceNode(p.reader, p.memtable.secondaryIndices)
 	if err != nil {
 		return err
 	}
 
-	// var opts []SecondaryKeyOption
-	// if p.memtable.secondaryIndices > 0 {
-	// 	for i, secKey := range n.secondaryKeys {
-	// 		opts = append(opts, WithSecondaryKey(i, secKey))
-	// 	}
-	// }
-
 	if !n.tombstone {
-		p.unique[string(n.primaryKey)] = n
+		p.replaceCache[string(n.primaryKey)] = n
 	} else {
-		if existing, ok := p.unique[string(n.primaryKey)]; ok {
+		if existing, ok := p.replaceCache[string(n.primaryKey)]; ok {
 			existing.tombstone = true
-			p.unique[string(n.primaryKey)] = existing
+			p.replaceCache[string(n.primaryKey)] = existing
 		} else {
-			p.unique[string(n.primaryKey)] = n
-		}
-	}
-
-	return nil
-}
-
-func (p *commitloggerParser) parseCollectionNode() error {
-	n, err := ParseCollectionNode(p.reader)
-	if err != nil {
-		return err
-	}
-
-	if p.strategy == StrategyMapCollection {
-		return p.parseMapNode(n)
-	}
-	return p.memtable.append(n.primaryKey, n.values)
-}
-
-func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
-	for _, val := range n.values {
-		mp := MapPair{}
-		if err := mp.FromBytes(val.value, false); err != nil {
-			return err
-		}
-		mp.Tombstone = val.tombstone
-
-		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
-			return err
+			p.replaceCache[string(n.primaryKey)] = n
 		}
 	}
 
