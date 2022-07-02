@@ -25,7 +25,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "automatic-tombstone-removal",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		CleanupIntervalSeconds: 1,

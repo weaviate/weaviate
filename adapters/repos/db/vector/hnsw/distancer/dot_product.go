@@ -39,7 +39,7 @@ func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
 			len(d.a), len(b))
 	}
 
-	dist := 1 - dotProductImplementation(d.a, b)
+	dist := -dotProductImplementation(d.a, b)
 	return dist, true, nil
 }
 
@@ -55,7 +55,7 @@ func DotProductGo(a, b []float32) float32 {
 		sum += a[i] * b[i]
 	}
 
-	return 1 - sum
+	return -sum
 }
 
 func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
@@ -64,13 +64,13 @@ func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
 			len(a), len(b))
 	}
 
-	prod := 1 - dotProductImplementation(a, b)
+	prod := -dotProductImplementation(a, b)
 
 	return prod, true, nil
 }
 
 func (d DotProductProvider) Type() string {
-	return "cosine-dot"
+	return "dot"
 }
 
 func (d DotProductProvider) New(a []float32) Distancer {
