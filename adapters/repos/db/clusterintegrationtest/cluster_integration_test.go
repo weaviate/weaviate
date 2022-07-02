@@ -952,7 +952,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 		obj      *models.Object
 	}
 
-	distProv := distancer.NewDotProductProvider()
+	distProv := distancer.NewCosineDistanceProvider()
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {

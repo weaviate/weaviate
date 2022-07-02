@@ -132,7 +132,7 @@ func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "unittest",
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForIDFn,
 	}, UserConfig{
 		MaxConnections: 30,

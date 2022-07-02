@@ -100,7 +100,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    dump.ID,
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
 	}, UserConfig{
 		MaxConnections: 30,

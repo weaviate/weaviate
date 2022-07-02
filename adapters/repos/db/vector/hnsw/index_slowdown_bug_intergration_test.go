@@ -70,7 +70,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
-			// DistanceProvider: distancer.NewCosineProvider(),
+			// DistanceProvider: distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return nil, nil
 			},
@@ -107,7 +107,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 
 		wg.Wait()
 		// neighbor := bruteForceCosine(vectors, vectors[0], 2)
-		// dist, _, _ := distancer.NewCosineProvider().SingleDist(vectors[0], vectors[neighbor[1]])
+		// dist, _, _ := distancer.NewCosineDistanceProvider().SingleDist(vectors[0], vectors[neighbor[1]])
 		// fmt.Printf("distance between 0 and %d is %f\n", neighbor[1], dist)
 		fmt.Printf("import took %s\n", time.Since(beforeImport))
 		// vectorIndex.Dump()

@@ -32,7 +32,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewCosineProvider(),
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -124,7 +124,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewCosineProvider(),
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -237,7 +237,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewCosineProvider(),
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -484,7 +484,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "delete-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -700,7 +700,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "tombstoned-entrypoint-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -819,9 +819,9 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	distancer := distancer.NewCosineProvider().New(query)
+	d := distancer.NewCosineDistanceProvider().New(distancer.Normalize(query))
 	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
+		dist, _, _ := d.Distance(distancer.Normalize(vec))
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
