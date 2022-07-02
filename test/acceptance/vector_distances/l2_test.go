@@ -6,29 +6,29 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func addTestDataDot(t *testing.T) {
+func addTestDataL2(t *testing.T) {
 	createObject(t, &models.Object{
-		Class: "Dot_Class",
+		Class: "L2Squared_Class",
 		Properties: map[string]interface{}{
 			"name": "object_1",
 		},
 		Vector: []float32{
-			3, 4, 5, // our base object
+			10, 11, 12,
 		},
 	})
 
 	createObject(t, &models.Object{
-		Class: "Dot_Class",
+		Class: "L2Squared_Class",
 		Properties: map[string]interface{}{
 			"name": "object_2",
 		},
 		Vector: []float32{
-			1, 1, 1, // a length-one vector
+			13, 15, 17,
 		},
 	})
 
 	createObject(t, &models.Object{
-		Class: "Dot_Class",
+		Class: "L2Squared_Class",
 		Properties: map[string]interface{}{
 			"name": "object_3",
 		},
@@ -36,35 +36,24 @@ func addTestDataDot(t *testing.T) {
 			0, 0, 0, // a zero vecto
 		},
 	})
-
-	createObject(t, &models.Object{
-		Class: "Dot_Class",
-		Properties: map[string]interface{}{
-			"name": "object_2",
-		},
-		Vector: []float32{
-			-3, -4, -5, // negative of the base vector
-		},
-	})
 }
 
-func testDot(t *testing.T) {
+func testL2(t *testing.T) {
 	res := AssertGraphQL(t, nil, `
 	{
 	  Get{
-			Dot_Class(nearVector:{vector: [3,4,5]}){
+			L2Squared_Class(nearVector:{vector: [10,11,12]}){
 		  	name 
 		  	_additional{distance certainty}
 		  }
 		}
 	}
 	`)
-	results := res.Get("Get", "Dot_Class").AsSlice()
+	results := res.Get("Get", "L2Squared_Class").AsSlice()
 	expectedDistances := []float32{
-		-50, // the same vector as the query
-		-12, // the same angle as the query vector,
-		0,   // the vector in between,
-		50,  // the negative of the query vec
+		0,   // the same vector as the query
+		50,  // distance to the second vector
+		365, // l2 squared distance to the root
 	}
 
 	compareDistances(t, expectedDistances, results)

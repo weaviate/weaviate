@@ -66,7 +66,7 @@ func testCosine(t *testing.T) {
 	expectedDistances := []float32{
 		0,      // the same vector as the query
 		0,      // the same angle as the query vector,
-		0.0715, // the vector in betwwen,
+		0.0715, // the vector in between,
 		2,      // the perfect opposite vector,
 	}
 
