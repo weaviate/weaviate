@@ -27,7 +27,8 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("test cosine distance", testCosine)
 	t.Run("import dot test data ", addTestDataDot)
 	t.Run("test dot distance", testDot)
-	// t.Run("test l2 distance", testL2)
+	t.Run("import dot test data ", addTestDataL2)
+	t.Run("test l2 distance", testL2)
 
 	// tear down
 	deleteObjectClass(t, "Cosine_Class")
