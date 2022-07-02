@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -75,6 +76,13 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		return db.ClassSearch(ctx, params)
 	}
 
+	// some vec index configs are not compatible with some params.
+	// for example, certainty cannot be used when the class' vec
+	// index is configured to use l2-squared distance
+	if err := db.checkVectorIndexDistanceCompatibility(params); err != nil {
+		return nil, err
+	}
+
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
 	if err != nil {
 		return nil, errors.Wrapf(err, "invalid pagination params")
@@ -108,6 +116,14 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 	if params.NearVector == nil && params.NearObject == nil &&
 		len(params.ModuleParams) == 0 {
 		return 0
+	}
+
+	if params.NearVector != nil && params.NearVector.Distance != 0 {
+		return float32(params.NearVector.Distance) * 2
+	}
+
+	if params.NearObject != nil && params.NearObject.Distance != 0 {
+		return float32(params.NearObject.Distance) * 2
 	}
 
 	certainty := traverser.ExtractCertaintyFromParams(params)
@@ -285,4 +301,36 @@ func (db *DB) getLimit(limit int) int {
 		return int(db.config.QueryLimit)
 	}
 	return limit
+}
+
+func (db *DB) checkVectorIndexDistanceCompatibility(params traverser.GetParams) error {
+	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	if idx == nil {
+		return fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+	}
+
+	hnswConfig, ok := idx.vectorIndexUserConfig.(hnsw.UserConfig)
+	if !ok {
+		return errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+			idx.vectorIndexUserConfig)
+	}
+
+	if hnswConfig.Distance == hnsw.DistanceL2Squared {
+		incompatErr := errors.Errorf(
+			"can't use certainty when vector index is configured with l2-squared distance")
+
+		if params.NearVector != nil && params.NearVector.Certainty != 0 {
+			return incompatErr
+		}
+
+		if params.NearObject != nil && params.NearObject.Certainty != 0 {
+			return incompatErr
+		}
+
+		if params.ModuleParams != nil && traverser.ExtractCertaintyFromParams(params) != 0 {
+			return incompatErr
+		}
+	}
+
+	return nil
 }

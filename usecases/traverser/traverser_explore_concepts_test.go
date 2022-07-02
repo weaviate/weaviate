@@ -275,6 +275,43 @@ func Test_ExploreConcepts(t *testing.T) {
 			"uses the default limit if not explicitly set")
 	})
 
+	t.Run("nearCustomText with limit and distance set", func(t *testing.T) {
+		authorizer := &fakeAuthorizer{}
+		locks := &fakeLocks{}
+		logger, _ := test.NewNullLogger()
+		vectorSearcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := ExploreParams{
+			Limit: 100,
+			NearVector: &searchparams.NearVector{
+				Vector:   []float32{7.8, 9},
+				Distance: 0.2,
+			},
+		}
+		vectorSearcher.results = []search.Result{
+			{
+				ClassName: "BestClass",
+				ID:        "123-456-789",
+			},
+			{
+				ClassName: "AnAction",
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.Explore(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []search.Result{}, res) // certainty not matched
+
+		assert.Equal(t, []float32{7.8, 9}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 100, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
+	})
+
 	t.Run("nearCustomText with limit and certainty set", func(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
@@ -309,6 +346,43 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		assert.Equal(t, []float32{7.8, 9}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 100, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
+	})
+
+	t.Run("nearCustomText with minimum distance set to 0.4", func(t *testing.T) {
+		authorizer := &fakeAuthorizer{}
+		locks := &fakeLocks{}
+		logger, _ := test.NewNullLogger()
+		vectorSearcher := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
+		params := ExploreParams{
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
+					"concepts": []interface{}{"a search term", "another"},
+					"distance": float64(0.4),
+				}),
+			},
+		}
+		vectorSearcher.results = []search.Result{
+			{
+				ClassName: "BestClass",
+				ID:        "123-456-789",
+			},
+			{
+				ClassName: "AnAction",
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.Explore(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []search.Result{}, res, "empty result because certainty is not met")
+		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
 			"uses the default limit if not explicitly set")
 	})
 

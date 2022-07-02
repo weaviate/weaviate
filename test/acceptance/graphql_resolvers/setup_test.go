@@ -132,8 +132,8 @@ func addTestSchema(t *testing.T) {
 
 	// City class has only one vectorizable field: "name"
 	// the rest of the fields are explicitly set to skip vectorization
-	// to not to downgrade the certainty result on which the aggregate
-	// tests are based on.
+	// to not to downgrade the distance/certainty result on which the
+	// aggregate tests are based on.
 	createObjectClass(t, &models.Class{
 		Class: "City",
 		ModuleConfig: map[string]interface{}{

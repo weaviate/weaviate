@@ -30,14 +30,14 @@ func TestNearImageGraphQLArgument(t *testing.T) {
 		// the built graphQL field needs to support this structure:
 		// nearImage: {
 		//   image: "base64;encoded,image",
-		//   certainty: 0.9
+		//   distance: 0.4
 		// }
 		assert.NotNil(t, nearImage)
 		assert.Equal(t, "Img2VecImagePrefixClassNearImageInpObj", nearImage.Type.Name())
 		answerFields, ok := nearImage.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
-		assert.Equal(t, 2, len(answerFields.Fields()))
+		assert.Equal(t, 3, len(answerFields.Fields()))
 		fields := answerFields.Fields()
 		image := fields["image"]
 		imageNonNull, imageNonNullOK := image.Type.(*graphql.NonNull)
@@ -45,5 +45,6 @@ func TestNearImageGraphQLArgument(t *testing.T) {
 		assert.Equal(t, "String", imageNonNull.OfType.Name())
 		assert.NotNil(t, image)
 		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
 	})
 }

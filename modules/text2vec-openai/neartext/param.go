@@ -21,12 +21,21 @@ type NearTextParams struct {
 	MoveTo       ExploreMove
 	MoveAwayFrom ExploreMove
 	Certainty    float64
+	Distance     float64
 	Network      bool
 	Autocorrect  bool
 }
 
 func (n NearTextParams) GetCertainty() float64 {
 	return n.Certainty
+}
+
+func (n NearTextParams) GetDistance() float64 {
+	return n.Distance
+}
+
+func (n NearTextParams) SimilarityMetricProvided() bool {
+	return n.Certainty != 0 || n.Distance != 0
 }
 
 // ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
@@ -58,5 +67,18 @@ func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
 		return errors.Errorf("'nearText.moveAwayFrom' parameter " +
 			"needs to have defined either 'concepts' or 'objects' fields")
 	}
+
+	if nearText.Certainty != 0 && nearText.Distance != 0 {
+		return errors.Errorf(
+			"nearText cannot provide both distance and certainty")
+	}
+
+	// because the modules all still accept certainty as
+	// the only similarity metric input, me must make the
+	// conversion to certainty if distance is provided
+	if nearText.Distance != 0 {
+		nearText.Certainty = 1 - nearText.Distance
+	}
+
 	return nil
 }

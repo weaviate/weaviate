@@ -14,6 +14,7 @@ package searchparams
 type NearVector struct {
 	Vector    []float32 `json:"vector"`
 	Certainty float64   `json:"certainty"`
+	Distance  float64   `json:"distance"`
 }
 
 type KeywordRanking struct {
@@ -26,4 +27,5 @@ type NearObject struct {
 	ID        string  `json:"id"`
 	Beacon    string  `json:"beacon"`
 	Certainty float64 `json:"certainty"`
+	Distance  float64 `json:"distance"`
 }

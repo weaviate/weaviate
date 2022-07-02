@@ -16,6 +16,7 @@ type TokenResult struct {
 	Word          string
 	Entity        string
 	Certainty     float64
+	Distance      float64
 	StartPosition int
 	EndPosition   int
 }

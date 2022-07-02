@@ -26,11 +26,21 @@ func TestParamsHelper_GetQuestion(t *testing.T) {
 		want string
 	}{
 		{
-			name: "should get question",
+			name: "should get question with certainty",
 			args: args{
 				params: &AskParams{
 					Question:  "question",
 					Certainty: 0.8,
+				},
+			},
+			want: "question",
+		},
+		{
+			name: "should get question with distance",
+			args: args{
+				params: &AskParams{
+					Question: "question",
+					Distance: 0.8,
 				},
 			},
 			want: "question",
@@ -87,7 +97,18 @@ func TestParamsHelper_GetProperties(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "should get properties",
+			name: "should get properties with distance",
+			args: args{
+				params: &AskParams{
+					Question:   "question",
+					Properties: []string{"prop1", "prop2"},
+					Distance:   0.8,
+				},
+			},
+			want: []string{"prop1", "prop2"},
+		},
+		{
+			name: "should get properties with certainty",
 			args: args{
 				params: &AskParams{
 					Question:   "question",

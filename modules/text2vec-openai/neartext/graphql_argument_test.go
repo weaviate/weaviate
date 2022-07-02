@@ -30,7 +30,7 @@ func TestNearTextGraphQLArgument(t *testing.T) {
 		// the built graphQL field needs to support this structure:
 		// {
 		//   concepts: ["c1", "c2"],
-		//   certainty: 0.9,
+		//   distance: 0.9,
 		//   moveTo: {
 		//          concepts: ["c1", "c2"],
 		//          objects: [
@@ -53,7 +53,7 @@ func TestNearTextGraphQLArgument(t *testing.T) {
 		nearTextFields, ok := nearText.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearTextFields)
-		assert.Equal(t, 4, len(nearTextFields.Fields()))
+		assert.Equal(t, 5, len(nearTextFields.Fields()))
 		fields := nearTextFields.Fields()
 		concepts := fields["concepts"]
 		conceptsNonNull, conceptsNonNullOK := concepts.Type.(*graphql.NonNull)
@@ -66,6 +66,7 @@ func TestNearTextGraphQLArgument(t *testing.T) {
 		assert.True(t, conceptsTypeOK)
 		assert.NotNil(t, conceptsType)
 		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
 		assert.NotNil(t, fields["moveTo"])
 		moveTo, moveToOK := fields["moveTo"].Type.(*graphql.InputObject)
 		assert.True(t, moveToOK)
@@ -140,7 +141,7 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		nearTextFields, ok := nearText.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearTextFields)
-		assert.Equal(t, 5, len(nearTextFields.Fields()))
+		assert.Equal(t, 6, len(nearTextFields.Fields()))
 		fields := nearTextFields.Fields()
 		concepts := fields["concepts"]
 		conceptsNonNull, conceptsNonNullOK := concepts.Type.(*graphql.NonNull)
@@ -153,6 +154,7 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		assert.True(t, conceptsTypeOK)
 		assert.NotNil(t, conceptsType)
 		assert.NotNil(t, fields["certainty"])
+		assert.NotNil(t, fields["distance"])
 		assert.NotNil(t, fields["autocorrect"])
 		assert.NotNil(t, fields["moveTo"])
 		moveTo, moveToOK := fields["moveTo"].Type.(*graphql.InputObject)

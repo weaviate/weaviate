@@ -12,16 +12,29 @@
 package common_filters
 
 import (
+	"testing"
+
 	"github.com/graphql-go/graphql"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 type mockResolver struct {
 	test_helper.MockResolver
 }
 
-func newMockResolver() *mockResolver {
+type mockParams struct {
+	reportFilter     bool
+	reportNearVector bool
+	reportNearObject bool
+}
+
+func newMockResolver(t *testing.T, params mockParams) *mockResolver {
+	if params.reportNearVector && params.reportNearObject {
+		t.Fatal("cannot provide both nearVector and nearObject")
+	}
+
 	// Build a FakeGet.
 	fakeGet := &graphql.Field{
 		Name:        "SomeAction",
@@ -37,17 +50,13 @@ func newMockResolver() *mockResolver {
 					},
 				),
 			},
+			"nearVector": NearVectorArgument("Get", "SomeAction"),
+			"nearObject": NearObjectArgument("Get", "SomeAction"),
 		},
 		Type: graphql.Int,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			resolver := p.Source.(map[string]interface{})["Resolver"].(*mockResolver)
-			filters, err := ExtractFilters(p.Args, p.Info.FieldName)
-			if err != nil {
-				return nil, err
-			}
-
-			result, err := resolver.ReportFilters(filters)
-			return result, err
+			return resolver.ReportArgs(params, p.Args, p.Info.FieldName)
 		},
 	}
 
@@ -58,7 +67,55 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
+func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{},
+	fieldName string) (result interface{}, err error) {
+	if params.reportFilter {
+		filters, err := ExtractFilters(args, fieldName)
+		if err != nil {
+			return nil, err
+		}
+		result, err = m.ReportFilters(filters)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if params.reportNearVector {
+		nearVec, err := ExtractNearVector(args["nearVector"].(map[string]interface{}))
+		if err != nil {
+			return nil, err
+		}
+		result, err = m.ReportNearVector(nearVec)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if params.reportNearObject {
+		nearObj, err := ExtractNearObject(args["nearObject"].(map[string]interface{}))
+		if err != nil {
+			return nil, err
+		}
+		result, err = m.ReportNearObject(nearObj)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return
+}
+
 func (m *mockResolver) ReportFilters(filter *filters.LocalFilter) (interface{}, error) {
 	args := m.Called(filter)
+	return args.Get(0), args.Error(1)
+}
+
+func (m *mockResolver) ReportNearVector(params searchparams.NearVector) (interface{}, error) {
+	args := m.Called(params)
+	return args.Get(0), args.Error(1)
+}
+
+func (m *mockResolver) ReportNearObject(params searchparams.NearObject) (interface{}, error) {
+	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
