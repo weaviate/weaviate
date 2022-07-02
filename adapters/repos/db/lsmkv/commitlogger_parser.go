@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 
@@ -27,6 +28,7 @@ type commitloggerParser struct {
 	memtable *Memtable
 	reader   io.Reader
 	metrics  *Metrics
+	unique   map[string]segmentReplaceNode
 }
 
 func newCommitLoggerParser(path string, activeMemtable *Memtable,
@@ -36,6 +38,7 @@ func newCommitLoggerParser(path string, activeMemtable *Memtable,
 		memtable: activeMemtable,
 		strategy: strategy,
 		metrics:  metrics,
+		unique:   map[string]segmentReplaceNode{},
 	}
 }
 
@@ -48,7 +51,10 @@ func (p *commitloggerParser) Do() error {
 	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
 	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
+	count := 0
 	for {
+		fmt.Printf("read commit %d\n", count)
+		count++
 		var commitType CommitType
 
 		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
@@ -72,6 +78,25 @@ func (p *commitloggerParser) Do() error {
 		}
 	}
 
+	count = 0
+	if p.strategy == StrategyReplace {
+		for _, node := range p.unique {
+			var opts []SecondaryKeyOption
+			if p.memtable.secondaryIndices > 0 {
+				for i, secKey := range node.secondaryKeys {
+					opts = append(opts, WithSecondaryKey(i, secKey))
+				}
+			}
+			if node.tombstone {
+				p.memtable.setTombstone(node.primaryKey, opts...)
+			} else {
+				p.memtable.put(node.primaryKey, node.value, opts...)
+			}
+
+			fmt.Printf("inserted %d elements\n", count)
+		}
+	}
+
 	return f.Close()
 }
 
@@ -81,17 +106,25 @@ func (p *commitloggerParser) parseReplaceNode() error {
 		return err
 	}
 
-	var opts []SecondaryKeyOption
-	if p.memtable.secondaryIndices > 0 {
-		for i, secKey := range n.secondaryKeys {
-			opts = append(opts, WithSecondaryKey(i, secKey))
+	// var opts []SecondaryKeyOption
+	// if p.memtable.secondaryIndices > 0 {
+	// 	for i, secKey := range n.secondaryKeys {
+	// 		opts = append(opts, WithSecondaryKey(i, secKey))
+	// 	}
+	// }
+
+	if !n.tombstone {
+		p.unique[string(n.primaryKey)] = n
+	} else {
+		if existing, ok := p.unique[string(n.primaryKey)]; ok {
+			existing.tombstone = true
+			p.unique[string(n.primaryKey)] = existing
+		} else {
+			p.unique[string(n.primaryKey)] = n
 		}
 	}
 
-	if n.tombstone {
-		return p.memtable.setTombstone(n.primaryKey, opts...)
-	}
-	return p.memtable.put(n.primaryKey, n.value, opts...)
+	return nil
 }
 
 func (p *commitloggerParser) parseCollectionNode() error {
