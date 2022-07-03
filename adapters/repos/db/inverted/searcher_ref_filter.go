@@ -124,7 +124,7 @@ func (r *refFilterExtractor) resultsToPropValuePairs(ids []classUUIDPair,
 	case 0:
 		return r.emptyPropValuePair(), nil
 	case 1:
-		return r.idToPropValuePair(ids[0])
+		return r.backwardCompatibleIDToPropValuePair(ids[0])
 	default:
 		return r.chainedIDsToPropValuePair(ids)
 	}
@@ -139,7 +139,22 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	}
 }
 
-func (r *refFilterExtractor) idToPropValuePair(p classUUIDPair) (*propValuePair, error) {
+// Because we still support the old beacon format that did not include the
+// class yet, we cannot be sure about which format we will find in the
+// database. Typically we would now build a filter, such as value==beacon.
+// However, this beacon would either have the old format or the new format.
+// Depending on which format was used during importing, one would match and the
+// other wouldn't.
+//
+// As a workaround we can use an OR filter to allow both, such as
+// ( value==beacon_old_format OR value==beacon_new_format )
+func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair) (*propValuePair, error) {
+	// this workaround is already implemented in the chained ID case, so we can
+	// simply pass it through:
+	return r.chainedIDsToPropValuePair([]classUUIDPair{p})
+}
+
+func (r *refFilterExtractor) idToPropValuePairWithClass(p classUUIDPair) (*propValuePair, error) {
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
@@ -148,9 +163,14 @@ func (r *refFilterExtractor) idToPropValuePair(p classUUIDPair) (*propValuePair,
 	}, nil
 }
 
-// func (r *refFilterExtractor) beacon(id strfmt.UUID) (strfmt.URI, error) {
-// 	return strfmt.URI(crossref.New("localhost", id).String()), nil
-// }
+func (r *refFilterExtractor) idToPropValuePairLegacyWithoutClass(p classUUIDPair) (*propValuePair, error) {
+	return &propValuePair{
+		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
+		hasFrequency: false,
+		value:        []byte(crossref.New("localhost", "", p.id).String()),
+		operator:     filters.OperatorEqual,
+	}, nil
+}
 
 // chain multiple alternatives using an OR operator
 func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
@@ -167,15 +187,31 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 	}, nil
 }
 
+// Use both new format with class name in the beacon, as well as the old
+// format. Since the results will be OR'ed anyway, this is safe todo.
+//
+// The additional lookups and OR-merge operations have a cost, therefore this
+// backward-compatible logic should be removed, as soon as we can be sure that
+// no more class-less beacons exist. Most likely this will be the case with the
+// next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
-	out := make([]*propValuePair, len(ids))
+	out := make([]*propValuePair, len(ids)*2)
 	for i, id := range ids {
-		pv, err := r.idToPropValuePair(id)
+		// future-proof way
+		pv, err := r.idToPropValuePairWithClass(id)
 		if err != nil {
 			return nil, err
 		}
 
-		out[i] = pv
+		out[i*2] = pv
+
+		// backward-compatible way
+		pv, err = r.idToPropValuePairLegacyWithoutClass(id)
+		if err != nil {
+			return nil, err
+		}
+
+		out[(i*2)+1] = pv
 	}
 
 	return out, nil
