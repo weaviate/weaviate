@@ -126,6 +126,22 @@ func TestRefFilters(t *testing.T) {
 					"name": "Car which is parked in a garage",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
+							// TODO: @Redouan - This test currently exclusively uses the old
+							// beacon format. That's a good indication that the old format
+							// will keep working, but I think it would be good if we could
+							// use this test to also prove that the new format works.
+							// Especially in combination with some old and some new beacons,
+							// which is a state that we would definitely expect in real life
+							// when users slowly start migrating to the new format. I think
+							// we could make sure that about half the beacons in this test
+							// use the old format and the other half use the new format. That
+							// would be a nice indication that both work well together.
+							//
+							// Note that I have not yet run this test, because it does not
+							// compile yet (some crossref.New() calls are missing the
+							// classname further below in the file). Judging from the
+							// integrationt est that is now passing, I think this should also
+							// pass.
 							Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 					},
