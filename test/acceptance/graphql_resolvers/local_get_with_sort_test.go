@@ -476,7 +476,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				City(
 					nearText: {
 						concepts: ["Berlin"]
-						distance: 0.3
+						distance: 0.6
 					}
 					%s
 				) {
@@ -638,7 +638,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				City(
 					nearText: {
 						concepts: ["Berlin"]
-						distance: 0.3
+						distance: 0.6
 					}
 					%s
 					limit: 2
@@ -791,7 +791,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					}
 					nearText: {
 						concepts: ["Amsterdam"]
-						distance: 0.3
+						distance: 0.6
 					}
 					%s
 					limit: 2

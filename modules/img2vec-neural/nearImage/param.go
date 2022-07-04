@@ -16,9 +16,10 @@ import (
 )
 
 type NearImageParams struct {
-	Image     string
-	Certainty float64
-	Distance  float64
+	Image        string
+	Certainty    float64
+	Distance     float64
+	WithDistance bool
 }
 
 func (n NearImageParams) GetCertainty() float64 {
@@ -30,7 +31,7 @@ func (n NearImageParams) GetDistance() float64 {
 }
 
 func (n NearImageParams) SimilarityMetricProvided() bool {
-	return n.Certainty != 0 || n.Distance != 0
+	return n.Certainty != 0 || n.WithDistance
 }
 
 func validateNearImageFn(param interface{}) error {
@@ -43,16 +44,9 @@ func validateNearImageFn(param interface{}) error {
 		return errors.Errorf("'nearImage.image' needs to be defined")
 	}
 
-	if nearImage.Certainty != 0 && nearImage.Distance != 0 {
+	if nearImage.Certainty != 0 && nearImage.WithDistance {
 		return errors.Errorf(
 			"nearText cannot provide both distance and certainty")
-	}
-
-	// because the modules all still accept certainty as
-	// the only similarity metric input, me must make the
-	// conversion to certainty if distance is provided
-	if nearImage.Distance != 0 {
-		nearImage.Certainty = 1 - nearImage.Distance
 	}
 
 	return nil

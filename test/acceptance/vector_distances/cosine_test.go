@@ -55,9 +55,9 @@ func testCosine(t *testing.T) {
 	t.Run("without any limiting parameters", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	Get{
 			Cosine_Class(nearVector:{vector: [0.7, 0.3]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}
@@ -83,7 +83,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], certainty: 0}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -114,7 +114,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], certainty: 0.95}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -144,7 +144,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], certainty: 0.97}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -173,7 +173,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], certainty: 1}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -203,7 +203,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], distance: 2}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -225,7 +225,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], distance: 1.99}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -247,7 +247,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], distance: 0.08}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -269,7 +269,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], distance: 0.01}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}
@@ -291,7 +291,7 @@ func testCosine(t *testing.T) {
 			{
 				Get{
 					Cosine_Class(nearVector:{vector: [0.7, 0.3], distance: 0}){
-						name 
+						name
 						_additional{distance certainty}
 					}
 				}

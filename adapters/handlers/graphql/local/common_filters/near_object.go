@@ -39,6 +39,7 @@ func ExtractNearObject(source map[string]interface{}) (searchparams.NearObject, 
 	distance, distanceOK := source["distance"]
 	if distanceOK {
 		args.Distance = distance.(float64)
+		args.WithDistance = true
 	}
 
 	if certaintyOK && distanceOK {

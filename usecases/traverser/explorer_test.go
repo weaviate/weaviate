@@ -415,7 +415,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
 						Vector:   []float32{0.8, 0.2, 0.7},
-						Distance: 0.2,
+						Distance: 0.4,
 					},
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    nil,
@@ -2084,7 +2084,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts": []interface{}{"foobar"},
 					"limit":    100,
-					"distance": float64(0.69),
+					"distance": float64(1.38),
 				}),
 			},
 		}
@@ -2126,8 +2126,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			assert.Equal(t, 200, resMap["age"])
 			additionalMap := resMap["_additional"]
 			assert.Contains(t, additionalMap, "distance")
-			// Distance is fixed to 0.31 in this mock
-			assert.InEpsilon(t, 0.69, additionalMap.(map[string]interface{})["distance"].(float32), 0.000001)
+			assert.InEpsilon(t, 1.38, additionalMap.(map[string]interface{})["distance"].(float32), 0.000001)
 		})
 	})
 

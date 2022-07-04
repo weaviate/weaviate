@@ -28,6 +28,7 @@ func extractNearImageFn(source map[string]interface{}) interface{} {
 	distance, ok := source["distance"]
 	if ok {
 		args.Distance = distance.(float64)
+		args.WithDistance = true
 	}
 
 	return &args

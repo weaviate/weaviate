@@ -113,7 +113,8 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 		shouldContinue = lastFound <= targetDistance
 
 		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
+				inDelta(dist[i], targetDistance, 1e-6) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dist[i])
 			} else {
@@ -512,4 +513,9 @@ func (params *searchByDistParams) maxLimitReached() bool {
 	}
 
 	return int64(params.totalLimit) > params.maximumSearchLimit
+}
+
+func inDelta(f1, f2 float32, delta float64) bool {
+	diff := math.Abs(float64(f1 - f2))
+	return diff <= delta
 }
