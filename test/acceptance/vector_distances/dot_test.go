@@ -52,9 +52,9 @@ func testDot(t *testing.T) {
 	t.Run("without any limiting distance", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	 Get{
 			Dot_Class(nearVector:{vector: [3,4,5]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}
@@ -87,9 +87,9 @@ func testDot(t *testing.T) {
 	t.Run("with a max distancer higher than all results, should contain all elements", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	 Get{
 			Dot_Class(nearVector:{distance: 50, vector: [3,4,5]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}
@@ -109,9 +109,9 @@ func testDot(t *testing.T) {
 	t.Run("with a positive max distance that does not match all results, should contain 3 elems", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	 Get{
 			Dot_Class(nearVector:{distance: 30, vector: [3,4,5]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}
@@ -131,9 +131,9 @@ func testDot(t *testing.T) {
 	t.Run("with distance 0, should contain 3 elems", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	 Get{
 			Dot_Class(nearVector:{distance: 0, vector: [3,4,5]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}
@@ -175,9 +175,9 @@ func testDot(t *testing.T) {
 	t.Run("with a distance so small that no element should be left", func(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 	{
-	  Get{
+	 Get{
 			Dot_Class(nearVector:{distance: -60, vector: [3,4,5]}){
-		  	name 
+		  	name
 		  	_additional{distance certainty}
 		  }
 		}

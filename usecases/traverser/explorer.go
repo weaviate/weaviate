@@ -272,11 +272,11 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				continue
 			}
 
-			distance := ExtractDistanceFromParams(params)
-			if distance != 0 && normalizedResultDist > float32(distance) && 1-normalizedResultDist >= 0 {
-				// TODO: Clean this up. The >= check is so that this logic does not run
-				// non-cosine distance.
-				continue
+			if certainty == 0 {
+				distance := ExtractDistanceFromParams(params)
+				if distance != 0 && float64(res.Dist) > distance {
+					continue
+				}
 			}
 
 			if params.AdditionalProperties.Certainty {
@@ -397,7 +397,6 @@ func (e *Explorer) Concepts(ctx context.Context,
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 	results *[]search.Result, vec []float32, params ExploreParams) error {
-
 	// TODO: The distancer should no longer be needed because we should get the
 	// raw distances as part of the search.Result
 	dist, err := e.distancer(vec, item.Vector)
@@ -486,11 +485,11 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 
 func ExtractDistanceFromParams(params GetParams) float64 {
 	if params.NearVector != nil {
-		return params.NearVector.Distance * 2
+		return params.NearVector.Distance
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Distance * 2
+		return params.NearObject.Distance
 	}
 
 	if len(params.ModuleParams) == 1 {
@@ -536,12 +535,12 @@ func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64)
 
 func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
 	if params.NearVector != nil {
-		distance = params.NearVector.Distance * 2
+		distance = params.NearVector.Distance
 		return
 	}
 
 	if params.NearObject != nil {
-		distance = params.NearObject.Distance * 2
+		distance = params.NearObject.Distance
 		return
 	}
 
@@ -558,8 +557,6 @@ func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float
 			if nearParam.SimilarityMetricProvided() {
 				if certainty := nearParam.GetCertainty(); certainty != 0 {
 					return certainty
-				} else {
-					return 1 - nearParam.GetDistance()
 				}
 			}
 		}
@@ -573,9 +570,7 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) float6
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
 			if nearParam.SimilarityMetricProvided() {
 				if distance := nearParam.GetDistance(); distance != 0 {
-					return distance * 2
-				} else {
-					return (1 - nearParam.GetCertainty()) * 2
+					return distance
 				}
 			}
 		}

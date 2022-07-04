@@ -110,24 +110,12 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 }
 
 func extractDistanceFromParams(params traverser.GetParams) float32 {
-	// we need to check these conditions first before calling
-	// traverser.ExtractCertaintyFromParams, because it will
-	// panic if these conditions are not met
-	if params.NearVector == nil && params.NearObject == nil &&
-		len(params.ModuleParams) == 0 {
-		return 0
-	}
-
-	if params.NearVector != nil && params.NearVector.Distance != 0 {
-		return float32(params.NearVector.Distance) * 2
-	}
-
-	if params.NearObject != nil && params.NearObject.Distance != 0 {
-		return float32(params.NearObject.Distance) * 2
-	}
-
 	certainty := traverser.ExtractCertaintyFromParams(params)
-	return float32(1-certainty) * 2
+	if certainty != 0 {
+		return float32(1-certainty) * 2
+	}
+
+	return float32(traverser.ExtractDistanceFromParams(params))
 }
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,
@@ -315,9 +303,11 @@ func (db *DB) checkVectorIndexDistanceCompatibility(params traverser.GetParams) 
 			idx.vectorIndexUserConfig)
 	}
 
-	if hnswConfig.Distance == hnsw.DistanceL2Squared {
+	if hnswConfig.Distance == hnsw.DistanceL2Squared ||
+		hnswConfig.Distance == hnsw.DistanceDot {
 		incompatErr := errors.Errorf(
-			"can't use certainty when vector index is configured with l2-squared distance")
+			"can't use certainty when vector index is configured with %s distance",
+			hnswConfig.Distance)
 
 		if params.NearVector != nil && params.NearVector.Certainty != 0 {
 			return incompatErr

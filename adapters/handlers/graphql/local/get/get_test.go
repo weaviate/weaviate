@@ -1151,8 +1151,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{0.123, 0.984},
-				Distance: 0.4,
+				Vector:       []float32{0.123, 0.984},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1195,8 +1196,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{0.123, 0.984},
-				Distance: 0.1,
+				Vector:       []float32{0.123, 0.984},
+				Distance:     0.1,
+				WithDistance: true,
 			},
 		}
 
@@ -1243,8 +1245,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{0.123, 0.984},
-				Distance: 0.1,
+				Vector:       []float32{0.123, 0.984},
+				Distance:     0.1,
+				WithDistance: true,
 			},
 		}
 
@@ -1530,8 +1533,9 @@ func TestNearObject(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
-				Beacon:   "weaviate://localhost/some-other-uuid",
-				Distance: 0.7,
+				Beacon:       "weaviate://localhost/some-other-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1594,8 +1598,9 @@ func TestNearObject(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-other-uuid",
-				Distance: 0.7,
+				ID:           "some-other-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1639,8 +1644,9 @@ func TestNearObject(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 5},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-other-uuid",
-				Distance: 0.7,
+				ID:           "some-other-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1685,8 +1691,9 @@ func TestNearObject(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-other-uuid",
-				Distance: 0.7,
+				ID:           "some-other-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1786,8 +1793,9 @@ func TestNearObjectNoModules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-uuid",
-				Distance: 0.7,
+				ID:           "some-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 
@@ -1833,8 +1841,9 @@ func TestNearObjectNoModules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 12},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-uuid",
-				Distance: 0.7,
+				ID:           "some-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 
@@ -1881,8 +1890,9 @@ func TestNearObjectNoModules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearObject: &searchparams.NearObject{
-				ID:       "some-uuid",
-				Distance: 0.7,
+				ID:           "some-uuid",
+				Distance:     0.7,
+				WithDistance: true,
 			},
 		}
 
@@ -1952,8 +1962,9 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{0.123, 0.984},
-				Distance: 0.4,
+				Vector:       []float32{0.123, 0.984},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2019,8 +2030,9 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{0.123, 0.984},
-				Distance: 0.4,
+				Vector:       []float32{0.123, 0.984},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
