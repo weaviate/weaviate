@@ -43,7 +43,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	t.Run("without some previous state", func(t *testing.T) {
+	t.Run("with some previous state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
@@ -53,7 +53,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 		t.Run("set one key that will be flushed orderly", func(t *testing.T) {
 			// the motivation behind flushing this initial segment is to check that
-			// deletion as part of the recvoery also works correclty. If we would
+			// deletion as part of the recovery also works correctly. If we would
 			// just delete something that was created as part of the same memtable,
 			// the tests would still pass, even with removing the logic that recovers
 			// tombstones.
@@ -65,7 +65,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 			//
 			// You can test this by commenting the "p.memtable.setTombstone()" line
 			// in p.doReplace(). This will fail the tests suite, but prior to this
-			// adddition it would have passed.
+			// addition it would have passed.
 			key2 := []byte("key-2")
 			orig2 := []byte("delete me later - you should never find me again")
 

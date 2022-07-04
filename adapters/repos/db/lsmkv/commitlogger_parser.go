@@ -89,20 +89,17 @@ func (p *commitloggerParser) doReplace() error {
 		}
 	}
 
-	if p.strategy == StrategyReplace {
-		for _, node := range p.replaceCache {
-			var opts []SecondaryKeyOption
-			if p.memtable.secondaryIndices > 0 {
-				for i, secKey := range node.secondaryKeys {
-					opts = append(opts, WithSecondaryKey(i, secKey))
-				}
+	for _, node := range p.replaceCache {
+		var opts []SecondaryKeyOption
+		if p.memtable.secondaryIndices > 0 {
+			for i, secKey := range node.secondaryKeys {
+				opts = append(opts, WithSecondaryKey(i, secKey))
 			}
-			if node.tombstone {
-				p.memtable.setTombstone(node.primaryKey, opts...)
-			} else {
-				p.memtable.put(node.primaryKey, node.value, opts...)
-			}
-
+		}
+		if node.tombstone {
+			p.memtable.setTombstone(node.primaryKey, opts...)
+		} else {
+			p.memtable.put(node.primaryKey, node.value, opts...)
 		}
 	}
 
