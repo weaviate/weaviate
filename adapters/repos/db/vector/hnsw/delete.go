@@ -129,12 +129,12 @@ func (h *hnsw) getEntrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) copyTombstonesToAllowList(resetCtx context.Context) (abort bool, deleteList helpers.AllowList) {
+func (h *hnsw) copyTombstonesToAllowList(resetCtx context.Context) (ok bool, deleteList helpers.AllowList) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
 	if resetCtx.Err() != nil {
-		return true, nil
+		return false, nil
 	}
 
 	h.RLock()
@@ -155,10 +155,10 @@ func (h *hnsw) copyTombstonesToAllowList(resetCtx context.Context) (abort bool, 
 	}
 
 	if len(deleteList) == 0 {
-		return true, nil
+		return false, nil
 	}
 
-	return false, deleteList
+	return true, deleteList
 }
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
@@ -171,26 +171,26 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	resetCtx := h.resetCtx
 	h.resetLock.Unlock()
 
-	abort, deleteList := h.copyTombstonesToAllowList(resetCtx)
-	if abort {
+	ok, deleteList := h.copyTombstonesToAllowList(resetCtx)
+	if !ok {
 		return nil
 	}
 
-	if abort, err := h.reassignNeighborsOf(deleteList, resetCtx); err != nil {
+	if ok, err := h.reassignNeighborsOf(deleteList, resetCtx); err != nil {
 		return err
-	} else if abort {
+	} else if !ok {
 		return nil
 	}
 
-	if abort, err := h.replaceDeletedEntrypoint(deleteList, resetCtx); err != nil {
+	if ok, err := h.replaceDeletedEntrypoint(deleteList, resetCtx); err != nil {
 		return err
-	} else if abort {
+	} else if !ok {
 		return nil
 	}
 
-	if abort, err := h.removeTombstonesAndNodes(deleteList, resetCtx); err != nil {
+	if ok, err := h.removeTombstonesAndNodes(deleteList, resetCtx); err != nil {
 		return err
-	} else if abort {
+	} else if !ok {
 		return nil
 	}
 
@@ -201,12 +201,12 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	return nil
 }
 
-func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, resetCtx context.Context) (abort bool, err error) {
+func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
 	if resetCtx.Err() != nil {
-		return true, nil
+		return false, nil
 	}
 
 	for id := range deleteList {
@@ -221,36 +221,36 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, resetCtx c
 			node := h.nodes[id]
 			h.RUnlock()
 			if err := h.deleteEntrypoint(node, deleteList); err != nil {
-				return true, errors.Wrap(err, "delete entrypoint")
+				return false, errors.Wrap(err, "delete entrypoint")
 			}
 		}
 	}
 
-	return false, nil
+	return true, nil
 }
 
-func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, resetCtx context.Context) (abort bool, err error) {
+func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
 
 	for n := 0; n < size; n++ {
-		if abort, err := h.reassignNeighbor(uint64(n), deleteList, resetCtx); err != nil {
-			return true, errors.Wrap(err, "reassign neighbor edges")
-		} else if abort {
-			return true, nil
+		if ok, err := h.reassignNeighbor(uint64(n), deleteList, resetCtx); err != nil {
+			return false, errors.Wrap(err, "reassign neighbor edges")
+		} else if !ok {
+			return false, nil
 		}
 	}
 
-	return false, nil
+	return true, nil
 }
 
-func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, resetCtx context.Context) (abort bool, err error) {
+func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
 	if resetCtx.Err() != nil {
-		return true, nil
+		return false, nil
 	}
 
 	h.RLock()
@@ -260,7 +260,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, r
 	h.RUnlock()
 
 	if neighborNode == nil || deleteList.Contains(neighborNode.id) {
-		return false, nil
+		return true, nil
 	}
 
 	neighborVec, err := h.vectorForID(context.Background(), neighbor)
@@ -268,10 +268,10 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, r
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return false, nil
+			return true, nil
 		} else {
 			// not a typed error, we can recover from, return with err
-			return true, errors.Wrap(err, "get neighbor vec")
+			return false, errors.Wrap(err, "get neighbor vec")
 		}
 	}
 	neighborNode.Lock()
@@ -279,14 +279,14 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, r
 	if !connectionsPointTo(neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
-		return false, nil
+		return true, nil
 	}
 	neighborNode.Unlock()
 
 	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
 		neighborLevel, currentEntrypoint, neighborVec)
 	if err != nil {
-		return true, errors.Wrap(err, "find best entrypoint")
+		return false, errors.Wrap(err, "find best entrypoint")
 	}
 
 	if entryPointID == neighbor {
@@ -301,9 +301,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, r
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
-				return true, err
+				return false, err
 			}
-			return false, nil
+			return true, nil
 		}
 
 		tmpDenyList := deleteList.DeepCopy()
@@ -321,17 +321,17 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, r
 	neighborNode.connections = map[int][]uint64{}
 	neighborNode.Unlock()
 	if err := h.commitLog.ClearLinks(neighbor); err != nil {
-		return true, err
+		return false, err
 	}
 
 	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
-		return true, errors.Wrap(err, "find and connect neighbors")
+		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 	neighborNode.unmarkAsMaintenance()
 
 	h.metrics.CleanedUp()
-	return false, nil
+	return true, nil
 }
 
 func connectionsPointTo(connections map[int][]uint64, needles helpers.AllowList) bool {
@@ -515,7 +515,7 @@ func (h *hnsw) addTombstone(id uint64) error {
 	return h.commitLog.AddTombstone(id)
 }
 
-func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, resetCtx context.Context) (abort bool, err error) {
+func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
 	for id := range deleteList {
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
@@ -527,15 +527,15 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, resetCtx c
 			h.nodes[id] = nil
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()
-				return true, err
+				return false, err
 			}
 		}
 		h.resetLock.Unlock()
 
 		if err := h.commitLog.RemoveTombstone(id); err != nil {
-			return true, err
+			return false, err
 		}
 	}
 
-	return false, nil
+	return true, nil
 }
