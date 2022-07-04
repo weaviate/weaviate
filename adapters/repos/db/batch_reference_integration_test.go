@@ -353,7 +353,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// UPDATE gh-1334: Since batch refs are now a special case where we
 			// tolerate a re-use of the doc id, the above assumption is no longer
 			// correct. However, this test still adds value, since we were now able
-			// to remove the the additional storage updates. By still including this
+			// to remove the additional storage updates. By still including this
 			// test we verify that such an update is indeed no longer necessary
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "AddingBatchReferencesTestSource",
