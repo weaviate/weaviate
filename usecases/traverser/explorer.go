@@ -483,36 +483,38 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func ExtractDistanceFromParams(params GetParams) float64 {
+func ExtractDistanceFromParams(params GetParams) (distance float64) {
 	if params.NearVector != nil {
-		return params.NearVector.Distance
+		distance = params.NearVector.Distance
+		return
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Distance
+		distance = params.NearObject.Distance
+		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		return extractDistanceFromModuleParams(params.ModuleParams)
+		distance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
-	panic("extractDistance was called without any known params present")
+	return
 }
 
-func ExtractCertaintyFromParams(params GetParams) float64 {
+func ExtractCertaintyFromParams(params GetParams) (certainty float64) {
 	if params.NearVector != nil {
-		return params.NearVector.Certainty
+		certainty = params.NearVector.Certainty
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Certainty
+		certainty = params.NearObject.Certainty
 	}
 
 	if len(params.ModuleParams) == 1 {
-		return extractCertaintyFromModuleParams(params.ModuleParams)
+		certainty = extractCertaintyFromModuleParams(params.ModuleParams)
 	}
 
-	panic("extractCertainty was called without any known params present")
+	return
 }
 
 func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64) {
