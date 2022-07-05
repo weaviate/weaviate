@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
