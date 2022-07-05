@@ -376,7 +376,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 						schema: schemaForFiltersValidation(),
 					}
 					log, _ := testLogger.NewNullLogger()
-					explorer := NewExplorer(search, newFakeDistancer(), log, getFakeModulesProvider())
+					explorer := NewExplorer(search, log, getFakeModulesProvider())
 					explorer.SetSchemaGetter(sg)
 
 					if td.expectedError == nil {

@@ -259,7 +259,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		Score:                1, // TODO: actuallly score
+		Score:                1, // TODO: actually score
 		// TODO: Beacon?
 	}
 }
