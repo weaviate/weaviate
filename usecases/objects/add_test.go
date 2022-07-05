@@ -104,7 +104,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			ID:     id,
 			Class:  "Foo",
 		}
-		vectorRepo.On("Exists", "", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
 		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
@@ -127,7 +127,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 				"newProperty": "string value",
 			},
 		}
-		vectorRepo.On("Exists", "", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
 		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
@@ -147,7 +147,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("Exists", "", id).Return(true, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(true, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -163,7 +163,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("Exists", "", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
@@ -257,7 +257,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 			ID:    id,
 			Class: "Foo",
 		}
-		vectorRepo.On("Exists", "", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
 		res, err := manager.AddObject(ctx, nil, object)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
@@ -277,7 +277,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("Exists", "", id).Return(true, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(true, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -293,7 +293,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("Exists", "", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)

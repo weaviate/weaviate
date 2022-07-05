@@ -401,7 +401,7 @@ func TestCRUD(t *testing.T) {
 							LosingCount:            1,
 						},
 						Beacon: strfmt.URI(
-							crossref.New("localhost", thingID).String()),
+							crossref.NewLocalhost("", thingID).String()),
 					},
 				},
 			},
@@ -665,7 +665,7 @@ func TestCRUD(t *testing.T) {
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID).String()),
+					crossref.NewLocalhost("", thingID).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])
@@ -706,7 +706,7 @@ func TestCRUD(t *testing.T) {
 					LosingCount:            1,
 				},
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID).String()),
+					crossref.NewLocalhost("", thingID).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])

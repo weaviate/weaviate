@@ -736,7 +736,7 @@ func multiShardRefClassData(targets []*models.Object) []*models.Object {
 	targetLinks := make(models.MultipleRef, len(targets))
 	for i, obj := range targets {
 		targetLinks[i] = &models.SingleRef{
-			Beacon: strfmt.URI(crossref.New("localhost", obj.ID).String()),
+			Beacon: strfmt.URI(crossref.NewLocalhost("", obj.ID).String()),
 		}
 	}
 

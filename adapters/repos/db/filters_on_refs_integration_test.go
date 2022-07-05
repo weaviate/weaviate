@@ -126,7 +126,7 @@ func TestRefFilters(t *testing.T) {
 					"name": "Car which is parked in a garage",
 					"parkedAt": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
+							Beacon: "weaviate://localhost/MultiRefParkingGarage/a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 					},
 				},
@@ -155,7 +155,7 @@ func TestRefFilters(t *testing.T) {
 							Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/1023967b-9512-475b-8ef9-673a110b695d",
+							Beacon: "weaviate://localhost/MultiRefParkingLot/1023967b-9512-475b-8ef9-673a110b695d",
 						},
 					},
 				},
@@ -541,7 +541,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
 							Beacon: strfmt.URI(
-								strfmt.URI(crossref.New("localhost", netherlands).String()),
+								strfmt.URI(crossref.NewLocalhost("", netherlands).String()),
 							),
 						},
 					},
@@ -555,7 +555,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", netherlands).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", netherlands).String()),
 						},
 					},
 				},
@@ -568,7 +568,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(3470000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", germany).String()),
 						},
 					},
 				},
@@ -581,7 +581,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"population": int64(600000),
 					"inCountry": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", germany).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", germany).String()),
 						},
 					},
 					"location": &models.GeoCoordinates{
@@ -615,7 +615,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					},
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", amsterdam).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", amsterdam).String()),
 						},
 					},
 				},
@@ -627,7 +627,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "20000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", rotterdam).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", rotterdam).String()),
 						},
 					},
 				},
@@ -639,7 +639,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "30000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", dusseldorf).String()),
 						},
 					},
 				},
@@ -651,7 +651,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 					"code": "40000",
 					"inCity": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(crossref.New("localhost", berlin).String()),
+							Beacon: strfmt.URI(crossref.NewLocalhost("", berlin).String()),
 						},
 					},
 				},

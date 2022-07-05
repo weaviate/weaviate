@@ -83,6 +83,7 @@ func assertGetObjectFailsEventually(t *testing.T, uuid strfmt.UUID) error {
 }
 
 func assertCreateObjectClass(t *testing.T, class *models.Class) {
+	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)

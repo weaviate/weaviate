@@ -96,5 +96,5 @@ func checkOfFoodTypeRef(properties interface{}, id strfmt.UUID) bool {
 	if !ok {
 		return false
 	}
-	return beacon == fmt.Sprintf("weaviate://localhost/%s", id)
+	return beacon == fmt.Sprintf("weaviate://localhost/FoodType/%s", id)
 }
