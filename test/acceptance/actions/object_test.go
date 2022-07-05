@@ -75,7 +75,7 @@ func findObject(t *testing.T) {
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(second_friend, second_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", second_uuid),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_uuid),
 	}
 	expected := map[string]interface{}{
 		"number": json.Number("2"),
@@ -187,7 +187,7 @@ func putObject(t *testing.T) {
 	}
 	link2 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost(friend_cls, friend_uuid).String(),
-		"href":   fmt.Sprintf("/v1/objects/%s", friend_uuid),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friend_uuid),
 	}
 	expected := map[string]interface{}{
 		"testNumber":    json.Number("2"),
@@ -264,7 +264,7 @@ func patchObject(t *testing.T) {
 	}
 	link2 := map[string]interface{}{
 		"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
-		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+		"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friendID),
 	}
 	expected := map[string]interface{}{
 		"integer1": json.Number("2"),
@@ -452,7 +452,7 @@ func postReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", friend_cls, friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", friend_cls, friendID),
 			},
 		},
 	}
@@ -533,11 +533,11 @@ func putReferences(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
 			},
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_friendID),
 			},
 		},
 	}
@@ -644,11 +644,11 @@ func deleteReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
 			},
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", second_friend, second_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", second_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", second_friend, second_friendID),
 			},
 		},
 	})
@@ -657,7 +657,7 @@ func deleteReference(t *testing.T) {
 		"friend": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", first_friend, first_friendID),
-				"href":   fmt.Sprintf("/v1/objects/%s", first_friendID),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", first_friend, first_friendID),
 			},
 		},
 	}
