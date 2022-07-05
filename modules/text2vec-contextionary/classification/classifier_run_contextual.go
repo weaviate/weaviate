@@ -170,7 +170,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 		return "", fmt.Errorf("find closest target: %v", err)
 	}
 
-	targetBeacon := crossref.New("localhost", target.ID).String()
+	targetBeacon := crossref.New("localhost", target.ClassName, target.ID).String()
 	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
 		&models.SingleRef{
 			Beacon: strfmt.URI(targetBeacon),

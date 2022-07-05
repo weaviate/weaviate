@@ -37,6 +37,13 @@ type hnsw struct {
 
 	tombstoneLock *sync.RWMutex
 
+	// prevents tombstones cleanup to be performed in parallel with index reset operation
+	resetLock *sync.Mutex
+	// indicates whether reset operation occurred or not - if so tombstones cleanup method
+	// is aborted as it makes no sense anymore
+	resetCtx       context.Context
+	resetCtxCancel context.CancelFunc
+
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -165,6 +172,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
 
+	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -187,6 +195,9 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		tombstoneLock:     &sync.RWMutex{},
+		resetLock:         &sync.Mutex{},
+		resetCtx:          resetCtx,
+		resetCtxCancel:    resetCtxCancel,
 		initialInsertOnce: &sync.Once{},
 		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
@@ -501,12 +512,15 @@ func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
 
+	return h.isEmptyUnsecured()
+}
+
+func (h *hnsw) isEmptyUnsecured() bool {
 	for _, node := range h.nodes {
 		if node != nil {
 			return false
 		}
 	}
-
 	return true
 }
 

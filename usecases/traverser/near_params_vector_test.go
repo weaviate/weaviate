@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/stretchr/testify/assert"
@@ -231,6 +232,25 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 				},
 			},
 			want:    []float32{1, 2, 3},
+			wantErr: false,
+		},
+		{
+			name: "Should get vector from nearObject",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					Beacon: crossref.NewLocalhost("Class", "uuid").String(),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Should get vector from nearObject",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					Beacon: crossref.NewLocalhost("Class", "e5dc4a4c-ef0f-3aed-89a3-a73435c6bbcf").String(),
+				},
+			},
+			want:    []float32{1.0, 1.0, 1.0},
 			wantErr: false,
 		},
 	}

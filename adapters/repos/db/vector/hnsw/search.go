@@ -177,6 +177,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		if !ok {
+			candidates.Pop()
 			continue
 		}
 

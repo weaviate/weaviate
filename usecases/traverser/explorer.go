@@ -13,13 +13,13 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
@@ -385,7 +385,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 
 	results := []search.Result{}
 	for _, item := range res {
-		item.Beacon = beacon(item)
+		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
 		err = e.appendResultsIfSimilarityThresholdMet(item, &results, vector, params)
 		if err != nil {
 			return nil, errors.Errorf("append results based on similarity: %s", err)
@@ -582,8 +582,4 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) float6
 	}
 
 	return 0
-}
-
-func beacon(res search.Result) string {
-	return fmt.Sprintf("weaviate://localhost/%s", res.ID)
 }

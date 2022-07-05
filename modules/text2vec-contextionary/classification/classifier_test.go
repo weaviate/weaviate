@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	usecasesclassfication "github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -147,24 +148,24 @@ func TestContextualClassifier_Classify(t *testing.T) {
 				idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"
 				idArticleFoodTwo := "6402e649-b1e0-40ea-b192-a64eab0d5e56"
 
-				checkRef(t, vectorRepo, idArticleFoodOne, "exactCategory", idCategoryFoodAndDrink)
-				checkRef(t, vectorRepo, idArticleFoodTwo, "mainCategory", idMainCategoryFoodAndDrink)
+				checkRef(t, vectorRepo, idArticleFoodOne, "ExactCategory", "exactCategory", idCategoryFoodAndDrink)
+				checkRef(t, vectorRepo, idArticleFoodTwo, "MainCategory", "mainCategory", idMainCategoryFoodAndDrink)
 			})
 
 			t.Run("politics", func(t *testing.T) {
 				idArticlePoliticsOne := "75ba35af-6a08-40ae-b442-3bec69b355f9"
 				idArticlePoliticsTwo := "f850439a-d3cd-4f17-8fbf-5a64405645cd"
 
-				checkRef(t, vectorRepo, idArticlePoliticsOne, "exactCategory", idCategoryPolitics)
-				checkRef(t, vectorRepo, idArticlePoliticsTwo, "mainCategory", idMainCategoryPoliticsAndSociety)
+				checkRef(t, vectorRepo, idArticlePoliticsOne, "ExactCategory", "exactCategory", idCategoryPolitics)
+				checkRef(t, vectorRepo, idArticlePoliticsTwo, "MainCategory", "mainCategory", idMainCategoryPoliticsAndSociety)
 			})
 
 			t.Run("society", func(t *testing.T) {
 				idArticleSocietyOne := "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109"
 				idArticleSocietyTwo := "069410c3-4b9e-4f68-8034-32a066cb7997"
 
-				checkRef(t, vectorRepo, idArticleSocietyOne, "exactCategory", idCategorySociety)
-				checkRef(t, vectorRepo, idArticleSocietyTwo, "mainCategory", idMainCategoryPoliticsAndSociety)
+				checkRef(t, vectorRepo, idArticleSocietyOne, "ExactCategory", "exactCategory", idCategorySociety)
+				checkRef(t, vectorRepo, idArticleSocietyTwo, "MainCategory", "mainCategory", idMainCategoryPoliticsAndSociety)
 			})
 		})
 	})
@@ -272,7 +273,7 @@ type genericFakeRepo interface {
 	get(strfmt.UUID) (*models.Object, bool)
 }
 
-func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target string) {
+func checkRef(t *testing.T, repo genericFakeRepo, source, targetClass, propName, target string) {
 	object, ok := repo.get(strfmt.UUID(source))
 	require.True(t, ok, "object must be present")
 
@@ -286,7 +287,7 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 	require.True(t, ok, "ref prop must be models.MultipleRef")
 	require.Len(t, refs, 1, "refs must have len 1")
 
-	assert.Equal(t, fmt.Sprintf("weaviate://localhost/%s", target), refs[0].Beacon.String(), "beacon must match")
+	assert.Equal(t, crossref.NewLocalhost(targetClass, strfmt.UUID(target)).String(), refs[0].Beacon.String(), "beacon must match")
 }
 
 type fakeVectorizer struct {
@@ -306,7 +307,8 @@ func (f *fakeVectorizer) MultiVectorForWord(ctx context.Context, words []string)
 }
 
 func (f *fakeVectorizer) VectorOnlyForCorpi(ctx context.Context, corpi []string,
-	overrides map[string]string) ([]float32, error) {
+	overrides map[string]string,
+) ([]float32, error) {
 	words := strings.Split(corpi[0], " ")
 	if len(words) == 0 {
 		return nil, fmt.Errorf("vector for corpi called without words")
