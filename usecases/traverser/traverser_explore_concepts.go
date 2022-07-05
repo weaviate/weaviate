@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
@@ -28,6 +27,12 @@ func (t *Traverser) Explore(ctx context.Context,
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
+		return nil, err
+	}
+
+	// to conduct a cross-class vector search, all classes must
+	// be configured with the same vector index distance type
+	if err := t.validateCrossClassDistanceCompatibility(); err != nil {
 		return nil, err
 	}
 

@@ -19,7 +19,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -74,13 +73,6 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		return db.ClassSearch(ctx, params)
-	}
-
-	// some vec index configs are not compatible with some params.
-	// for example, certainty cannot be used when the class' vec
-	// index is configured to use l2-squared distance
-	if err := db.checkVectorIndexDistanceCompatibility(params); err != nil {
-		return nil, err
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
@@ -289,38 +281,4 @@ func (db *DB) getLimit(limit int) int {
 		return int(db.config.QueryLimit)
 	}
 	return limit
-}
-
-func (db *DB) checkVectorIndexDistanceCompatibility(params traverser.GetParams) error {
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
-	if idx == nil {
-		return fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
-	}
-
-	hnswConfig, ok := idx.vectorIndexUserConfig.(hnsw.UserConfig)
-	if !ok {
-		return errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			idx.vectorIndexUserConfig)
-	}
-
-	if hnswConfig.Distance == hnsw.DistanceL2Squared ||
-		hnswConfig.Distance == hnsw.DistanceDot {
-		incompatErr := errors.Errorf(
-			"can't use certainty when vector index is configured with %s distance",
-			hnswConfig.Distance)
-
-		if params.NearVector != nil && params.NearVector.Certainty != 0 {
-			return incompatErr
-		}
-
-		if params.NearObject != nil && params.NearObject.Certainty != 0 {
-			return incompatErr
-		}
-
-		if params.ModuleParams != nil && traverser.ExtractCertaintyFromParams(params) != 0 {
-			return incompatErr
-		}
-	}
-
-	return nil
 }

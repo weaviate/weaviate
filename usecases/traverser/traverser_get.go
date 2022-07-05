@@ -36,5 +36,14 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		deprecations.Log(t.logger, "additional-prop-certainty")
 	}
 
+	if certainty := ExtractCertaintyFromParams(params); certainty != 0 {
+		// if certainty is provided as input, we must ensure
+		// that the vector index is configured to use cosine
+		// distance
+		if err := t.validateGetDistanceParams(params); err != nil {
+			return nil, err
+		}
+	}
+
 	return t.explorer.GetClass(ctx, params)
 }
