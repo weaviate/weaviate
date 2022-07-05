@@ -20,7 +20,84 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ParsingFromString(t *testing.T) {
+func TestParseCrossReference(t *testing.T) {
+	ref := Ref{
+		Local:    true,
+		PeerName: _LocalHost,
+		TargetID: "c2cd3f91-0160-477e-869a-8da8829e0a4d",
+		Class:    "class",
+	}
+	tests := []struct {
+		beacon string
+		ref    Ref
+		ok     bool
+	}{
+		{
+			beacon: "weaviate://localhost/class/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+			ref:    ref,
+			ok:     true,
+		},
+		{
+			beacon: "weaviate://remote/class/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+			ref:    Ref{false, "remote", ref.TargetID, "class"},
+			ok:     true,
+		},
+		{
+			beacon: "weaviate://localhost/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+			ref:    Ref{true, _LocalHost, ref.TargetID, ""},
+			ok:     true,
+		},
+		{
+			beacon: "weaviate://remote/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+			ref:    Ref{false, "remote", ref.TargetID, ""},
+			ok:     true,
+		},
+		{
+			beacon: "weaviate://localhost/class/c2cd3f91-0160-477e-869a-8da8829e0a4d/i-shouldnt-be-here",
+		},
+		{
+			beacon: "weaviate://localhost/class/invalid-id",
+		},
+		{
+			beacon: "weaviate://localhost/class",
+		},
+		{
+			beacon: "weaviate://localhost",
+		},
+		{
+			beacon: "i:am:not:a:url",
+		},
+	}
+	for i, tc := range tests {
+		got, err := Parse(tc.beacon)
+		if (err == nil) != tc.ok {
+			t.Errorf("%d - Parse(%s) error %v error expected: %t", i, tc.beacon, err, tc.ok)
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if *got != tc.ref {
+			t.Errorf("%d - Parse(%s) got %v want %v", i, tc.beacon, *got, tc.ref)
+		}
+		if beacon := got.String(); beacon != tc.beacon {
+			t.Errorf("beacon expected: %v want %v", tc.beacon, beacon)
+		}
+	}
+}
+
+func TestSingleRef(t *testing.T) {
+	ref := NewLocalhost("class", "c2cd3f91-0160-477e-869a-8da8829e0a4d")
+	expected := &models.SingleRef{
+		Beacon: strfmt.URI("weaviate://localhost/class/c2cd3f91-0160-477e-869a-8da8829e0a4d"),
+	}
+	sref := ref.SingleRef()
+	assert.Equal(t, expected, sref, "should create a singleRef")
+	xref, _ := ParseSingleRef(sref)
+	assert.Equal(t, ref, xref)
+}
+
+func Test_ParsingFromStringDeprecated(t *testing.T) {
 	t.Run("from a local object ref that is well-formed", func(t *testing.T) {
 		uri := "weaviate://localhost/c2cd3f91-0160-477e-869a-8da8829e0a4d"
 		ref, err := Parse(uri)
@@ -112,7 +189,7 @@ func Test_ParsingFromString(t *testing.T) {
 	})
 }
 
-func Test_ParsingFromSingleRef(t *testing.T) {
+func Test_ParsingFromSingleRefDeprecated(t *testing.T) {
 	t.Run("from a local object ref that is well-formed", func(t *testing.T) {
 		uri := strfmt.URI("weaviate://localhost/c2cd3f91-0160-477e-869a-8da8829e0a4d")
 		singleRef := &models.SingleRef{
@@ -136,7 +213,7 @@ func Test_ParsingFromSingleRef(t *testing.T) {
 	})
 }
 
-func Test_GenerateString(t *testing.T) {
+func Test_GenerateStringDeprecated(t *testing.T) {
 	uri := "weaviate://localhost/c2cd3f91-0160-477e-869a-8da8829e0a4d"
 	ref, err := Parse(uri)
 
@@ -144,7 +221,7 @@ func Test_GenerateString(t *testing.T) {
 	assert.Equal(t, uri, ref.String(), "should be the same as the input string")
 }
 
-func Test_SingleRef(t *testing.T) {
+func Test_DeprecatedSingleRef(t *testing.T) {
 	uri := "weaviate://localhost/c2cd3f91-0160-477e-869a-8da8829e0a4d"
 	ref, err := Parse(uri)
 	expectedResult := &models.SingleRef{

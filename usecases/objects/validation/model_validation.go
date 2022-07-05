@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
-type exists func(context.Context, strfmt.UUID) (bool, error)
+type exists func(_ context.Context, class string, _ strfmt.UUID) (bool, error)
 
 const (
 	// ErrorMissingActionObjects message
@@ -104,18 +104,11 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 		return fmt.Errorf("unrecognized cross-ref ref format")
 	}
 
-	return v.validateLocalRef(ctx, ref, errorVal)
-}
-
-func (v *Validator) validateLocalRef(ctx context.Context, ref *crossref.Ref, errorVal string) error {
-	// Check whether the given Object exists in the DB
-	var err error
-
-	ok, err := v.exists(ctx, ref.TargetID)
+	// locally check for object existence
+	ok, err := v.exists(ctx, ref.Class, ref.TargetID)
 	if err != nil {
 		return err
 	}
-
 	if !ok {
 		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.TargetID)
 	}
