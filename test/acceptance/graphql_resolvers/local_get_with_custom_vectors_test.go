@@ -56,9 +56,9 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 		results := result.Get("Explore").AsSlice()
 
 		expected := []interface{}{
-			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc1)},
-			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc2)},
-			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/%s", cvc3)},
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/CustomVectorClass/%s", cvc1)},
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/CustomVectorClass/%s", cvc2)},
+			map[string]interface{}{"beacon": fmt.Sprintf("weaviate://localhost/CustomVectorClass/%s", cvc3)},
 		}
 
 		assert.Equal(t, expected, results)
