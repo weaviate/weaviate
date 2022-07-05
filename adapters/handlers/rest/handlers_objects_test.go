@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	uco "github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -216,7 +217,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					getObjectReturn: test.object,
 				}
-				h := &objectHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager, logger: &logrus.Logger{}}
 				res := h.getObjectDeprecated(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
 				parsed, ok := res.(*objects.ObjectsClassGetOK)
 				require.True(t, ok)
@@ -364,7 +365,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				fakeManager := &fakeManager{
 					updateObjectReturn: test.object,
 				}
-				h := &objectHandlers{manager: fakeManager}
+				h := &objectHandlers{manager: fakeManager, logger: &logrus.Logger{}}
 				res := h.updateObjectDeprecated(objects.ObjectsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
@@ -621,7 +622,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	t.Run("PatchObject", func(t *testing.T) {
 		var (
 			fakeManager = &fakeManager{}
-			h           = &objectHandlers{manager: fakeManager}
+			h           = &objectHandlers{manager: fakeManager, logger: &logrus.Logger{}}
 			req         = objects.ObjectsClassPatchParams{
 				HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/MyClass/123", nil),
 				ClassName:   "MyClass",
@@ -806,7 +807,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		m := &fakeManager{
 			headObjectReturn: true,
 		}
-		h := &objectHandlers{manager: m}
+		h := &objectHandlers{manager: m, logger: &logrus.Logger{}}
 		req := objects.ObjectsClassHeadParams{
 			HTTPRequest: httptest.NewRequest("HEAD", "/v1/objects/MyClass/123", nil),
 			ClassName:   "MyClass",
@@ -843,7 +844,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 	t.Run("PostReference", func(t *testing.T) {
 		m := &fakeManager{}
-		h := &objectHandlers{manager: m}
+		h := &objectHandlers{manager: m, logger: &logrus.Logger{}}
 		req := objects.ObjectsClassReferencesCreateParams{
 			HTTPRequest:  httptest.NewRequest("HEAD", "/v1/objects/MyClass/123/references/prop", nil),
 			ClassName:    "MyClass",
@@ -893,7 +894,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 	t.Run("PutReferences", func(t *testing.T) {
 		m := &fakeManager{}
-		h := &objectHandlers{manager: m}
+		h := &objectHandlers{manager: m, logger: &logrus.Logger{}}
 		req := objects.ObjectsClassReferencesPutParams{
 			HTTPRequest:  httptest.NewRequest("HEAD", "/v1/objects/MyClass/123/references/prop", nil),
 			ClassName:    "MyClass",
@@ -936,7 +937,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 	t.Run("DeleteReference", func(t *testing.T) {
 		m := &fakeManager{}
-		h := &objectHandlers{manager: m}
+		h := &objectHandlers{manager: m, logger: &logrus.Logger{}}
 		req := objects.ObjectsClassReferencesDeleteParams{
 			HTTPRequest:  httptest.NewRequest("HEAD", "/v1/objects/MyClass/123/references/prop", nil),
 			ClassName:    "MyClass",
