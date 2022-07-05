@@ -422,6 +422,7 @@ func setupObjectHandlers(api *operations.WeaviateAPI,
 func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
 	ps := objects.ObjectsClassGetParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -433,6 +434,7 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
 	r := objects.ObjectsClassHeadParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -441,6 +443,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 }
 
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
 	args := objects.ObjectsClassPatchParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -455,6 +458,7 @@ func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams
 func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
 		ClassName:   params.Body.Class,
@@ -467,6 +471,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
 	ps := objects.ObjectsClassDeleteParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -477,6 +482,7 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
 	req := objects.ObjectsClassReferencesCreateParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,
@@ -489,6 +495,7 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.ObjectsReferencesUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
 	req := objects.ObjectsClassReferencesPutParams{
 		HTTPRequest:  params.HTTPRequest,
 		ID:           params.ID,
@@ -501,6 +508,7 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsReferencesDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
 	req := objects.ObjectsClassReferencesDeleteParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,
