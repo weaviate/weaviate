@@ -32,8 +32,11 @@ func (t *Traverser) Explore(ctx context.Context,
 	}
 
 	// to conduct a cross-class vector search, all classes must
-	// be configured with the same vector index distance type
-	if err := t.validateCrossClassDistanceCompatibility(); err != nil {
+	// be configured with the same vector index distance type.
+	// additionally, certainty cannot be passed to Explore when
+	// the classes are configured to use a distance type other
+	// than cosine.
+	if err := t.validateExploreDistance(params); err != nil {
 		return nil, err
 	}
 

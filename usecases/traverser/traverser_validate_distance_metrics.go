@@ -10,10 +10,22 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-func (t Traverser) validateCrossClassDistanceCompatibility() error {
+func (t Traverser) validateExploreDistance(params ExploreParams) error {
+	distType, err := t.validateCrossClassDistanceCompatibility()
+	if err != nil {
+		return err
+	}
+
+	return t.validateExploreDistanceParams(params, distType)
+}
+
+// ensures that all classes are configured with the same distance type.
+// if all classes are configured with the same type, said type is returned.
+// otherwise an error indicating which classes are configured differently.
+func (t Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
-		return nil
+		return hnsw.DefaultDistanceMetric, nil
 	}
 
 	var (
@@ -34,9 +46,10 @@ func (t Traverser) validateCrossClassDistanceCompatibility() error {
 			continue
 		}
 
-		hnswConfig, err := typeAssertVectorIndex(class)
-		if err != nil {
-			return err
+		hnswConfig, assertErr := typeAssertVectorIndex(class)
+		if assertErr != nil {
+			err = assertErr
+			return
 		}
 
 		distancerTypes[hnswConfig.Distance] = struct{}{}
@@ -44,7 +57,26 @@ func (t Traverser) validateCrossClassDistanceCompatibility() error {
 	}
 
 	if len(distancerTypes) != 1 {
-		return buildCrossClassDistCompatError(classDistanceConfigs)
+		err = crossClassDistCompatError(classDistanceConfigs)
+		return
+	}
+
+	// the above check ensures that the
+	// map only contains one entry
+	for dt, _ := range distancerTypes {
+		distType = dt
+	}
+
+	return
+}
+
+func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType string) error {
+	if certainty := extractCertaintyFromExploreParams(params); certainty == 0 {
+		return nil
+	}
+
+	if distType != hnsw.DistanceCosine {
+		return certaintyUnsupportedError(distType)
 	}
 
 	return nil
@@ -63,9 +95,7 @@ func (t *Traverser) validateGetDistanceParams(params GetParams) error {
 	}
 
 	if hnswConfig.Distance != hnsw.DistanceCosine {
-		return errors.Errorf(
-			"can't use certainty when vector index is configured with %s distance",
-			hnswConfig.Distance)
+		return certaintyUnsupportedError(hnswConfig.Distance)
 	}
 
 	return nil
@@ -81,7 +111,7 @@ func typeAssertVectorIndex(class *models.Class) (hnsw.UserConfig, error) {
 	return hnswConfig, nil
 }
 
-func buildCrossClassDistCompatError(classDistanceConfigs map[string]string) error {
+func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
 	errorMsg := "vector search across classes not possible: found different distance metrics:"
 	for class, dist := range classDistanceConfigs {
 		errorMsg = fmt.Sprintf("%s class '%s' uses distance metric '%s',", errorMsg, class, dist)
@@ -89,4 +119,10 @@ func buildCrossClassDistCompatError(classDistanceConfigs map[string]string) erro
 	errorMsg = strings.TrimSuffix(errorMsg, ",")
 
 	return fmt.Errorf(errorMsg)
+}
+
+func certaintyUnsupportedError(distType string) error {
+	return errors.Errorf(
+		"can't use certainty when vector index is configured with %s distance",
+		distType)
 }

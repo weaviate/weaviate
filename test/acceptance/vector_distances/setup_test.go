@@ -30,9 +30,13 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import l2 test data ", addTestDataL2)
 	t.Run("test l2 distance", testL2)
 
-	// tear down
+	// tear down what we no longer need
 	deleteObjectClass(t, "Cosine_Class")
 	deleteObjectClass(t, "Dot_Class")
+
+	t.Run("explore across multiple non-cosine classes", testExplore)
+
+	// tear down remaining classes
 	deleteObjectClass(t, "L2Squared_Class")
 }
 

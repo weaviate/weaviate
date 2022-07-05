@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -118,19 +119,14 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	mutex := &sync.Mutex{}
 	var searchErrors []error
 	totalLimit := offset + limit
-	emptyAdditional := additional.Properties{
-		// TODO: the fact that we need the vector for resorting shows that something
-		// is not ideal here. We already get distances from the vector search, why not
-		// pass them along and use them for sorting?
-		Vector: true,
-	}
+
 	for _, index := range db.indices {
 		wg.Add(1)
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			res, _, err := index.objectVectorSearch(
-				ctx, vector, 0, totalLimit, filters, nil, emptyAdditional)
+			ids, dist, err := index.objectVectorSearch(
+				ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -138,7 +134,15 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			}
 
 			mutex.Lock()
-			found = append(found, storobj.SearchResults(res, emptyAdditional)...)
+
+			res := storobj.SearchResults(ids, additional.Properties{})
+			for i := range res {
+				res[i].Dist = dist[i]
+				res[i].Certainty = 1 - dist[i]
+			}
+
+			found = append(found, res...)
+
 			mutex.Unlock()
 		}(index, wg)
 	}
@@ -156,11 +160,9 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 		return nil, errors.New(msg.String())
 	}
 
-	// TODO: use dists
-	found, err := found.SortByDistanceToVector(vector)
-	if err != nil {
-		return nil, errors.Wrapf(err, "re-sort when merging indices")
-	}
+	sort.Slice(found, func(i, j int) bool {
+		return found[i].Dist < found[j].Dist
+	})
 
 	// not enriching by refs, as a vector search result cannot provide
 	// SelectProperties

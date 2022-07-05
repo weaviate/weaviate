@@ -65,12 +65,10 @@ type vectorClassSearch interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch,
-	distancer distancer, logger logrus.FieldLogger,
+func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) *Explorer {
 	return &Explorer{
 		search:           search,
-		distancer:        distancer, // TODO: should be removed as we can't know distancer was used by the vector index
 		logger:           logger,
 		modulesProvider:  modulesProvider,
 		schemaGetter:     nil, // schemaGetter is set later
@@ -386,7 +384,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 	results := []search.Result{}
 	for _, item := range res {
 		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
-		err = e.appendResultsIfSimilarityThresholdMet(item, &results, vector, params)
+		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params)
 		if err != nil {
 			return nil, errors.Errorf("append results based on similarity: %s", err)
 		}
@@ -396,19 +394,9 @@ func (e *Explorer) Concepts(ctx context.Context,
 }
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
-	results *[]search.Result, vec []float32, params ExploreParams) error {
-	// TODO: The distancer should no longer be needed because we should get the
-	// raw distances as part of the search.Result
-	dist, err := e.distancer(vec, item.Vector)
-	if err != nil {
-		return errors.Errorf("res %s: %v", item.Beacon, err)
-	}
-
-	item.Certainty = 1 - dist
-	item.Dist = dist
-
+	results *[]search.Result, params ExploreParams) error {
 	distance := extractDistanceFromExploreParams(params)
-	if distance != 0 && item.Dist <= float32(distance/2) {
+	if distance != 0 && item.Dist <= float32(distance) {
 		*results = append(*results, item)
 	}
 	certainty := extractCertaintyFromExploreParams(params)
