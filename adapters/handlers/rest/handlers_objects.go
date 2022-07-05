@@ -540,8 +540,11 @@ func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *mode
 		// ignore return unchanged
 		return ref
 	}
-
-	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID))
+	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, parsed.Class, parsed.TargetID)
+	if parsed.Class == "" {
+		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)
+	}
+	ref.Href = strfmt.URI(href)
 	return ref
 }
 
