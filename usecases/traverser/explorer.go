@@ -504,14 +504,17 @@ func ExtractDistanceFromParams(params GetParams) (distance float64) {
 func ExtractCertaintyFromParams(params GetParams) (certainty float64) {
 	if params.NearVector != nil {
 		certainty = params.NearVector.Certainty
+		return
 	}
 
 	if params.NearObject != nil {
 		certainty = params.NearObject.Certainty
+		return
 	}
 
 	if len(params.ModuleParams) == 1 {
 		certainty = extractCertaintyFromModuleParams(params.ModuleParams)
+		return
 	}
 
 	return
