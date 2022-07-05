@@ -63,7 +63,7 @@ func (t Traverser) validateCrossClassDistanceCompatibility() (distType string, e
 
 	// the above check ensures that the
 	// map only contains one entry
-	for dt, _ := range distancerTypes {
+	for dt := range distancerTypes {
 		distType = dt
 	}
 

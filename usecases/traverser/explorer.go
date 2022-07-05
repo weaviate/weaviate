@@ -31,7 +31,6 @@ import (
 // used by an API, but through a Traverser.
 type Explorer struct {
 	search           vectorClassSearch
-	distancer        distancer
 	logger           logrus.FieldLogger
 	modulesProvider  ModulesProvider
 	schemaGetter     schema.SchemaGetter
@@ -52,8 +51,6 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 }
-
-type distancer func(a, b []float32) (float32, error)
 
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
