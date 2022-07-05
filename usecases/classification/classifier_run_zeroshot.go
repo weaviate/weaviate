@@ -50,7 +50,7 @@ func (c *Classifier) classifyItemUsingZeroShot(item search.Result, itemIndex int
 			}
 
 			if len(res) > 0 {
-				cref := crossref.New("localhost", res[0].ID)
+				cref := crossref.NewLocalhost(res[0].ClassName, res[0].ID)
 				item.Schema.(map[string]interface{})[prop] = models.MultipleRef{
 					&models.SingleRef{
 						Beacon:         cref.SingleRef().Beacon,

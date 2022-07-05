@@ -928,7 +928,7 @@ func exampleDataWithRefs(size int, refCount int, targetObjs []*models.Object) []
 		refs := make(models.MultipleRef, refCount)
 		for i := range refs {
 			randomTarget := targetObjs[rand.Intn(len(targetObjs))]
-			refs[i] = crossref.New("localhost", randomTarget.ID).SingleRef()
+			refs[i] = crossref.New("localhost", distributedClass, randomTarget.ID).SingleRef()
 		}
 
 		out[i] = &models.Object{

@@ -538,7 +538,7 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", netherlands).String(),
+					"beacon": crossref.NewLocalhost("Country", netherlands).String(),
 				},
 			},
 			"isCapital":  true,
@@ -560,7 +560,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 600000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", netherlands).String(),
+					"beacon": crossref.NewLocalhost("Country", netherlands).String(),
 				},
 			},
 			"isCapital":  false,
@@ -582,7 +582,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 3470000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", germany).String(),
+					"beacon": crossref.NewLocalhost("Country", germany).String(),
 				},
 			},
 			"isCapital":  true,
@@ -604,7 +604,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 600000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", germany).String(),
+					"beacon": crossref.NewLocalhost("Country", germany).String(),
 				},
 			},
 			"location": map[string]interface{}{
@@ -648,7 +648,7 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", amsterdam).String(),
+					"beacon": crossref.NewLocalhost("City", amsterdam).String(),
 				},
 			},
 		},
@@ -660,7 +660,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"code": "20000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", rotterdam).String(),
+					"beacon": crossref.NewLocalhost("City", rotterdam).String(),
 				},
 			},
 		},
@@ -672,7 +672,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"code": "30000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", dusseldorf).String(),
+					"beacon": crossref.NewLocalhost("City", dusseldorf).String(),
 				},
 			},
 		},
@@ -684,7 +684,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"code": "40000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", berlin).String(),
+					"beacon": crossref.NewLocalhost("City", berlin).String(),
 				},
 			},
 		},
@@ -737,7 +737,7 @@ func addTestDataCompanies(t *testing.T) {
 		for _, c := range company.inCity {
 			inCity = append(inCity,
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", c).String(),
+					"beacon": crossref.NewLocalhost("City", c).String(),
 				})
 		}
 
@@ -795,7 +795,7 @@ func addTestDataPersons(t *testing.T) {
 		for _, c := range person.livesIn {
 			livesIn = append(livesIn,
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", c).String(),
+					"beacon": crossref.NewLocalhost("City", c).String(),
 				})
 		}
 
