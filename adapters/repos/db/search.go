@@ -141,7 +141,6 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 
 			mutex.Lock()
 			found = append(found, hydrateObjectsIntoSearchResults(objs, dist)...)
-
 			mutex.Unlock()
 		}(index, wg)
 	}

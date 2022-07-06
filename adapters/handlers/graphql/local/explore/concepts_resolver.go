@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -103,6 +104,10 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 		}
 	}
 
+	if containsCertaintyProperty(p.Info) {
+		params.WithCertaintyProp = true
+	}
+
 	return resources.resolver.Explore(p.Context,
 		principalFromContext(p.Context), params)
 }
@@ -114,4 +119,20 @@ func principalFromContext(ctx context.Context) *models.Principal {
 	}
 
 	return principal.(*models.Principal)
+}
+
+func containsCertaintyProperty(info graphql.ResolveInfo) bool {
+	if len(info.FieldASTs) == 0 {
+		return false
+	}
+
+	for _, selection := range info.FieldASTs[0].SelectionSet.Selections {
+		field := selection.(*ast.Field)
+		name := field.Name.Value
+		if name == "certainty" {
+			return true
+		}
+	}
+
+	return false
 }

@@ -56,7 +56,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12]}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}
@@ -71,14 +71,28 @@ func testL2(t *testing.T) {
 		compareDistances(t, expectedDistances, results)
 	})
 
-	t.Run("with a certainty", func(t *testing.T) {
+	t.Run("with a certainty arg", func(t *testing.T) {
 		// not supported for non-cosine distances
 		ErrorGraphQL(t, nil, `
 		{
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], certainty:0.3}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
+				}
+			}
+		}
+		`)
+	})
+
+	t.Run("with a certainty prop", func(t *testing.T) {
+		// not supported for non-cosine distances
+		ErrorGraphQL(t, nil, `
+		{
+			Get{
+				L2Squared_Class(nearVector:{vector: [10,11,12], distance:0.3}){
+					name 
+					_additional{certainty}
 				}
 			}
 		}
@@ -91,7 +105,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], distance: 365}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}
@@ -112,7 +126,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], distance: 364}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}
@@ -133,7 +147,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], distance: 49}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}
@@ -154,7 +168,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], distance: 0.001}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}
@@ -175,7 +189,7 @@ func testL2(t *testing.T) {
 			Get{
 				L2Squared_Class(nearVector:{vector: [10,11,12], distance: 0}){
 					name 
-					_additional{distance certainty}
+					_additional{distance}
 				}
 			}
 		}

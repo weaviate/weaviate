@@ -50,4 +50,9 @@ type ExploreParams struct {
 	Offset       int
 	Limit        int
 	ModuleParams map[string]interface{}
+
+	// TODO: legacy check for backwards compatibility
+	// once certainty is fully deprecated, this can
+	// be removed
+	WithCertaintyProp bool
 }
