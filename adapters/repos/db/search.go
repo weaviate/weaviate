@@ -125,7 +125,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			ids, dist, err := index.objectVectorSearch(
+			objs, dist, err := index.objectVectorSearch(
 				ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 			if err != nil {
 				mutex.Lock()
@@ -134,14 +134,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			}
 
 			mutex.Lock()
-
-			res := storobj.SearchResults(ids, additional.Properties{})
-			for i := range res {
-				res[i].Dist = dist[i]
-				res[i].Certainty = 1 - dist[i]
-			}
-
-			found = append(found, res...)
+			found = append(found, hydrateObjectsIntoSearchResults(objs, dist)...)
 
 			mutex.Unlock()
 		}(index, wg)
@@ -167,6 +160,15 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	// not enriching by refs, as a vector search result cannot provide
 	// SelectProperties
 	return db.getSearchResults(found, offset, limit), nil
+}
+
+func hydrateObjectsIntoSearchResults(objs []*storobj.Object, dists []float32) search.Results {
+	res := storobj.SearchResults(objs, additional.Properties{})
+	for i := range res {
+		res[i].Dist = dists[i]
+		res[i].Certainty = 1 - dists[i]
+	}
+	return res
 }
 
 func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
