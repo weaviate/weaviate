@@ -414,8 +414,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				params := GetParams{
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
-						Vector:   []float32{0.8, 0.2, 0.7},
-						Distance: 0.4,
+						Vector:       []float32{0.8, 0.2, 0.7},
+						Distance:     0.4,
+						WithDistance: true,
 					},
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    nil,

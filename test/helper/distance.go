@@ -19,7 +19,7 @@ import (
 
 func CertaintyToDist(t *testing.T, in float32) float32 {
 	asFloat64 := float64(in)
-	dist := additional.CertaintyToDist(&asFloat64)
+	dist := additional.CertaintyToDistPtr(&asFloat64)
 	if dist == nil {
 		t.Fatalf(
 			"somehow %+v of type %T failed to produce a non-null *float64", in, in)

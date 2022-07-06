@@ -287,7 +287,8 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			name: "Should extract distance from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					Distance: 0.88,
+					Distance:     0.88,
+					WithDistance: true,
 				},
 			},
 			want: 1 - 0.88/2,

@@ -81,7 +81,7 @@ func (v *qna) Answer(ctx context.Context,
 		Question:  resBody.Question,
 		Answer:    resBody.Answer,
 		Certainty: resBody.Certainty,
-		Distance:  additional.CertaintyToDist(resBody.Certainty),
+		Distance:  additional.CertaintyToDistPtr(resBody.Certainty),
 	}, nil
 }
 

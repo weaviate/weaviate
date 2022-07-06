@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
@@ -268,14 +269,15 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if certainty == 0 {
-				distance := ExtractDistanceFromParams(params)
-				if distance != 0 && float64(res.Dist) > distance {
+				distance, withDistance := ExtractDistanceFromParams(params)
+				if withDistance && (!floatcomp.InDelta(float64(res.Dist), distance, 1e-6) &&
+					float64(res.Dist) > distance) {
 					continue
 				}
 			}
 
 			if params.AdditionalProperties.Certainty {
-				additionalProperties["certainty"] = 1 - normalizedResultDist
+				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
 			if params.AdditionalProperties.Distance {
@@ -392,15 +394,15 @@ func (e *Explorer) Concepts(ctx context.Context,
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 	results *[]search.Result, params ExploreParams) error {
-	distance := extractDistanceFromExploreParams(params)
-	if distance != 0 && item.Dist <= float32(distance) {
-		*results = append(*results, item)
-	}
+	distance, withDistance := extractDistanceFromExploreParams(params)
 	certainty := extractCertaintyFromExploreParams(params)
-	if certainty != 0 && item.Certainty >= float32(certainty) {
+
+	if withDistance && (floatcomp.InDelta(float64(item.Dist), distance, 1e-6) ||
+		item.Dist <= float32(distance)) {
 		*results = append(*results, item)
-	}
-	if distance == 0 && certainty == 0 {
+	} else if certainty != 0 && item.Certainty >= float32(certainty) {
+		*results = append(*results, item)
+	} else if !withDistance && certainty == 0 {
 		*results = append(*results, item)
 	}
 
@@ -468,19 +470,21 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func ExtractDistanceFromParams(params GetParams) (distance float64) {
+func ExtractDistanceFromParams(params GetParams) (distance float64, withDistance bool) {
 	if params.NearVector != nil {
 		distance = params.NearVector.Distance
+		withDistance = params.NearVector.WithDistance
 		return
 	}
 
 	if params.NearObject != nil {
 		distance = params.NearObject.Distance
+		withDistance = params.NearObject.WithDistance
 		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		distance = extractDistanceFromModuleParams(params.ModuleParams)
+		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
 	return
@@ -523,19 +527,21 @@ func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64)
 	return
 }
 
-func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
+func extractDistanceFromExploreParams(params ExploreParams) (distance float64, withDistance bool) {
 	if params.NearVector != nil {
 		distance = params.NearVector.Distance
+		withDistance = params.NearVector.WithDistance
 		return
 	}
 
 	if params.NearObject != nil {
 		distance = params.NearObject.Distance
+		withDistance = params.NearObject.WithDistance
 		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		distance = extractDistanceFromModuleParams(params.ModuleParams)
+		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
 	return
@@ -555,16 +561,19 @@ func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float
 	return 0
 }
 
-func extractDistanceFromModuleParams(moduleParams map[string]interface{}) float64 {
+func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (distance float64, withDistance bool) {
 	for _, param := range moduleParams {
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
 			if nearParam.SimilarityMetricProvided() {
-				if distance := nearParam.GetDistance(); distance != 0 {
-					return distance
+				if certainty := nearParam.GetCertainty(); certainty != 0 {
+					distance, withDistance = 0, false
+					return
 				}
+				distance, withDistance = nearParam.GetDistance(), true
+				return
 			}
 		}
 	}
 
-	return 0
+	return
 }
