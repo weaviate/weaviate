@@ -602,6 +602,7 @@ func Test_ResolveExplore(t *testing.T) {
 						"concepts": []interface{}{"car", "best brand"},
 					}),
 				},
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
