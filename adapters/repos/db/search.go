@@ -105,10 +105,11 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 func extractDistanceFromParams(params traverser.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {
-		return float32(1-certainty) * 2
+		return float32(additional.CertaintyToDist(certainty))
 	}
 
-	return float32(traverser.ExtractDistanceFromParams(params))
+	dist, _ := traverser.ExtractDistanceFromParams(params)
+	return float32(dist)
 }
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,
@@ -166,7 +167,7 @@ func hydrateObjectsIntoSearchResults(objs []*storobj.Object, dists []float32) se
 	res := storobj.SearchResults(objs, additional.Properties{})
 	for i := range res {
 		res[i].Dist = dists[i]
-		res[i].Certainty = 1 - dists[i]
+		res[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
 	}
 	return res
 }
