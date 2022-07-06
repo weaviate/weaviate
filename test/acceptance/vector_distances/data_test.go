@@ -6,7 +6,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func addTestSchema(t *testing.T) {
+func addTestSchemaCosine(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class:      "Cosine_Class",
 		Vectorizer: "none",
@@ -20,7 +20,9 @@ func addTestSchema(t *testing.T) {
 			"distance": "cosine",
 		},
 	})
+}
 
+func addTestSchemaOther(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class:      "Dot_Class",
 		Vectorizer: "none",

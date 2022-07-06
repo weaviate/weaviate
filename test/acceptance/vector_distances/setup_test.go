@@ -21,10 +21,15 @@ import (
 )
 
 func Test_GraphQL(t *testing.T) {
-	t.Run("setup test schema", addTestSchema)
-
+	t.Run("setup test schema (cosine only)", addTestSchemaCosine)
+	// at this point only cosine is present, so we can evaluate both Get and
+	// Explore
 	t.Run("import cosine test data ", addTestDataCosine)
 	t.Run("test cosine distance", testCosine)
+
+	// import rest of the schema meaning, we can only test Get, Explore is now
+	// impossible
+	t.Run("setup test schema (all)", addTestSchemaOther)
 	t.Run("import dot test data ", addTestDataDot)
 	t.Run("test dot distance", testDot)
 	t.Run("import l2 test data ", addTestDataL2)
@@ -34,6 +39,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "Cosine_Class")
 	deleteObjectClass(t, "Dot_Class")
 
+	// now only l2 is left so we can test explore with L2
 	t.Run("explore across multiple non-cosine classes", testExplore)
 
 	// tear down remaining classes
