@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -113,7 +114,8 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 		shouldContinue = lastFound <= targetDistance
 
 		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
+				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dist[i])
 			} else {

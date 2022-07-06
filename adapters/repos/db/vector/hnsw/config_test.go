@@ -81,7 +81,7 @@ func validConfig() Config {
 		ID:                    "someid",
 		MakeCommitLoggerThunk: func() (CommitLogger, error) { return nil, nil },
 		VectorForIDThunk:      func(context.Context, uint64) ([]float32, error) { return nil, nil },
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 	}
 }
 

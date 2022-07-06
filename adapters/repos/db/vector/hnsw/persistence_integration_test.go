@@ -48,7 +48,7 @@ func TestHnswPersistence(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -85,7 +85,7 @@ func TestHnswPersistence(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -121,7 +121,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -192,7 +192,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -231,7 +231,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -277,7 +277,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -313,7 +313,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -365,7 +365,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -407,7 +407,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,
@@ -445,7 +445,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		RootPath:              dirName,
 		ID:                    indexID,
 		MakeCommitLoggerThunk: makeCL,
-		DistanceProvider:      distancer.NewCosineProvider(),
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
 	}, UserConfig{
 		MaxConnections: 30,

@@ -413,13 +413,13 @@ func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 	}
 
 	if params.NearVector != nil &&
-		(params.NearVector.Certainty != 0 || params.NearVector.Distance != 0) {
+		(params.NearVector.Certainty != 0 || params.NearVector.WithDistance) {
 		setLimit(params)
 		return
 	}
 
 	if params.NearObject != nil &&
-		(params.NearObject.Certainty != 0 || params.NearObject.Distance != 0) {
+		(params.NearObject.Certainty != 0 || params.NearObject.WithDistance) {
 		setLimit(params)
 		return
 	}

@@ -100,6 +100,7 @@ func (ec *errorCompounder) toError() error {
 
 const (
 	DistanceCosine    = "cosine"
+	DistanceDot       = "dot"
 	DistanceL2Squared = "l2-squared"
 )
 

@@ -41,6 +41,7 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 	distance, ok := source["distance"]
 	if ok {
 		args.Distance = distance.(float64)
+		args.WithDistance = true
 	}
 
 	properties, ok := source["properties"].([]interface{})

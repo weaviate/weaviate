@@ -11,10 +11,20 @@
 
 package additional
 
-func CertaintyToDist(maybeCertainty *float64) (distPtr *float64) {
+func CertaintyToDistPtr(maybeCertainty *float64) (distPtr *float64) {
 	if maybeCertainty != nil {
-		dist := 1 - *maybeCertainty
+		dist := (1 - *maybeCertainty) * 2
 		distPtr = &dist
 	}
+	return
+}
+
+func CertaintyToDist(certainty float64) (dist float64) {
+	dist = (1 - certainty) * 2
+	return
+}
+
+func DistToCertainty(dist float64) (certainty float64) {
+	certainty = 1 - (dist / 2)
 	return
 }

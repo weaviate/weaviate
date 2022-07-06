@@ -36,6 +36,7 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 	distance, distanceOK := source["distance"]
 	if distanceOK {
 		args.Distance = distance.(float64)
+		args.WithDistance = true
 	}
 
 	if certaintyOK && distanceOK {

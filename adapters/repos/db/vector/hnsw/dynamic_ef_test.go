@@ -85,7 +85,7 @@ func Test_DynamicEF(t *testing.T) {
 				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 				ID:                    "dynaimc-ef-test",
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
-				DistanceProvider:      distancer.NewCosineProvider(),
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return nil, errors.Errorf("not implemented")
 				},

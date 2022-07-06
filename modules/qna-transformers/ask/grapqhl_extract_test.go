@@ -45,8 +45,9 @@ func Test_extractAskFn(t *testing.T) {
 				},
 			},
 			want: &AskParams{
-				Question: "some question",
-				Distance: 0.8,
+				Question:     "some question",
+				Distance:     0.8,
+				WithDistance: true,
 			},
 		},
 		{
@@ -79,9 +80,10 @@ func Test_extractAskFn(t *testing.T) {
 				},
 			},
 			want: &AskParams{
-				Question:   "some question",
-				Distance:   0.8,
-				Properties: []string{"prop1", "prop2"},
+				Question:     "some question",
+				Distance:     0.8,
+				WithDistance: true,
+				Properties:   []string{"prop1", "prop2"},
 			},
 		},
 		{
@@ -110,10 +112,11 @@ func Test_extractAskFn(t *testing.T) {
 				},
 			},
 			want: &AskParams{
-				Question:   "some question",
-				Distance:   0.8,
-				Properties: []string{"prop1", "prop2"},
-				Rerank:     true,
+				Question:     "some question",
+				Distance:     0.8,
+				WithDistance: true,
+				Properties:   []string{"prop1", "prop2"},
+				Rerank:       true,
 			},
 		},
 		{
@@ -190,10 +193,11 @@ func Test_extractAskFn(t *testing.T) {
 				},
 			},
 			want: &AskParams{
-				Question:    "transformed text",
-				Distance:    0.8,
-				Properties:  []string{"prop1", "prop2"},
-				Autocorrect: true,
+				Question:     "transformed text",
+				Distance:     0.8,
+				WithDistance: true,
+				Properties:   []string{"prop1", "prop2"},
+				Autocorrect:  true,
 			},
 		},
 		{
@@ -225,11 +229,12 @@ func Test_extractAskFn(t *testing.T) {
 				},
 			},
 			want: &AskParams{
-				Question:    "transformed text",
-				Distance:    0.8,
-				Properties:  []string{"prop1", "prop2"},
-				Autocorrect: true,
-				Rerank:      true,
+				Question:     "transformed text",
+				Distance:     0.8,
+				WithDistance: true,
+				Properties:   []string{"prop1", "prop2"},
+				Autocorrect:  true,
+				Rerank:       true,
 			},
 		},
 		{

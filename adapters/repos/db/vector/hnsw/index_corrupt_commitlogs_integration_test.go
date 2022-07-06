@@ -62,7 +62,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			},
 			ID:               "corrupt_test",
 			RootPath:         rootPath,
-			DistanceProvider: distancer.NewCosineProvider(),
+			DistanceProvider: distancer.NewCosineDistanceProvider(),
 			Logger:           logger,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
@@ -113,7 +113,7 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger, // no longer need a real one
 			ID:                    "corrupt_test",
 			RootPath:              rootPath,
-			DistanceProvider:      distancer.NewCosineProvider(),
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			Logger:                logger,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil

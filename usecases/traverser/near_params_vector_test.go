@@ -133,8 +133,9 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			name: "Should throw error, when nearVector certainty and distance are set",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					Certainty: 0.1,
-					Distance:  0.9,
+					Certainty:    0.1,
+					Distance:     0.9,
+					WithDistance: true,
 				},
 				className: nil,
 			},
@@ -145,8 +146,9 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			name: "Should throw error, when nearObject certainty and distance are set",
 			args: args{
 				nearObject: &searchparams.NearObject{
-					Certainty: 0.1,
-					Distance:  0.9,
+					Certainty:    0.1,
+					Distance:     0.9,
+					WithDistance: true,
 				},
 				className: nil,
 			},
@@ -158,8 +160,9 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 			args: args{
 				moduleParams: map[string]interface{}{
 					"nearCustomText": &nearCustomTextParams{
-						Certainty: 0.1,
-						Distance:  0.9,
+						Certainty:    0.1,
+						Distance:     0.9,
+						WithDistance: true,
 					},
 				},
 				className: nil,
@@ -284,10 +287,11 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			name: "Should extract distance from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					Distance: 0.88,
+					Distance:     0.88,
+					WithDistance: true,
 				},
 			},
-			want: 1 - 0.88,
+			want: 1 - 0.88/2,
 		},
 		{
 			name: "Should extract certainty from nearVector",
@@ -302,10 +306,11 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			name: "Should extract distance from nearObject",
 			args: args{
 				nearObject: &searchparams.NearObject{
-					Distance: 0.99,
+					Distance:     0.99,
+					WithDistance: true,
 				},
 			},
-			want: 1 - 0.99,
+			want: 1 - 0.99/2,
 		},
 		{
 			name: "Should extract certainty from nearObject",
@@ -321,11 +326,12 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			args: args{
 				moduleParams: map[string]interface{}{
 					"nearCustomText": &nearCustomTextParams{
-						Distance: 0.77,
+						Distance:     0.77,
+						WithDistance: true,
 					},
 				},
 			},
-			want: 1 - 0.77,
+			want: 1 - 0.77/2,
 		},
 		{
 			name: "Should extract certainty from nearText",

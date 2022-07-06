@@ -478,8 +478,9 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearObject: &searchparams.NearObject{
-					Beacon:   "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
-					Distance: float64(0.3),
+					Beacon:       "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
+					Distance:     float64(0.3),
+					WithDistance: true,
 				},
 			},
 			resolverReturn: []search.Result{
@@ -559,8 +560,9 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Limit: 17,
 				NearObject: &searchparams.NearObject{
-					ID:       "27b5213d-e152-4fea-bd63-2063d529024d",
-					Distance: 0.3,
+					ID:           "27b5213d-e152-4fea-bd63-2063d529024d",
+					Distance:     0.3,
+					WithDistance: true,
 				},
 			},
 			resolverReturn: []search.Result{

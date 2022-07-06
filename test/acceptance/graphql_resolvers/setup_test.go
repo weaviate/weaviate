@@ -18,14 +18,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	sch "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
 )
 
 func Test_GraphQL(t *testing.T) {
@@ -49,6 +45,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with near fields", gettingObjectsWithNearFields)
 	t.Run("getting objects with near fields with multi shard setup", gettingObjectsWithNearFieldsMultiShard)
 	t.Run("getting objects with sort", gettingObjectsWithSort)
+	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
 
 	// aggregate tests
 	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
@@ -82,36 +79,6 @@ func Test_GraphQL(t *testing.T) {
 	// dimensions.
 	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
 	deleteObjectClass(t, "CustomVectorClass")
-}
-
-func createObjectClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-}
-
-func createObject(t *testing.T, object *models.Object) {
-	params := objects.NewObjectsCreateParams().WithBody(object)
-	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-}
-
-func createObjectsBatch(t *testing.T, objects []*models.Object) {
-	params := batch.NewBatchObjectsCreateParams().
-		WithBody(batch.BatchObjectsCreateBody{
-			Objects: objects,
-		})
-	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-	for _, elem := range resp.Payload {
-		assert.Nil(t, elem.Result.Errors)
-	}
-}
-
-func deleteObjectClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
-	helper.AssertRequestOk(t, delRes, err, nil)
 }
 
 func addTestSchema(t *testing.T) {
