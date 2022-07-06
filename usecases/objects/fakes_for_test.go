@@ -43,7 +43,8 @@ type fakeSchemaManager struct {
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
-	fromClass, property, toClass string) error {
+	fromClass, property, toClass string,
+) error {
 	f.CalledWith = struct {
 		fromClass string
 		property  string
@@ -61,7 +62,8 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 }
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -79,7 +81,8 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property) error {
+	class string, property *models.Property,
+) error {
 	classes := f.GetSchemaResponse.Objects.Classes
 	for _, c := range classes {
 		if c.Class == class {
@@ -142,13 +145,15 @@ type fakeVectorRepo struct {
 }
 
 func (f *fakeVectorRepo) Exists(ctx context.Context, class string,
-	id strfmt.UUID) (bool, error) {
+	id strfmt.UUID,
+) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
 }
 
 func (f *fakeVectorRepo) Object(ctx context.Context, cls string,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
 	args := f.Called(cls, id, props, additional)
 	if args.Get(0) != nil {
 		return args.Get(0).(*search.Result), args.Error(1)
@@ -157,7 +162,8 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string,
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
 	args := f.Called(id, props, additional)
 	if args.Get(0) != nil {
 		return args.Get(0).(*search.Result), args.Error(1)
@@ -166,13 +172,20 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties) (search.Results, error) {
+	sort []filters.Sort, additional additional.Properties,
+) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
+func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
+	args := f.Called(q)
+	return args.Get(0).([]search.Result), args.Error(1).(*Error)
+}
+
 func (f *fakeVectorRepo) PutObject(ctx context.Context,
-	concept *models.Object, vector []float32) error {
+	concept *models.Object, vector []float32,
+) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
@@ -198,14 +211,16 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context,
-	className string, id strfmt.UUID) error {
+	className string, id strfmt.UUID,
+) error {
 	args := f.Called(className, id)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) AddReference(ctx context.Context,
 	class string, source strfmt.UUID, prop string,
-	ref *models.SingleRef) error {
+	ref *models.SingleRef,
+) error {
 	args := f.Called(class, source, prop, ref)
 	return args.Error(0)
 }
@@ -216,7 +231,8 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.multi, nil
 }
 
@@ -234,7 +250,8 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.multi, nil
 }
 
@@ -252,7 +269,8 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.multi, nil
 }
 
@@ -270,7 +288,8 @@ type fakeModulesProvider struct {
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
-	in *search.Result, moduleParams map[string]interface{}) (*search.Result, error) {
+	in *search.Result, moduleParams map[string]interface{},
+) (*search.Result, error) {
 	res, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, "ObjectGet")
 	if err != nil {
 		return nil, err
@@ -279,12 +298,14 @@ func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}) (search.Results, error) {
+	in search.Results, moduleParams map[string]interface{},
+) (search.Results, error) {
 	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}, capability string) (search.Results, error) {
+	in search.Results, moduleParams map[string]interface{}, capability string,
+) (search.Results, error) {
 	txt2vec := newNearCustomTextModule(p.getExtender(), p.getProjector(), &fakePathBuilder{})
 	additionalProperties := txt2vec.AdditionalProperties()
 	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
@@ -304,7 +325,8 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
-	moduleParams map[string]interface{}, capability string) error {
+	moduleParams map[string]interface{}, capability string,
+) error {
 	for name := range moduleParams {
 		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
@@ -315,7 +337,8 @@ func (p *fakeModulesProvider) checkCapabilities(additionalProperties map[string]
 }
 
 func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
-	capability string) modulecapabilities.AdditionalPropertyFn {
+	capability string,
+) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
 		return additionalProperty.SearchFunctions.ObjectGet

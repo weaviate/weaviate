@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_ObjectHTTP(t *testing.T) {
@@ -37,6 +38,7 @@ func Test_ObjectHTTP(t *testing.T) {
 	t.Run("PostReference", postReference)
 	t.Run("PutReferences", putReferences)
 	t.Run("DeleteReference", deleteReference)
+	t.Run("Query", query)
 }
 
 func findObject(t *testing.T) {
@@ -713,5 +715,67 @@ func deleteReference(t *testing.T) {
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	if _, ok := err.(*objects.ObjectsClassReferencesDeleteUnprocessableEntity); !ok {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
+	}
+}
+
+func query(t *testing.T) {
+	t.Parallel()
+	var (
+		cls          = "TestObjectHTTPQuery"
+		first_friend = "TestObjectHTTPQueryFriend"
+	)
+	// test setup
+	assertCreateObject(t, first_friend, map[string]interface{}{})
+	defer deleteClassObject(t, first_friend)
+	assertCreateObjectClass(t, &models.Class{
+		Class:      cls,
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "count",
+				DataType: []string{"int"},
+			},
+		},
+	})
+	defer deleteClassObject(t, cls)
+	assertCreateObject(t, cls, map[string]interface{}{"count": 1})
+	assertCreateObject(t, cls, map[string]interface{}{"count": 1})
+
+	listParams := objects.NewObjectsListParams()
+	listParams.Class = &cls
+	resp, err := helper.Client(t).Objects.ObjectsList(listParams, nil)
+	require.Nil(t, err, "unexpected error", resp)
+
+	if n := len(resp.Payload.Objects); n != 2 {
+		t.Errorf("Number of object got:%v want %v", n, 2)
+	}
+	var count int64
+	for _, x := range resp.Payload.Objects {
+		if x.Class != cls {
+			t.Errorf("Class got:%v want:%v", x.Class, cls)
+		}
+		m, ok := x.Properties.(map[string]interface{})
+		if !ok {
+			t.Error("wrong property type")
+		}
+		n, _ := m["count"].(json.Number).Int64()
+		count += n
+	}
+	if count != 2 {
+		t.Errorf("Count got:%v want:%v", count, 2)
+	}
+
+	listParams.Class = &first_friend
+	resp, err = helper.Client(t).Objects.ObjectsList(listParams, nil)
+	require.Nil(t, err, "unexpected error", resp)
+	if n := len(resp.Payload.Objects); n != 1 {
+		t.Errorf("Number of friend objects got:%v want %v", n, 2)
+	}
+
+	unknown_cls := "unknow"
+	listParams.Class = &unknown_cls
+	_, err = helper.Client(t).Objects.ObjectsList(listParams, nil)
+	if _, ok := err.(*objects.ObjectsListNotFound); !ok {
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsListNotFound{}, err)
 	}
 }

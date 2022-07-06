@@ -107,8 +107,15 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "objects/foo",
 		},
 
-		// list objects
+		// query objects
 		{
+			methodName:       "Query",
+			additionalArgs:   []interface{}{new(QueryParams)},
+			expectedVerb:     "list",
+			expectedResource: "objects",
+		},
+
+		{ // list objects is deprecated by query
 			methodName:       "GetObjects",
 			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
 			expectedVerb:     "list",
