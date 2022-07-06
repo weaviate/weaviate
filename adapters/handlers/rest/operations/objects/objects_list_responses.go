@@ -204,6 +204,50 @@ func (o *ObjectsListNotFound) WriteResponse(rw http.ResponseWriter, producer run
 	rw.WriteHeader(404)
 }
 
+// ObjectsListUnprocessableEntityCode is the HTTP code returned for type ObjectsListUnprocessableEntity
+const ObjectsListUnprocessableEntityCode int = 422
+
+/*ObjectsListUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+
+swagger:response objectsListUnprocessableEntity
+*/
+type ObjectsListUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsListUnprocessableEntity creates ObjectsListUnprocessableEntity with default headers values
+func NewObjectsListUnprocessableEntity() *ObjectsListUnprocessableEntity {
+
+	return &ObjectsListUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the objects list unprocessable entity response
+func (o *ObjectsListUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *ObjectsListUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects list unprocessable entity response
+func (o *ObjectsListUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsListInternalServerErrorCode is the HTTP code returned for type ObjectsListInternalServerError
 const ObjectsListInternalServerErrorCode int = 500
 

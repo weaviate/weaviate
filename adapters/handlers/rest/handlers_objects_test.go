@@ -301,7 +301,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getObjectsReturn: test.object,
+					queryResult: test.object,
 				}
 				h := &objectHandlers{manager: fakeManager}
 				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
@@ -517,7 +517,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				fakeManager := &fakeManager{
-					getObjectsReturn: test.object,
+					queryResult: test.object,
 				}
 				h := &objectHandlers{manager: fakeManager}
 				res := h.getObjects(objects.ObjectsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
@@ -984,6 +984,49 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, res)
 		}
 	})
+
+	t.Run("Query", func(t *testing.T) {
+		var (
+			cls = "MyClass"
+			m   = &fakeManager{
+				queryErr: nil,
+				queryResult: []*models.Object{{
+					Properties: map[string]interface{}{"name": "John"},
+				}},
+			}
+			h   = &objectHandlers{manager: m, logger: &logrus.Logger{}}
+			req = objects.ObjectsListParams{
+				HTTPRequest: httptest.NewRequest("HEAD", "/v1/objects/", nil),
+				Class:       &cls,
+			}
+		)
+
+		res := h.query(req, nil)
+		if _, ok := res.(*objects.ObjectsListOK); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
+
+		m.queryErr = &uco.Error{Code: uco.StatusForbidden}
+		res = h.query(req, nil)
+		if _, ok := res.(*objects.ObjectsListForbidden); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsListForbidden{}, res)
+		}
+		m.queryErr = &uco.Error{Code: uco.StatusNotFound}
+		res = h.query(req, nil)
+		if _, ok := res.(*objects.ObjectsListNotFound); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsListNotFound{}, res)
+		}
+		m.queryErr = &uco.Error{Code: uco.StatusBadRequest}
+		res = h.query(req, nil)
+		if _, ok := res.(*objects.ObjectsListUnprocessableEntity); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsListUnprocessableEntity{}, res)
+		}
+		m.queryErr = &uco.Error{Code: uco.StatusInternalServerError}
+		res = h.query(req, nil)
+		if _, ok := res.(*objects.ObjectsListInternalServerError); !ok {
+			t.Errorf("expected: %T got: %T", objects.ObjectsListInternalServerError{}, res)
+		}
+	})
 }
 
 type fakeManager struct {
@@ -991,7 +1034,8 @@ type fakeManager struct {
 	getObjectErr    error
 
 	addObjectReturn    *models.Object
-	getObjectsReturn   []*models.Object
+	queryResult        []*models.Object
+	queryErr           *uco.Error
 	updateObjectReturn *models.Object
 	updateObjectErr    error
 	deleteObjectReturn error
@@ -1028,7 +1072,11 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Pri
 }
 
 func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
-	return f.getObjectsReturn, nil
+	return f.queryResult, nil
+}
+
+func (f *fakeManager) Query(_ context.Context, _ *models.Principal, _ *uco.QueryParams) ([]*models.Object, *uco.Error) {
+	return f.queryResult, f.queryErr
 }
 
 func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, updates *models.Object) (*models.Object, error) {

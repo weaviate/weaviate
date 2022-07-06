@@ -26,6 +26,7 @@ import (
 
 // ObjectsListURL generates an URL for the objects list operation
 type ObjectsListURL struct {
+	Class   *string
 	Include *string
 	Limit   *int64
 	Offset  *int64
@@ -65,6 +66,14 @@ func (o *ObjectsListURL) Build() (*url.URL, error) {
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
 	qs := make(url.Values)
+
+	var classQ string
+	if o.Class != nil {
+		classQ = *o.Class
+	}
+	if classQ != "" {
+		qs.Set("class", classQ)
+	}
 
 	var includeQ string
 	if o.Include != nil {

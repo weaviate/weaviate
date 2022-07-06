@@ -81,6 +81,7 @@ type VectorRepo interface {
 	AddReference(ctx context.Context, className string,
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error
+	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
 
 type ModulesProvider interface {
