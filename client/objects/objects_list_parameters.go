@@ -84,6 +84,11 @@ for the objects list operation typically these are written to a http.Request
 */
 type ObjectsListParams struct {
 
+	/*Class
+	  Class parameter specifies the class from which to query objects
+
+	*/
+	Class *string
 	/*Include
 	  Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 
@@ -148,6 +153,17 @@ func (o *ObjectsListParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithClass adds the class to the objects list params
+func (o *ObjectsListParams) WithClass(class *string) *ObjectsListParams {
+	o.SetClass(class)
+	return o
+}
+
+// SetClass adds the class to the objects list params
+func (o *ObjectsListParams) SetClass(class *string) {
+	o.Class = class
+}
+
 // WithInclude adds the include to the objects list params
 func (o *ObjectsListParams) WithInclude(include *string) *ObjectsListParams {
 	o.SetInclude(include)
@@ -210,6 +226,22 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		return err
 	}
 	var res []error
+
+	if o.Class != nil {
+
+		// query param class
+		var qrClass string
+		if o.Class != nil {
+			qrClass = *o.Class
+		}
+		qClass := qrClass
+		if qClass != "" {
+			if err := r.SetQueryParam("class", qClass); err != nil {
+				return err
+			}
+		}
+
+	}
 
 	if o.Include != nil {
 
