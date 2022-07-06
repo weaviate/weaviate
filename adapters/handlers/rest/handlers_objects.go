@@ -50,6 +50,7 @@ type objectsManager interface {
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
 	HeadObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) (bool, *uco.Error)
 	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
+	Query(ctx context.Context, principal *models.Principal, params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput) *uco.Error
 	UpdateObjectReferences(context.Context, *models.Principal, *uco.PutReferenceInput) *uco.Error
@@ -155,6 +156,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	if params.Class != nil && *params.Class != "" {
+		return h.query(params, principal)
+	}
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		return objects.NewObjectsListBadRequest().
@@ -188,6 +192,54 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 			Objects:      list,
 			TotalResults: int64(len(list)),
 			Deprecations: deprecationsRes,
+		})
+}
+
+func (h *objectHandlers) query(params objects.ObjectsListParams,
+	principal *models.Principal,
+) middleware.Responder {
+	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
+	if err != nil {
+		return objects.NewObjectsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+	req := uco.QueryParams{
+		Class:      *params.Class,
+		Offset:     params.Offset,
+		Limit:      params.Limit,
+		Sort:       params.Sort,
+		Order:      params.Order,
+		Additional: additional,
+	}
+	resultSet, rerr := h.manager.Query(params.HTTPRequest.Context(), principal, &req)
+	if rerr != nil {
+		switch rerr.Code {
+		case uco.StatusForbidden:
+			return objects.NewObjectsListForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case uco.StatusNotFound:
+			return objects.NewObjectsListNotFound()
+		case uco.StatusBadRequest:
+			return objects.NewObjectsListUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return objects.NewObjectsListInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	for i, object := range resultSet {
+		propertiesMap, ok := object.Properties.(map[string]interface{})
+		if ok {
+			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
+		}
+	}
+
+	return objects.NewObjectsListOK().
+		WithPayload(&models.ObjectsListResponse{
+			Objects:      resultSet,
+			TotalResults: int64(len(resultSet)),
+			Deprecations: []*models.Deprecation{},
 		})
 }
 

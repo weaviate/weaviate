@@ -50,6 +50,10 @@ type ObjectsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Class parameter specifies the class from which to query objects
+	  In: query
+	*/
+	Class *string
 	/*Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 	  In: query
 	*/
@@ -84,6 +88,11 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	qs := runtime.Values(r.URL.Query())
 
+	qClass, qhkClass, _ := qs.GetOK("class")
+	if err := o.bindClass(qClass, qhkClass, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	qInclude, qhkInclude, _ := qs.GetOK("include")
 	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
 		res = append(res, err)
@@ -112,6 +121,24 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindClass binds and validates parameter Class from query.
+func (o *ObjectsListParams) bindClass(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Class = &raw
+
 	return nil
 }
 
