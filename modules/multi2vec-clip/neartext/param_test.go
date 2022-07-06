@@ -49,9 +49,10 @@ func Test_validateNearText(t *testing.T) {
 			"With values, distance, limit",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 				},
 			},
 			false,
@@ -71,9 +72,10 @@ func Test_validateNearText(t *testing.T) {
 			"When moveTo with force must also provide either values or objects (with distance)",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 					MoveTo: ExploreMove{
 						Force: 0.9,
 					},
@@ -99,9 +101,10 @@ func Test_validateNearText(t *testing.T) {
 			"When moveAway with force must also provide either values or objects (with distance)",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 					MoveAwayFrom: ExploreMove{
 						Force: 0.9,
 					},
@@ -127,9 +130,10 @@ func Test_validateNearText(t *testing.T) {
 			"When moveTo and moveAway with force must also provide either values or objects (with distance)",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 					MoveTo: ExploreMove{
 						Force: 0.9,
 					},
@@ -161,9 +165,10 @@ func Test_validateNearText(t *testing.T) {
 			"When moveTo or moveAway is with force must also provide either values or objects (with distance)",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 					MoveTo: ExploreMove{
 						Values: []string{"move to"},
 						Force:  0.9,
@@ -197,9 +202,10 @@ func Test_validateNearText(t *testing.T) {
 			"When moveTo or moveAway is with force must provide values or objects (with distance)",
 			args{
 				param: &NearTextParams{
-					Values:   []string{"foobar"},
-					Limit:    100,
-					Distance: 0.9,
+					Values:       []string{"foobar"},
+					Limit:        100,
+					Distance:     0.9,
+					WithDistance: true,
 					MoveTo: ExploreMove{
 						Values: []string{"move to"},
 						Force:  0.9,

@@ -415,7 +415,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 				}
 				nearText: {
 					concepts: ["Amsterdam"]
-					distance: 0.1
+					distance: 0.2
 				}
 				){
 					meta {
@@ -636,7 +636,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 				}
 				nearObject: {
 					id: "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
-					distance: 0.1
+					distance: 0.2
 				}
 				){
 					meta {
@@ -852,7 +852,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 				CustomVectorClass(
 					nearVector: {
 						vector: [1,0,0]
-						distance: 0.0001
+						distance: 0.0002
 					}
 				){
 					meta {
@@ -960,7 +960,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 						}
 						nearVector: {
 							vector: [1,0,0]
-							distance: 0.3
+							distance: 0.6
 						}
 					) {
 					meta {
@@ -1003,7 +1003,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 						}
 						nearVector: {
 							vector: [1,0,0]
-							distance: 0.1
+							distance: 0.2
 						}
 					) {
 					meta {
@@ -1259,7 +1259,7 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 					}
 					nearText: {
 						concepts: ["Amsterdam"]
-						distance: 0.1
+						distance: 0.2
 					}
 					){
 						meta {
@@ -1530,7 +1530,7 @@ func localMetaWithObjectLimit(t *testing.T) {
    				RansomNote(
      					nearText: {
 							concepts: ["abc"]
-							distance: 0.9999
+							distance: 1.9998
      					}
    				) {
 					  meta {
@@ -1584,7 +1584,7 @@ func localMetaWithObjectLimit(t *testing.T) {
    				RansomNote(
      					nearText: {
 							concepts: ["abc"]
-							distance: 0.3 # should return about 6 elements
+							distance: 0.6 # should return about 6 elements
      					}
 						  objectLimit:100,
    				) {

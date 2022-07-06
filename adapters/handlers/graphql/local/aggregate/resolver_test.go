@@ -647,9 +647,10 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearObjectFilter: &searchparams.NearObject{
-				ID:       "123",
-				Beacon:   "",
-				Distance: 0.3,
+				ID:           "123",
+				Beacon:       "",
+				Distance:     0.3,
+				WithDistance: true,
 			},
 			resolverReturn: []aggregation.Group{
 				{
@@ -757,8 +758,9 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				Vector:   []float32{1, 2, 3},
-				Distance: 0.3,
+				Vector:       []float32{1, 2, 3},
+				Distance:     0.3,
+				WithDistance: true,
 			},
 			resolverReturn: []aggregation.Group{
 				{

@@ -49,7 +49,7 @@ func TestGetAnswer(t *testing.T) {
 			Question:  "What is my name?",
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
-			Distance:  ptFloat(0.3),
+			Distance:  ptFloat(0.6),
 		}
 
 		assert.Equal(t, expectedResult.Text, res.Text)
@@ -82,7 +82,7 @@ func TestGetAnswer(t *testing.T) {
 			Question:  "What is my name?",
 			Answer:    ptString("John"),
 			Certainty: ptFloat(0.7),
-			Distance:  additional.CertaintyToDist(ptFloat(0.7)),
+			Distance:  additional.CertaintyToDistPtr(ptFloat(0.7)),
 		}, res)
 	})
 

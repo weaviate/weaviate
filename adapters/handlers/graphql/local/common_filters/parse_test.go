@@ -299,8 +299,9 @@ func TestExtractNearVector(t *testing.T) {
 
 		query := `{ SomeAction(nearVector: {vector: [1, 2, 3], distance: 0.4})}`
 		expectedparams := searchparams.NearVector{
-			Vector:   []float32{1, 2, 3},
-			Distance: 0.4,
+			Vector:       []float32{1, 2, 3},
+			Distance:     0.4,
+			WithDistance: true,
 		}
 
 		resolver := newMockResolver(t, mockParams{reportNearVector: true})
@@ -345,8 +346,9 @@ func TestExtractNearObject(t *testing.T) {
 
 		query := `{ SomeAction(nearObject: {id: "123", distance: 0.4})}`
 		expectedparams := searchparams.NearObject{
-			ID:       "123",
-			Distance: 0.4,
+			ID:           "123",
+			Distance:     0.4,
+			WithDistance: true,
 		}
 
 		resolver := newMockResolver(t, mockParams{reportNearObject: true})

@@ -58,8 +58,9 @@ func Test_extractNearImageFn(t *testing.T) {
 				},
 			},
 			want: &NearImageParams{
-				Image:    "base64;encoded",
-				Distance: 0.4,
+				Image:        "base64;encoded",
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		},
 	}

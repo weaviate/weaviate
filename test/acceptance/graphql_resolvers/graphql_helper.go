@@ -17,10 +17,14 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/semi-technologies/weaviate/client/batch"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	graphql_client "github.com/semi-technologies/weaviate/client/graphql"
+	"github.com/semi-technologies/weaviate/client/objects"
+	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/stretchr/testify/assert"
 )
 
 type GraphQLResult struct {
@@ -103,4 +107,34 @@ func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 // Cast the result to a slice
 func (g *GraphQLResult) AsSlice() []interface{} {
 	return g.Result.([]interface{})
+}
+
+func createObjectClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+}
+
+func createObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+}
+
+func createObjectsBatch(t *testing.T, objects []*models.Object) {
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		})
+	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	for _, elem := range resp.Payload {
+		assert.Nil(t, elem.Result.Errors)
+	}
+}
+
+func deleteObjectClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+	helper.AssertRequestOk(t, delRes, err, nil)
 }

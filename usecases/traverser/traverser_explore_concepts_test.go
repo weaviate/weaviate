@@ -31,7 +31,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -47,7 +47,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil)
@@ -67,7 +67,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -82,10 +82,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 
@@ -119,7 +123,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil)
@@ -132,10 +136,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 
@@ -169,7 +177,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil)
@@ -189,10 +197,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 
@@ -225,7 +237,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil)
@@ -245,10 +257,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 
@@ -281,25 +297,28 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				Vector:   []float32{7.8, 9},
-				Distance: 0.2,
+				Vector:       []float32{7.8, 9},
+				Distance:     0.2,
+				WithDistance: true,
 			},
 		}
 		vectorSearcher.results = []search.Result{
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Dist:      0.4,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Dist:      0.4,
 			},
 		}
 
@@ -318,7 +337,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -355,7 +374,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -367,20 +386,11 @@ func Test_ExploreConcepts(t *testing.T) {
 				}),
 			},
 		}
-		vectorSearcher.results = []search.Result{
-			{
-				ClassName: "BestClass",
-				ID:        "123-456-789",
-			},
-			{
-				ClassName: "AnAction",
-				ID:        "987-654-321",
-			},
-		}
+		vectorSearcher.results = []search.Result{}
 
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
-		assert.Equal(t, []search.Result{}, res, "empty result because certainty is not met")
+		assert.Equal(t, []search.Result{}, res, "empty result because distance is not met")
 		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
 			"uses the default limit if not explicitly set")
@@ -392,7 +402,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -429,7 +439,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -453,10 +463,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 
@@ -492,7 +506,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, newFakeDistancer(), log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider())
@@ -533,10 +547,14 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Certainty: 0.5,
+				Dist:      0.5,
 			},
 		}
 		searchRes1 := search.Result{

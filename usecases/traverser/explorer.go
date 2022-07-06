@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
@@ -31,7 +32,6 @@ import (
 // used by an API, but through a Traverser.
 type Explorer struct {
 	search           vectorClassSearch
-	distancer        distancer
 	logger           logrus.FieldLogger
 	modulesProvider  ModulesProvider
 	schemaGetter     schema.SchemaGetter
@@ -53,8 +53,6 @@ type ModulesProvider interface {
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 }
 
-type distancer func(a, b []float32) (float32, error)
-
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
@@ -65,12 +63,10 @@ type vectorClassSearch interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch,
-	distancer distancer, logger logrus.FieldLogger,
+func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider) *Explorer {
 	return &Explorer{
 		search:           search,
-		distancer:        distancer,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
 		schemaGetter:     nil, // schemaGetter is set later
@@ -272,19 +268,20 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				continue
 			}
 
-			distance := ExtractDistanceFromParams(params)
-			if distance != 0 && normalizedResultDist > float32(distance) && 1-normalizedResultDist >= 0 {
-				// TODO: Clean this up. The >= check is so that this logic does not run
-				// non-cosine distance.
-				continue
+			if certainty == 0 {
+				distance, withDistance := ExtractDistanceFromParams(params)
+				if withDistance && (!floatcomp.InDelta(float64(res.Dist), distance, 1e-6) &&
+					float64(res.Dist) > distance) {
+					continue
+				}
 			}
 
 			if params.AdditionalProperties.Certainty {
-				additionalProperties["certainty"] = 1 - normalizedResultDist
+				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
 			if params.AdditionalProperties.Distance {
-				additionalProperties["distance"] = normalizedResultDist
+				additionalProperties["distance"] = res.Dist
 			}
 		}
 
@@ -386,7 +383,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 	results := []search.Result{}
 	for _, item := range res {
 		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
-		err = e.appendResultsIfSimilarityThresholdMet(item, &results, vector, params)
+		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params)
 		if err != nil {
 			return nil, errors.Errorf("append results based on similarity: %s", err)
 		}
@@ -396,24 +393,16 @@ func (e *Explorer) Concepts(ctx context.Context,
 }
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
-	results *[]search.Result, vec []float32, params ExploreParams) error {
-	dist, err := e.distancer(vec, item.Vector)
-	if err != nil {
-		return errors.Errorf("res %s: %v", item.Beacon, err)
-	}
-
-	item.Certainty = 1 - dist
-	item.Dist = dist
-
-	distance := extractDistanceFromExploreParams(params)
-	if distance != 0 && item.Dist <= float32(distance/2) {
-		*results = append(*results, item)
-	}
+	results *[]search.Result, params ExploreParams) error {
+	distance, withDistance := extractDistanceFromExploreParams(params)
 	certainty := extractCertaintyFromExploreParams(params)
-	if certainty != 0 && item.Certainty >= float32(certainty) {
+
+	if withDistance && (floatcomp.InDelta(float64(item.Dist), distance, 1e-6) ||
+		item.Dist <= float32(distance)) {
 		*results = append(*results, item)
-	}
-	if distance == 0 && certainty == 0 {
+	} else if certainty != 0 && item.Certainty >= float32(certainty) {
+		*results = append(*results, item)
+	} else if !withDistance && certainty == 0 {
 		*results = append(*results, item)
 	}
 
@@ -481,36 +470,43 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func ExtractDistanceFromParams(params GetParams) float64 {
+func ExtractDistanceFromParams(params GetParams) (distance float64, withDistance bool) {
 	if params.NearVector != nil {
-		return params.NearVector.Distance * 2
+		distance = params.NearVector.Distance
+		withDistance = params.NearVector.WithDistance
+		return
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Distance * 2
+		distance = params.NearObject.Distance
+		withDistance = params.NearObject.WithDistance
+		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		return extractDistanceFromModuleParams(params.ModuleParams)
+		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
-	panic("extractDistance was called without any known params present")
+	return
 }
 
-func ExtractCertaintyFromParams(params GetParams) float64 {
+func ExtractCertaintyFromParams(params GetParams) (certainty float64) {
 	if params.NearVector != nil {
-		return params.NearVector.Certainty
+		certainty = params.NearVector.Certainty
+		return
 	}
 
 	if params.NearObject != nil {
-		return params.NearObject.Certainty
+		certainty = params.NearObject.Certainty
+		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		return extractCertaintyFromModuleParams(params.ModuleParams)
+		certainty = extractCertaintyFromModuleParams(params.ModuleParams)
+		return
 	}
 
-	panic("extractCertainty was called without any known params present")
+	return
 }
 
 func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64) {
@@ -531,19 +527,21 @@ func extractCertaintyFromExploreParams(params ExploreParams) (certainty float64)
 	return
 }
 
-func extractDistanceFromExploreParams(params ExploreParams) (distance float64) {
+func extractDistanceFromExploreParams(params ExploreParams) (distance float64, withDistance bool) {
 	if params.NearVector != nil {
-		distance = params.NearVector.Distance * 2
+		distance = params.NearVector.Distance
+		withDistance = params.NearVector.WithDistance
 		return
 	}
 
 	if params.NearObject != nil {
-		distance = params.NearObject.Distance * 2
+		distance = params.NearObject.Distance
+		withDistance = params.NearObject.WithDistance
 		return
 	}
 
 	if len(params.ModuleParams) == 1 {
-		distance = extractDistanceFromModuleParams(params.ModuleParams)
+		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}
 
 	return
@@ -555,8 +553,6 @@ func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float
 			if nearParam.SimilarityMetricProvided() {
 				if certainty := nearParam.GetCertainty(); certainty != 0 {
 					return certainty
-				} else {
-					return 1 - nearParam.GetDistance()
 				}
 			}
 		}
@@ -565,18 +561,19 @@ func extractCertaintyFromModuleParams(moduleParams map[string]interface{}) float
 	return 0
 }
 
-func extractDistanceFromModuleParams(moduleParams map[string]interface{}) float64 {
+func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (distance float64, withDistance bool) {
 	for _, param := range moduleParams {
 		if nearParam, ok := param.(modulecapabilities.NearParam); ok {
 			if nearParam.SimilarityMetricProvided() {
-				if distance := nearParam.GetDistance(); distance != 0 {
-					return distance * 2
-				} else {
-					return (1 - nearParam.GetCertainty()) * 2
+				if certainty := nearParam.GetCertainty(); certainty != 0 {
+					distance, withDistance = 0, false
+					return
 				}
+				distance, withDistance = nearParam.GetDistance(), true
+				return
 			}
 		}
 	}
 
-	return 0
+	return
 }

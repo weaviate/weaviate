@@ -119,6 +119,7 @@ type nearCustomTextParams struct {
 	MoveAwayFrom nearExploreMove
 	Certainty    float64
 	Distance     float64
+	WithDistance bool
 }
 
 type nearExploreMove struct {
@@ -281,6 +282,7 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 	distance, ok := source["distance"]
 	if ok {
 		args.Distance = distance.(float64)
+		args.WithDistance = true
 	}
 
 	// moveTo is an optional arg, so it could be nil

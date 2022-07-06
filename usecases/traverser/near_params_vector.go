@@ -187,16 +187,16 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 	if nearVector != nil {
 		if nearVector.Certainty != 0 {
 			return nearVector.Certainty
-		} else if nearVector.Distance != 0 {
-			return 1 - nearVector.Distance
+		} else if nearVector.WithDistance {
+			return additional.DistToCertainty(nearVector.Distance)
 		}
 	}
 
 	if nearObject != nil {
 		if nearObject.Certainty != 0 {
 			return nearObject.Certainty
-		} else if nearObject.Distance != 0 {
-			return 1 - nearObject.Distance
+		} else if nearObject.WithDistance {
+			return additional.DistToCertainty(nearObject.Distance)
 		}
 	}
 
@@ -214,7 +214,7 @@ func (v *nearParamsVector) extractCertaintyFromModuleParams(moduleParams map[str
 				if certainty := nearParam.GetCertainty(); certainty != 0 {
 					return certainty
 				} else {
-					return 1 - nearParam.GetDistance()
+					return additional.DistToCertainty(nearParam.GetDistance())
 				}
 			}
 		}
