@@ -92,11 +92,27 @@ func testExplore(t *testing.T) {
 		}
 	})
 
-	t.Run("run Explore with certainty and expect failure", func(t *testing.T) {
+	t.Run("run Explore with certainty arg and expect failure", func(t *testing.T) {
 		res := ErrorGraphQL(t, nil, `
 		{
 			Explore(nearVector: {vector: [3, 4, 5], certainty: 0.4}) {
 				distance
+				className
+			}
+		}
+		`)
+
+		assert.Len(t, res, 1)
+		expectedErr := "can't use certainty when vector index is configured with l2-squared distance"
+		errorMsg := res[0].Message
+		assert.Equal(t, expectedErr, errorMsg)
+	})
+
+	t.Run("run Explore with certainty prop and expect failure", func(t *testing.T) {
+		res := ErrorGraphQL(t, nil, `
+		{
+			Explore(nearVector: {vector: [3, 4, 5], distance: 0.4}) {
+				certainty
 				className
 			}
 		}

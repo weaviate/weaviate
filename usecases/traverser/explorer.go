@@ -16,13 +16,15 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
-	"github.com/semi-technologies/weaviate/usecases/schema"
+	uc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -34,7 +36,7 @@ type Explorer struct {
 	search           vectorClassSearch
 	logger           logrus.FieldLogger
 	modulesProvider  ModulesProvider
-	schemaGetter     schema.SchemaGetter
+	schemaGetter     uc.SchemaGetter
 	nearParamsVector *nearParamsVector
 }
 
@@ -74,7 +76,7 @@ func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
 	}
 }
 
-func (e *Explorer) SetSchemaGetter(sg schema.SchemaGetter) {
+func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 	e.schemaGetter = sg
 }
 
@@ -277,6 +279,9 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if params.AdditionalProperties.Certainty {
+				if err := e.checkCertaintyCompatibility(params.ClassName); err != nil {
+					return nil, errors.Errorf("additional: %s", err)
+				}
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
@@ -468,6 +473,26 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 		return vector, nil
 	}
 	return nil, errors.New("no modules defined")
+}
+
+func (e *Explorer) checkCertaintyCompatibility(className string) error {
+	s := e.schemaGetter.GetSchemaSkipAuth()
+	if s.Objects == nil {
+		return errors.Errorf("failed to get schema")
+	}
+	class := s.GetClass(schema.ClassName(className))
+	if class == nil {
+		return errors.Errorf("failed to get class: %s", className)
+	}
+	hnswConfig, err := typeAssertVectorIndex(class)
+	if err != nil {
+		return err
+	}
+	if hnswConfig.Distance != hnsw.DistanceCosine {
+		return certaintyUnsupportedError(hnswConfig.Distance)
+	}
+
+	return nil
 }
 
 func ExtractDistanceFromParams(params GetParams) (distance float64, withDistance bool) {

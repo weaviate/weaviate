@@ -55,6 +55,7 @@ func Test_ResolveExplore(t *testing.T) {
 						"concepts": []interface{}{"car", "best brand"},
 					}),
 				},
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
@@ -407,6 +408,7 @@ func Test_ResolveExplore(t *testing.T) {
 				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
@@ -441,7 +443,8 @@ func Test_ResolveExplore(t *testing.T) {
 				NearVector: &searchparams.NearVector{
 					Vector: []float32{0, 1, 0.8},
 				},
-				Limit: 17,
+				Limit:             17,
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
@@ -482,6 +485,7 @@ func Test_ResolveExplore(t *testing.T) {
 					Distance:     float64(0.3),
 					WithDistance: true,
 				},
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
@@ -521,6 +525,7 @@ func Test_ResolveExplore(t *testing.T) {
 					Beacon:    "weaviate://localhost/27b5213d-e152-4fea-bd63-2063d529024d",
 					Certainty: 0.7,
 				},
+				WithCertaintyProp: true,
 			},
 			resolverReturn: []search.Result{
 				{
