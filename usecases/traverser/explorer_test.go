@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -2144,7 +2145,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
 					"concepts":  []interface{}{"foobar"},
 					"limit":     100,
-					"certainty": float64(0.0),
+					"certainty": float64(0.1),
 				}),
 			},
 		}
@@ -2163,6 +2164,9 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		explorer := NewExplorer(search, log, getFakeModulesProvider())
+		schemaGetter := newFakeSchemaGetter("BestClass")
+		schemaGetter.SetVectorIndexConfig(hnsw.UserConfig{Distance: "cosine"})
+		explorer.schemaGetter = schemaGetter
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		// expectedParamsToSearch.SearchVector = nil

@@ -82,7 +82,9 @@ func (t Traverser) validateCrossClassDistanceCompatibility() (distType string, e
 }
 
 func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType string) error {
-	if certainty := extractCertaintyFromExploreParams(params); certainty == 0 {
+	certainty := extractCertaintyFromExploreParams(params)
+
+	if certainty == 0 && !params.WithCertaintyProp {
 		return nil
 	}
 

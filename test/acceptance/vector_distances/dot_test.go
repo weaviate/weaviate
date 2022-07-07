@@ -66,7 +66,7 @@ func testDot(t *testing.T) {
 	 Get{
 			Dot_Class(nearVector:{vector: [3,4,5]}){
 		  	name
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}
@@ -82,13 +82,26 @@ func testDot(t *testing.T) {
 		compareDistances(t, expectedDistances, results)
 	})
 
-	t.Run("with a specified certainty - should error", func(t *testing.T) {
+	t.Run("with a specified certainty arg - should error", func(t *testing.T) {
 		ErrorGraphQL(t, nil, `
 	{
 	  Get{
 			Dot_Class(nearVector:{certainty: 0.7, vector: [3,4,5]}){
 		  	name 
-		  	_additional{distance certainty}
+		  	_additional{distance}
+		  }
+		}
+	}
+	`)
+	})
+
+	t.Run("with a specified certainty prop - should error", func(t *testing.T) {
+		ErrorGraphQL(t, nil, `
+	{
+	  Get{
+			Dot_Class(nearVector:{distance: 0.7, vector: [3,4,5]}){
+		  	name 
+		  	_additional{certainty}
 		  }
 		}
 	}
@@ -101,7 +114,7 @@ func testDot(t *testing.T) {
 	 Get{
 			Dot_Class(nearVector:{distance: 50, vector: [3,4,5]}){
 		  	name
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}
@@ -123,7 +136,7 @@ func testDot(t *testing.T) {
 	 Get{
 			Dot_Class(nearVector:{distance: 30, vector: [3,4,5]}){
 		  	name
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}
@@ -145,7 +158,7 @@ func testDot(t *testing.T) {
 	 Get{
 			Dot_Class(nearVector:{distance: 0, vector: [3,4,5]}){
 		  	name
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}
@@ -167,7 +180,7 @@ func testDot(t *testing.T) {
 	  Get{
 			Dot_Class(nearVector:{distance: -40, vector: [3,4,5]}){
 		  	name 
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}
@@ -189,7 +202,7 @@ func testDot(t *testing.T) {
 	 Get{
 			Dot_Class(nearVector:{distance: -60, vector: [3,4,5]}){
 		  	name
-		  	_additional{distance certainty}
+		  	_additional{distance}
 		  }
 		}
 	}

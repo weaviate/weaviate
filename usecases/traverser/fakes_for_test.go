@@ -21,6 +21,7 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -165,6 +166,24 @@ func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.
 
 type fakeSchemaGetter struct {
 	schema schema.Schema
+}
+
+func newFakeSchemaGetter(className string) *fakeSchemaGetter {
+	return &fakeSchemaGetter{
+		schema: schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+				},
+			},
+		}},
+	}
+}
+
+func (f *fakeSchemaGetter) SetVectorIndexConfig(cfg hnsw.UserConfig) {
+	for _, cls := range f.schema.Objects.Classes {
+		cls.VectorIndexConfig = cfg
+	}
 }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
