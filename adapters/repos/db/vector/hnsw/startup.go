@@ -37,7 +37,6 @@ func (h *hnsw) init(cfg Config) error {
 	}
 
 	h.commitLog = cl
-	h.registerMaintainence()
 
 	return nil
 }
@@ -159,6 +158,7 @@ func (h *hnsw) registerTombstoneCleanup() {
 // getVectorForID.
 func (h *hnsw) PostStartup() {
 	h.prefillCache()
+	h.registerMaintainence()
 }
 
 func (h *hnsw) prefillCache() {

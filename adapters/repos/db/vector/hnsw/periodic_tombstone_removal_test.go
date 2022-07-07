@@ -32,6 +32,9 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		MaxConnections:         30,
 		EFConstruction:         128,
 	})
+	index.PostStartup()
+
+	defer index.Shutdown()
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
