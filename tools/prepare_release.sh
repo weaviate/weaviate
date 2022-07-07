@@ -16,7 +16,7 @@ for tool in $REQUIRED_TOOLS; do
 done
 
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-  echo "Cannot prepare relese, a release for v$VERSION already exists"
+  echo "Cannot prepare release, a release for v$VERSION already exists"
   exit 1
 fi
 
