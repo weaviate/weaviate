@@ -90,6 +90,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		})
 		require.Nil(t, err)
+		idx.PostStartup()
 		index = idx
 	})
 
@@ -172,6 +173,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorCacheMaxObjects: 2 * n,
 		})
 		require.Nil(t, err)
+		idx.PostStartup()
 		index = idx
 	})
 
