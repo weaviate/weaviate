@@ -288,7 +288,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue, level int,
-	visitedList *visited.List, allowList helpers.AllowList,
+	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
