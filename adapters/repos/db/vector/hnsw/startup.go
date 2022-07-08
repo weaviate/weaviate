@@ -157,8 +157,8 @@ func (h *hnsw) registerTombstoneCleanup() {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
-	h.prefillCache()
 	h.registerMaintainence()
+	h.prefillCache()
 }
 
 func (h *hnsw) prefillCache() {
