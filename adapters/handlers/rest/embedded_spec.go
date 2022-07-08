@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.0"
+    "version": "1.14.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -3593,7 +3593,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.0"
+    "version": "1.14.1"
   },
   "basePath": "/v1",
   "paths": {
