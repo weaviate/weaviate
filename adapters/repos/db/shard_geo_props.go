@@ -42,6 +42,8 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		Name:     prop.Name,
 	}
 
+	idx.PostStartup()
+
 	return nil
 }
 
