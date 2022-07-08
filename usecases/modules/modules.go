@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/sirupsen/logrus"
 )
 
@@ -663,4 +664,9 @@ func (m *Provider) getClass(className string) (*models.Class, error) {
 
 func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
+}
+
+func (m *Provider) BackupStorageProvider(providerID string) backups.StorageProvider {
+	// TODO find the right module that exposes a backups.StorageProvider for the
+	// providerID, where providerID is something like "s3"
 }
