@@ -37,7 +37,6 @@ func (h *hnsw) init(cfg Config) error {
 	}
 
 	h.commitLog = cl
-	h.registerMaintainence()
 
 	return nil
 }
@@ -158,6 +157,7 @@ func (h *hnsw) registerTombstoneCleanup() {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
+	h.registerMaintainence()
 	h.prefillCache()
 }
 
