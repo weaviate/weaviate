@@ -669,4 +669,5 @@ func (m *Provider) HasMultipleVectorizers() bool {
 func (m *Provider) BackupStorageProvider(providerID string) backups.StorageProvider {
 	// TODO find the right module that exposes a backups.StorageProvider for the
 	// providerID, where providerID is something like "s3"
+	panic("not implemented")
 }
