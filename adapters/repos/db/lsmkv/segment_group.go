@@ -50,8 +50,8 @@ type SegmentGroup struct {
 	metrics    *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
 }
 

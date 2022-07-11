@@ -54,8 +54,8 @@ type Bucket struct {
 	metrics *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
 }
 
@@ -600,7 +600,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 
 	if b.strategy == StrategyReplace && b.monitorCount {
 		// having just flushed the memtable we now have the most up2date count which
-		// is a good place to udpate the metric
+		// is a good place to update the metric
 		b.metrics.ObjectCount(b.disk.count())
 	}
 
@@ -620,7 +620,7 @@ func (b *Bucket) Strategy() string {
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
-// this function explicitly called. This allows to safge unnecessary disk
+// this function explicitly called. This allows to avoid unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write
 // on the WAL just once. This does not make a batch atomic, but it guarantees
 // that the WAL is written before a successful response is returned to the
