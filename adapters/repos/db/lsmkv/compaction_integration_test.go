@@ -925,7 +925,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
+	t.Run("check if eligible for compaction", func(t *testing.T) {
 		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
 	})
 

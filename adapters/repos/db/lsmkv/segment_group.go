@@ -39,6 +39,8 @@ type SegmentGroup struct {
 
 	stopCompactionCycle chan struct{}
 
+	compactionInProgress bool
+
 	logger logrus.FieldLogger
 
 	// for backward-compatibility with states where the disk state for maps was

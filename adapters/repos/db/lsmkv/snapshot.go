@@ -1,10 +1,40 @@
 package lsmkv
 
-import "context"
+import (
+	"context"
+	"time"
+
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
+)
 
 // PauseCompaction waits for all ongoing compactions to finish,
-// then makes sure that no new compaction can be started
-func (b *Bucket) PauseCompaction(ctx context.Context) error {
+// then makes sure that no new compaction can be started.
+//
+// This is a preparatory stage for taking snapshots.
+//
+// A timeout can be specified as some compactions are long-running,
+// in which case it may be better to fail the backup attempt and
+// retry later, than to block indefinitely.
+func (b *Bucket) PauseCompaction(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// wait for compaction to finish. if this takes
+	// longer than the timeout, return the error
+	for b.disk.CompactionInProgress() {
+		select {
+		case <-ctx.Done():
+			return errors.Errorf(
+				"long-running compaction in progress, exceeded timeout of %s",
+				timeout.String())
+		default:
+			continue
+		}
+	}
+
+	// when the bucket is READONLY, no new compactions can be started
+	b.UpdateStatus(storagestate.StatusReadOnly)
 	return nil
 }
 
