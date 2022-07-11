@@ -130,7 +130,7 @@ func newSegmentGroup(dir string,
 	return out, nil
 }
 
-func (ig *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
+func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if nextSegmentIndex == 0 {
 			// this is already the lowest possible segment, we can guarantee that
@@ -138,7 +138,7 @@ func (ig *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSeg
 			return false, nil
 		}
 
-		v, err := ig.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
+		v, err := sg.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
 		if err != nil {
 			return false, errors.Wrapf(err, "check exists on segments lower than %d",
 				nextSegmentIndex)
@@ -148,37 +148,37 @@ func (ig *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSeg
 	}
 }
 
-func (ig *SegmentGroup) add(path string) error {
-	ig.maintenanceLock.Lock()
-	defer ig.maintenanceLock.Unlock()
+func (sg *SegmentGroup) add(path string) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 
-	newSegmentIndex := len(ig.segments)
-	segment, err := newSegment(path, ig.logger, ig.metrics,
-		ig.makeExistsOnLower(newSegmentIndex))
+	newSegmentIndex := len(sg.segments)
+	segment, err := newSegment(path, sg.logger, sg.metrics,
+		sg.makeExistsOnLower(newSegmentIndex))
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
 
-	ig.segments = append(ig.segments, segment)
+	sg.segments = append(sg.segments, segment)
 	return nil
 }
 
-func (ig *SegmentGroup) get(key []byte) ([]byte, error) {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
-	return ig.getWithUpperSegmentBoundary(key, len(ig.segments)-1)
+	return sg.getWithUpperSegmentBoundary(key, len(sg.segments)-1)
 }
 
 // not thread-safe on its own, as the assumption is that this is called from a
 // lockholder, e.g. within .get()
-func (ig *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment int) ([]byte, error) {
+func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment int) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := topMostSegment; i >= 0; i-- {
-		v, err := ig.segments[i].get(key)
+		v, err := sg.segments[i].get(key)
 		if err != nil {
 			if err == NotFound {
 				continue
@@ -197,16 +197,16 @@ func (ig *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
-func (ig *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(ig.segments) - 1; i >= 0; i-- {
-		v, err := ig.segments[i].getBySecondary(pos, key)
+	for i := len(sg.segments) - 1; i >= 0; i-- {
+		v, err := sg.segments[i].getBySecondary(pos, key)
 		if err != nil {
 			if err == NotFound {
 				continue
@@ -225,14 +225,14 @@ func (ig *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
 	var out []value
 
 	// start with first and do not exit
-	for _, segment := range ig.segments {
+	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if err == NotFound {
@@ -252,15 +252,15 @@ func (ig *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (ig *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
-	out := make([][]value, len(ig.segments))
+	out := make([][]value, len(sg.segments))
 
 	i := 0
 	// start with first and do not exit
-	for _, segment := range ig.segments {
+	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if err == NotFound {
@@ -277,52 +277,52 @@ func (ig *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	return out[:i], nil
 }
 
-func (ig *SegmentGroup) count() int {
-	ig.maintenanceLock.RLock()
-	defer ig.maintenanceLock.RUnlock()
+func (sg *SegmentGroup) count() int {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
 	count := 0
-	for _, seg := range ig.segments {
+	for _, seg := range sg.segments {
 		count += seg.countNetAdditions
 	}
 
 	return count
 }
 
-func (ig *SegmentGroup) shutdown(ctx context.Context) error {
-	ig.maintenanceLock.Lock()
-	defer ig.maintenanceLock.Unlock()
+func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 
-	ig.stopCompactionCycle <- struct{}{}
+	sg.stopCompactionCycle <- struct{}{}
 
-	for i, seg := range ig.segments {
+	for i, seg := range sg.segments {
 		if err := seg.close(); err != nil {
 			return err
 		}
 
-		ig.segments[i] = nil
+		sg.segments[i] = nil
 	}
 
 	// make sure the segment list itself is set to nil. In case a memtable will
 	// still flush after closing, it might try to read from a disk segment list
 	// otherwise and run into nil-pointer problems.
-	ig.segments = nil
+	sg.segments = nil
 
 	return nil
 }
 
-func (ig *SegmentGroup) updateStatus(status storagestate.Status) {
-	ig.statusLock.Lock()
-	defer ig.statusLock.Unlock()
+func (sg *SegmentGroup) updateStatus(status storagestate.Status) {
+	sg.statusLock.Lock()
+	defer sg.statusLock.Unlock()
 
-	ig.status = status
+	sg.status = status
 }
 
-func (ig *SegmentGroup) isReadyOnly() bool {
-	ig.statusLock.Lock()
-	defer ig.statusLock.Unlock()
+func (sg *SegmentGroup) isReadyOnly() bool {
+	sg.statusLock.Lock()
+	defer sg.statusLock.Unlock()
 
-	return ig.status == storagestate.StatusReadOnly
+	return sg.status == storagestate.StatusReadOnly
 }
 
 func fileExists(path string) (bool, error) {
