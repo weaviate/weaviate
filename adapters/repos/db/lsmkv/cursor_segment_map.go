@@ -26,15 +26,15 @@ func (s *segment) newMapCursor() *segmentCursorMap {
 	}
 }
 
-func (s *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
-	s.maintenanceLock.RLock()
-	out := make([]innerCursorMap, len(s.segments))
+func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
+	sg.maintenanceLock.RLock()
+	out := make([]innerCursorMap, len(sg.segments))
 
-	for i, segment := range s.segments {
+	for i, segment := range sg.segments {
 		out[i] = segment.newMapCursor()
 	}
 
-	return out, s.maintenanceLock.RUnlock
+	return out, sg.maintenanceLock.RUnlock
 }
 
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
