@@ -194,7 +194,6 @@ func Test_UserConfig(t *testing.T) {
 		// ----end of test case for manhattan distance------------------------------
 
 		{
-			// this is the case when reading the json representation from disk, as
 			// opposed to from the API
 			name: "with raw data as floats",
 			input: map[string]interface{}{
