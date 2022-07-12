@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,
@@ -19,69 +18,39 @@ import (
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) PauseCompaction(ctx context.Context) error {
-	// wait for compaction to finish. if this takes
-	// longer than the timeout, return the error
-	for b.disk.CompactionInProgress() {
-		select {
-		case <-ctx.Done():
-			return errors.New(
-				"long-running compaction in progress, context deadline exceeded")
-		default:
-			continue
-		}
-	}
+	compactionHalted := make(chan struct{})
 
-	// stopping this for a snapshot makes sense, otherwise the
-	// compaction cycle will continuously emit log messages
-	// indicating that there is nothing to compact. the cycle
-	// is resumed with a call to ResumeCompaction
-	b.disk.stopCompactionCycle <- struct{}{}
+	go func() {
+		b.disk.stopCompactionCycle <- struct{}{}
+		compactionHalted <- struct{}{}
+	}()
 
-	// when the bucket is READONLY, no new compactions can be started
-	if !b.isReadOnly() {
-		b.UpdateStatus(storagestate.StatusReadOnly)
+	select {
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
+	case <-compactionHalted:
+		return nil
 	}
-	return nil
 }
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
+//
+// This is a preparatory stage for taking snapshots.
 //
 // A timeout should be specified for the input context as some
 // flushes are long-running, in which case it may be better
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) FlushMemtable(ctx context.Context) error {
-	// when the bucket is READONLY, no new compactions can be started
-	if !b.isReadOnly() {
-		b.UpdateStatus(storagestate.StatusReadOnly)
-	}
-
 	b.stopFlushCycle <- struct{}{}
+	defer b.initFlushCycle()
 
-	select {
-	case <-ctx.Done():
-		return errors.New("long-running flush in progress, context deadline exceeded")
-	default:
-		if b.active != nil {
-			if err := b.active.flush(); err != nil {
-				return errors.Errorf("failed to flush active memtable: %s", err)
-			}
-		}
+	if b.active == nil && b.flushing == nil {
+		return nil
 	}
 
-	select {
-	case <-ctx.Done():
-		return errors.New("long-running flush in progress, context deadline exceeded")
-	default:
-		if b.flushing != nil {
-			if err := b.flushing.flush(); err != nil {
-				return errors.Errorf("failed to flush flushing memtable: %s", err)
-			}
-		}
-	}
-
-	return nil
+	return b.FlushAndSwitch()
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only

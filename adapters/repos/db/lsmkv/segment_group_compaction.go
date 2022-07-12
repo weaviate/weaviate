@@ -266,20 +266,16 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 				sg.monitorSegments()
 
 				if sg.eligbleForCompaction() {
-					sg.setCompactionStatusInProgress(true)
-
 					if err := sg.compactOnce(); err != nil {
 						sg.logger.WithField("action", "lsm_compaction").
 							WithField("path", sg.dir).
 							WithError(err).
 							Errorf("compaction failed")
 					}
-
-					sg.setCompactionStatusInProgress(false)
 				} else {
 					sg.logger.WithField("action", "lsm_compaction").
 						WithField("path", sg.dir).
-						Trace("no segment eligble for compaction")
+						Trace("no segment eligible for compaction")
 				}
 			}
 		}
@@ -306,18 +302,6 @@ func (sg *SegmentGroup) monitorSegments() {
 	stats := sg.segmentLevelStats()
 	stats.fillMissingLevels()
 	stats.report(sg.metrics, sg.strategy, sg.dir)
-}
-
-func (sg *SegmentGroup) setCompactionStatusInProgress(inProgress bool) {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-	sg.compactionInProgress = inProgress
-}
-
-func (sg *SegmentGroup) CompactionInProgress() bool {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-	return sg.compactionInProgress
 }
 
 type segmentLevelStats struct {
