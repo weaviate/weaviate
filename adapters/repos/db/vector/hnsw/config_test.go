@@ -191,7 +191,7 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		// ----end of test case------------------------------
+		// ----end of test case for manhattan distance------------------------------
 
 		{
 			// this is the case when reading the json representation from disk, as

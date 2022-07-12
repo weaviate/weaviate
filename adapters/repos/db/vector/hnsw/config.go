@@ -130,7 +130,7 @@ type UserConfig struct {
 	DynamicEFFactor        int    `json:"dynamicEfFactor"`
 	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
 	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
-	Distance               string `json:"distance"` // userconfig contains distance
+	Distance               string `json:"distance"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -151,7 +151,7 @@ func (c *UserConfig) SetDefaults() {
 	c.DynamicEFMin = DefaultDynamicEFMin
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
-	c.Distance = DefaultDistanceMetric // the constant set to cosine
+	c.Distance = DefaultDistanceMetric
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -230,7 +230,7 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}
 
 	if err := optionalStringFromMap(asMap, "distance", func(v string) {
-		uc.Distance = v // here also distance is metioned
+		uc.Distance = v
 	}); err != nil {
 		return uc, err
 	}
