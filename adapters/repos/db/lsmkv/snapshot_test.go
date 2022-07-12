@@ -107,6 +107,29 @@ func TestSnapshot_ListFiles(t *testing.T) {
 }
 
 func TestSnapshot_ResumeCompaction(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+	require.Nil(t, err)
+
+	t.Run("insert contents into bucket", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("assert compaction restarts after pausing", func(t *testing.T) {
+		err = b.PauseCompaction(ctx)
+		assert.Nil(t, err)
+
+		err = b.ResumeCompaction(ctx)
+		assert.Nil(t, err)
+	})
 }
 
 func makeTestDir(t *testing.T) string {

@@ -22,6 +22,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const DefaultCompactionInterval = 3 * time.Second
+
 func (sg *SegmentGroup) eligbleForCompaction() bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()

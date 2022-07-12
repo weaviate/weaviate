@@ -80,5 +80,6 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 // ResumeCompaction starts the compaction cycle again.
 // It errors if compactions were not paused
 func (b *Bucket) ResumeCompaction(ctx context.Context) error {
+	b.disk.initCompactionCycle(DefaultCompactionInterval)
 	return nil
 }

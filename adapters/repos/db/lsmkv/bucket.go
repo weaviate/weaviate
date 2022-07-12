@@ -88,7 +88,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		}
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+	sg, err := newSegmentGroup(dir, DefaultCompactionInterval, logger,
 		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
