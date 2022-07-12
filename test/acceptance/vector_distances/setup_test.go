@@ -34,10 +34,13 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("test dot distance", testDot)
 	t.Run("import l2 test data ", addTestDataL2)
 	t.Run("test l2 distance", testL2)
+	t.Run("import manhattan test data", addTestDataManhattan)
+	t.Run("test manhattan distance", testManhattan)
 
 	// tear down what we no longer need
 	deleteObjectClass(t, "Cosine_Class")
 	deleteObjectClass(t, "Dot_Class")
+	deleteObjectClass(t, "Manhattan_Class")
 
 	// now only l2 is left so we can test explore with L2
 	t.Run("explore across multiple non-cosine classes", testExplore)
