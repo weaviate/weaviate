@@ -2,6 +2,9 @@ package lsmkv
 
 import (
 	"context"
+	"io/fs"
+	"path/filepath"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
@@ -85,7 +88,24 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 // in a stable state if the memtable is empty, and if compactions are paused. If one
 // of those conditions is not given, it errors
 func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
-	return nil, nil
+	var (
+		bucketRoot = b.disk.dir
+		files      []string
+	)
+
+	err := filepath.WalkDir(bucketRoot, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+
+	if err != nil {
+		return nil, errors.Errorf("failed to list files for bucket: %s", err)
+	}
+
+	return files, nil
 }
 
 // ResumeCompaction starts the compaction cycle again.

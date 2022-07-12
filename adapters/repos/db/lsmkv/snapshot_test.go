@@ -88,6 +88,29 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 }
 
 func TestSnapshot_ListFiles(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+	require.Nil(t, err)
+
+	t.Run("insert contents into bucket", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("assert expected bucket contents", func(t *testing.T) {
+		files, err := b.ListFiles(ctx)
+		assert.Nil(t, err)
+		assert.Len(t, files, 1)
+
+		expected := fmt.Sprintf("%s.wal", b.active.path)
+		assert.Equal(t, expected, files[0])
+	})
 }
 
 func TestSnapshot_ResumeCompaction(t *testing.T) {
