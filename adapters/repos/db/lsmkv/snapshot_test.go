@@ -24,8 +24,13 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 		require.Nil(t, err)
 
 		b.disk.compactionInProgress = true
-		err = b.PauseCompaction(ctx, time.Millisecond)
-		assert.Equal(t, "long-running compaction in progress, exceeded timeout of 1ms", err.Error())
+
+		ctx, cancel := context.WithTimeout(ctx, time.Millisecond)
+		defer cancel()
+
+		err = b.PauseCompaction(ctx)
+		require.NotNil(t, err)
+		assert.Equal(t, "long-running compaction in progress, context deadline exceeded", err.Error())
 	})
 
 	t.Run("assert bucket set to READONLY when successful", func(t *testing.T) {
@@ -37,7 +42,10 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
-		err = b.PauseCompaction(ctx, 100*time.Millisecond)
+		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+
+		err = b.PauseCompaction(ctx)
 		assert.Nil(t, err)
 
 		assert.True(t, b.isReadOnly(), "failed to set bucket as READONLY")
@@ -45,6 +53,38 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 }
 
 func TestSnapshot_FlushMemtable(t *testing.T) {
+	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
+		ctx := context.Background()
+
+		dirName := makeTestDir(t)
+		defer removeTestDir(t, dirName)
+
+		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		require.Nil(t, err)
+
+		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
+		defer cancel()
+
+		err = b.FlushMemtable(ctx)
+		require.NotNil(t, err)
+		assert.Equal(t, "long-running flush in progress, context deadline exceeded", err.Error())
+	})
+
+	t.Run("assert that flushes run successfully", func(t *testing.T) {
+		ctx := context.Background()
+
+		dirName := makeTestDir(t)
+		defer removeTestDir(t, dirName)
+
+		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		require.Nil(t, err)
+
+		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+
+		err = b.FlushMemtable(ctx)
+		assert.Nil(t, err)
+	})
 }
 
 func TestSnapshot_ListFiles(t *testing.T) {

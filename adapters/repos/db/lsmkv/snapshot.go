@@ -2,8 +2,6 @@ package lsmkv
 
 import (
 	"context"
-	"time"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
@@ -13,34 +11,73 @@ import (
 //
 // This is a preparatory stage for taking snapshots.
 //
-// A timeout can be specified as some compactions are long-running,
-// in which case it may be better to fail the backup attempt and
-// retry later, than to block indefinitely.
-func (b *Bucket) PauseCompaction(ctx context.Context, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
+// A timeout should be specified for the input context as some
+// compactions are long-running, in which case it may be better
+// to fail the backup attempt and retry later, than to block
+// indefinitely.
+func (b *Bucket) PauseCompaction(ctx context.Context) error {
 	// wait for compaction to finish. if this takes
 	// longer than the timeout, return the error
 	for b.disk.CompactionInProgress() {
 		select {
 		case <-ctx.Done():
-			return errors.Errorf(
-				"long-running compaction in progress, exceeded timeout of %s",
-				timeout.String())
+			return errors.New(
+				"long-running compaction in progress, context deadline exceeded")
 		default:
 			continue
 		}
 	}
 
+	// stopping this for a snapshot makes sense, otherwise the
+	// compaction cycle will continuously emit log messages
+	// indicating that there is nothing to compact. the cycle
+	// is resumed with a call to ResumeCompaction
+	b.disk.stopCompactionCycle <- struct{}{}
+
 	// when the bucket is READONLY, no new compactions can be started
-	b.UpdateStatus(storagestate.StatusReadOnly)
+	if !b.isReadOnly() {
+		b.UpdateStatus(storagestate.StatusReadOnly)
+	}
 	return nil
 }
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
-// has been fully flushed and a stable state on disk has been reached
+// has been fully flushed and a stable state on disk has been reached.
+//
+// A timeout should be specified for the input context as some
+// flushes are long-running, in which case it may be better
+// to fail the backup attempt and retry later, than to block
+// indefinitely.
 func (b *Bucket) FlushMemtable(ctx context.Context) error {
+	// when the bucket is READONLY, no new compactions can be started
+	if !b.isReadOnly() {
+		b.UpdateStatus(storagestate.StatusReadOnly)
+	}
+
+	b.stopFlushCycle <- struct{}{}
+
+	select {
+	case <-ctx.Done():
+		return errors.New("long-running flush in progress, context deadline exceeded")
+	default:
+		if b.active != nil {
+			if err := b.active.flush(); err != nil {
+				return errors.Errorf("failed to flush active memtable: %s", err)
+			}
+		}
+	}
+
+	select {
+	case <-ctx.Done():
+		return errors.New("long-running flush in progress, context deadline exceeded")
+	default:
+		if b.flushing != nil {
+			if err := b.flushing.flush(); err != nil {
+				return errors.Errorf("failed to flush flushing memtable: %s", err)
+			}
+		}
+	}
+
 	return nil
 }
 
