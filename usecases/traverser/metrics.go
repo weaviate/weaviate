@@ -40,3 +40,25 @@ func (m *Metrics) QueriesAggregateDec(className string) {
 		"query_type": "aggregate",
 	}).Dec()
 }
+
+func (m *Metrics) QueriesGetInc(className string) {
+	if m == nil {
+		return
+	}
+
+	m.queriesCount.With(prometheus.Labels{
+		"class_name": className,
+		"query_type": "get_graphql",
+	}).Inc()
+}
+
+func (m *Metrics) QueriesGetDec(className string) {
+	if m == nil {
+		return
+	}
+
+	m.queriesCount.With(prometheus.Labels{
+		"class_name": className,
+		"query_type": "get_graphql",
+	}).Dec()
+}
