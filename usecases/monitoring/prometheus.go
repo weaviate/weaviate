@@ -36,6 +36,7 @@ type PrometheusMetrics struct {
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
 	ObjectCount                        *prometheus.GaugeVec
+	QueriesCount                       *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
@@ -66,6 +67,11 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "object_count",
 			Help: "Number of currently ongoing async operations",
 		}, []string{"class_name", "shard_name"}),
+
+		QueriesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "concurrent_queries_count",
+			Help: "Number of concurrently running query operations",
+		}, []string{"class_name", "query_type"}),
 
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "async_operations_running",

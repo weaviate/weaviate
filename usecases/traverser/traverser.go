@@ -44,6 +44,7 @@ type Traverser struct {
 	explorer         explorer
 	schemaGetter     schema.SchemaGetter
 	nearParamsVector *nearParamsVector
+	metrics          *Metrics
 }
 
 type VectorSearcher interface {
@@ -64,7 +65,8 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter,
-	modulesProvider ModulesProvider) *Traverser {
+	modulesProvider ModulesProvider,
+	metrics *Metrics) *Traverser {
 	return &Traverser{
 		config:           config,
 		locks:            locks,
@@ -74,6 +76,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		explorer:         explorer,
 		schemaGetter:     schemaGetter,
 		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
+		metrics:          metrics,
 	}
 }
 
