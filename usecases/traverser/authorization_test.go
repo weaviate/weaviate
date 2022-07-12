@@ -82,7 +82,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 			schemaGetter := &fakeSchemaGetter{}
 
 			manager := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-				vectorRepo, explorer, schemaGetter, nil)
+				vectorRepo, explorer, schemaGetter, nil, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
