@@ -27,6 +27,9 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		// resume the compaction cycle, as the
+		// context deadline was exceeded
+		defer b.disk.initCompactionCycle(DefaultCompactionInterval)
 		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
 	case <-compactionHalted:
 		return nil
@@ -43,14 +46,24 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) FlushMemtable(ctx context.Context) error {
-	b.stopFlushCycle <- struct{}{}
 	defer b.initFlushCycle()
+	flushed := make(chan struct{})
 
-	if b.active == nil && b.flushing == nil {
-		return nil
+	go func() {
+		b.stopFlushCycle <- struct{}{}
+		flushed <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "long-running memtable flush in progress")
+	case <-flushed:
+		if b.active == nil && b.flushing == nil {
+			return nil
+		}
+
+		return b.FlushAndSwitch()
 	}
-
-	return b.FlushAndSwitch()
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only

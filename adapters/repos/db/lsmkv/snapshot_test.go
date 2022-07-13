@@ -56,6 +56,23 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 }
 
 func TestSnapshot_FlushMemtable(t *testing.T) {
+	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
+		ctx := context.Background()
+
+		dirName := makeTestDir(t)
+		defer removeTestDir(t, dirName)
+
+		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		require.Nil(t, err)
+
+		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
+		defer cancel()
+
+		err = b.FlushMemtable(ctx)
+		require.NotNil(t, err)
+		assert.Equal(t, "long-running memtable flush in progress: context deadline exceeded", err.Error())
+	})
+
 	t.Run("assert that flushes run successfully", func(t *testing.T) {
 		ctx := context.Background()
 
