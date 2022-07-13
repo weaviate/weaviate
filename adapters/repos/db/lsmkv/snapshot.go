@@ -69,7 +69,6 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 		files = append(files, path)
 		return nil
 	})
-
 	if err != nil {
 		return nil, errors.Errorf("failed to list files for bucket: %s", err)
 	}
