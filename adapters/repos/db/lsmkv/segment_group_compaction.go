@@ -24,7 +24,7 @@ import (
 
 const DefaultCompactionInterval = 3 * time.Second
 
-func (sg *SegmentGroup) eligbleForCompaction() bool {
+func (sg *SegmentGroup) eligibleForCompaction() bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -267,7 +267,7 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 			case <-t:
 				sg.monitorSegments()
 
-				if sg.eligbleForCompaction() {
+				if sg.eligibleForCompaction() {
 					if err := sg.compactOnce(); err != nil {
 						sg.logger.WithField("action", "lsm_compaction").
 							WithField("path", sg.dir).
