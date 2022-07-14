@@ -15,29 +15,36 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  echo_green "Run all unit tests..."
-  run_unit_tests "$@"
-  echo_green "Unit tests successful"
+  if [ "$1" = "unit_and_integration_tests" ]
+  then
+    echo_green "Run all unit tests..."
+    run_unit_tests "$@"
+    echo_green "Unit tests successful"
+    echo_green "Run integration tests..."
+    run_integration_tests "$@"
+    echo_green "Integration tests successful"
+  elif [ "$1" = "acceptance_tests" ]
+  then
+    echo "In Acceptance test suite"
+    echo_green "Stop any running docker-compose containers..."
+    surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
 
-  echo_green "Run integration tests..."
-  run_integration_tests "$@"
-  echo_green "Integration tests successful"
+    echo_green "Start up weaviate and backing dbs in docker-compose..."
+    echo "This could take some time..."
+    tools/test/run_ci_server.sh
 
-  echo_green "Stop any running docker-compose containers..."
-  surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
+    # echo_green "Import required schema and test fixtures..."
+    # # Note: It's not best practice to do this as part of the test script
+    # # It would be better if each test independently prepared (and also 
+    # # cleaned up) the test fixtures it needs, but one step at a time ;)
+    # surpress_on_success import_test_fixtures
 
-  echo_green "Start up weaviate and backing dbs in docker-compose..."
-  echo "This could take some time..."
-  tools/test/run_ci_server.sh
-
-  # echo_green "Import required schema and test fixtures..."
-  # # Note: It's not best practice to do this as part of the test script
-  # # It would be better if each test independently prepared (and also 
-  # # cleaned up) the test fixtures it needs, but one step at a time ;)
-  # surpress_on_success import_test_fixtures
-
-  echo_green "Run acceptance tests..."
-  run_acceptance_tests "$@"
+    echo_green "Run acceptance tests..."
+    run_acceptance_tests "$@"
+  else
+    echo "Unknown test suite, exiting"
+    exit 1
+  fi
 
   echo "Done!"
 }
