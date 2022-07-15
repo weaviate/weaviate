@@ -3,6 +3,20 @@
 set -eou pipefail
 
 function main() {
+  # This script runs all tests if no CMD switch is given and the respective tests otherwise.
+  run_all_tests=true
+  run_acceptance_tests=false
+  run_unit_and_integration_tests=false
+
+  while [[ "$#" -gt 0 ]]; do
+      case $1 in
+          --acceptance_tests) run_all_tests=false; run_acceptance_tests=true; echo $run_acceptance_tests ;;
+          --unit_and_integration_tests) run_all_tests=false; run_unit_and_integration_tests=true; echo $run_all_tests;;
+          *) echo "Unknown parameter passed: $1"; exit 1 ;;
+      esac
+      shift
+  done
+
   # Jump to root directory
   cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
@@ -15,7 +29,7 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  if [ "$1" = "unit_and_integration_tests" ]
+  if $run_unit_and_integration_tests || $run_all_tests
   then
     echo_green "Run all unit tests..."
     run_unit_tests "$@"
@@ -23,7 +37,9 @@ function main() {
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
-  elif [ "$1" = "acceptance_tests" ]
+  fi 
+
+  if $run_acceptance_tests || $run_all_tests
   then
     echo "In Acceptance test suite"
     echo_green "Stop any running docker-compose containers..."
@@ -41,9 +57,6 @@ function main() {
 
     echo_green "Run acceptance tests..."
     run_acceptance_tests "$@"
-  else
-    echo "Unknown test suite, exiting"
-    exit 1
   fi
 
   echo "Done!"
