@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,
@@ -21,7 +22,7 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 	compactionHalted := make(chan struct{})
 
 	go func() {
-		b.disk.stopCompactionCycle <- struct{}{}
+		b.disk.compactionCycle.Stop(ctx)
 		compactionHalted <- struct{}{}
 	}()
 
@@ -29,7 +30,7 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 	case <-ctx.Done():
 		// resume the compaction cycle, as the
 		// context deadline was exceeded
-		defer b.disk.initCompactionCycle(DefaultCompactionInterval)
+		defer b.disk.compactionCycle.Start(cyclemanager.DefaultLSMCompactionInterval)
 		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
 	case <-compactionHalted:
 		return nil
@@ -46,11 +47,12 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) FlushMemtable(ctx context.Context) error {
-	defer b.initFlushCycle()
+	defer b.flushCycle.Start(cyclemanager.DefaultMemtableFlushInterval)
+
 	flushed := make(chan struct{})
 
 	go func() {
-		b.stopFlushCycle <- struct{}{}
+		b.flushCycle.Stop(ctx)
 		flushed <- struct{}{}
 	}()
 
@@ -92,6 +94,6 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 // ResumeCompaction starts the compaction cycle again.
 // It errors if compactions were not paused
 func (b *Bucket) ResumeCompaction(ctx context.Context) error {
-	b.disk.initCompactionCycle(DefaultCompactionInterval)
+	b.disk.compactionCycle.Start(cyclemanager.DefaultLSMCompactionInterval)
 	return nil
 }

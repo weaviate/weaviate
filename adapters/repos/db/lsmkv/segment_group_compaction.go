@@ -22,8 +22,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const DefaultCompactionInterval = 3 * time.Second
-
 func (sg *SegmentGroup) eligibleForCompaction() bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
@@ -259,7 +257,7 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 		t := time.Tick(interval)
 		for {
 			select {
-			case <-sg.stopCompactionCycle:
+			case <-sg.compactionCycle.Stopped:
 				sg.logger.WithField("action", "lsm_compaction_stop_cycle").
 					WithField("path", sg.dir).
 					Debug("stop compaction cycle")

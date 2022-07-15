@@ -29,6 +29,9 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 		err = b.PauseCompaction(ctx)
 		require.NotNil(t, err)
 		assert.Equal(t, "long-running compaction in progress: context deadline exceeded", err.Error())
+
+		err = b.Shutdown(context.Background())
+		require.Nil(t, err)
 	})
 
 	t.Run("assert compaction is successfully paused", func(t *testing.T) {
@@ -52,6 +55,9 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 
 		err = b.PauseCompaction(ctx)
 		assert.Nil(t, err)
+
+		err = b.Shutdown(context.Background())
+		require.Nil(t, err)
 	})
 }
 
@@ -71,6 +77,9 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 		err = b.FlushMemtable(ctx)
 		require.NotNil(t, err)
 		assert.Equal(t, "long-running memtable flush in progress: context deadline exceeded", err.Error())
+
+		err = b.Shutdown(context.Background())
+		require.Nil(t, err)
 	})
 
 	t.Run("assert that flushes run successfully", func(t *testing.T) {
@@ -89,11 +98,14 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 			}
 		})
 
-		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
 
 		err = b.FlushMemtable(ctx)
 		assert.Nil(t, err)
+
+		err = b.Shutdown(context.Background())
+		require.Nil(t, err)
 	})
 }
 
@@ -121,6 +133,9 @@ func TestSnapshot_ListFiles(t *testing.T) {
 		expected := fmt.Sprintf("%s.wal", b.active.path)
 		assert.Equal(t, expected, files[0])
 	})
+
+	err = b.Shutdown(context.Background())
+	require.Nil(t, err)
 }
 
 func TestSnapshot_ResumeCompaction(t *testing.T) {
@@ -142,11 +157,14 @@ func TestSnapshot_ResumeCompaction(t *testing.T) {
 
 	t.Run("assert compaction restarts after pausing", func(t *testing.T) {
 		err = b.PauseCompaction(ctx)
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		err = b.ResumeCompaction(ctx)
 		assert.Nil(t, err)
 	})
+
+	err = b.Shutdown(context.Background())
+	require.Nil(t, err)
 }
 
 func makeTestDir(t *testing.T) string {
