@@ -1,8 +1,6 @@
 addons:
   hosts:
-    - db
-# after_success is only used for Dockerhub and should run last.
-  
+    - db  
 before_install: 
   # install a newer docker version which supports buildx
   - sudo rm -rf /var/lib/apt/lists/*
@@ -70,14 +68,12 @@ before_script:
         travis_terminate 0
       fi
     fi
-  # Verify that the code is properly formatted.
-  - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
 jobs:
   include:
   - name: "Unit and integration tests"
     stage: test
     script: 
-    - travis_wait 20 ./test/run.sh --unit_and_integration_tests || travis_terminate 1
+    - ./test/run.sh --unit_and_integration_tests || travis_terminate 1
     - |
       if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
           # send to codecov.io
@@ -91,7 +87,7 @@ jobs:
   - name: "Acceptance tests (requiring docker to run)"
     stage: test
     script: 
-    - travis_wait 20 ./test/run.sh --acceptance_tests || travis_terminate 1
+    - ./test/run.sh --acceptance_tests || travis_terminate 1
   - name: "Push docker container"
     if: type != pull_request
     stage: deploy
