@@ -93,6 +93,7 @@ jobs:
     script: 
     - travis_wait 20 ./test/run.sh acceptance_tests || travis_terminate 1
   - name: "Push docker container"
+    if: type != pull_request
     stage: deploy
     script:
       - travis_wait 30 ./ci/push_docker.sh
