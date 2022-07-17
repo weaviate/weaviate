@@ -172,6 +172,47 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
 }
 
+func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	snapshot, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(snapshot)
+}
+
+func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.ID)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			switch err {
+			case schemaUC.ErrNotFound:
+				return schema.NewSchemaObjectsSnapshotsRestoreNotFound()
+			default:
+				return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
+		}
+	}
+
+	return schema.NewSchemaObjectsSnapshotsRestoreOK()
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
@@ -194,4 +235,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
+
+	api.SchemaSchemaObjectsSnapshotsCreateHandler = schema.
+		SchemaObjectsSnapshotsCreateHandlerFunc(h.createSnapshot)
+	api.SchemaSchemaObjectsSnapshotsRestoreHandler = schema.
+		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreSnapshot)
 }

@@ -233,3 +233,27 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 
 	return m.migrator.UpdateClass(ctx, className, newName)
 }
+
+func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principal,
+	className string, snapshot *models.Snapshot) (*models.Snapshot, error) {
+	err := m.authorizer.Authorize(principal, "add",
+		fmt.Sprintf("schema/%s/snapshots", className))
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: implement
+	return snapshot, nil
+}
+
+func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
+	className, id string) error {
+	err := m.authorizer.Authorize(principal, "restore",
+		fmt.Sprintf("schema/%s/snapshots/%s/restore", className, id))
+	if err != nil {
+		return err
+	}
+
+	// TODO: implement
+	return nil
+}
