@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,
@@ -47,6 +48,10 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) FlushMemtable(ctx context.Context) error {
+	if b.isReadOnly() {
+		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
+	}
+
 	defer b.flushCycle.Start(cyclemanager.DefaultMemtableFlushInterval)
 
 	flushed := make(chan struct{})

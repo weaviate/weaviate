@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,6 +106,30 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 
 		err = b.FlushMemtable(ctx)
 		assert.Nil(t, err)
+
+		err = b.Shutdown(context.Background())
+		require.Nil(t, err)
+	})
+
+	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
+		ctx := context.Background()
+
+		dirName := makeTestDir(t)
+		defer removeTestDir(t, dirName)
+
+		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		require.Nil(t, err)
+
+		b.UpdateStatus(storagestate.StatusReadOnly)
+
+		ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+
+		err = b.FlushMemtable(ctx)
+		require.NotNil(t, err)
+
+		expectedErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
+		assert.EqualError(t, expectedErr, err.Error())
 
 		err = b.Shutdown(context.Background())
 		require.Nil(t, err)
