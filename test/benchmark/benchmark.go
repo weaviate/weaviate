@@ -21,7 +21,7 @@ type batch struct {
 	Objects []*models.Object
 }
 
-type benchmarkResult map[string]int64
+type benchmarkResult map[string](map[string]int64)
 
 func main() {
 	var benchmarkName string
@@ -53,7 +53,7 @@ func main() {
 		panic("Could not start weaviate")
 	}
 
-	var newRuntime int64
+	var newRuntime map[string]int64
 	switch benchmarkName {
 	case "SIFT":
 		newRuntime = benchmarkSift(c, url, maxEntries)
@@ -68,26 +68,39 @@ func main() {
 	FullBenchmarkName := benchmarkName + "-" + fmt.Sprint(maxEntries)
 
 	// Write results to file, keeping existing entries
-	currentBenchmarkRunTimes := readCurrentBenchmarkResults()
-	currentRuntime := currentBenchmarkRunTimes[FullBenchmarkName]
-	currentBenchmarkRunTimes[FullBenchmarkName] = newRuntime
-	benchmarkJSON, _ := json.MarshalIndent(currentBenchmarkRunTimes, "", "\t")
+	oldBenchmarkRunTimes := readCurrentBenchmarkResults()
+	oldRuntime := oldBenchmarkRunTimes[FullBenchmarkName]
+	oldBenchmarkRunTimes[FullBenchmarkName] = newRuntime
+	benchmarkJSON, _ := json.MarshalIndent(oldBenchmarkRunTimes, "", "\t")
 	if err := os.WriteFile("benchmark_results.json", benchmarkJSON, 0o666); err != nil {
 		panic(err)
+	}
+
+	total_new_runtime := int64(0)
+	for _, time := range newRuntime {
+		total_new_runtime += time
+	}
+	total_old_runtime := int64(0)
+	for _, time := range oldRuntime {
+		total_old_runtime += time
 	}
 
 	fmt.Fprint(
 		os.Stdout,
 		"Runtime for benchmark "+FullBenchmarkName+
-			": old runtime: "+fmt.Sprint(currentRuntime)+"ms, new runtime:"+fmt.Sprint(newRuntime)+"ms.\n"+
-			"This is a change of "+fmt.Sprintf("%.2f", 100*float32(newRuntime-currentRuntime)/float32(newRuntime))+"%.\n"+
-			"Please update the benchmark results if necessary.\n",
+			": old total runtime: "+fmt.Sprint(total_old_runtime)+"ms, new total runtime:"+fmt.Sprint(total_new_runtime)+"ms.\n"+
+			"This is a change of "+fmt.Sprintf("%.2f", 100*float32(total_new_runtime-total_old_runtime)/float32(total_new_runtime))+"%.\n"+
+			"Please update the benchmark results if necessary.\n\n",
 	)
+	fmt.Fprint(os.Stdout, "Runtime for individual steps:.\n")
+	for name, time := range newRuntime {
+		fmt.Fprint(os.Stdout, "Runtime for "+name+" is "+fmt.Sprint(time)+"ms.\n")
+	}
 
 	// Return with error code if runtime regressed and corresponding flag was set
 	if failPercentage >= 0 &&
-		currentRuntime > 0 && // don't report regression if no old entry exists
-		float64(currentRuntime)*(1.0+0.01*float64(failPercentage)) < float64(newRuntime) {
+		total_old_runtime > 0 && // don't report regression if no old entry exists
+		float64(total_old_runtime)*(1.0+0.01*float64(failPercentage)) < float64(total_new_runtime) {
 		fmt.Fprint(
 			os.Stderr, "Failed due to performance regressions.\n",
 		)
