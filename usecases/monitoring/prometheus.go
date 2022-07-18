@@ -26,6 +26,8 @@ type PrometheusMetrics struct {
 	LSMSegmentCountByLevel             *prometheus.GaugeVec
 	LSMSegmentObjects                  *prometheus.GaugeVec
 	LSMSegmentSize                     *prometheus.GaugeVec
+	LSMMemtableSize                    *prometheus.GaugeVec
+	LSMMemtableDurations               *prometheus.HistogramVec
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
@@ -39,6 +41,8 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.HistogramVec
 	StartupDiskIO    *prometheus.HistogramVec
 }
+
+var msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
 	return &PrometheusMetrics{
@@ -89,6 +93,15 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "lsm_segment_count",
 			Help: "Number of segments by level",
 		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
+		LSMMemtableSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_memtable_size",
+			Help: "Size of memtable by path",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMMemtableDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "lsm_memtable_durations_ms",
+			Help:    "Time in ms for a bucket operation to complete",
+			Buckets: msBuckets,
+		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
