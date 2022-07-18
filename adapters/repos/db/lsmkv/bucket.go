@@ -395,7 +395,7 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
 	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())), b.strategy, b.secondaryIndices)
+		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
 	if err != nil {
 		return err
 	}
