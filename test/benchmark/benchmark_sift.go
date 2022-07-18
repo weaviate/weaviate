@@ -122,24 +122,24 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	return objects
 }
 
-func sendRequests(c *http.Client, request *http.Request, passedTime *int64) (*http.Response, error) {
+func sendRequests(c *http.Client, request *http.Request) (*http.Response, int64, error) {
 	timeStart := time.Now()
 	response, err := c.Do(request)
-	*passedTime += time.Since(timeStart).Milliseconds()
-	return response, err
+	return response, time.Since(timeStart).Milliseconds(), err
 }
 
-func benchmarkSift(c *http.Client, url string, maxObjects int) int64 {
+func benchmarkSift(c *http.Client, url string, maxObjects int) map[string]int64 {
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
 	objectsJSON, _ := json.Marshal(batch{objects})
 
 	queries := readSiftFloat("sift_query.fvecs", maxObjects/100)
 	requestSchema := createSchemaSIFTRequest(url)
 
-	passedTime := int64(0)
+	passedTime := make(map[string]int64)
 
 	// Add schema
-	responseSchema, err := sendRequests(c, requestSchema, &passedTime)
+	responseSchema, timeSchema, err := sendRequests(c, requestSchema)
+	passedTime["AddSchema"] = timeSchema
 	if err != nil || responseSchema.StatusCode != 200 {
 		panic("Could not add schema, error: " + err.Error())
 	}
@@ -151,7 +151,8 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) int64 {
 		panic("Could not create batch request, error: " + err.Error())
 	}
 	requestAdd.Header.Set("content-type", "application/json")
-	responseAdd, err := sendRequests(c, requestAdd, &passedTime)
+	responseAdd, timeBatchAdd, err := sendRequests(c, requestAdd)
+	passedTime["BatchAdd"] = timeBatchAdd
 	if err != nil || responseAdd.StatusCode != 200 {
 		panic("Could not add batch, error: " + err.Error())
 	}
@@ -164,7 +165,8 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) int64 {
 	}
 	requestRead, _ := http.NewRequest("GET", url+"objects?limit="+fmt.Sprint(nrSearchResultsUse)+"&class="+class, bytes.NewReader(make([]byte, 0)))
 	requestRead.Header.Set("content-type", "application/json")
-	responseRead, err := sendRequests(c, requestRead, &passedTime)
+	responseRead, timeGetObjects, err := sendRequests(c, requestRead)
+	passedTime["GetObjects"] = timeGetObjects
 	if err != nil || responseRead.StatusCode != 200 {
 		panic("Could not add batch, error: " + err.Error())
 	}
@@ -187,7 +189,9 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) int64 {
 
 		requestQuery, _ := http.NewRequest("POST", url+"graphql", bytes.NewReader(queryJSON))
 		requestQuery.Header.Set("content-type", "application/json")
-		responseQuery, err := sendRequests(c, requestQuery, &passedTime)
+		responseQuery, timeQuery, err := sendRequests(c, requestQuery)
+		passedTime["Query"] += timeQuery
+
 		if err != nil || responseQuery.StatusCode != 200 {
 			panic("Query error, error: " + err.Error())
 		}
@@ -204,7 +208,8 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) int64 {
 
 	// Delete class (with schema and all entries) to clear all entries so next round can start fresh
 	requestDelete, _ := http.NewRequest("DELETE", url+"schema/"+class, nil)
-	responseDelete, err := sendRequests(c, requestDelete, &passedTime)
+	responseDelete, timeDelete, err := sendRequests(c, requestDelete)
+	passedTime["Delete"] += timeDelete
 	if err != nil || responseDelete.StatusCode != 200 {
 		panic("Could delete schema, error: " + err.Error())
 	}
