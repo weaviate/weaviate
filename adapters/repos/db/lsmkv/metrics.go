@@ -30,6 +30,8 @@ type Metrics struct {
 	startupDurations  prometheus.ObserverVec
 	startupDiskIO     prometheus.ObserverVec
 	objectCount       prometheus.Gauge
+	memtableDurations prometheus.ObserverVec
+	memtableSize      *prometheus.GaugeVec
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -88,7 +90,40 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
+		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		memtableSize: promMetrics.LSMMemtableSize.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
 	}
+}
+
+func (m *Metrics) MemtableSize(path, strategy string, size uint64) {
+	if m == nil {
+		return
+	}
+
+	m.memtableSize.With(prometheus.Labels{
+		"path":     path,
+		"strategy": strategy,
+	}).Set(float64(size))
+}
+
+func (m *Metrics) MemtableOp(path, strategy, op string, startNs int64) {
+	if m == nil {
+		return
+	}
+
+	took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
+
+	m.memtableDurations.With(prometheus.Labels{
+		"operation": op,
+		"path":      path,
+		"strategy":  strategy,
+	}).Observe(took)
 }
 
 func (m *Metrics) TrackStartupReadWALDiskIO(read int64, nanoseconds int64) {
