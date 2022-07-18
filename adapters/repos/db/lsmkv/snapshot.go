@@ -60,9 +60,19 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 	case <-ctx.Done():
 		return errors.Wrap(ctx.Err(), "long-running memtable flush in progress")
 	case <-flushed:
+		// this lock does not currently _need_ to be
+		// obtained, as the only other place that
+		// grabs this lock is the flush cycle, which
+		// has just been stopped above.
+		//
+		// that being said, we will lock here anyway
+		// as flushLock may be added elsewhere in the
+		// future
+		b.flushLock.Lock()
 		if b.active == nil && b.flushing == nil {
 			return nil
 		}
+		b.flushLock.Unlock()
 
 		return b.FlushAndSwitch()
 	}
