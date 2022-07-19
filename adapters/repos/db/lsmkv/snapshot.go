@@ -74,11 +74,12 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 		// as flushLock may be added elsewhere in the
 		// future
 		b.flushLock.Lock()
-		defer b.flushLock.Unlock()
 
 		if b.active == nil && b.flushing == nil {
+			b.flushLock.Unlock()
 			return nil
 		}
+		b.flushLock.Unlock()
 
 		return b.FlushAndSwitch()
 	}
