@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -108,16 +107,21 @@ func main() {
 	}
 }
 
-func command(app string, arguments []string) error {
+func command(app string, arguments []string, wait_for_completion bool) error {
 	mydir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
 	cmd := exec.Command(app, arguments...)
-	execDir := mydir + "/../"
+	execDir := mydir + "/../../"
 	cmd.Dir = execDir
-	err = cmd.Start()
+	if wait_for_completion {
+		err = cmd.Run()
+	} else {
+		err = cmd.Start()
+	}
+
 	return err
 }
 
@@ -143,10 +147,12 @@ func tearDownWeavaite() error {
 		"down",
 		"--remove-orphans",
 	}
-	return command(app, arguments)
+	return command(app, arguments, true)
 }
 
 // start weaviate in case it was not already started
+//
+// We want to benchmark the current state and therefore need to rebuild and then start a docker container
 func startWeavaite(c *http.Client, url string) (bool, error) {
 	requestReady, _ := http.NewRequest("GET", url+".well-known/ready", bytes.NewReader([]byte{}))
 	requestReady.Header.Set("content-type", "application/json")
@@ -157,30 +163,14 @@ func startWeavaite(c *http.Client, url string) (bool, error) {
 	alreadyRunning := err == nil && response_started.StatusCode == 200
 
 	if alreadyRunning {
+		fmt.Print("Weaviate instance already running.\n")
 		return alreadyRunning, nil
 	}
 
-	app := "docker-compose"
-	arguments := []string{
-		"up",
-		"-d",
+	fmt.Print("(Re-) build and start weaviate.\n")
+	cmd := "./tools/test/run_ci_server.sh"
+	if err := command(cmd, []string{}, true); err != nil {
+		panic("Command to (re-) build and start weaviate failed.")
 	}
-
-	if err := command(app, arguments); err != nil {
-		panic("Command to start weaviate failed.")
-	}
-
-	for i := 0; i < 20; i++ {
-		response, err := c.Do(requestReady)
-		if err == nil {
-			response.Body.Close()
-		}
-		if err == nil && response.StatusCode == 200 {
-			return false, nil
-		}
-
-		fmt.Printf("Weaviate not yet up waiting another 3 seconds. Iteration: %v\n", i)
-		time.Sleep(time.Second * 3)
-	}
-	return false, errors.New("could not start weaviate after 20 iterations")
+	return false, nil
 }
