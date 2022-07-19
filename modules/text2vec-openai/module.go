@@ -61,6 +61,10 @@ func (m *OpenAIModule) Name() string {
 	return "text2vec-openai"
 }
 
+func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
 func (m *OpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()

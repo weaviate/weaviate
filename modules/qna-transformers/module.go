@@ -52,6 +52,10 @@ func (m *QnAModule) Name() string {
 	return "qna-transformers"
 }
 
+func (m *QnAModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Text
+}
+
 func (m *QnAModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
