@@ -82,6 +82,10 @@ func (m *ContextionaryModule) Name() string {
 	return "text2vec-contextionary"
 }
 
+func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
 func (m *ContextionaryModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()

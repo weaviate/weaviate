@@ -62,6 +62,10 @@ func (m *TransformersModule) Name() string {
 	return "text2vec-transformers"
 }
 
+func (m *TransformersModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
 func (m *TransformersModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()

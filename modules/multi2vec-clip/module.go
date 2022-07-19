@@ -63,6 +63,10 @@ func (m *ClipModule) Name() string {
 	return "multi2vec-clip"
 }
 
+func (m *ClipModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
 func (m *ClipModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
