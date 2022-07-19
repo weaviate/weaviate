@@ -45,6 +45,10 @@ func (m *NERModule) Name() string {
 	return "ner-transformers"
 }
 
+func (m *NERModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Text
+}
+
 func (m *NERModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
