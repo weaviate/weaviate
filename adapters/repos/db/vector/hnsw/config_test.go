@@ -91,7 +91,7 @@ func Test_UserConfig(t *testing.T) {
 		input    interface{}
 		expected UserConfig
 	}
-	// these are the tests, I will have to add a test for manhattan distance as well
+
 	tests := []test{
 		{
 			name:  "nothing specified, all defaults",
@@ -160,7 +160,6 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 
-		// ----trying to add test case for manhattan distance
 		{
 			name: "with all optional fields",
 			input: map[string]interface{}{
@@ -190,8 +189,6 @@ func Test_UserConfig(t *testing.T) {
 				Distance:               "manhattan",
 			},
 		},
-
-		// ----end of test case for manhattan distance------------------------------
 
 		{
 			// opposed to from the API
