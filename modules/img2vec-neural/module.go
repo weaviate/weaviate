@@ -47,6 +47,10 @@ func (m *ImageModule) Name() string {
 	return "img2vec-neural"
 }
 
+func (m *ImageModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
 func (m *ImageModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {

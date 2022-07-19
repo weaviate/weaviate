@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,10 @@ func (m dummyModuleNoCapabilities) Init(ctx context.Context,
 // TODO remove as this is a capability
 func (m dummyModuleNoCapabilities) RootHandler() http.Handler {
 	return nil
+}
+
+func (m dummyModuleNoCapabilities) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
 }
 
 type dummyVectorizerModule struct {
