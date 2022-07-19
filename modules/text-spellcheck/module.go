@@ -47,6 +47,10 @@ func (m *SpellCheckModule) Name() string {
 	return "text-spellcheck"
 }
 
+func (m *SpellCheckModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Extension
+}
+
 func (m *SpellCheckModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	uri := os.Getenv("SPELLCHECK_INFERENCE_API")
