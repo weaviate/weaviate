@@ -22,6 +22,8 @@ type ModuleType string
 
 const (
 	Text2Vec  ModuleType = "Text2Vec"
+	Img2Vec   ModuleType = "Img2Vec"
+	Multi2Vec ModuleType = "Multi2Vec"
 	Text2Text ModuleType = "Text2Text"
 	Extension ModuleType = "Extension"
 	Storage   ModuleType = "Storage"
