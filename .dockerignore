@@ -3,6 +3,9 @@ Dockerfile.*
 Dockerfile
 docker-compose.yml
 data/
+data-node2/
+snapshots/
+snapshots-node2/
 data_wiki/
 logs/
 test/acceptance/
