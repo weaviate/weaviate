@@ -14,11 +14,12 @@ package snapshots
 import "time"
 
 type Snapshot struct {
-	StartedAt   time.Time
-	CompletedAt time.Time
+	StartedAt   time.Time `json:"startedAt"`
+	CompletedAt time.Time `json:"completedAt"`
 
-	ID    string
-	Files []string
+	ID       string   `json:"id"`
+	Files    []string `json:"files"`
+	BasePath string   `json:"basePath"`
 }
 
 // type Backup struct {
