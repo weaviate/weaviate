@@ -168,6 +168,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsShardsUpdateHandler: schema.SchemaObjectsShardsUpdateHandlerFunc(func(params schema.SchemaObjectsShardsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsUpdate has not yet been implemented")
 		}),
+		SchemaSchemaObjectsSnapshotsCreateHandler: schema.SchemaObjectsSnapshotsCreateHandlerFunc(func(params schema.SchemaObjectsSnapshotsCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsCreate has not yet been implemented")
+		}),
+		SchemaSchemaObjectsSnapshotsRestoreHandler: schema.SchemaObjectsSnapshotsRestoreHandlerFunc(func(params schema.SchemaObjectsSnapshotsRestoreParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsRestore has not yet been implemented")
+		}),
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
 		}),
@@ -299,6 +305,10 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
+	// SchemaSchemaObjectsSnapshotsCreateHandler sets the operation handler for the schema objects snapshots create operation
+	SchemaSchemaObjectsSnapshotsCreateHandler schema.SchemaObjectsSnapshotsCreateHandler
+	// SchemaSchemaObjectsSnapshotsRestoreHandler sets the operation handler for the schema objects snapshots restore operation
+	SchemaSchemaObjectsSnapshotsRestoreHandler schema.SchemaObjectsSnapshotsRestoreHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
@@ -484,6 +494,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsShardsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsUpdateHandler")
+	}
+	if o.SchemaSchemaObjectsSnapshotsCreateHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsCreateHandler")
+	}
+	if o.SchemaSchemaObjectsSnapshotsRestoreHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsRestoreHandler")
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
@@ -737,6 +753,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/shards/{shardName}"] = schema.NewSchemaObjectsShardsUpdate(o.context, o.SchemaSchemaObjectsShardsUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/snapshots"] = schema.NewSchemaObjectsSnapshotsCreate(o.context, o.SchemaSchemaObjectsSnapshotsCreateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/snapshots/{id}/restore"] = schema.NewSchemaObjectsSnapshotsRestore(o.context, o.SchemaSchemaObjectsSnapshotsRestoreHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}

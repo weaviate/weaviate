@@ -52,6 +52,10 @@ type ClientService interface {
 
 	SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsUpdateOK, error)
 
+	SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateOK, error)
+
+	SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreOK, error)
+
 	SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -299,6 +303,76 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.shards.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  SchemaObjectsSnapshotsCreate Starts a process to create a snapshot for a class
+*/
+func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsSnapshotsCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.snapshots.create",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/snapshots",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsSnapshotsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsSnapshotsCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.snapshots.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+  SchemaObjectsSnapshotsRestore Starts a process of restoring a snapshot for a class
+*/
+func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsSnapshotsRestoreParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.snapshots.restore",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/snapshots/{id}/restore",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsSnapshotsRestoreReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsSnapshotsRestoreOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.snapshots.restore: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
