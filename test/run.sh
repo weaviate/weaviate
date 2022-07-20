@@ -55,10 +55,13 @@ function main() {
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
     # surpress_on_success import_test_fixtures
 
+    echo_green "Run performance tracker..."
+    ./test/benchmark/run_performance_tracker.sh
+
     echo_green "Run acceptance tests..."
     run_acceptance_tests "$@"
   fi
-
+  
   echo "Done!"
 }
 
