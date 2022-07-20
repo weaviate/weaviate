@@ -78,27 +78,22 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	// The vector data needs to be converted from bytes to float
 	// Note that the vector entries are of type float but are integer numbers eg 2.0
 	bytesPerF := 4
-	vectorLengthBytes := make([]byte, bytesPerF)
-	vectorDataBytes := make([]byte, 128*bytesPerF)
+	vectorLengthFloat := 128
+	vectorBytes := make([]byte, bytesPerF+vectorLengthFloat*bytesPerF)
 	for i := 0; i >= 0; i++ {
-		_, err = f.Read(vectorLengthBytes)
+		_, err = f.Read(vectorBytes)
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			panic(err)
 		}
-		vectorLengthFloat := int32FromBytes(vectorLengthBytes[0:bytesPerF])
-		if vectorLengthFloat != 128 {
+		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorLengthFloat {
 			panic("Each vector must have 128 entries.")
 		}
-
-		_, err = f.Read(vectorDataBytes)
-		if err != nil {
-			panic(err)
-		}
 		vectorFloat := []float32{}
-		for j := 0; j < vectorLengthFloat*bytesPerF; j += bytesPerF {
-			vectorFloat = append(vectorFloat, float32FromBytes(vectorDataBytes[j:j+bytesPerF]))
+		for j := 0; j < vectorLengthFloat; j++ {
+			start := (j + 1) * bytesPerF // first bytesPerF are length of vector
+			vectorFloat = append(vectorFloat, float32FromBytes(vectorBytes[start:start+bytesPerF]))
 		}
 		uuid := uuid.New()
 		object := &models.Object{
