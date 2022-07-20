@@ -15,16 +15,12 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
 type modulesProvider interface {
-	BackupStorageProvider(providerID string) (StorageProvider, error)
-}
-
-type StorageProvider interface {
-	StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error
-	// TODO: expand to also be able to restore from snapshot
+	BackupStorageProvider(providerID string) (modulecapabilities.SnapshotStorage, error)
 }
 
 type Snapshotter interface { // implemented by the index
@@ -46,11 +42,11 @@ type Snapshotter interface { // implemented by the index
 
 type SnapshotProvider struct {
 	snapshotter     Snapshotter
-	storageProvider StorageProvider
+	storageProvider modulecapabilities.SnapshotStorage
 }
 
 func NewSnapshotProvider(snapshotter Snapshotter,
-	storageProvider StorageProvider) (*SnapshotProvider, error) {
+	storageProvider modulecapabilities.SnapshotStorage) (*SnapshotProvider, error) {
 	return &SnapshotProvider{ /*TODO*/ }, nil
 }
 
