@@ -128,7 +128,32 @@ func sendRequests(c *http.Client, request *http.Request) (*http.Response, int64,
 	return response, time.Since(timeStart).Milliseconds(), err
 }
 
+// If there is already a schema present, clear it out
+func clearExistingObjects(c *http.Client, url string) {
+	checkSchemaRequest, _ := http.NewRequest("GET", url+"schema", bytes.NewReader(make([]byte, 0)))
+	checkSchemaResponse, err := c.Do(checkSchemaRequest)
+	if err == nil && checkSchemaResponse.StatusCode != 200 {
+		return
+	}
+	schemaResponseBytes, _ := ioutil.ReadAll(checkSchemaResponse.Body)
+	checkSchemaResponse.Body.Close()
+
+	var dump models.Schema
+	if err := json.Unmarshal(schemaResponseBytes, &dump); err != nil {
+		panic("Could not unmarshal read response, error: " + err.Error())
+	}
+	for _, classObj := range dump.Classes {
+		requestDelete, _ := http.NewRequest("DELETE", url+"schema/"+classObj.Class, nil)
+		responseDelete, err := c.Do(requestDelete)
+		if err != nil || responseDelete.StatusCode != 200 {
+			panic("Could delete schema, error: " + err.Error())
+		}
+		responseDelete.Body.Close()
+	}
+}
+
 func benchmarkSift(c *http.Client, url string, maxObjects int) map[string]int64 {
+	clearExistingObjects(c, url)
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
 	objectsJSON, _ := json.Marshal(batch{objects})
 
