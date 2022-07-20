@@ -123,11 +123,11 @@ func (h *hnsw) restoreFromDisk() error {
 }
 
 func (h *hnsw) registerMaintainence() {
-	h.registerTombstoneCleanup()
+	h.tombstoneCleanupCycle.Start(h.cleanupInterval)
 }
 
-func (h *hnsw) registerTombstoneCleanup() {
-	if h.cleanupInterval == 0 {
+func (h *hnsw) registerTombstoneCleanup(interval time.Duration) {
+	if interval == 0 {
 		// user is not interested in periodically cleaning up tombstones, clean up
 		// will be manual. (This is also helpful in tests where we want to
 		// explicitly control the point at which a cleanup happens)
@@ -135,10 +135,10 @@ func (h *hnsw) registerTombstoneCleanup() {
 	}
 
 	go func() {
-		t := time.Tick(h.cleanupInterval)
+		t := time.Tick(interval)
 		for {
 			select {
-			case <-h.cancel:
+			case <-h.tombstoneCleanupCycle.Stopped:
 				return
 			case <-t:
 				err := h.CleanUpTombstonedNodes()

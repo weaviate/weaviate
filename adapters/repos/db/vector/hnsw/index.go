@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
@@ -98,7 +99,8 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cancel chan struct{}
+	cleanupInterval       time.Duration
+	tombstoneCleanupCycle *cyclemanager.CycleManager
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -108,8 +110,6 @@ type hnsw struct {
 
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
-
-	cleanupInterval time.Duration
 
 	pools *pools
 
@@ -132,6 +132,8 @@ type CommitLogger interface {
 	Drop() error
 	Flush() error
 	Shutdown()
+	StartSwitchLogs() chan struct{}
+	RootPath() string
 }
 
 type BufferedLinksLogger interface {
@@ -192,7 +194,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstones:        map[uint64]struct{}{},
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
-		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		tombstoneLock:     &sync.RWMutex{},
 		resetLock:         &sync.Mutex{},
@@ -208,6 +209,9 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 	}
+
+	index.tombstoneCleanupCycle = cyclemanager.New(index.registerTombstoneCleanup,
+		"hnsw tombstone cleanup")
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
@@ -552,15 +556,44 @@ func (h *hnsw) Drop() error {
 	// no loop running that could receive our cancel and we would be stuck. Thus,
 	// only cancel if we know it's been started.
 	if h.cleanupInterval != 0 {
-		h.cancel <- struct{}{}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		stopped := make(chan struct{})
+		go func() {
+			h.tombstoneCleanupCycle.Stop(context.Background())
+			stopped <- struct{}{}
+		}()
+
+		select {
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "drop hnsw index")
+		case <-stopped:
+		}
 	}
 	return nil
 }
 
-func (h *hnsw) Shutdown() {
-	h.cancel <- struct{}{}
+func (h *hnsw) Shutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	stopped := make(chan struct{})
+	go func() {
+		h.tombstoneCleanupCycle.Stop(context.Background())
+		stopped <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "drop hnsw index")
+	case <-stopped:
+	}
+
 	h.commitLog.Shutdown()
 	h.cache.drop()
+
+	return nil
 }
 
 func (h *hnsw) Flush() error {

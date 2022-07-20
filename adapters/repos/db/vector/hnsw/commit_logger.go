@@ -367,7 +367,7 @@ func (l *hnswCommitLogger) Reset() error {
 
 func (l *hnswCommitLogger) StartLogging() {
 	// switch log job
-	cancelSwitchLog := l.startSwitchLogs()
+	cancelSwitchLog := l.StartSwitchLogs()
 	// condense old logs job
 	cancelCombineAndCondenseLogs := l.startCombineAndCondenseLogs()
 	// cancel maintenance jobs on request
@@ -390,14 +390,18 @@ func (l *hnswCommitLogger) Shutdown() {
 	<-l.cancelComplete
 }
 
-func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
+func (l *hnswCommitLogger) RootPath() string {
+	return l.rootPath
+}
+
+func (l *hnswCommitLogger) StartSwitchLogs() chan struct{} {
 	cancelSwitchLog := make(chan struct{})
 
 	go func(cancel <-chan struct{}) {
 		if l.maintainenceInterval == 0 {
 			l.logger.WithField("action", "commit_logging_skipped").
 				WithField("id", l.id).
-				Info("commit log switching explitictly turned off")
+				Info("commit log switching explicitly turned off")
 		}
 		maintenance := time.Tick(l.maintainenceInterval)
 
@@ -425,7 +429,7 @@ func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
 		if l.maintainenceInterval == 0 {
 			l.logger.WithField("action", "commit_logging_skipped").
 				WithField("id", l.id).
-				Info("commit log switching explitictly turned off")
+				Info("commit log switching explicitly turned off")
 		}
 		maintenance := time.Tick(l.maintainenceInterval)
 		for {

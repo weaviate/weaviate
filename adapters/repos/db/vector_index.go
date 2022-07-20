@@ -26,6 +26,6 @@ type VectorIndex interface {
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schema.VectorIndexConfig) error
 	Drop() error
-	Shutdown()
+	Shutdown() error
 	Flush() error
 }

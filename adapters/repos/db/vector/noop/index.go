@@ -54,4 +54,6 @@ func (i *Index) Flush() error {
 	return nil
 }
 
-func (i *Index) Shutdown() {}
+func (i *Index) Shutdown() error {
+	return nil
+}

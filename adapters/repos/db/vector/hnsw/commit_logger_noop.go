@@ -76,3 +76,11 @@ func (b *NoopCommitLogger) NewBufferedLinksLogger() BufferedLinksLogger {
 func (b *NoopCommitLogger) Close() error {
 	return nil
 }
+
+func (b *NoopCommitLogger) StartSwitchLogs() chan struct{} {
+	return make(chan struct{})
+}
+
+func (b *NoopCommitLogger) RootPath() string {
+	return ""
+}

@@ -98,7 +98,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
-
 		var distProv distancer.Provider
 
 		switch hnswUserConfig.Distance {
@@ -419,7 +418,9 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "flush vector index commitlog")
 	}
 
-	s.vectorIndex.Shutdown()
+	if err := s.vectorIndex.Shutdown(); err != nil {
+		return errors.Wrap(err, "shut down vector index")
+	}
 
 	return s.store.Shutdown(ctx)
 }
