@@ -39,7 +39,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data" \
-      STG_FS_SNAPSHOTS_PATH="${PWD}/snapshots" \
+      STORAGE_FS_SNAPSHOTS_PATH="${PWD}/snapshots" \
       ENABLE_MODULES="text2vec-contextionary,storage-filesystem" \
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -56,7 +56,7 @@ case $CONFIG in
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-node2" \
-      STG_FS_SNAPSHOTS_PATH="${PWD}/snapshots-node2" \
+      STORAGE_FS_SNAPSHOTS_PATH="${PWD}/snapshots-node2" \
       CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \

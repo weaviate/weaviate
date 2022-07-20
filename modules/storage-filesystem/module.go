@@ -13,7 +13,7 @@ import (
 
 const (
 	Name              = "storage-filesystem"
-	snapshotsPathName = "STG_FS_SNAPSHOTS_PATH"
+	snapshotsPathName = "STORAGE_FS_SNAPSHOTS_PATH"
 )
 
 type StorageFileSystemModule struct {
