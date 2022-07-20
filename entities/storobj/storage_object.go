@@ -236,6 +236,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		propertiesMap = map[string]interface{}{}
 	}
 	propertiesMap["id"] = ko.ID()
+	propertiesMap["vector"] = ko.Vector
 	ko.SetProperties(propertiesMap)
 
 	additionalProperties := models.AdditionalProperties{}

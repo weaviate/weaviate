@@ -68,9 +68,8 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx,
-		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties),
-		params.Properties, params.AdditionalProperties)
+	objects := storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties)
+	return db.enrichRefsForList(ctx, objects, params.Properties, params.AdditionalProperties)
 }
 
 func (db *DB) VectorClassSearch(ctx context.Context,
