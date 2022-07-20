@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -89,7 +90,9 @@ func findObject(t *testing.T) {
 	r := objects.NewObjectsClassGetParams().WithID(uuid).WithClassName(cls)
 	resp, err := helper.Client(t).Objects.ObjectsClassGet(r, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	assert.Equal(t, expected, resp.Payload.Properties.(map[string]interface{}))
+	properties := resp.Payload.Properties.(map[string]interface{})
+	delete(properties, "vector")
+	assert.Equal(t, expected, properties)
 
 	// check for an object which doesn't exist
 	unknown_uuid := strfmt.UUID("11110000-0000-0000-0000-000011110000")
@@ -206,6 +209,8 @@ func putObject(t *testing.T) {
 	updateResp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 	actual := assertGetObject(t, cls, uuid).Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 }
 
@@ -294,12 +299,20 @@ func patchObject(t *testing.T) {
 	params.WithID(uuid).WithBody(&updateObj)
 	updateResp, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
-	actual := func() interface{} {
+	actual := func() map[string]interface{} {
 		obj := assertGetObject(t, cls, uuid)
 		props := obj.Properties.(map[string]interface{})
 		return props
 	}
-	testhelper.AssertEventuallyEqual(t, expected, actual)
+	assert.Eventually(t, func() bool {
+		res := actual()["vector"]
+		return reflect.TypeOf(res).Kind() == reflect.Slice
+	}, 300*time.Millisecond, 10*time.Millisecond)
+	testhelper.AssertEventuallyEqual(t, expected, func() interface{} {
+		res := actual()
+		delete(res, "vector")
+		return res
+	})
 
 	params.WithID(strfmt.UUID("e5be1f32-0001-0000-0000-ebb25dfc811f"))
 	_, err = helper.Client(t).Objects.ObjectsClassPatch(params, nil)
@@ -465,6 +478,8 @@ func postReference(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	obj := assertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
@@ -554,6 +569,8 @@ func putReferences(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	obj := assertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	//  exclude one reference
@@ -563,6 +580,8 @@ func putReferences(t *testing.T) {
 	obj = assertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	expected["friend"] = expected["friend"].([]interface{})[:1]
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
@@ -586,6 +605,8 @@ func putReferences(t *testing.T) {
 	obj = assertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	expected["friend"] = expected["friend"].([]interface{})[1:]
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	// bad request since body is required
@@ -672,6 +693,8 @@ func deleteReference(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	obj := assertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	// delete same reference again
@@ -679,6 +702,8 @@ func deleteReference(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	obj = assertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	// delete last reference
@@ -692,6 +717,8 @@ func deleteReference(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 	obj = assertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
+	assert.IsType(t, []interface{}{}, actual["vector"])
+	delete(actual, "vector")
 	assert.Equal(t, expected, actual)
 
 	// property is not part of the schema

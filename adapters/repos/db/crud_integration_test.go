@@ -1257,7 +1257,7 @@ func TestCRUD(t *testing.T) {
 					ClassName: "TheBestActionClass",
 					Schema: map[string]interface{}{
 						"id":     id,
-						"vector": nil.([]float32),
+						"vector": []float32(nil),
 					},
 					Score:                1,
 					AdditionalProperties: models.AdditionalProperties{},

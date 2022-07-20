@@ -86,7 +86,9 @@ func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 
 	actualThunk := func() interface{} {
 		city := assertGetObject(t, cityID)
-		return city.Properties
+		properties := city.Properties.(map[string]interface{})
+		delete(properties, "vector")
+		return properties
 	}
 	t.Log("7. verify first cross ref was added")
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
