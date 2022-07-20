@@ -48,7 +48,7 @@ func (m *ImageModule) Name() string {
 }
 
 func (m *ImageModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Vec
+	return modulecapabilities.Img2Vec
 }
 
 func (m *ImageModule) Init(ctx context.Context,
