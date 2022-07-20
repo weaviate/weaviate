@@ -290,9 +290,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 
 		vector := cities[0].(map[string]interface{})["inCountry"].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"]
 
-		if vector == nil {
-			t.Fatal("vector should not be <nil>")
-		}
+		assert.NotNil(t, vector)
 	})
 }
 
