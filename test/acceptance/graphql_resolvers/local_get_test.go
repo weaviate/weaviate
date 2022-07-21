@@ -18,7 +18,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ import (
 // run by setup_test.go
 func gettingObjects(t *testing.T) {
 	t.Run("listing cities without references", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -41,7 +42,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with relations", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, inCountry { ... on Country { name } } } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, inCountry { ... on Country { name } } } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := parseJSONSlice(`[
@@ -76,7 +77,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with limit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(limit: 2) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(limit: 2) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -88,7 +89,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset and limit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2 limit: 2) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2 limit: 2) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -100,7 +101,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 2) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -113,7 +114,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset and limit beyond results size", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 4 limit: 10) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 4 limit: 10) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -124,7 +125,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset beyond results size", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 5) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 5) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{}

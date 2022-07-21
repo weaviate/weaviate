@@ -15,7 +15,7 @@ package test
 // 	"encoding/json"
 // 	"testing"
 
-// 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+// 	"github.com/semi-technologies/weaviate/test/helper"
 // 	"github.com/stretchr/testify/assert"
 // )
 

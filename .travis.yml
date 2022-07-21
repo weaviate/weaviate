@@ -88,6 +88,10 @@ jobs:
     stage: test
     script: 
     - ./test/run.sh --acceptance_tests || travis_terminate 1
+  - name: "Acceptance tests for modules (requiring docker to run)"
+    stage: test
+    script: 
+    - ./test/run.sh --acceptance_module_tests || travis_terminate 1
   - name: "Push docker container"
     if: type != pull_request
     stage: deploy
