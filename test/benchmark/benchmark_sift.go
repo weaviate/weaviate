@@ -136,12 +136,22 @@ func sendRequests(c *http.Client, request *http.Request) (*http.Response, int64,
 
 // If there is already a schema present, clear it out
 func clearExistingObjects(c *http.Client, url string) {
-	checkSchemaRequest, _ := http.NewRequest("GET", url+"schema", bytes.NewReader(make([]byte, 0)))
+	checkSchemaRequest, err := http.NewRequest("GET", url+"schema", nil)
+	if err != nil {
+		panic("create request: %v\n" + err.Error())
+	}
+	checkSchemaRequest.Header.Set("content-type", "application/json")
 	checkSchemaResponse, err := c.Do(checkSchemaRequest)
-	if err == nil && checkSchemaResponse.StatusCode != 200 {
+	if err != nil {
+		panic("perform request: %v\n" + err.Error())
+	}
+	if checkSchemaResponse.StatusCode != 200 {
 		return
 	}
-	schemaResponseBytes, _ := ioutil.ReadAll(checkSchemaResponse.Body)
+	schemaResponseBytes, err := ioutil.ReadAll(checkSchemaResponse.Body)
+	if err != nil {
+		panic("read files: %v\n" + err.Error())
+	}
 	checkSchemaResponse.Body.Close()
 
 	var dump models.Schema
@@ -151,8 +161,11 @@ func clearExistingObjects(c *http.Client, url string) {
 	for _, classObj := range dump.Classes {
 		requestDelete, _ := http.NewRequest("DELETE", url+"schema/"+classObj.Class, nil)
 		responseDelete, err := c.Do(requestDelete)
-		if err != nil || responseDelete.StatusCode != 200 {
+		if err != nil {
 			panic("Could delete schema, error: " + err.Error())
+		}
+		if responseDelete.StatusCode != 200 {
+			panic(fmt.Sprintf("Could delete schema, code: %v", responseDelete.StatusCode))
 		}
 		responseDelete.Body.Close()
 	}
@@ -161,7 +174,10 @@ func clearExistingObjects(c *http.Client, url string) {
 func benchmarkSift(c *http.Client, url string, maxObjects int) map[string]int64 {
 	clearExistingObjects(c, url)
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
-	objectsJSON, _ := json.Marshal(batch{objects})
+	objectsJSON, err := json.Marshal(batch{objects})
+	if err != nil {
+		panic("marshal objects: " + err.Error())
+	}
 
 	queries := readSiftFloat("sift_query.fvecs", maxObjects/100)
 	requestSchema := createSchemaSIFTRequest(url)
