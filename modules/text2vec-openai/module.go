@@ -139,4 +139,6 @@ var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.GraphQLArguments(New())
 )

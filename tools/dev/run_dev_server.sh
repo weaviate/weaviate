@@ -224,6 +224,24 @@ case $CONFIG in
         --write-timeout=3600s
     ;;
 
+  local-s3)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      STORAGE_S3_ENDPOINT="localhost:9000" \
+      AWS_ACCESS_KEY_ID="aws_access_key" \
+      AWS_SECRET_KEY="aws_secret_key" \
+      ENABLE_MODULES="text2vec-contextionary,storage-aws-s3" \
+      CLUSTER_HOSTNAME="node1" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   *) 
     echo "Invalid config" 2>&1
     exit 1
