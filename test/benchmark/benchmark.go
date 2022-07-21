@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -58,9 +60,9 @@ func main() {
 	c := &http.Client{Transport: t}
 	url := "http://localhost:8080/v1/"
 
-	alreadyRunning, err := startWeavaite(c, url)
+	alreadyRunning, err := startWeaviate(c, url)
 	if err != nil {
-		panic("Could not start weaviate")
+		panic("Could not start weaviate: " + err.Error())
 	}
 
 	var newRuntime map[string]int64
@@ -164,14 +166,15 @@ func tearDownWeavaite() error {
 // start weaviate in case it was not already started
 //
 // We want to benchmark the current state and therefore need to rebuild and then start a docker container
-func startWeavaite(c *http.Client, url string) (bool, error) {
-	requestReady, _ := http.NewRequest("GET", url+".well-known/ready", bytes.NewReader([]byte{}))
+func startWeaviate(c *http.Client, url string) (bool, error) {
+	requestReady, _ := http.NewRequest("GET", url+".well-known/ready", nil)
 	requestReady.Header.Set("content-type", "application/json")
 	response_started, err := c.Do(requestReady)
-	if err == nil {
-		response_started.Body.Close()
+	if err != nil {
+		return false, err
 	}
-	alreadyRunning := err == nil && response_started.StatusCode == 200
+	defer response_started.Body.Close()
+	alreadyRunning := response_started.StatusCode == 200
 
 	if alreadyRunning {
 		fmt.Print("Weaviate instance already running.\n")
@@ -184,4 +187,41 @@ func startWeavaite(c *http.Client, url string) (bool, error) {
 		panic("Command to (re-) build and start weaviate failed: " + err.Error())
 	}
 	return false, nil
+}
+
+// createRequest creates requests
+func createRequest(url string, method string, payload interface{}) (*http.Request, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewBuffer(jsonBody)
+	}
+
+	request, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Add("Content-Type", "application/json")
+	request.Header.Add("Accept", "application/json")
+
+	return request, nil
+}
+
+// performRequest runs requests
+func performRequest(c *http.Client, request *http.Request) (int, []byte, error) {
+	response, err := c.Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return response.StatusCode, body, nil
 }
