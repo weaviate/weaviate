@@ -23,6 +23,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary" \
+      CLUSTER_HOSTNAME="node1" \
       dlv debug ./cmd/weaviate-server -- \
         --scheme http \
         --host "127.0.0.1" \
@@ -71,6 +72,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
+      CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -85,6 +87,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_PASSAGE_INFERENCE_API="http://localhost:8006" \
       TRANSFORMERS_QUERY_INFERENCE_API="http://localhost:8007" \
+      CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -98,6 +101,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
+      CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,qna-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -111,6 +115,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       IMAGE_INFERENCE_API="http://localhost:8002" \
+      CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,img2vec-neural" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -125,6 +130,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       NER_INFERENCE_API="http://localhost:8003" \
       ENABLE_MODULES="text2vec-contextionary,ner-transformers" \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -138,6 +144,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       SPELLCHECK_INFERENCE_API="http://localhost:8004" \
       ENABLE_MODULES="text2vec-contextionary,text-spellcheck" \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -151,6 +158,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=multi2vec-clip \
       CLIP_INFERENCE_API="http://localhost:8005" \
       ENABLE_MODULES="multi2vec-clip" \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -169,6 +177,7 @@ case $CONFIG in
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -182,6 +191,7 @@ case $CONFIG in
       TRANSFORMERS_INFERENCE_API=http://localhost:8000 \
       CLIP_INFERENCE_API=http://localhost:8005 \
       ENABLE_MODULES=text2vec-contextionary,text2vec-transformers,multi2vec-clip \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -193,6 +203,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-openai \
       ENABLE_MODULES="text2vec-openai" \
+      CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -202,6 +213,7 @@ case $CONFIG in
     ;;
 
   local-no-modules)
+      CLUSTER_HOSTNAME="node1" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=none \
       go run ./cmd/weaviate-server \
