@@ -126,8 +126,8 @@ func newSegmentGroup(dir string,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.compactionCycle = cyclemanager.New(out.initCompactionCycle, "lsm compaction cycle")
-	out.compactionCycle.Start(compactionInterval)
+	out.compactionCycle = cyclemanager.New(compactionInterval, out.initCompactionCycle)
+	out.compactionCycle.Start()
 
 	return out, nil
 }
@@ -295,17 +295,8 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
-	compactionHalted := make(chan struct{})
-
-	go func() {
-		sg.compactionCycle.Stop(ctx)
-		compactionHalted <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
+	if err := sg.compactionCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
-	case <-compactionHalted:
 	}
 
 	for i, seg := range sg.segments {
