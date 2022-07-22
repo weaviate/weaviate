@@ -41,7 +41,8 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 				Properties: map[string]interface{}{
 					"stringField": "somevalue",
 				},
-			}},
+			},
+		},
 		)
 		require.Nil(t, err)
 	})

@@ -1,166 +1,251 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
-
 package cyclemanager
 
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCycleManager(t *testing.T) {
-	sleeper := sleeper{
-		dreams: make(chan string, 1),
+type cycleFuncProvider struct {
+	sync.Mutex
+
+	firstCycleStarted chan struct{}
+	cycleFunc         CycleFunc
+	results           chan string
+}
+
+func newProvider(cycleDuration time.Duration, resultsSize uint) *cycleFuncProvider {
+	fs := false
+	p := &cycleFuncProvider{}
+	p.results = make(chan string, resultsSize)
+	p.firstCycleStarted = make(chan struct{}, 1)
+	p.cycleFunc = func() {
+		p.Lock()
+		if !fs {
+			p.firstCycleStarted <- struct{}{}
+			fs = true
+		}
+		p.Unlock()
+		time.Sleep(cycleDuration)
+		p.results <- "something wonderful..."
 	}
+	return p
+}
+
+func TestCycleManager(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
+
+	p := newProvider(cycleDuration, 1)
+	var cm *CycleManager
 
 	t.Run("create new", func(t *testing.T) {
-		description := "test cycle"
-		sleeper.sleepCycle = New(sleeper.sleep, description)
+		cm = New(cycleInterval, p.cycleFunc)
 
-		assert.False(t, sleeper.sleepCycle.running)
-		assert.Equal(t, sleeper.sleepCycle.description, description)
-		assert.NotNil(t, sleeper.sleepCycle.cycleFunc)
-		assert.NotNil(t, sleeper.sleepCycle.Stopped)
+		assert.False(t, cm.Running())
+		assert.Equal(t, cycleInterval, cm.cycleInterval)
+		assert.NotNil(t, cm.cycleFunc)
+		assert.NotNil(t, cm.stop)
 	})
 
 	t.Run("start", func(t *testing.T) {
-		sleeper.sleepCycle.Start(100 * time.Millisecond)
-		assert.True(t, sleeper.sleepCycle.running)
-		assert.Equal(t, "something wonderful...", <-sleeper.dreams)
+		cm.Start()
+		<-p.firstCycleStarted
+
+		assert.True(t, cm.Running())
 	})
 
 	t.Run("stop", func(t *testing.T) {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		defer cancel()
 
-		stopped := make(chan struct{})
-
-		go func() {
-			sleeper.sleepCycle.Stop(timeoutCtx)
-			stopped <- struct{}{}
-		}()
+		stopResult := cm.Stop(timeoutCtx)
+		fmt.Printf("   ==> test/after trystop [%+v]\n", stopResult)
 
 		select {
 		case <-timeoutCtx.Done():
-			t.Fatal(timeoutCtx.Err().Error(), "failed to stop sleeper")
-		case <-stopped:
+			fmt.Printf("   ==> timeout\n")
+			t.Fatal(timeoutCtx.Err().Error(), "failed to stop")
+		case stopped := <-stopResult:
+			fmt.Printf("   ==> stopResult\n")
+			assert.True(t, stopped)
+			assert.False(t, cm.Running())
+			assert.Equal(t, "something wonderful...", <-p.results)
 		}
-
-		assert.False(t, sleeper.sleepCycle.running)
-		assert.Empty(t, <-sleeper.dreams)
+		fmt.Printf("   ==> after select\n")
 	})
+
+	fmt.Printf("   ==> all end\n")
 }
 
-func TestCycleManager_CancelContext(t *testing.T) {
-	sleeper := sleeper{
-		dreams: make(chan string, 1),
-	}
+func TestCycleManager_timeout(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 20 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
 
-	cycleInterval := 100 * time.Millisecond
+	p := newProvider(cycleDuration, 1)
+	cm := New(cycleInterval, p.cycleFunc)
 
-	t.Run("create new", func(t *testing.T) {
-		description := "test cycle"
-		sleeper.sleepCycle = New(sleeper.sleepDelayedWakeup, description)
-
-		assert.False(t, sleeper.sleepCycle.running)
-		assert.Equal(t, sleeper.sleepCycle.description, description)
-		assert.NotNil(t, sleeper.sleepCycle.cycleFunc)
-		assert.NotNil(t, sleeper.sleepCycle.Stopped)
-	})
-
-	t.Run("start", func(t *testing.T) {
-		sleeper.sleepCycle.Start(cycleInterval)
-		assert.True(t, sleeper.sleepCycle.running)
-		assert.Equal(t, "something wonderful...", <-sleeper.dreams)
-	})
-
-	t.Run("cancel early", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	t.Run("timeout is reached", func(t *testing.T) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		defer cancel()
 
-		awake := make(chan struct{})
+		cm.Start()
+		<-p.firstCycleStarted
 
-		go func() {
-			sleeper.sleepCycle.Stop(ctx)
-			awake <- struct{}{}
-		}()
+		stopResult := cm.Stop(timeoutCtx)
+		fmt.Printf("   ==> test/after trystop [%+v]\n", stopResult)
 
 		select {
-		case <-ctx.Done():
-			done := make(chan struct{})
-
-			// if it takes longer than a second to restart
-			// the cycle, that means that `Stop` still has
-			// the lock obtained, and Start must wait.
-			//
-			// failure here will be obvious, because `Stop`
-			// here is configured to block for well beyond
-			// one second.
-			go failIfTimeout(done, time.Second)
-
-			sleeper.sleepCycle.Start(cycleInterval)
-			done <- struct{}{}
-		case <-awake:
-			t.Fatal("context should have been cancelled")
+		case <-timeoutCtx.Done():
+			fmt.Printf("   ==> timeout\n")
+			assert.True(t, cm.Running())
+		case <-stopResult:
+			t.Fatal("stopped before timeout")
 		}
+		fmt.Printf("   ==> after select\n")
+
+		// make sure it is still running
+		assert.False(t, <-stopResult)
+		assert.True(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopResult := cm.Stop(context.Background())
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+	})
+
+	fmt.Printf("   ==> all end\n")
+}
+
+func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+
+	startCount := 5
+
+	p := newProvider(cycleDuration, uint(startCount))
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("multiple starts", func(t *testing.T) {
+		for i := 0; i < startCount; i++ {
+			cm.Start()
+		}
+		<-p.firstCycleStarted
+
+		stopResult := cm.Stop(context.Background())
+
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+		// just one result produced
+		assert.Equal(t, 1, len(p.results))
 	})
 }
 
-type sleeper struct {
-	sleepCycle *CycleManager
-	dreams     chan string
-}
+func TestCycleManager_handlesMultipleStops(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
 
-func (s *sleeper) sleep(interval time.Duration) {
-	go func() {
-		t := time.Tick(interval)
-		for {
-			select {
-			case <-s.sleepCycle.Stopped:
-				close(s.dreams)
-				return
-			case <-t:
-				s.dreams <- "something wonderful..."
-			}
+	stopCount := 5
+
+	p := newProvider(cycleDuration, 1)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("multiple stops", func(t *testing.T) {
+		fmt.Printf("  ==> before start [%v]\n", time.Now())
+		cm.Start()
+		<-p.firstCycleStarted
+
+		stopResult := make([]chan bool, stopCount)
+		fmt.Printf("  ==> before stop [%v]\n", time.Now())
+		for i := 0; i < stopCount; i++ {
+			stopResult[i] = cm.Stop(context.Background())
 		}
-	}()
-}
-
-func (s *sleeper) sleepDelayedWakeup(interval time.Duration) {
-	go func() {
-		t := time.Tick(interval)
-		for {
-			select {
-			case <-s.sleepCycle.Stopped:
-				// simulate a blocking channel receive
-				fmt.Println("about to sleep for 24 hours")
-				time.Sleep(24 * time.Hour)
-				fmt.Println("done sleeping")
-				return
-			case <-t:
-				s.dreams <- "something wonderful..."
-			}
+		fmt.Printf("  ==> after stop [%v]\n", time.Now())
+		for i := 0; i < stopCount; i++ {
+			assert.True(t, <-stopResult[i])
 		}
-	}()
+		fmt.Printf("  ==> after chan loop [%v]\n", time.Now())
+		assert.False(t, cm.Running())
+
+		fmt.Printf("  ==> waiting for 1 result [%v]\n", time.Now())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
 }
 
-func failIfTimeout(done chan struct{}, d time.Duration) {
-	select {
-	case <-done:
-		return
-	case <-time.After(d):
-		panic("test timed out")
-	}
+func TestCycleManager_stopsIfNotAllContextsAreCancelled(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+	stopTimeout := 5 * time.Millisecond
+
+	p := newProvider(cycleDuration, 1)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("multiple stops, few cancelled", func(t *testing.T) {
+		timeout1Ctx, cancel1 := context.WithTimeout(context.Background(), stopTimeout)
+		timeout2Ctx, cancel2 := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel1()
+		defer cancel2()
+
+		cm.Start()
+		<-p.firstCycleStarted
+
+		stopResult1 := cm.Stop(timeout1Ctx)
+		stopResult2 := cm.Stop(timeout2Ctx)
+		stopResult3 := cm.Stop(context.Background())
+
+		// all produce the same result: cycle was stopped
+		assert.True(t, <-stopResult1)
+		assert.True(t, <-stopResult2)
+		assert.True(t, <-stopResult3)
+
+		assert.False(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+}
+
+func TestCycleManager_doesNotStopIfAllContextsAreCancelled(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+	stopTimeout := 5 * time.Millisecond
+
+	p := newProvider(cycleDuration, 1)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("multiple stops, few cancelled", func(t *testing.T) {
+		timeout1Ctx, cancel1 := context.WithTimeout(context.Background(), stopTimeout)
+		timeout2Ctx, cancel2 := context.WithTimeout(context.Background(), stopTimeout)
+		timeout3Ctx, cancel3 := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel1()
+		defer cancel2()
+		defer cancel3()
+
+		cm.Start()
+		<-p.firstCycleStarted
+
+		stopResult1 := cm.Stop(timeout1Ctx)
+		stopResult2 := cm.Stop(timeout2Ctx)
+		stopResult3 := cm.Stop(timeout3Ctx)
+
+		// all produce the same result: cycle was stopped
+		assert.False(t, <-stopResult1)
+		assert.False(t, <-stopResult2)
+		assert.False(t, <-stopResult3)
+
+		assert.True(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopResult := cm.Stop(context.Background())
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+	})
 }
