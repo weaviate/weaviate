@@ -28,7 +28,11 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 	if !ok {
 		// not a typed error, we can not handle this error other returning it to
 		// the user
-		logger.WithField("error", recovered).Error()
+		logger.WithFields(logrus.Fields{
+			"error":  recovered,
+			"method": r.Method,
+			"path":   r.URL,
+		}).Errorf("%v", recovered)
 		return
 	}
 
@@ -44,6 +48,12 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 			return
 		}
 	}
+
+	// typed as error, but none we are currently handling explicitly
+	logger.WithError(err).WithFields(logrus.Fields{
+		"method": r.Method,
+		"path":   r.URL,
+	}).Errorf(err.Error())
 }
 
 func handleBrokenPipe(err error, logger logrus.FieldLogger, r *http.Request) {
