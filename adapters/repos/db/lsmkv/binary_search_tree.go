@@ -24,11 +24,18 @@ func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int
 			key:           key,
 			value:         value,
 			secondaryKeys: secondaryKeys,
+			colourIsred:   false, // root node is always black
 		}
 		return len(key) + len(value)
 	}
 
-	return t.root.insert(key, value, secondaryKeys)
+	addition, newRoot := t.root.insert(key, value, secondaryKeys)
+	if newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsred = false // Can be flipped in the process of balancing, but root is always black
+
+	return addition
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -50,6 +57,7 @@ func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 			value:         nil,
 			tombstone:     true,
 			secondaryKeys: secondaryKeys,
+			colourIsred:   false, // root node is always black
 		}
 		return
 	}
@@ -86,12 +94,13 @@ type binarySearchNode struct {
 	secondaryKeys [][]byte
 	left          *binarySearchNode
 	right         *binarySearchNode
+	parent        *binarySearchNode
 	tombstone     bool
+	colourIsred   bool
 }
 
 // returns net additions of insert in bytes
-func (n *binarySearchNode) insert(key, value []byte,
-	secondaryKeys [][]byte) (netAdditions int) {
+func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode) {
 	if bytes.Equal(key, n.key) {
 		// since the key already exists, we only need to take the difference
 		// between the existing value and the new one to determine net change
@@ -107,33 +116,42 @@ func (n *binarySearchNode) insert(key, value []byte,
 		n.tombstone = false
 		n.secondaryKeys = secondaryKeys
 
+		newRoot = nil // tree root does not change when replacing node
 		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			netAdditions = n.left.insert(key, value, secondaryKeys)
+			netAdditions, newRoot = n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
 				key:           key,
 				value:         value,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsred:   true, // new nodes are always red, except root node which is handled in the tree itself
 			}
+			newRoot = rebalanceRedBlackTree(n.left)
+
 			netAdditions = len(key) + len(value)
 			return
 		}
 	} else {
 		if n.right != nil {
-			netAdditions = n.right.insert(key, value, secondaryKeys)
+			netAdditions, newRoot = n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{
 				key:           key,
 				value:         value,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsred:   true,
 			}
 			netAdditions = len(key) + len(value)
+			newRoot = rebalanceRedBlackTree(n.right)
+
 			return
 		}
 	}
