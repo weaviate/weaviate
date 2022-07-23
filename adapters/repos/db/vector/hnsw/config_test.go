@@ -191,6 +191,36 @@ func Test_UserConfig(t *testing.T) {
 		},
 
 		{
+			name: "with all optional fields",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": json.Number("11"),
+				"maxConnections":         json.Number("12"),
+				"efConstruction":         json.Number("13"),
+				"vectorCacheMaxObjects":  json.Number("14"),
+				"ef":                     json.Number("15"),
+				"flatSearchCutoff":       json.Number("16"),
+				"dynamicEfMin":           json.Number("17"),
+				"dynamicEfMax":           json.Number("18"),
+				"dynamicEfFactor":        json.Number("19"),
+				"skip":                   true,
+				"distance":               "hamming",
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Skip:                   true,
+				Distance:               "hamming",
+			},
+		},
+
+		{
 			// opposed to from the API
 			name: "with raw data as floats",
 			input: map[string]interface{}{
