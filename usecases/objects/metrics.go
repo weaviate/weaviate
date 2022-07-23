@@ -23,126 +23,122 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	}
 }
 
-func (m *Metrics) makeQueriesIncFunc(queryType string) func() {
-	return func() {
-		if m == nil {
-			return
-		}
-
-		m.queriesCount.With(prometheus.Labels{
-			"class_name": "n/a",
-			"query_type": queryType,
-		}).Inc()
+func (m *Metrics) queriesInc(queryType string) {
+	if m == nil {
+		return
 	}
+
+	m.queriesCount.With(prometheus.Labels{
+		"class_name": "n/a",
+		"query_type": queryType,
+	}).Inc()
 }
 
-func (m *Metrics) makeQueriesDecFunc(queryType string) func() {
-	return func() {
-		if m == nil {
-			return
-		}
-
-		m.queriesCount.With(prometheus.Labels{
-			"class_name": "n/a",
-			"query_type": queryType,
-		}).Dec()
+func (m *Metrics) queriesDec(queryType string) {
+	if m == nil {
+		return
 	}
+
+	m.queriesCount.With(prometheus.Labels{
+		"class_name": "n/a",
+		"query_type": queryType,
+	}).Dec()
 }
 
 func (m *Metrics) BatchInc() {
-	m.makeQueriesIncFunc("batch")
+	m.queriesInc("batch")
 }
 
 func (m *Metrics) BatchDec() {
-	m.makeQueriesDecFunc("batch")
+	m.queriesDec("batch")
 }
 
 func (m *Metrics) BatchRefInc() {
-	m.makeQueriesIncFunc("batch_references")
+	m.queriesInc("batch_references")
 }
 
 func (m *Metrics) BatchRefDec() {
-	m.makeQueriesDecFunc("batch_references")
+	m.queriesDec("batch_references")
 }
 
 func (m *Metrics) BatchDeleteInc() {
-	m.makeQueriesIncFunc("batch_delete")
+	m.queriesInc("batch_delete")
 }
 
 func (m *Metrics) BatchDeleteDec() {
-	m.makeQueriesDecFunc("batch_delete")
+	m.queriesDec("batch_delete")
 }
 
 func (m *Metrics) AddObjectInc() {
-	m.makeQueriesIncFunc("add_object")
+	m.queriesInc("add_object")
 }
 
 func (m *Metrics) AddObjectDec() {
-	m.makeQueriesDecFunc("add_object")
+	m.queriesDec("add_object")
 }
 
 func (m *Metrics) UpdateObjectInc() {
-	m.makeQueriesIncFunc("update_object")
+	m.queriesInc("update_object")
 }
 
 func (m *Metrics) UpdateObjectDec() {
-	m.makeQueriesDecFunc("update_object")
+	m.queriesDec("update_object")
 }
 
 func (m *Metrics) MergeObjectInc() {
-	m.makeQueriesIncFunc("merge_object")
+	m.queriesInc("merge_object")
 }
 
 func (m *Metrics) MergeObjectDec() {
-	m.makeQueriesDecFunc("merge_object")
+	m.queriesDec("merge_object")
 }
 
 func (m *Metrics) DeleteObjectInc() {
-	m.makeQueriesIncFunc("delete_object")
+	m.queriesInc("delete_object")
 }
 
 func (m *Metrics) DeleteObjectDec() {
-	m.makeQueriesDecFunc("delete_object")
+	m.queriesDec("delete_object")
 }
 
 func (m *Metrics) GetObjectInc() {
-	m.makeQueriesIncFunc("get_object")
+	m.queriesInc("get_object")
 }
 
 func (m *Metrics) GetObjectDec() {
-	m.makeQueriesDecFunc("get_object")
+	m.queriesDec("get_object")
 }
 
 func (m *Metrics) HeadObjectInc() {
-	m.makeQueriesIncFunc("head_object")
+	m.queriesInc("head_object")
 }
 
 func (m *Metrics) HeadObjectDec() {
-	m.makeQueriesDecFunc("head_object")
+	m.queriesDec("head_object")
 }
 
 func (m *Metrics) AddReferenceInc() {
-	m.makeQueriesIncFunc("add_reference")
+	m.queriesInc("add_reference")
 }
 
 func (m *Metrics) AddReferenceDec() {
-	m.makeQueriesDecFunc("add_reference")
+	m.queriesDec("add_reference")
 }
 
 func (m *Metrics) UpdateReferenceInc() {
-	m.makeQueriesIncFunc("update_reference")
+	m.queriesInc("update_reference")
 }
 
 func (m *Metrics) UpdateReferenceDec() {
-	m.makeQueriesDecFunc("update_reference")
+	m.queriesDec("update_reference")
 }
 
 func (m *Metrics) DeleteReferenceInc() {
-	m.makeQueriesIncFunc("delete_reference")
+	m.queriesInc("delete_reference")
 }
 
 func (m *Metrics) DeleteReferenceDec() {
-	m.makeQueriesDecFunc("delete_reference")
+	m.queriesDec("delete_reference")
 }
 
 func (m *Metrics) BatchOp(op string, startNs int64) {
