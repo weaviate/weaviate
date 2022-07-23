@@ -3,7 +3,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": "-- Grafana --",
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -95,7 +98,8 @@
           "placement": "bottom"
         },
         "tooltip": {
-          "mode": "single"
+          "mode": "single",
+          "sort": "none"
         }
       },
       "targets": [
@@ -121,14 +125,38 @@
           "interval": "",
           "legendFormat": "Get (GraphQL)",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(concurrent_queries_count{query_type=\"batch\"})",
+          "hide": false,
+          "legendFormat": "Batch (Objects)",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(concurrent_queries_count{query_type=\"batch_references\"})",
+          "hide": false,
+          "legendFormat": "Batch (References)",
+          "range": true,
+          "refId": "D"
         }
       ],
-      "title": "Concurrent Read Queries",
+      "title": "Concurrent Requests",
       "type": "timeseries"
     }
   ],
   "refresh": "5s",
-  "schemaVersion": 34,
+  "schemaVersion": 36,
   "style": "dark",
   "tags": [],
   "templating": {
@@ -142,6 +170,6 @@
   "timezone": "",
   "title": "Querying",
   "uid": "ImxRLXe7z",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

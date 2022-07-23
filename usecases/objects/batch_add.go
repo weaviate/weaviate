@@ -41,7 +41,9 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer unlock()
 
 	before := time.Now()
+	b.metrics.BatchInc()
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
+	defer b.metrics.BatchDec()
 
 	return b.addObjects(ctx, principal, objects, fields)
 }
