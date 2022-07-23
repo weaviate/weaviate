@@ -43,6 +43,9 @@ func (m *Manager) UpdateObjectReferences(
 	principal *models.Principal,
 	input *PutReferenceInput,
 ) *Error {
+	m.metrics.UpdateReferenceInc()
+	defer m.metrics.UpdateReferenceDec()
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{})
 	if err != nil {
 		errnf := ErrNotFound{}

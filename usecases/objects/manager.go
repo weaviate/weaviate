@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,6 +44,7 @@ type Manager struct {
 	timeSource         timeSource
 	modulesProvider    ModulesProvider
 	autoSchemaManager  *autoSchemaManager
+	metrics            *Metrics
 }
 
 type timeSource interface {
@@ -95,7 +97,7 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer VectorizerProvider, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, prom *monitoring.PrometheusMetrics,
 ) *Manager {
 	return &Manager{
 		config:             config,
@@ -108,6 +110,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		timeSource:         defaultTimeSource{},
 		modulesProvider:    modulesProvider,
 		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:            NewMetrics(prom),
 	}
 }
 

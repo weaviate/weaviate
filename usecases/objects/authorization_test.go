@@ -170,7 +170,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				vecProvider := &fakeVectorizerProvider{vectorizer}
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
-					cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+					cfg, logger, authorizer, vecProvider, vectorRepo,
+					getFakeModulesProvider(), nil)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
