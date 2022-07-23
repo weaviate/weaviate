@@ -3,6 +3,7 @@ package rest
 import (
 	"net"
 	"net/http"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/pkg/errors"
@@ -33,6 +34,10 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 			"method": r.Method,
 			"path":   r.URL,
 		}).Errorf("%v", recovered)
+
+		// This was not expected, so we want to print the stack, this will help us
+		// find the source of the issue if the user sends their logs
+		debug.PrintStack()
 		return
 	}
 
@@ -54,6 +59,9 @@ func handlePanics(logger logrus.FieldLogger, r *http.Request) {
 		"method": r.Method,
 		"path":   r.URL,
 	}).Errorf(err.Error())
+	// This was not expected, so we want to print the stack, this will help us
+	// find the source of the issue if the user sends their logs
+	debug.PrintStack()
 }
 
 func handleBrokenPipe(err error, logger logrus.FieldLogger, r *http.Request) {
