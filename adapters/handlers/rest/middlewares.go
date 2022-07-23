@@ -100,6 +100,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
+		handler = makeCatchPanics(appState.Logger)(handler)
 
 		return handler
 	}
