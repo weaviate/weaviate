@@ -63,7 +63,7 @@ func Test_GetAction(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -609,7 +609,7 @@ func Test_GetThing(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -998,6 +998,6 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	logger, _ := test.NewNullLogger()
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, nil)
 	return r
 }
