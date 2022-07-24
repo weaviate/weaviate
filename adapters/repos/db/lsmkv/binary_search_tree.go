@@ -62,7 +62,11 @@ func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 		return
 	}
 
-	t.root.setTombstone(key, secondaryKeys)
+	newRoot := t.root.setTombstone(key, secondaryKeys)
+	if newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsred = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
@@ -181,12 +185,12 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 	}
 }
 
-func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
+func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *binarySearchNode {
 	if bytes.Equal(n.key, key) {
 		n.value = nil
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
-		return
+		return nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -196,12 +200,13 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 				value:         nil,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsred:   true,
 			}
-			return
-		}
+			return rebalanceRedBlackTree(n.left)
 
-		n.left.setTombstone(key, secondaryKeys)
-		return
+		}
+		return n.left.setTombstone(key, secondaryKeys)
 	} else {
 		if n.right == nil {
 			n.right = &binarySearchNode{
@@ -209,12 +214,12 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 				value:         nil,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsred:   true,
 			}
-			return
+			return rebalanceRedBlackTree(n.right)
 		}
-
-		n.right.setTombstone(key, secondaryKeys)
-		return
+		return n.right.setTombstone(key, secondaryKeys)
 	}
 }
 
