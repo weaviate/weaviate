@@ -131,6 +131,55 @@ func TestRbTrees(t *testing.T) {
 	}
 }
 
+// add keys as a) normal keys b) tombstone keys and c) half tombstone, half normal.
+// The resulting trees must have the same order and colors
+var tombstoneTests = []struct {
+	name string
+	keys []uint
+}{
+	{"Rotate left around root", []uint{61, 83, 99}},
+	{"Rotate right around root", []uint{61, 30, 10}},
+	{"Multiple rotations along the tree and colour changes", []uint{166, 92, 33, 133, 227, 236, 71, 183, 18, 139, 245, 161}},
+	{"Ordered nodes increasing",[]uint{1, 2, 3, 4, 5, 6, 7, 8}},
+	{"Ordered nodes decreasing", []uint{8, 7, 6, 5, 4, 3, 2, 1}}}
+
+func TestTombstones(t *testing.T) {
+	for _, tt := range tombstoneTests {
+		t.Run(tt.name, func(t *testing.T) {
+			treeNormal := &binarySearchTree{}
+			treeTombstone := &binarySearchTree{}
+			treeHalfHalf := &binarySearchTree{}
+			for i, key := range tt.keys {
+				iByte := []byte{uint8(key)}
+				treeNormal.insert(iByte, iByte, nil)
+				treeTombstone.setTombstone(iByte, nil)
+				if i%2 == 0 {
+					treeHalfHalf.insert(iByte, iByte, nil)
+				} else {
+					treeHalfHalf.setTombstone(iByte, nil)
+				}
+			}
+			require.True(t, ValidateRBTree(t, treeNormal))
+			require.True(t, ValidateRBTree(t, treeTombstone))
+			require.True(t, ValidateRBTree(t, treeHalfHalf))
+
+			treeNormalFlatten := treeNormal.flattenInOrder()
+			treeTombstoneFlatten := treeTombstone.flattenInOrder()
+			treeHalfHalfFlatten := treeHalfHalf.flattenInOrder()
+			require.Equal(t, len(tt.keys), len(treeNormalFlatten))
+			require.Equal(t, len(tt.keys), len(treeTombstoneFlatten))
+			require.Equal(t, len(tt.keys), len(treeHalfHalfFlatten))
+
+			for i := range treeNormalFlatten {
+				require.Equal(t, treeNormalFlatten[i].key, treeTombstoneFlatten[i].key)
+				require.Equal(t, treeNormalFlatten[i].key, treeHalfHalfFlatten[i].key)
+				require.Equal(t, treeNormalFlatten[i].colourIsred, treeTombstoneFlatten[i].colourIsred)
+				require.Equal(t, treeNormalFlatten[i].colourIsred, treeHalfHalfFlatten[i].colourIsred)
+			}
+		})
+	}
+}
+
 func getIndexInSlice(reorderedKeys []uint, key []byte) int {
 	for i, v := range reorderedKeys {
 		if v == uint(key[0]) {
