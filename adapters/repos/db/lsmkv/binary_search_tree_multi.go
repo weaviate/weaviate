@@ -25,13 +25,18 @@ type value struct {
 func (t *binarySearchTreeMulti) insert(key []byte, values []value) {
 	if t.root == nil {
 		t.root = &binarySearchNodeMulti{
-			key:    key,
-			values: values,
+			key:         key,
+			values:      values,
+			colourIsred: false, // root node is always black
 		}
 		return
 	}
 
-	t.root.insert(key, values)
+	new_root := t.root.insert(key, values)
+	if new_root != nil {
+		t.root = new_root
+	}
+	t.root.colourIsred = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {
@@ -68,39 +73,44 @@ func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
 }
 
 type binarySearchNodeMulti struct {
-	key    []byte
-	values []value
-	left   *binarySearchNodeMulti
-	right  *binarySearchNodeMulti
+	key         []byte
+	values      []value
+	left        *binarySearchNodeMulti
+	right       *binarySearchNodeMulti
+	parent      *binarySearchNodeMulti
+	colourIsred bool
 }
 
-func (n *binarySearchNodeMulti) insert(key []byte, values []value) {
+func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearchNodeMulti {
 	if bytes.Equal(key, n.key) {
 		n.values = append(n.values, values...)
-		return
+		return nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, values)
-			return
+			return n.left.insert(key, values)
 		} else {
 			n.left = &binarySearchNodeMulti{
-				key:    key,
-				values: values,
+				key:         key,
+				values:      values,
+				parent:      n,
+				colourIsred: true, // new nodes are always red, except root node which is handled in the tree itself
 			}
-			return
+			return rebalanceRedBlackTreeMulti(n.left)
+
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, values)
-			return
+			return n.right.insert(key, values)
 		} else {
 			n.right = &binarySearchNodeMulti{
-				key:    key,
-				values: values,
+				key:         key,
+				values:      values,
+				parent:      n,
+				colourIsred: true,
 			}
-			return
+			return rebalanceRedBlackTreeMulti(n.right)
 		}
 	}
 }
