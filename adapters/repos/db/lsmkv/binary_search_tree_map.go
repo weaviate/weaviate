@@ -23,13 +23,17 @@ type binarySearchTreeMap struct {
 func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) {
 	if t.root == nil {
 		t.root = &binarySearchNodeMap{
-			key:    key,
-			values: []MapPair{pair},
+			key:         key,
+			values:      []MapPair{pair},
+			colourIsred: false, // root node is always black
 		}
 		return
 	}
 
-	t.root.insert(key, pair)
+	if new_root := t.root.insert(key, pair); new_root != nil {
+		t.root = new_root
+	}
+	t.root.colourIsred = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
@@ -49,39 +53,43 @@ func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 }
 
 type binarySearchNodeMap struct {
-	key    []byte
-	values []MapPair
-	left   *binarySearchNodeMap
-	right  *binarySearchNodeMap
+	key         []byte
+	values      []MapPair
+	left        *binarySearchNodeMap
+	right       *binarySearchNodeMap
+	parent      *binarySearchNodeMap
+	colourIsred bool
 }
 
-func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) {
+func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) *binarySearchNodeMap {
 	if bytes.Equal(key, n.key) {
 		n.values = append(n.values, pair)
-		return
+		return nil // tree root does not change when replacing node
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, pair)
-			return
+			return n.left.insert(key, pair)
 		} else {
 			n.left = &binarySearchNodeMap{
-				key:    key,
-				values: []MapPair{pair},
+				key:         key,
+				parent:      n,
+				colourIsred: true,
+				values:      []MapPair{pair},
 			}
-			return
+			return rebalanceRedBlackTreeMap(n.left)
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, pair)
-			return
+			return n.right.insert(key, pair)
 		} else {
 			n.right = &binarySearchNodeMap{
-				key:    key,
-				values: []MapPair{pair},
+				key:         key,
+				parent:      n,
+				colourIsred: true,
+				values:      []MapPair{pair},
 			}
-			return
+			return rebalanceRedBlackTreeMap(n.right)
 		}
 	}
 }
@@ -122,8 +130,9 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 	// that while a memtable is open writes a much more common, thus we write map
 	// KVs unsorted and only sort/dedup them on read.
 	right = append([]*binarySearchNodeMap{{
-		key:    n.key,
-		values: sortAndDedupValues(n.values),
+		key:         n.key,
+		values:      sortAndDedupValues(n.values),
+		colourIsred: n.colourIsred,
 	}}, right...)
 	return append(left, right...)
 }
