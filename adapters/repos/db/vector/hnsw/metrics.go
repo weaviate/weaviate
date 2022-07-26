@@ -199,7 +199,7 @@ func (m *Metrics) GrowDuration(start time.Time) {
 type Observer func(start time.Time)
 
 func noOpObserver(start time.Time) {
-	return
+	// do nothing
 }
 
 func (m *Metrics) TrackInsertObserver(step string) Observer {
