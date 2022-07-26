@@ -18,6 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
+type NsObserver func(ns int64)
+
 type Metrics struct {
 	CompactionReplace *prometheus.GaugeVec
 	CompactionSet     *prometheus.GaugeVec
@@ -112,18 +114,39 @@ func (m *Metrics) MemtableSize(path, strategy string, size uint64) {
 	}).Set(float64(size))
 }
 
-func (m *Metrics) MemtableOp(path, strategy, op string, startNs int64) {
+// func (m *Metrics) MemtableOp(path, strategy, op string, startNs int64) {
+// 	if m == nil {
+// 		return
+// 	}
+
+// 	took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
+
+// 	m.memtableDurations.With(prometheus.Labels{
+// 		"operation": op,
+// 		"path":      path,
+// 		"strategy":  strategy,
+// 	}).Observe(took)
+// }
+
+func noOpNsObserver(startNs int64) {
+	return
+}
+
+func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 	if m == nil {
-		return
+		return noOpNsObserver
 	}
 
-	took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
-
-	m.memtableDurations.With(prometheus.Labels{
+	curried := m.memtableDurations.With(prometheus.Labels{
 		"operation": op,
 		"path":      path,
 		"strategy":  strategy,
-	}).Observe(took)
+	})
+
+	return func(startNs int64) {
+		took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
+		curried.Observe(took)
+	}
 }
 
 func (m *Metrics) TrackStartupReadWALDiskIO(read int64, nanoseconds int64) {
