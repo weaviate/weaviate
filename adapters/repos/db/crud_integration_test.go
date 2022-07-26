@@ -257,7 +257,6 @@ func TestCRUD(t *testing.T) {
 					Latitude:  ptFloat32(1),
 					Longitude: ptFloat32(2),
 				},
-				"vector": []float32{1, 3, 5, 0.4},
 			},
 			Additional: models.AdditionalProperties{},
 		}
