@@ -70,7 +70,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
 	}
 
 	reset := func() {
@@ -228,7 +228,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -330,7 +330,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider())
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {

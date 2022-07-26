@@ -35,6 +35,9 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
+	b.metrics.BatchRefInc()
+	defer b.metrics.BatchRefDec()
+
 	return b.addReferences(ctx, refs)
 }
 

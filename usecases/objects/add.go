@@ -43,6 +43,9 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
+	m.metrics.AddObjectInc()
+	defer m.metrics.AddObjectDec()
+
 	return m.addObjectToConnectorAndSchema(ctx, principal, object)
 }
 

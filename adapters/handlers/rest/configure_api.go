@@ -216,13 +216,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
+		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
+		appState.Metrics)
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics))
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)

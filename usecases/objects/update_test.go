@@ -71,7 +71,7 @@ func Test_UpdateAction(t *testing.T) {
 		vectorizer = &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, db, getFakeModulesProviderWithCustomExtenders(extender, projectorFake))
+			vecProvider, db, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
