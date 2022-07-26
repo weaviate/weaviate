@@ -19,7 +19,9 @@ import (
 )
 
 type pools struct {
-	visitedLists *visited.Pool
+	visitedLists     *visited.Pool
+	visitedListsLock *sync.Mutex
+
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
 	pqResults    *pqMaxPool
@@ -29,7 +31,8 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
-		visitedLists: visited.NewPool(1, initialSize+500),
+		visitedLists:     visited.NewPool(1, initialSize+500),
+		visitedListsLock: &sync.Mutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.ItemWithIndex, 0, maxConnectionsLayerZero)
