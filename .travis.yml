@@ -1,6 +1,8 @@
 addons:
   hosts:
-    - db  
+    - db
+git:
+  lfs_skip_smudge: true
 before_install: 
   # install a newer docker version which supports buildx
   - sudo rm -rf /var/lib/apt/lists/*
@@ -76,7 +78,7 @@ jobs:
   - name: "Unit and integration tests"
     stage: test
     script: 
-    - ./test/run.sh --unit_and_integration_tests || travis_terminate 1
+    - ./test/run.sh --unit-and-integration-only || travis_terminate 1
     - |
       if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
           # send to codecov.io
@@ -87,14 +89,14 @@ jobs:
           bash <(curl -s https://codecov.io/bash) -F integration
           rm -f coverage.txt
       fi
-  - name: "Acceptance tests (requiring docker to run)"
+  - name: "Acceptance and benchmark tests (requiring docker to run)"
     stage: test
     script: 
-    - ./test/run.sh --acceptance_tests || travis_terminate 1
-  - name: "Acceptance tests for modules (requiring docker to run)"
+    - ./test/run.sh --acceptance-only || travis_terminate 1
+  - name: "Acceptance tests for modules"
     stage: test
     script: 
-    - ./test/run.sh --acceptance_module_tests || travis_terminate 1
+    - ./test/run.sh --acceptance-module-tests-only || travis_terminate 1
   - name: "Push docker container"
     if: type != pull_request
     stage: deploy
