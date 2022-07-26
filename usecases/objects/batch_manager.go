@@ -30,7 +30,7 @@ type BatchManager struct {
 	vectorRepo         BatchVectorRepo
 	vectorizerProvider VectorizerProvider
 	autoSchemaManager  *autoSchemaManager
-	metrics            *monitoring.PrometheusMetrics
+	metrics            *Metrics
 }
 
 type BatchVectorRepo interface {
@@ -48,7 +48,7 @@ type batchRepoNew interface {
 func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 	locks locks, schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorizer,
-	metrics *monitoring.PrometheusMetrics) *BatchManager {
+	prom *monitoring.PrometheusMetrics) *BatchManager {
 	return &BatchManager{
 		config:             config,
 		locks:              locks,
@@ -58,6 +58,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
 		vectorizerProvider: vectorizer,
 		authorizer:         authorizer,
 		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:            metrics,
+		metrics:            NewMetrics(prom),
 	}
 }

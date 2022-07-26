@@ -40,6 +40,9 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
+	m.metrics.DeleteObjectInc()
+	defer m.metrics.DeleteObjectDec()
+
 	if class == "" { // deprecated
 		return m.deleteObjectFromRepo(ctx, id)
 	}
