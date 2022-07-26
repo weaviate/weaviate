@@ -63,7 +63,7 @@ func newMemtable(path string, strategy string,
 		}
 	}
 
-	metrics.MemtableSize(m.pathDir, m.strategy, m.size)
+	m.metrics.size(m.size)
 
 	return m, nil
 }
@@ -76,6 +76,9 @@ type keyIndex struct {
 }
 
 func (l *Memtable) get(key []byte) ([]byte, error) {
+	start := time.Now()
+	defer l.metrics.get(start.UnixNano())
+
 	if l.strategy != StrategyReplace {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
@@ -92,6 +95,9 @@ func (l *Memtable) get(key []byte) ([]byte, error) {
 }
 
 func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
+	start := time.Now()
+	defer l.metrics.getBySecondary(start.UnixNano())
+
 	if l.strategy != StrategyReplace {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
@@ -145,7 +151,7 @@ func (l *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	netAdditions := l.key.insert(key, value, secondaryKeys)
 	l.size += uint64(netAdditions)
-	// l.metrics.MemtableSize(l.pathDir, l.strategy, l.size)
+	l.metrics.size(l.size)
 
 	for i, sec := range secondaryKeys {
 		l.secondaryToPrimary[i][string(sec)] = key
@@ -190,7 +196,7 @@ func (l *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	l.key.setTombstone(key, secondaryKeys)
 	l.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	l.lastWrite = time.Now()
-	// l.metrics.MemtableSize(l.pathDir, l.strategy, l.size)
+	l.metrics.size(l.size)
 
 	return nil
 }
@@ -259,7 +265,7 @@ func (l *Memtable) append(key []byte, values []value) error {
 		l.size += uint64(len(value.value))
 	}
 
-	// l.metrics.MemtableSize(l.pathDir, l.strategy, l.size)
+	l.metrics.size(l.size)
 	l.lastWrite = time.Now()
 	return nil
 }
@@ -296,7 +302,7 @@ func (l *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	l.size += uint64(len(key) + len(valuesForCommitLog))
 	l.lastWrite = time.Now()
-	// l.metrics.MemtableSize(l.pathDir, l.strategy, l.size)
+	l.metrics.size(l.size)
 
 	return nil
 }
