@@ -101,7 +101,7 @@ var rbTests = []struct {
 	},
 }
 
-func TestRbTrees(t *testing.T) {
+func TestRBTrees(t *testing.T) {
 	for _, tt := range rbTests {
 		t.Run(tt.name, func(t *testing.T) {
 			tree := &binarySearchTree{}
@@ -110,7 +110,7 @@ func TestRbTrees(t *testing.T) {
 				tree.insert(iByte, iByte, nil)
 				require.Empty(t, tree.root.parent)
 			}
-			ValidateRBTree(t, tree)
+			validateRBTree(t, tree)
 
 			flattenTree := tree.flattenInOrder()
 			require.Equal(t, len(tt.keys), len(flattenTree)) // no entries got lost
@@ -127,7 +127,7 @@ func TestRbTrees(t *testing.T) {
 				byteKey := flattenTree[i].key
 				originalIndex := getIndexInSlice(tt.keys, byteKey)
 				require.Equal(t, byteKey, flattenTreeInput[i].key)
-				require.Equal(t, flattenTree[i].colourIsred, tt.expectedColors[originalIndex])
+				require.Equal(t, flattenTree[i].colourIsRed, tt.expectedColors[originalIndex])
 			}
 		})
 	}
@@ -146,7 +146,7 @@ var tombstoneTests = []struct {
 	{"Ordered nodes decreasing", []uint{8, 7, 6, 5, 4, 3, 2, 1}},
 }
 
-func TestTombstones(t *testing.T) {
+func TestRBTrees_Tombstones(t *testing.T) {
 	for _, tt := range tombstoneTests {
 		t.Run(tt.name, func(t *testing.T) {
 			treeNormal := &binarySearchTree{}
@@ -162,9 +162,9 @@ func TestTombstones(t *testing.T) {
 					treeHalfHalf.setTombstone(iByte, nil)
 				}
 			}
-			ValidateRBTree(t, treeNormal)
-			ValidateRBTree(t, treeTombstone)
-			ValidateRBTree(t, treeHalfHalf)
+			validateRBTree(t, treeNormal)
+			validateRBTree(t, treeTombstone)
+			validateRBTree(t, treeHalfHalf)
 
 			treeNormalFlatten := treeNormal.flattenInOrder()
 			treeTombstoneFlatten := treeTombstone.flattenInOrder()
@@ -176,8 +176,8 @@ func TestTombstones(t *testing.T) {
 			for i := range treeNormalFlatten {
 				require.Equal(t, treeNormalFlatten[i].key, treeTombstoneFlatten[i].key)
 				require.Equal(t, treeNormalFlatten[i].key, treeHalfHalfFlatten[i].key)
-				require.Equal(t, treeNormalFlatten[i].colourIsred, treeTombstoneFlatten[i].colourIsred)
-				require.Equal(t, treeNormalFlatten[i].colourIsred, treeHalfHalfFlatten[i].colourIsred)
+				require.Equal(t, treeNormalFlatten[i].colourIsRed, treeTombstoneFlatten[i].colourIsRed)
+				require.Equal(t, treeNormalFlatten[i].colourIsRed, treeHalfHalfFlatten[i].colourIsRed)
 			}
 		})
 	}
@@ -187,7 +187,7 @@ type void struct{}
 
 var member void
 
-func TestRandomTrees(t *testing.T) {
+func TestRBTrees_Random(t *testing.T) {
 	setSeed(t)
 	tree := &binarySearchTree{}
 	amount := rand.Intn(100000)
@@ -211,7 +211,7 @@ func TestRandomTrees(t *testing.T) {
 		_, ok := uniqueKeys[fmt.Sprint(entry.key)]
 		require.True(t, ok)
 	}
-	ValidateRBTree(t, tree)
+	validateRBTree(t, tree)
 }
 
 func getIndexInSlice(reorderedKeys []uint, key []byte) int {
@@ -234,17 +234,17 @@ func getIndexInSlice(reorderedKeys []uint, key []byte) int {
 // In addition this also validates some general tree properties:
 //  - root has no parent
 //  - if node A is a child of B, B must be the parent of A)
-func ValidateRBTree(t *testing.T, tree *binarySearchTree) {
-	require.False(t, tree.root.colourIsred)
+func validateRBTree(t *testing.T, tree *binarySearchTree) {
+	require.False(t, tree.root.colourIsRed)
 	require.True(t, tree.root.parent == nil)
 
-	treeDepth, nodeCount, _ := WalkTree(t, tree.root)
+	treeDepth, nodeCount, _ := walkTree(t, tree.root)
 	maxDepth := 2 * math.Log2(float64(nodeCount)+1)
 	require.True(t, treeDepth <= int(maxDepth))
 }
 
 // Walks through the tree and counts the depth, number of nodes and number of black nodes
-func WalkTree(t *testing.T, node *binarySearchNode) (int, int, int) {
+func walkTree(t *testing.T, node *binarySearchNode) (int, int, int) {
 	if node == nil {
 		return 0, 0, 0
 	}
@@ -258,13 +258,13 @@ func WalkTree(t *testing.T, node *binarySearchNode) (int, int, int) {
 	}
 
 	// red nodes need black (or nil) children
-	if node.colourIsred {
-		require.True(t, node.left == nil || !node.left.colourIsred)
-		require.True(t, node.right == nil || !node.right.colourIsred)
+	if node.colourIsRed {
+		require.True(t, node.left == nil || !node.left.colourIsRed)
+		require.True(t, node.right == nil || !node.right.colourIsRed)
 	}
 
 	blackNode := int(1)
-	if node.colourIsred {
+	if node.colourIsRed {
 		blackNode = 0
 	}
 
@@ -272,8 +272,8 @@ func WalkTree(t *testing.T, node *binarySearchNode) (int, int, int) {
 		return 1, 1, blackNode
 	}
 
-	depthRight, nodeCountRight, blackNodesDepthRight := WalkTree(t, node.right)
-	depthLeft, nodeCountLeft, blackNodesDepthLeft := WalkTree(t, node.left)
+	depthRight, nodeCountRight, blackNodesDepthRight := walkTree(t, node.right)
+	depthLeft, nodeCountLeft, blackNodesDepthLeft := walkTree(t, node.left)
 	require.Equal(t, blackNodesDepthRight, blackNodesDepthLeft)
 
 	nodeCount := nodeCountLeft + nodeCountRight + 1

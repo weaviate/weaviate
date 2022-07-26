@@ -1,15 +1,16 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
+package rbtree
 
-package lsmkv
+type Node interface {
+	Parent() Node
+	SetParent(Node)
+	Left() Node
+	SetLeft(Node)
+	Right() Node
+	SetRight(Node)
+	IsRed() bool
+	SetRed(bool)
+	IsNil() bool
+}
 
 // This function rebalances and recolours trees to be valid RB trees. It needs to be called after each node that
 // was added to the tree.
@@ -25,24 +26,24 @@ package lsmkv
 //  U     P
 //       / \
 //      S   N
-func rebalanceRedBlackTree(node *binarySearchNode) *binarySearchNode {
+func Rebalance(node Node) Node {
 	for {
-		parent := node.parent
+		parent := node.Parent()
 
 		// if parent is black or the current node is the root node (== parent is nil) there is nothing to do
-		if !isRedNode(parent) {
+		if !parent.IsRed() {
 			return nil
 		}
 
-		grandparent := node.parent.parent
-		var uncle *binarySearchNode
-		if parent == grandparent.right {
-			uncle = grandparent.left
+		grandparent := node.Parent().Parent()
+		var uncle Node
+		if parent == grandparent.Right() {
+			uncle = grandparent.Left()
 		} else {
-			uncle = grandparent.right
+			uncle = grandparent.Right()
 		}
 
-		if isRedNode(uncle) {
+		if uncle.IsRed() {
 			// if uncle is red, recoloring the tree up to the grandparent results in a valid RBtree.
 			// The color of the grandfather changes to red, so there might be more fixes needed. Therefore
 			// go up the tree and repeat.
@@ -56,16 +57,16 @@ func rebalanceRedBlackTree(node *binarySearchNode) *binarySearchNode {
 			//   For cases 3 and 4 just replace left and right in the two cases above
 			//
 			// In all of these cases the grandfather stays black and there is no need for further fixes up the tree
-			var newRoot *binarySearchNode
-			if parent == grandparent.right {
-				if node == parent.left {
+			var newRoot Node
+			if parent == grandparent.Right() {
+				if node == parent.Left() {
 					rightRotate(parent)
 					// node and parent switch places in the tree, update parent to recolour the current node
 					parent = node
 				}
 				newRoot = leftRotate(grandparent)
 			} else { // parent == grandparent.left
-				if node == parent.right {
+				if node == parent.Right() {
 					leftRotate(parent)
 					parent = node
 				}
@@ -74,20 +75,19 @@ func rebalanceRedBlackTree(node *binarySearchNode) *binarySearchNode {
 			recolourNodes(grandparent, parent)
 			return newRoot
 		}
-
 	}
 }
 
-func recolourNodes(nodes ...*binarySearchNode) {
+func recolourNodes(nodes ...Node) {
 	for _, n := range nodes {
-		if n != nil {
-			n.colourIsred = !n.colourIsred
+		if !n.IsNil() {
+			if n.IsRed() {
+				n.SetRed(false)
+			} else {
+				n.SetRed(true)
+			}
 		}
 	}
-}
-
-func isRedNode(n *binarySearchNode) bool {
-	return n != nil && n.colourIsred
 }
 
 // Rotate the tree left around the given node.
@@ -102,30 +102,30 @@ func isRedNode(n *binarySearchNode) bool {
 //       FC_L   FC_R               FP_R  FC_L
 //
 // In case FP was the root of the tree, FC will be the new root of the tree.
-func leftRotate(rotationNode *binarySearchNode) *binarySearchNode {
-	formerChild := rotationNode.right
-	rootRotate := rotationNode.parent == nil
+func leftRotate(rotationNode Node) Node {
+	formerChild := rotationNode.Right()
+	rootRotate := rotationNode.Parent().IsNil()
 
 	// former child node becomes new parent unless the rotation is around the root node
 	if rootRotate {
-		formerChild.parent = nil
+		formerChild.SetParent(nil)
 	} else {
-		if rotationNode.parent.left == rotationNode {
-			rotationNode.parent.left = formerChild
+		if rotationNode.Parent().Left() == rotationNode {
+			rotationNode.Parent().SetLeft(formerChild)
 		} else {
-			rotationNode.parent.right = formerChild
+			rotationNode.Parent().SetRight(formerChild)
 		}
-		formerChild.parent = rotationNode.parent
+		formerChild.SetParent(rotationNode.Parent())
 	}
 
-	rotationNode.parent = formerChild
+	rotationNode.SetParent(formerChild)
 
-	// Switch left child from former child to rotation node
-	rotationNode.right = formerChild.left
-	if formerChild.left != nil {
-		formerChild.left.parent = rotationNode
+	// Switch left child from former_child to rotation node
+	rotationNode.SetRight(formerChild.Left())
+	if formerChild.Left() != nil {
+		formerChild.Left().SetParent(rotationNode)
 	}
-	formerChild.left = rotationNode
+	formerChild.SetLeft(rotationNode)
 
 	if rootRotate {
 		return formerChild
@@ -135,27 +135,27 @@ func leftRotate(rotationNode *binarySearchNode) *binarySearchNode {
 }
 
 // Same as leftRotate, just switch left and right everywhere
-func rightRotate(rotationNode *binarySearchNode) *binarySearchNode {
-	formerChild := rotationNode.left
-	rootRotate := rotationNode.parent == nil
+func rightRotate(rotationNode Node) Node {
+	formerChild := rotationNode.Left()
+	rootRotate := rotationNode.Parent().IsNil()
 
 	if rootRotate {
-		formerChild.parent = nil
+		formerChild.SetParent(nil)
 	} else {
-		if rotationNode.parent.left == rotationNode {
-			rotationNode.parent.left = formerChild
+		if rotationNode.Parent().Left() == rotationNode {
+			rotationNode.Parent().SetLeft(formerChild)
 		} else {
-			rotationNode.parent.right = formerChild
+			rotationNode.Parent().SetRight(formerChild)
 		}
-		formerChild.parent = rotationNode.parent
+		formerChild.SetParent(rotationNode.Parent())
 	}
-	rotationNode.parent = formerChild
+	rotationNode.SetParent(formerChild)
 
-	rotationNode.left = formerChild.right
-	if formerChild.right != nil {
-		formerChild.right.parent = rotationNode
+	rotationNode.SetLeft(formerChild.Right())
+	if formerChild.Right() != nil {
+		formerChild.Right().SetParent(rotationNode)
 	}
-	formerChild.right = rotationNode
+	formerChild.SetRight(rotationNode)
 
 	if rootRotate {
 		return formerChild
