@@ -91,7 +91,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_search")
+	n.graph.insertMetrics.findAndConnectSearch(before)
 	before = time.Now()
 
 	// max := n.maximumConnections(level)
@@ -100,7 +100,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_heuristic")
+	n.graph.insertMetrics.findAndConnectHeuristic(before)
 	before = time.Now()
 
 	// // for distributed spike
@@ -145,7 +145,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		n.entryPointDist = dist
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_update_connections")
+	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
 	return nil
 }
 
