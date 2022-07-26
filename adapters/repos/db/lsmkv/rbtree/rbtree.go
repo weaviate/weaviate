@@ -1,17 +1,16 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
+package rbtree
 
-package lsmkv
-
-// This is a copy of adapters/repos/db/lsmkv/red_black_tree.go for maps
+type Node interface {
+	Parent() Node
+	SetParent(Node)
+	Left() Node
+	SetLeft(Node)
+	Right() Node
+	SetRight(Node)
+	IsRed() bool
+	SetRed(bool)
+	IsNil() bool
+}
 
 // This function rebalances and recolours trees to be valid RB trees. It needs to be called after each node that
 // was added to the tree.
@@ -27,28 +26,28 @@ package lsmkv
 //  U     P
 //       / \
 //      S   N
-func rebalanceRedBlackTreeMap(node *binarySearchNodeMap) *binarySearchNodeMap {
+func Rebalance(node Node) Node {
 	for {
-		parent := node.parent
+		parent := node.Parent()
 
 		// if parent is black or the current node is the root node (== parent is nil) there is nothing to do
-		if !isRedNodeMap(parent) {
+		if !parent.IsRed() {
 			return nil
 		}
 
-		grandparent := node.parent.parent
-		var uncle *binarySearchNodeMap
-		if parent == grandparent.right {
-			uncle = grandparent.left
+		grandparent := node.Parent().Parent()
+		var uncle Node
+		if parent == grandparent.Right() {
+			uncle = grandparent.Left()
 		} else {
-			uncle = grandparent.right
+			uncle = grandparent.Right()
 		}
 
-		if isRedNodeMap(uncle) {
+		if uncle.IsRed() {
 			// if uncle is red, recoloring the tree up to the grandparent results in a valid RBtree.
 			// The color of the grandfather changes to red, so there might be more fixes needed. Therefore
 			// go up the tree and repeat.
-			recolourNodesMap(parent, grandparent, uncle)
+			recolourNodes(parent, grandparent, uncle)
 			node = grandparent
 		} else {
 			// if uncle is black, there are four possible cases:
@@ -58,38 +57,37 @@ func rebalanceRedBlackTreeMap(node *binarySearchNodeMap) *binarySearchNodeMap {
 			//   For cases 3 and 4 just replace left and right in the two cases above
 			//
 			// In all of these cases the grandfather stays black and there is no need for further fixes up the tree
-			var new_root *binarySearchNodeMap
-			if parent == grandparent.right {
-				if node == parent.left {
-					rightRotateMap(parent)
+			var newRoot Node
+			if parent == grandparent.Right() {
+				if node == parent.Left() {
+					rightRotate(parent)
 					// node and parent switch places in the tree, update parent to recolour the current node
 					parent = node
 				}
-				new_root = leftRotateMap(grandparent)
+				newRoot = leftRotate(grandparent)
 			} else { // parent == grandparent.left
-				if node == parent.right {
-					leftRotateMap(parent)
+				if node == parent.Right() {
+					leftRotate(parent)
 					parent = node
 				}
-				new_root = rightRotateMap(grandparent)
+				newRoot = rightRotate(grandparent)
 			}
-			recolourNodesMap(grandparent, parent)
-			return new_root
+			recolourNodes(grandparent, parent)
+			return newRoot
 		}
-
 	}
 }
 
-func recolourNodesMap(nodes ...*binarySearchNodeMap) {
+func recolourNodes(nodes ...Node) {
 	for _, n := range nodes {
-		if n != nil {
-			n.colourIsred = !n.colourIsred
+		if !n.IsNil() {
+			if n.IsRed() {
+				n.SetRed(false)
+			} else {
+				n.SetRed(true)
+			}
 		}
 	}
-}
-
-func isRedNodeMap(n *binarySearchNodeMap) bool {
-	return n != nil && n.colourIsred
 }
 
 // Rotate the tree left around the given node.
@@ -104,63 +102,63 @@ func isRedNodeMap(n *binarySearchNodeMap) bool {
 //       FC_L   FC_R               FP_R  FC_L
 //
 // In case FP was the root of the tree, FC will be the new root of the tree.
-func leftRotateMap(rotation_node *binarySearchNodeMap) *binarySearchNodeMap {
-	former_child := rotation_node.right
-	rootRotate := rotation_node.parent == nil
+func leftRotate(rotationNode Node) Node {
+	formerChild := rotationNode.Right()
+	rootRotate := rotationNode.Parent().IsNil()
 
 	// former child node becomes new parent unless the rotation is around the root node
 	if rootRotate {
-		former_child.parent = nil
+		formerChild.SetParent(nil)
 	} else {
-		if rotation_node.parent.left == rotation_node {
-			rotation_node.parent.left = former_child
+		if rotationNode.Parent().Left() == rotationNode {
+			rotationNode.Parent().SetLeft(formerChild)
 		} else {
-			rotation_node.parent.right = former_child
+			rotationNode.Parent().SetRight(formerChild)
 		}
-		former_child.parent = rotation_node.parent
+		formerChild.SetParent(rotationNode.Parent())
 	}
 
-	rotation_node.parent = former_child
+	rotationNode.SetParent(formerChild)
 
 	// Switch left child from former_child to rotation node
-	rotation_node.right = former_child.left
-	if former_child.left != nil {
-		former_child.left.parent = rotation_node
+	rotationNode.SetRight(formerChild.Left())
+	if formerChild.Left() != nil {
+		formerChild.Left().SetParent(rotationNode)
 	}
-	former_child.left = rotation_node
+	formerChild.SetLeft(rotationNode)
 
 	if rootRotate {
-		return former_child
+		return formerChild
 	} else {
 		return nil
 	}
 }
 
 // Same as leftRotate, just switch left and right everywhere
-func rightRotateMap(rotation_node *binarySearchNodeMap) *binarySearchNodeMap {
-	former_child := rotation_node.left
-	rootRotate := rotation_node.parent == nil
+func rightRotate(rotationNode Node) Node {
+	formerChild := rotationNode.Left()
+	rootRotate := rotationNode.Parent().IsNil()
 
 	if rootRotate {
-		former_child.parent = nil
+		formerChild.SetParent(nil)
 	} else {
-		if rotation_node.parent.left == rotation_node {
-			rotation_node.parent.left = former_child
+		if rotationNode.Parent().Left() == rotationNode {
+			rotationNode.Parent().SetLeft(formerChild)
 		} else {
-			rotation_node.parent.right = former_child
+			rotationNode.Parent().SetRight(formerChild)
 		}
-		former_child.parent = rotation_node.parent
+		formerChild.SetParent(rotationNode.Parent())
 	}
-	rotation_node.parent = former_child
+	rotationNode.SetParent(formerChild)
 
-	rotation_node.left = former_child.right
-	if former_child.right != nil {
-		former_child.right.parent = rotation_node
+	rotationNode.SetLeft(formerChild.Right())
+	if formerChild.Right() != nil {
+		formerChild.Right().SetParent(rotationNode)
 	}
-	former_child.right = rotation_node
+	formerChild.SetRight(rotationNode)
 
 	if rootRotate {
-		return former_child
+		return formerChild
 	} else {
 		return nil
 	}

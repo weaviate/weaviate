@@ -24,7 +24,7 @@ import (
 
 // This test adds keys to the RB tree. Afterwards the same nodes are added in the expected order, eg in the way
 // the RB tree is expected to re-order the nodes
-func TestRbTreesMap(t *testing.T) {
+func TestRBTreesMap(t *testing.T) {
 	for _, tt := range rbTests {
 		t.Run(tt.name, func(t *testing.T) {
 			tree := &binarySearchTreeMap{}
@@ -38,8 +38,8 @@ func TestRbTreesMap(t *testing.T) {
 			}
 			ValidateRBTreeMap(t, tree)
 
-			flatten_tree := tree.flattenInOrder()
-			require.Equal(t, len(tt.keys), len(flatten_tree)) // no entries got lost
+			flattenTree := tree.flattenInOrder()
+			require.Equal(t, len(tt.keys), len(flattenTree)) // no entries got lost
 
 			// add tree with the same nodes in the "optimal" order to be able to compare their order afterwards
 			treeCorrectOrder := &binarySearchTreeMap{}
@@ -52,17 +52,17 @@ func TestRbTreesMap(t *testing.T) {
 			}
 
 			flatten_tree_input := treeCorrectOrder.flattenInOrder()
-			for i := range flatten_tree {
-				byte_key := flatten_tree[i].key
+			for i := range flattenTree {
+				byte_key := flattenTree[i].key
 				originalIndex := getIndexInSlice(tt.keys, byte_key)
 				require.Equal(t, byte_key, flatten_tree_input[i].key)
-				require.Equal(t, flatten_tree[i].colourIsred, tt.expectedColors[originalIndex])
+				require.Equal(t, flattenTree[i].colourIsRed, tt.expectedColors[originalIndex])
 			}
 		})
 	}
 }
 
-func TestRandomTreesMap(t *testing.T) {
+func TestRBTreesMap_RandomTrees(t *testing.T) {
 	setSeed(t)
 	tree := &binarySearchTreeMap{}
 	amount := rand.Intn(100000)
@@ -100,7 +100,7 @@ func TestRandomTreesMap(t *testing.T) {
 //  - root has no parent
 //  - if node A is a child of B, B must be the parent of A)
 func ValidateRBTreeMap(t *testing.T, tree *binarySearchTreeMap) {
-	require.False(t, tree.root.colourIsred)
+	require.False(t, tree.root.colourIsRed)
 	require.True(t, tree.root.parent == nil)
 
 	treeDepth, nodeCount, _ := WalkTreeMap(t, tree.root)
@@ -123,13 +123,13 @@ func WalkTreeMap(t *testing.T, node *binarySearchNodeMap) (int, int, int) {
 	}
 
 	// red nodes need black (or nil) children
-	if node.colourIsred {
-		require.True(t, node.left == nil || !node.left.colourIsred)
-		require.True(t, node.right == nil || !node.right.colourIsred)
+	if node.IsRed() {
+		require.True(t, node.left == nil || !node.left.colourIsRed)
+		require.True(t, node.right == nil || !node.right.colourIsRed)
 	}
 
 	blackNode := int(1)
-	if node.colourIsred {
+	if node.colourIsRed {
 		blackNode = 0
 	}
 
