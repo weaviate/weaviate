@@ -28,7 +28,6 @@ type Memtable struct {
 	commitlog          *commitLogger
 	size               uint64
 	path               string
-	pathDir            string
 	strategy           string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
