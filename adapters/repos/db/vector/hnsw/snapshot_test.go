@@ -3,8 +3,11 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"math/rand"
 	"os"
+	"path"
+	"regexp"
 	"testing"
 	"time"
 
@@ -66,11 +69,117 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	})
 }
 
-func TestSnapshot_SwitchCommitlogs(t *testing.T) {}
+func TestSnapshot_SwitchCommitlogs(t *testing.T) {
+	ctx := context.Background()
 
-func TestSnapshot_ListFiles(t *testing.T) {}
+	indexID := "snapshot-pause-maintenance-test"
 
-func TestSnapshot_ResumeMaintenance(t *testing.T) {}
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	idx, err := New(Config{
+		RootPath: dirName,
+		ID:       "snapshot-pause-maintenance-test",
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(path.Join(dirName, indexID), indexID, 500*time.Millisecond,
+				logrus.New())
+		},
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+	}, NewDefaultUserConfig())
+	require.Nil(t, err)
+
+	//ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	//defer cancel()
+
+	ctx = context.Background()
+
+	err = idx.SwitchCommitLogs(ctx)
+	assert.Nil(t, err)
+
+	//time.Sleep(5 * time.Second)
+
+	files, err := idx.ListFiles(context.Background())
+	require.Nil(t, err)
+	require.Len(t, files, 2)
+}
+
+func TestSnapshot_ListFiles(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	commitLoggerID := "snapshot-test"
+
+	idx, err := New(Config{
+		RootPath: dirName,
+		ID:       "snapshot-pause-maintenance-test",
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, commitLoggerID, 500*time.Millisecond,
+				logrus.New())
+		},
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+	}, NewDefaultUserConfig())
+	require.Nil(t, err)
+
+	t.Run("assert expected index contents", func(t *testing.T) {
+		files, err := idx.ListFiles(ctx)
+		assert.Nil(t, err)
+		assert.Len(t, files, 1)
+
+		parent, child := path.Split(idx.rootPath)
+		pattern := fmt.Sprintf("%s\\/%s", path.Clean(parent), child)
+		pattern = fmt.Sprintf("%s\\/%s\\.hnsw\\.commitlog\\.d\\/[0-9]{10}", pattern, commitLoggerID)
+		matched, err := regexp.MatchString(pattern, files[0])
+
+		assert.Nil(t, err)
+		assert.True(t, matched, "regex does not match")
+	})
+
+	err = idx.Shutdown()
+	require.Nil(t, err)
+}
+
+func TestSnapshot_ResumeMaintenance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	commitLoggerID := "snapshot-test"
+
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	idx, err := New(Config{
+		RootPath: dirName,
+		ID:       "snapshot-pause-maintenance-test",
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, commitLoggerID, 500*time.Millisecond,
+				logrus.New())
+		},
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+	}, NewDefaultUserConfig())
+	require.Nil(t, err)
+
+	t.Run("insert vector into index", func(t *testing.T) {
+		first := &vertex{level: 0, id: 0, connections: make(map[int][]uint64)}
+		err := idx.insert(first, []float32{1, 2, 3})
+		require.Nil(t, err)
+	})
+
+	t.Run("assert cleanup restarts after pausing", func(t *testing.T) {
+		err = idx.PauseMaintenance(ctx)
+		require.Nil(t, err)
+
+		err = idx.ResumeMaintenance(ctx)
+		assert.Nil(t, err)
+	})
+
+	err = idx.Shutdown()
+	require.Nil(t, err)
+}
 
 func makeTestDir(t *testing.T) string {
 	rand.Seed(time.Now().UnixNano())

@@ -84,3 +84,7 @@ func (b *NoopCommitLogger) StartSwitchLogs() chan struct{} {
 func (b *NoopCommitLogger) RootPath() string {
 	return ""
 }
+
+func (b *NoopCommitLogger) SwitchCommitLogs(force bool) error {
+	return nil
+}

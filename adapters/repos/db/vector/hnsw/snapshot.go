@@ -33,13 +33,16 @@ func (h *hnsw) PauseMaintenance(ctx context.Context) error {
 	}
 }
 
-// SwitchCommitlogs makes sure that the previously writeable commitlog is
+// SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
-func (h *hnsw) SwitchCommitlogs(ctx context.Context) error {
+func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 	done := make(chan struct{})
 
 	go func() {
-		h.commitLog.StartSwitchLogs()
+		err := h.commitLog.SwitchCommitLogs(true)
+		if err != nil {
+			h.logger.Error("failed to switch commit logs")
+		}
 		done <- struct{}{}
 	}()
 

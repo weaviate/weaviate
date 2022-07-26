@@ -134,6 +134,7 @@ type CommitLogger interface {
 	Shutdown()
 	StartSwitchLogs() chan struct{}
 	RootPath() string
+	SwitchCommitLogs(bool) error
 }
 
 type BufferedLinksLogger interface {

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -410,7 +411,7 @@ func (l *hnswCommitLogger) StartSwitchLogs() chan struct{} {
 			case <-cancel:
 				return
 			case <-maintenance:
-				if err := l.maintenance(); err != nil {
+				if err := l.SwitchCommitLogs(false); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_maintenance").
 						Error("hnsw commit log maintenance failed")
@@ -455,7 +456,7 @@ func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
 	return cancelFromOutside
 }
 
-func (l *hnswCommitLogger) maintenance() error {
+func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -464,7 +465,7 @@ func (l *hnswCommitLogger) maintenance() error {
 		return err
 	}
 
-	if size <= l.maxSizeIndividual {
+	if size <= l.maxSizeIndividual && !force {
 		return nil
 	}
 
@@ -480,12 +481,21 @@ func (l *hnswCommitLogger) maintenance() error {
 	// this is a new commit log, initialize with the current time stamp
 	fileName := fmt.Sprintf("%d", time.Now().Unix())
 
-	l.logger.WithField("action", "commit_log_file_switched").
-		WithField("id", l.id).
-		WithField("old_file_name", oldFileName).
-		WithField("old_file_size", size).
-		WithField("new_file_name", fileName).
-		Info("commit log size crossed threshold, switching to new file")
+	if force {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			WithField("old_file_size", size).
+			WithField("new_file_name", fileName).
+			Debug("commit log switched forced")
+	} else {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			WithField("old_file_size", size).
+			WithField("new_file_name", fileName).
+			Info("commit log size crossed threshold, switching to new file")
+	}
 
 	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
@@ -494,6 +504,8 @@ func (l *hnswCommitLogger) maintenance() error {
 	}
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
+
+	log.Println("about to return!")
 
 	return nil
 }
