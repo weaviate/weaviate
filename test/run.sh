@@ -3,17 +3,19 @@
 set -eou pipefail
 
 function main() {
-  # This script runs all tests if no CMD switch is given and the respective tests otherwise.
+  # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true
   run_acceptance_tests=false
   run_module_tests=false
   run_unit_and_integration_tests=false
+  run_benchmark=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
-          --acceptance_tests) run_all_tests=false; run_acceptance_tests=true; echo $run_acceptance_tests ;;
-          --unit_and_integration_tests) run_all_tests=false; run_unit_and_integration_tests=true; echo $run_all_tests;;
-          --acceptance_module_tests) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
+          --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
+          --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --benchmark-only) run_all_tests=false; run_benchmark=true;;
+          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift
@@ -41,9 +43,9 @@ function main() {
     echo_green "Integration tests successful"
   fi 
 
-  if $run_acceptance_tests || $run_all_tests
+  if $run_acceptance_tests || $run_all_tests || $run_benchmark
   then
-    echo "In Acceptance test suite"
+    echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
     surpress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
 
@@ -57,11 +59,17 @@ function main() {
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
     # surpress_on_success import_test_fixtures
 
-    echo_green "Run performance tracker..."
-    ./test/benchmark/run_performance_tracker.sh
+    if $run_benchmark
+    then
+      echo_green "Run performance tracker..."
+      ./test/benchmark/run_performance_tracker.sh
+    fi
 
-    echo_green "Run acceptance tests..."
-    run_acceptance_tests "$@"
+    if $run_acceptance_tests || $run_all_tests
+    then
+      echo_green "Run acceptance tests..."
+      run_acceptance_tests "$@"
+    fi
   fi
 
   if $run_module_tests; then
@@ -121,9 +129,9 @@ function echo_green() {
 }
 
 function echo_red() {
-  green='\033[0;31m'
+  red='\033[0;31m'
   nc='\033[0m' 
-  echo -e "${green}${*}${nc}"
+  echo -e "${red}${*}${nc}"
 }
 
 main "$@"
