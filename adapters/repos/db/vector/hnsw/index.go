@@ -115,7 +115,8 @@ type hnsw struct {
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
-	metrics *Metrics
+	metrics       *Metrics
+	insertMetrics *insertMetrics
 }
 
 type CommitLogger interface {
@@ -208,6 +209,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 	}
+
+	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
