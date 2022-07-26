@@ -45,9 +45,6 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 	if ok {
 		delete(schema, "id")
 	}
-	if !includeVector {
-		delete(schema, "vector")
-	}
 
 	t := &models.Object{
 		Class:              r.ClassName,
