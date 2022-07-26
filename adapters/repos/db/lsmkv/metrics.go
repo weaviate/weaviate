@@ -107,11 +107,11 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 }
 
 func noOpNsObserver(startNs int64) {
-	return
+	// do nothing
 }
 
 func noOpSetter(val uint64) {
-	return
+	// do nothing
 }
 
 func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
