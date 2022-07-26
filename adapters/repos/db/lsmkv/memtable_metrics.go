@@ -6,8 +6,10 @@ type memtableMetrics struct {
 	append          NsObserver
 	appendMapSorted NsObserver
 	get             NsObserver
+	getBySecondary  NsObserver
 	getMap          NsObserver
 	getCollection   NsObserver
+	size            Setter
 }
 
 // newMemtableMetrics curries the prometheus-functions just once to make sure
@@ -20,7 +22,9 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) *memtableMetric
 		append:          metrics.MemtableOpObserver(path, strategy, "append"),
 		appendMapSorted: metrics.MemtableOpObserver(path, strategy, "appendMapSorted"),
 		get:             metrics.MemtableOpObserver(path, strategy, "get"),
+		getBySecondary:  metrics.MemtableOpObserver(path, strategy, "getBySecondary"),
 		getMap:          metrics.MemtableOpObserver(path, strategy, "getMap"),
 		getCollection:   metrics.MemtableOpObserver(path, strategy, "getCollection"),
+		size:            metrics.MemtableSizeSetter(path, strategy),
 	}
 }
