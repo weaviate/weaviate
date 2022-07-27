@@ -11,7 +11,11 @@
 
 package lsmkv
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
+)
 
 type binarySearchTreeMulti struct {
 	root *binarySearchNodeMulti
@@ -25,13 +29,17 @@ type value struct {
 func (t *binarySearchTreeMulti) insert(key []byte, values []value) {
 	if t.root == nil {
 		t.root = &binarySearchNodeMulti{
-			key:    key,
-			values: values,
+			key:         key,
+			values:      values,
+			colourIsRed: false, // root node is always black
 		}
 		return
 	}
 
-	t.root.insert(key, values)
+	if newRoot := t.root.insert(key, values); newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {
@@ -68,39 +76,122 @@ func (t *binarySearchTreeMulti) flattenInOrder() []*binarySearchNodeMulti {
 }
 
 type binarySearchNodeMulti struct {
-	key    []byte
-	values []value
-	left   *binarySearchNodeMulti
-	right  *binarySearchNodeMulti
+	key         []byte
+	values      []value
+	left        *binarySearchNodeMulti
+	right       *binarySearchNodeMulti
+	parent      *binarySearchNodeMulti
+	colourIsRed bool
 }
 
-func (n *binarySearchNodeMulti) insert(key []byte, values []value) {
+func (n *binarySearchNodeMulti) Parent() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.parent
+}
+
+func (n *binarySearchNodeMulti) SetParent(parent rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMultiReceiver(&n)
+	}
+
+	if parent == nil {
+		n.parent = nil
+		return
+	}
+
+	n.parent = parent.(*binarySearchNodeMulti)
+}
+
+func (n *binarySearchNodeMulti) Left() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.left
+}
+
+func (n *binarySearchNodeMulti) SetLeft(left rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMultiReceiver(&n)
+	}
+
+	if left == nil {
+		n.left = nil
+		return
+	}
+
+	n.left = left.(*binarySearchNodeMulti)
+}
+
+func (n *binarySearchNodeMulti) Right() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.right
+}
+
+func (n *binarySearchNodeMulti) SetRight(right rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMultiReceiver(&n)
+	}
+
+	if right == nil {
+		n.right = nil
+		return
+	}
+
+	n.right = right.(*binarySearchNodeMulti)
+}
+
+func (n *binarySearchNodeMulti) IsRed() bool {
+	if n == nil {
+		return false
+	}
+	return n.colourIsRed
+}
+
+func (n *binarySearchNodeMulti) SetRed(isRed bool) {
+	n.colourIsRed = isRed
+}
+
+func (n *binarySearchNodeMulti) IsNil() bool {
+	return n == nil
+}
+
+func addNewSearchNodeMultiReceiver(nodePtr **binarySearchNodeMulti) {
+	*nodePtr = &binarySearchNodeMulti{}
+}
+
+func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearchNodeMulti {
 	if bytes.Equal(key, n.key) {
 		n.values = append(n.values, values...)
-		return
+		return nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, values)
-			return
+			return n.left.insert(key, values)
 		} else {
 			n.left = &binarySearchNodeMulti{
-				key:    key,
-				values: values,
+				key:         key,
+				values:      values,
+				parent:      n,
+				colourIsRed: true,
 			}
-			return
+			return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.left))
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, values)
-			return
+			return n.right.insert(key, values)
 		} else {
 			n.right = &binarySearchNodeMulti{
-				key:    key,
-				values: values,
+				key:         key,
+				values:      values,
+				parent:      n,
+				colourIsRed: true,
 			}
-			return
+			return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.right))
 		}
 	}
 }
@@ -123,6 +214,15 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 
 		return n.right.get(key)
 	}
+}
+
+func binarySearchNodeMultiFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMulti) {
+	if rbNode == nil {
+		bsNode = nil
+		return
+	}
+	bsNode = rbNode.(*binarySearchNodeMulti)
+	return
 }
 
 // func (n *binarySearchNodeMulti) setTombstone(key []byte) {
