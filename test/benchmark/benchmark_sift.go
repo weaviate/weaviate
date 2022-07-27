@@ -72,6 +72,15 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	}
 	defer f.Close()
 
+	fi, err := f.Stat()
+	if err != nil {
+		panic("Could not get SIFT file properties, error: " + err.Error())
+	}
+	fileSize := fi.Size()
+	if fileSize < 1000000 {
+		panic("The file is only "+fmt.Sprint(fileSize)+" bytes long. Did you forgot to install git lfs?" )
+	}
+
 	// The sift data is a binary file containing floating point vectors
 	// For each entry, the first 4 bytes is the length of the vector (in number of floats, not in bytes)
 	// which is followed by the vector data with vector length * 4 bytes.
