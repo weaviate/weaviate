@@ -22,7 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func (sg *SegmentGroup) eligbleForCompaction() bool {
+func (sg *SegmentGroup) eligibleForCompaction() bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -213,7 +213,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 
-	// the old segments have been deletd, we can now safely remove the .tmp
+	// the old segments have been deleted, we can now safely remove the .tmp
 	// extension from the new segment which carried the name of the second old
 	// segment
 	newPath, err := sg.stripTmpExtension(newPathTmp)
@@ -257,7 +257,7 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 		t := time.Tick(interval)
 		for {
 			select {
-			case <-sg.stopCompactionCycle:
+			case <-sg.compactionCycle.Stopped:
 				sg.logger.WithField("action", "lsm_compaction_stop_cycle").
 					WithField("path", sg.dir).
 					Debug("stop compaction cycle")
@@ -265,7 +265,7 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 			case <-t:
 				sg.monitorSegments()
 
-				if sg.eligbleForCompaction() {
+				if sg.eligibleForCompaction() {
 					if err := sg.compactOnce(); err != nil {
 						sg.logger.WithField("action", "lsm_compaction").
 							WithField("path", sg.dir).
@@ -275,7 +275,7 @@ func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
 				} else {
 					sg.logger.WithField("action", "lsm_compaction").
 						WithField("path", sg.dir).
-						Trace("no segment eligble for compaction")
+						Trace("no segment eligible for compaction")
 				}
 			}
 		}
