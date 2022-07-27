@@ -171,6 +171,44 @@ func TestRBTreeMap(t *testing.T) {
 	}
 }
 
+func TestRBTreeMulti(t *testing.T) {
+	for _, tt := range rbTests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := &binarySearchTreeMulti{}
+			for _, key := range tt.keys {
+				values := []value{}
+				for j := uint(0); j < 5; j++ {
+					values = append(values, value{value: []byte{uint8(key * j)}, tombstone: false})
+				}
+				tree.insert([]byte{uint8(key)}, values)
+				require.Empty(t, tree.root.parent)
+			}
+			validateRBTree(t, tree.root)
+
+			flatten_tree := tree.flattenInOrder()
+			require.Equal(t, len(tt.keys), len(flatten_tree)) // no entries got lost
+
+			// add tree with the same nodes in the "optimal" order to be able to compare their order afterwards
+			treeCorrectOrder := &binarySearchTreeMulti{}
+			for _, key := range tt.ReorderedKeys {
+				values := []value{}
+				for j := uint(0); j < 5; j++ {
+					values = append(values, value{value: []byte{uint8(key * j)}, tombstone: false})
+				}
+				treeCorrectOrder.insert([]byte{uint8(key)}, values)
+			}
+
+			flatten_tree_input := treeCorrectOrder.flattenInOrder()
+			for i := range flatten_tree {
+				byte_key := flatten_tree[i].key
+				originalIndex := getIndexInSlice(tt.keys, byte_key)
+				require.Equal(t, byte_key, flatten_tree_input[i].key)
+				require.Equal(t, flatten_tree[i].colourIsRed, tt.expectedColors[originalIndex])
+			}
+		})
+	}
+}
+
 // add keys as a) normal keys b) tombstone keys and c) half tombstone, half normal.
 // The resulting (reblalanced) trees must have the same order and colors
 var tombstoneTests = []struct {
@@ -266,6 +304,33 @@ func TestRBTreesMap_Random(t *testing.T) {
 			Key:   []byte("map-key-1"),
 			Value: []byte("map-value-1"),
 		})
+	}
+
+	// all added keys are still part of the tree
+	treeFlattened := tree.flattenInOrder()
+	require.Equal(t, len(uniqueKeys), len(treeFlattened))
+	for _, entry := range treeFlattened {
+		_, ok := uniqueKeys[fmt.Sprint(entry.key)]
+		require.True(t, ok)
+	}
+	validateRBTree(t, tree.root)
+}
+
+func TestRBTreesMulti_Random(t *testing.T) {
+	setSeed(t)
+	tree := &binarySearchTreeMulti{}
+	amount := rand.Intn(100000)
+	keySize := rand.Intn(100)
+	uniqueKeys := make(map[string]void)
+	for i := 0; i < amount; i++ {
+		key := make([]byte, keySize)
+		rand.Read(key)
+		uniqueKeys[fmt.Sprint(key)] = member
+		values := []value{}
+		for j := 0; j < 5; j++ {
+			values = append(values, value{value: []byte{uint8(i * j)}, tombstone: false})
+		}
+		tree.insert(key, values)
 	}
 
 	// all added keys are still part of the tree
