@@ -210,9 +210,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	t.Run("car with no refs", func(t *testing.T) {
 		var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
 		expectedSchema := map[string]interface{}{
-			"name":   "Car which is parked no where",
-			"id":     id,
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+			"name": "Car which is parked no where",
+			"id":   id,
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
@@ -255,7 +254,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Beacon: "weaviate://localhost/a7e10b55-1ac4-464f-80df-82508eea1951",
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		expectedSchemaWithRefs := map[string]interface{}{
@@ -275,7 +273,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
@@ -318,7 +315,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Beacon: "weaviate://localhost/1023967b-9512-475b-8ef9-673a110b695d",
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		expectedSchemaWithRefs := map[string]interface{}{
@@ -334,7 +330,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {
@@ -380,7 +375,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Beacon: "weaviate://localhost/1023967b-9512-475b-8ef9-673a110b695d",
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		expectedSchemaWithLotRef := map[string]interface{}{
@@ -396,7 +390,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 		expectedSchemaWithGarageRef := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
@@ -415,7 +408,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 		expectedSchemaWithAllRefs := map[string]interface{}{
 			"name": "Car which is parked in two places at the same time (magic!)",
@@ -442,7 +434,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 				},
 			},
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 		}
 
 		t.Run("asking for no refs", func(t *testing.T) {

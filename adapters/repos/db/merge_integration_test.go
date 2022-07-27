@@ -239,8 +239,7 @@ func Test_MergingObjects(t *testing.T) {
 				Latitude:  ptFloat32(30.2),
 				Longitude: ptFloat32(60.2),
 			},
-			"text":   "some text",
-			"vector": []float32{0.5},
+			"text": "some text",
 		}
 
 		assert.Equal(t, expectedSchema, schema)
@@ -302,8 +301,7 @@ func Test_MergingObjects(t *testing.T) {
 				Latitude:  ptFloat32(30.2),
 				Longitude: ptFloat32(60.2),
 			},
-			"vector": []float32{0.5},
-			"text":   "some text",
+			"text": "some text",
 			"toTarget": models.MultipleRef{
 				ref.SingleRef(),
 			},
@@ -371,9 +369,8 @@ func Test_MergingObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		expectedSchema := map[string]interface{}{
-			"foo":    "baz",
-			"id":     noVecID,
-			"vector": []float32{},
+			"foo": "baz",
+			"id":  noVecID,
 		}
 
 		assert.Equal(t, expectedSchema, orig.Schema)

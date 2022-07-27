@@ -261,9 +261,8 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 			},
-			"name":   "Tim Apple's Fruit Bar",
-			"id":     strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+			"name": "Tim Apple's Fruit Bar",
+			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -297,9 +296,8 @@ func TestNestedReferences(t *testing.T) {
 					},
 				},
 			},
-			"name":   "Tim Apple's Fruit Bar",
-			"id":     strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+			"name": "Tim Apple's Fruit Bar",
+			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -319,8 +317,7 @@ func TestNestedReferences(t *testing.T) {
 					Beacon: "weaviate://localhost/2297e094-6218-43d4-85b1-3d20af752f23",
 				},
 			},
-			"name":   "Tim Apple's Fruit Bar",
-			"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+			"name": "Tim Apple's Fruit Bar",
 		}
 
 		require.Nil(t, err)

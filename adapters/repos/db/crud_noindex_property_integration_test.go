@@ -111,7 +111,6 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			"stringProp":       "some value",
 			"hiddenStringProp": "some hidden value",
 			"id":               thingID,
-			"vector":           []float32{1, 3, 5, 0.4},
 		}
 
 		require.Nil(t, err)
