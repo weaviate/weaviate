@@ -329,7 +329,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
 			WithStrategy(StrategyReplace),
-			WithSecondaryIndicies(1),
+			WithSecondaryIndices(1),
 		)
 		require.Nil(t, err)
 
@@ -422,7 +422,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	t.Run("with single flush in between updates", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
 			WithStrategy(StrategyReplace),
-			WithSecondaryIndicies(1))
+			WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -481,7 +481,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 
 	t.Run("with a flush after initial write and update", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -551,7 +551,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 
 	t.Run("update in memtable then do an orderly shutdown and reinit", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -596,7 +596,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 
 		t.Run("init a new one and verify", func(t *testing.T) {
 			b2, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-				WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+				WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 			require.Nil(t, err)
 
 			secondaryKey1 := []byte("secondary-key-1")
