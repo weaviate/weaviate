@@ -154,8 +154,8 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
-
+	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.Unlock()
