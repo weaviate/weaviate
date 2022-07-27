@@ -3,7 +3,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"math/rand"
 	"os"
 	"path"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
