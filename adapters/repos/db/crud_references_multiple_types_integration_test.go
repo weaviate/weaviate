@@ -268,7 +268,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id":     strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 			},
@@ -323,8 +324,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"name":   "Fancy Parking Lot",
+						"id":     strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 			},
@@ -382,8 +384,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"name":   "Fancy Parking Lot",
+						"id":     strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 			},
@@ -400,7 +403,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id":     strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 			},
@@ -412,8 +416,9 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				search.LocalRef{
 					Class: "MultiRefParkingLot",
 					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"name":   "Fancy Parking Lot",
+						"id":     strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 				search.LocalRef{
@@ -424,7 +429,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							Latitude:  ptFloat32(48.864716),
 							Longitude: ptFloat32(2.349014),
 						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"id":     strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
 					},
 				},
 			},

@@ -1128,7 +1128,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
-								ID: true,
+								ID:     true,
+								Vector: true,
 							},
 						},
 					},
@@ -1145,7 +1146,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 						search.LocalRef{
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"vector": []float32{1, 0},
 							},
 						},
 					},
@@ -1191,7 +1193,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			fakeSearch.AssertExpectations(t)
 		})
 
-		t.Run("response must contain _additional id param for ref prop", func(t *testing.T) {
+		t.Run("response must contain _additional id and vector params for ref prop", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -1201,9 +1203,11 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+									"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+									"vector": []float32{1, 0},
 								},
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"vector": []float32{1, 0},
 							},
 						},
 					},
@@ -1216,7 +1220,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+									"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+									"vector": nil,
 								},
 								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
 							},
