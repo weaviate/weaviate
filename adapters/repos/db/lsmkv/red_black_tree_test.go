@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"reflect"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,7 +103,7 @@ var rbTests = []struct {
 	},
 }
 
-func TestRBTrees(t *testing.T) {
+func TestRBTree(t *testing.T) {
 	for _, tt := range rbTests {
 		t.Run(tt.name, func(t *testing.T) {
 			tree := &binarySearchTree{}
@@ -110,7 +112,7 @@ func TestRBTrees(t *testing.T) {
 				tree.insert(iByte, iByte, nil)
 				require.Empty(t, tree.root.parent)
 			}
-			validateRBTree(t, tree)
+			validateRBTree(t, tree.root)
 
 			flattenTree := tree.flattenInOrder()
 			require.Equal(t, len(tt.keys), len(flattenTree)) // no entries got lost
@@ -128,6 +130,42 @@ func TestRBTrees(t *testing.T) {
 				originalIndex := getIndexInSlice(tt.keys, byteKey)
 				require.Equal(t, byteKey, flattenTreeInput[i].key)
 				require.Equal(t, flattenTree[i].colourIsRed, tt.expectedColors[originalIndex])
+			}
+		})
+	}
+}
+
+func TestRBTreeMap(t *testing.T) {
+	for _, tt := range rbTests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := &binarySearchTreeMap{}
+			for _, key := range tt.keys {
+				tree.insert([]byte{uint8(key)}, MapPair{
+					Key:   []byte("map-key-1"),
+					Value: []byte("map-value-1"),
+				})
+				require.Empty(t, tree.root.parent)
+			}
+			validateRBTree(t, tree.root)
+
+			flatten_tree := tree.flattenInOrder()
+			require.Equal(t, len(tt.keys), len(flatten_tree)) // no entries got lost
+
+			// add tree with the same nodes in the "optimal" order to be able to compare their order afterwards
+			treeCorrectOrder := &binarySearchTreeMap{}
+			for _, key := range tt.ReorderedKeys {
+				treeCorrectOrder.insert([]byte{uint8(key)}, MapPair{
+					Key:   []byte("map-key-1"),
+					Value: []byte("map-value-1"),
+				})
+			}
+
+			flatten_tree_input := treeCorrectOrder.flattenInOrder()
+			for i := range flatten_tree {
+				byte_key := flatten_tree[i].key
+				originalIndex := getIndexInSlice(tt.keys, byte_key)
+				require.Equal(t, byte_key, flatten_tree_input[i].key)
+				require.Equal(t, flatten_tree[i].colourIsRed, tt.expectedColors[originalIndex])
 			}
 		})
 	}
@@ -162,9 +200,9 @@ func TestRBTrees_Tombstones(t *testing.T) {
 					treeHalfHalf.setTombstone(iByte, nil)
 				}
 			}
-			validateRBTree(t, treeNormal)
-			validateRBTree(t, treeTombstone)
-			validateRBTree(t, treeHalfHalf)
+			validateRBTree(t, treeNormal.root)
+			validateRBTree(t, treeTombstone.root)
+			validateRBTree(t, treeHalfHalf.root)
 
 			treeNormalFlatten := treeNormal.flattenInOrder()
 			treeTombstoneFlatten := treeTombstone.flattenInOrder()
@@ -211,7 +249,33 @@ func TestRBTrees_Random(t *testing.T) {
 		_, ok := uniqueKeys[fmt.Sprint(entry.key)]
 		require.True(t, ok)
 	}
-	validateRBTree(t, tree)
+	validateRBTree(t, tree.root)
+}
+
+func TestRBTreesMap_Random(t *testing.T) {
+	setSeed(t)
+	tree := &binarySearchTreeMap{}
+	amount := rand.Intn(100000)
+	keySize := rand.Intn(100)
+	uniqueKeys := make(map[string]void)
+	for i := 0; i < amount; i++ {
+		key := make([]byte, keySize)
+		rand.Read(key)
+		uniqueKeys[fmt.Sprint(key)] = member
+		tree.insert(key, MapPair{
+			Key:   []byte("map-key-1"),
+			Value: []byte("map-value-1"),
+		})
+	}
+
+	// all added keys are still part of the tree
+	treeFlattened := tree.flattenInOrder()
+	require.Equal(t, len(uniqueKeys), len(treeFlattened))
+	for _, entry := range treeFlattened {
+		_, ok := uniqueKeys[fmt.Sprint(entry.key)]
+		require.True(t, ok)
+	}
+	validateRBTree(t, tree.root)
 }
 
 func getIndexInSlice(reorderedKeys []uint, key []byte) int {
@@ -234,46 +298,50 @@ func getIndexInSlice(reorderedKeys []uint, key []byte) int {
 // In addition this also validates some general tree properties:
 //  - root has no parent
 //  - if node A is a child of B, B must be the parent of A)
-func validateRBTree(t *testing.T, tree *binarySearchTree) {
-	require.False(t, tree.root.colourIsRed)
-	require.True(t, tree.root.parent == nil)
+func validateRBTree(t *testing.T, rootNode rbtree.Node) {
+	require.False(t, rootNode.IsRed())
+	require.True(t, rootNode.Parent().IsNil())
 
-	treeDepth, nodeCount, _ := walkTree(t, tree.root)
+	treeDepth, nodeCount, _ := walkTree(t, rootNode)
 	maxDepth := 2 * math.Log2(float64(nodeCount)+1)
 	require.True(t, treeDepth <= int(maxDepth))
 }
 
 // Walks through the tree and counts the depth, number of nodes and number of black nodes
-func walkTree(t *testing.T, node *binarySearchNode) (int, int, int) {
-	if node == nil {
+func walkTree(t *testing.T, node rbtree.Node) (int, int, int) {
+	if reflect.ValueOf(node).IsNil() {
 		return 0, 0, 0
 	}
+	leftNode := node.Left()
+	leftNodeIsNil := reflect.ValueOf(leftNode).IsNil()
+	rightNode := node.Right()
+	rightNodeIsNil := reflect.ValueOf(rightNode).IsNil()
 
 	// validate parent/child connections
-	if node.right != nil {
-		require.Equal(t, node.right.parent, node)
+	if !rightNodeIsNil {
+		require.Equal(t, rightNode.Parent(), node)
 	}
-	if node.left != nil {
-		require.Equal(t, node.left.parent, node)
+	if !leftNodeIsNil {
+		require.Equal(t, leftNode.Parent(), node)
 	}
 
 	// red nodes need black (or nil) children
-	if node.colourIsRed {
-		require.True(t, node.left == nil || !node.left.colourIsRed)
-		require.True(t, node.right == nil || !node.right.colourIsRed)
+	if node.IsRed() {
+		require.True(t, leftNodeIsNil || !node.Left().IsRed())
+		require.True(t, rightNodeIsNil || !node.Left().IsRed())
 	}
 
 	blackNode := int(1)
-	if node.colourIsRed {
+	if node.IsRed() {
 		blackNode = 0
 	}
 
-	if node.right == nil && node.left == nil {
+	if node.Right().IsNil() && node.Left().IsNil() {
 		return 1, 1, blackNode
 	}
 
-	depthRight, nodeCountRight, blackNodesDepthRight := walkTree(t, node.right)
-	depthLeft, nodeCountLeft, blackNodesDepthLeft := walkTree(t, node.left)
+	depthRight, nodeCountRight, blackNodesDepthRight := walkTree(t, node.Right())
+	depthLeft, nodeCountLeft, blackNodesDepthLeft := walkTree(t, node.Left())
 	require.Equal(t, blackNodesDepthRight, blackNodesDepthLeft)
 
 	nodeCount := nodeCountLeft + nodeCountRight + 1
