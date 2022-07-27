@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -29,21 +28,21 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	before := time.Now()
 
 	if !i.bloomFilter.Test(key) {
-		i.observeBloomFilter(before, "get_true_negative")
+		i.bloomFilterMetrics.trueNegative(before)
 		return nil, NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			i.observeBloomFilter(before, "get_false_positive")
+			i.bloomFilterMetrics.falsePositive(before)
 			return nil, NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer i.observeBloomFilter(before, "get_true_positive")
+	defer i.bloomFilterMetrics.truePositive(before)
 	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
 
@@ -133,15 +132,4 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	}
 
 	return nil
-}
-
-func (i *segment) observeBloomFilter(before time.Time, op string) {
-	if i.metrics == nil {
-		return
-	}
-
-	i.metrics.BloomFilters.With(prometheus.Labels{
-		"strategy":  "replace",
-		"operation": op,
-	}).Observe(float64(time.Since(before)) / float64(time.Millisecond))
 }
