@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,7 +67,7 @@ func NewCommitLogger(rootPath, name string,
 	}
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.StartLogging()
+	l.Start()
 	return l, nil
 }
 
@@ -294,6 +293,10 @@ func (t HnswCommitType) String() string {
 	return "unknown commit type"
 }
 
+func (l *hnswCommitLogger) ID() string {
+	return l.id
+}
+
 // AddNode adds an empty node
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
@@ -366,9 +369,9 @@ func (l *hnswCommitLogger) Reset() error {
 	return l.commitLogger.Reset()
 }
 
-func (l *hnswCommitLogger) StartLogging() {
+func (l *hnswCommitLogger) Start() {
 	// switch log job
-	cancelSwitchLog := l.StartSwitchLogs()
+	cancelSwitchLog := l.startSwitchLogs()
 	// condense old logs job
 	cancelCombineAndCondenseLogs := l.startCombineAndCondenseLogs()
 	// cancel maintenance jobs on request
@@ -395,7 +398,7 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) StartSwitchLogs() chan struct{} {
+func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 	cancelSwitchLog := make(chan struct{})
 
 	go func(cancel <-chan struct{}) {
@@ -421,6 +424,10 @@ func (l *hnswCommitLogger) StartSwitchLogs() chan struct{} {
 	}(cancelSwitchLog)
 
 	return cancelSwitchLog
+}
+
+func (l *hnswCommitLogger) PauseMaintenance() {
+	l.cancel <- struct{}{}
 }
 
 func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
@@ -504,8 +511,6 @@ func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
 	}
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-
-	log.Println("about to return!")
 
 	return nil
 }

@@ -120,6 +120,8 @@ type hnsw struct {
 }
 
 type CommitLogger interface {
+	ID() string
+	Start()
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
@@ -133,9 +135,9 @@ type CommitLogger interface {
 	Drop() error
 	Flush() error
 	Shutdown()
-	StartSwitchLogs() chan struct{}
 	RootPath() string
 	SwitchCommitLogs(bool) error
+	PauseMaintenance()
 }
 
 type BufferedLinksLogger interface {

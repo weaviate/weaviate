@@ -2,7 +2,9 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -18,6 +20,7 @@ func (h *hnsw) PauseMaintenance(ctx context.Context) error {
 	cleanupHalted := make(chan struct{})
 
 	go func() {
+		h.commitLog.PauseMaintenance()
 		h.tombstoneCleanupCycle.Stop(ctx)
 		cleanupHalted <- struct{}{}
 	}()
@@ -62,7 +65,8 @@ func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 // cannot be guaranteed with maintenance going on in the background.
 func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 	var (
-		logRoot = h.commitLog.RootPath()
+		logRoot = path.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
+		found   = make(map[string]struct{})
 		files   []string
 	)
 
@@ -70,11 +74,26 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		files = append(files, path)
+		found[path] = struct{}{}
 		return nil
 	})
 	if err != nil {
 		return nil, errors.Errorf("failed to list files for hnsw commitlog: %s", err)
+	}
+
+	curr, _, err := getCurrentCommitLogFileName(logRoot)
+	if err != nil {
+		return nil, errors.Wrap(err, "current commitlog file name")
+	}
+
+	// remove active log from list, as
+	// it is not part of the snapshot
+	delete(found, path.Join(logRoot, curr))
+
+	files, i := make([]string, len(found)), 0
+	for file := range found {
+		files[i] = file
+		i++
 	}
 
 	return files, nil
@@ -84,5 +103,6 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 // had not been paused prior.
 func (h *hnsw) ResumeMaintenance(ctx context.Context) error {
 	h.tombstoneCleanupCycle.Start(h.cleanupInterval)
+	h.commitLog.Start()
 	return nil
 }

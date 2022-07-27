@@ -69,19 +69,19 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	})
 }
 
-func TestSnapshot_SwitchCommitlogs(t *testing.T) {
+func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	ctx := context.Background()
 
-	indexID := "snapshot-pause-maintenance-test"
+	indexID := "snapshot-switch-commitlogs-test"
 
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,
-		ID:       "snapshot-pause-maintenance-test",
+		ID:       indexID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(path.Join(dirName, indexID), indexID, 500*time.Millisecond,
+			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
 				logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
@@ -89,19 +89,14 @@ func TestSnapshot_SwitchCommitlogs(t *testing.T) {
 	}, NewDefaultUserConfig())
 	require.Nil(t, err)
 
-	//ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	//defer cancel()
-
-	ctx = context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
 
 	err = idx.SwitchCommitLogs(ctx)
 	assert.Nil(t, err)
 
-	//time.Sleep(5 * time.Second)
-
-	files, err := idx.ListFiles(context.Background())
+	err = idx.Shutdown()
 	require.Nil(t, err)
-	require.Len(t, files, 2)
 }
 
 func TestSnapshot_ListFiles(t *testing.T) {
@@ -110,13 +105,13 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
 
-	commitLoggerID := "snapshot-test"
+	indexID := "snapshot-list-files-test"
 
 	idx, err := New(Config{
 		RootPath: dirName,
-		ID:       "snapshot-pause-maintenance-test",
+		ID:       indexID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, commitLoggerID, 500*time.Millisecond,
+			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
 				logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
@@ -127,13 +122,20 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	t.Run("assert expected index contents", func(t *testing.T) {
 		files, err := idx.ListFiles(ctx)
 		assert.Nil(t, err)
-		assert.Len(t, files, 1)
 
-		parent, child := path.Split(idx.rootPath)
-		pattern := fmt.Sprintf("%s\\/%s", path.Clean(parent), child)
-		pattern = fmt.Sprintf("%s\\/%s\\.hnsw\\.commitlog\\.d\\/[0-9]{10}", pattern, commitLoggerID)
-		matched, err := regexp.MatchString(pattern, files[0])
+		// should return empty, because the only file which
+		// exists in the commitlog root is the current active
+		// log file.
+		assert.Len(t, files, 0)
 
+		// checking to ensure that the commitlog root does
+		// contain a file. this is the one that was ignored
+		// in the check above.
+		ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
+		require.Nil(t, err)
+		require.Len(t, ls, 1)
+		// filename should just be a 10 digit int
+		matched, err := regexp.MatchString("[0-9]{10}", ls[0].Name())
 		assert.Nil(t, err)
 		assert.True(t, matched, "regex does not match")
 	})
@@ -146,7 +148,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	commitLoggerID := "snapshot-test"
+	indexID := "snapshot-resume-maintenance-test"
 
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
@@ -155,7 +157,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 		RootPath: dirName,
 		ID:       "snapshot-pause-maintenance-test",
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, commitLoggerID, 500*time.Millisecond,
+			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
 				logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),

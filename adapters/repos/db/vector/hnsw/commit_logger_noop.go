@@ -15,6 +15,12 @@ package hnsw
 // actually write anything to disk
 type NoopCommitLogger struct{}
 
+func (n *NoopCommitLogger) ID() string {
+	return ""
+}
+
+func (n *NoopCommitLogger) Start() {}
+
 func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
@@ -88,3 +94,5 @@ func (b *NoopCommitLogger) RootPath() string {
 func (b *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }
+
+func (b *NoopCommitLogger) PauseMaintenance() {}
