@@ -44,6 +44,8 @@ import (
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
+	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
@@ -214,13 +216,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
+		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
+		appState.Metrics)
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics))
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
@@ -439,6 +443,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstgfs.Name]; ok {
+		appState.Modules.Register(modstgfs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstgfs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstgs3.Name]; ok {
+		appState.Modules.Register(modstgs3.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstgs3.Name).
 			Debug("enabled module")
 	}
 

@@ -115,7 +115,8 @@ type hnsw struct {
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
-	metrics *Metrics
+	metrics       *Metrics
+	insertMetrics *insertMetrics
 }
 
 type CommitLogger interface {
@@ -213,6 +214,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.registerTombstoneCleanup,
 		"hnsw tombstone cleanup")
+	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)

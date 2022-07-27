@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/sirupsen/logrus"
 )
 
@@ -211,7 +210,12 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 }
 
 func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
-	return moduleType == modulecapabilities.Text2Vec
+	switch moduleType {
+	case modulecapabilities.Text2Vec, modulecapabilities.Img2Vec, modulecapabilities.Multi2Vec:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
@@ -669,8 +673,13 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorageProvider(providerID string) backups.StorageProvider {
-	// TODO find the right module that exposes a backups.StorageProvider for the
-	// providerID, where providerID is something like "s3"
-	panic("not implemented")
+func (m *Provider) BackupStorageProvider(providerID string) (modulecapabilities.SnapshotStorage, error) {
+	if module := m.GetByName(providerID); module != nil {
+		if module.Type() == modulecapabilities.Storage {
+			if storageProvider, ok := module.(modulecapabilities.SnapshotStorage); ok {
+				return storageProvider, nil
+			}
+		}
+	}
+	return nil, errors.Errorf("storage provider: %s not found", providerID)
 }

@@ -64,7 +64,7 @@ func (m *ClipModule) Name() string {
 }
 
 func (m *ClipModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Vec
+	return modulecapabilities.Multi2Vec
 }
 
 func (m *ClipModule) Init(ctx context.Context,

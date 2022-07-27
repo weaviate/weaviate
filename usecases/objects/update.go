@@ -34,6 +34,9 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
+	m.metrics.UpdateObjectInc()
+	defer m.metrics.UpdateObjectDec()
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)

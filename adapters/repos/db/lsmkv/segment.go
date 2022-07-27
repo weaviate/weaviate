@@ -45,6 +45,7 @@ type segment struct {
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
 	metrics               *Metrics
+	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
@@ -116,6 +117,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		index:               primaryDiskIndex,
 		logger:              logger,
 		metrics:             metrics,
+		bloomFilterMetrics:  newBloomFilterMetrics(metrics),
 	}
 
 	if ind.secondaryIndexCount > 0 {

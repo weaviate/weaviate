@@ -61,4 +61,18 @@ func addTestSchemaOther(t *testing.T) {
 			"distance": "l2-squared",
 		},
 	})
+
+	createObjectClass(t, &models.Class{
+		Class:      "Manhattan_Class",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"distance": "manhattan",
+		},
+	})
 }
