@@ -14,7 +14,6 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -69,13 +69,13 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 
 	f, err := os.Open("sift/" + file)
 	if err != nil {
-		panic("Could not open SIFT file, error: " + err.Error())
+		panic(errors.Wrap(err, "Could not open SIFT file"))
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		panic("Could not get SIFT file properties, error: " + err.Error())
+		panic(errors.Wrap(err, "Could not get SIFT file properties"))
 	}
 	fileSize := fi.Size()
 	if fileSize < 1000000 {
@@ -141,9 +141,9 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 	responseSchemaCode, _, timeSchema, err := performRequest(c, requestSchema)
 	passedTime["AddSchema"] = timeSchema
 	if err != nil {
-		return nil, errors.New("Could not add schema, error: " + err.Error())
+		return nil, errors.Wrap(err, "Could not add schema, error: ")
 	} else if responseSchemaCode != 200 {
-		return nil, errors.New("Could not add schma, http error code: " + fmt.Sprint(responseSchemaCode))
+		return nil, errors.Errorf("Could not add schma, http error code: %v", responseSchemaCode)
 	}
 
 	// Batch-add
@@ -151,9 +151,9 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 	responseAddCode, _, timeBatchAdd, err := performRequest(c, requestAdd)
 	passedTime["BatchAdd"] = timeBatchAdd
 	if err != nil {
-		return nil, errors.New("Could not add batch, error: " + err.Error())
+		return nil, errors.Wrap(err, "Could not add batch, error: ")
 	} else if responseAddCode != 200 {
-		return nil, errors.New("Could not add batch, http error code: " + fmt.Sprint(responseAddCode))
+		return nil, errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
 	}
 
 	// Read entries
@@ -165,13 +165,13 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 	responseReadCode, body, timeGetObjects, err := performRequest(c, requestRead)
 	passedTime["GetObjects"] = timeGetObjects
 	if err != nil {
-		return nil, errors.New("Could not read objects, error: " + err.Error())
+		return nil, errors.Wrap(err, "Could not read objects")
 	} else if responseReadCode != 200 {
 		return nil, errors.New("Could not read objects, http error code: " + fmt.Sprint(responseReadCode))
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, errors.New("Could not unmarshal read response, error: " + err.Error())
+		return nil, errors.Wrap(err, "Could not unmarshal read response")
 	}
 	if int(result["totalResults"].(float64)) != nrSearchResultsUse {
 		err_string := "Found " + fmt.Sprint(int(result["totalResults"].(float64))) +
@@ -188,13 +188,13 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 		responseQueryCode, body, timeQuery, err := performRequest(c, requestQuery)
 		passedTime["Query"] += timeQuery
 		if err != nil {
-			return nil, errors.New("Could not query objects, error: " + err.Error())
+			return nil, errors.Wrap(err, "Could not query objects")
 		} else if responseQueryCode != 200 {
-			return nil, errors.New("Could not query objects, http error code: " + fmt.Sprint(responseQueryCode))
+			return nil, errors.Errorf("Could not query objects, http error code: %v", responseQueryCode)
 		}
 		var result map[string]interface{}
 		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, errors.New("Could not unmarshal query response, error: " + err.Error())
+			return nil, errors.Wrap(err, "Could not unmarshal query response")
 		}
 		if result["data"] == nil || result["errors"] != nil {
 			return nil, errors.New("GraphQL Error")
@@ -206,9 +206,9 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 	responseDeleteCode, _, timeDelete, err := performRequest(c, requestDelete)
 	passedTime["Delete"] += timeDelete
 	if err != nil {
-		return nil, errors.New("Could not delete class, error: " + err.Error())
+		return nil, errors.Wrap(err, "Could not delete class")
 	} else if responseDeleteCode != 200 {
-		return nil, errors.New("Could not delete class, http error code: " + fmt.Sprint(responseDeleteCode))
+		return nil, errors.Errorf("Could not delete class, http error code: %v", responseDeleteCode)
 	}
 
 	return passedTime, nil

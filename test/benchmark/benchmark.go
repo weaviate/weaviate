@@ -26,6 +26,8 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -76,11 +78,11 @@ func main() {
 	}
 
 	if !alreadyRunning {
-		tearDownWeavaite()
+		tearDownWeaviate()
 	}
 
 	if err != nil {
-		panic("Error occurred: " + err.Error())
+		panic(errors.Wrap(err, "Error occurred during benchmarking"))
 	}
 
 	FullBenchmarkName := benchmarkName + "-" + fmt.Sprint(maxEntries)
@@ -94,20 +96,20 @@ func main() {
 		panic(err)
 	}
 
-	total_new_runtime := int64(0)
-	for _, time := range newRuntime {
-		total_new_runtime += time
+	totalNewRuntime := int64(0)
+	for _, runtime := range newRuntime {
+		totalNewRuntime += runtime
 	}
-	total_old_runtime := int64(0)
-	for _, time := range oldRuntime {
-		total_old_runtime += time
+	totalOldRuntime := int64(0)
+	for _, runtime := range oldRuntime {
+		totalOldRuntime += runtime
 	}
 
 	fmt.Fprint(
 		os.Stdout,
 		"Runtime for benchmark "+FullBenchmarkName+
-			": old total runtime: "+fmt.Sprint(total_old_runtime)+"ms, new total runtime:"+fmt.Sprint(total_new_runtime)+"ms.\n"+
-			"This is a change of "+fmt.Sprintf("%.2f", 100*float32(total_new_runtime-total_old_runtime)/float32(total_new_runtime))+"%.\n"+
+			": old total runtime: "+fmt.Sprint(totalOldRuntime)+"ms, new total runtime:"+fmt.Sprint(totalNewRuntime)+"ms.\n"+
+			"This is a change of "+fmt.Sprintf("%.2f", 100*float32(totalNewRuntime-totalOldRuntime)/float32(totalNewRuntime))+"%.\n"+
 			"Please update the benchmark results if necessary.\n\n",
 	)
 	fmt.Fprint(os.Stdout, "Runtime for individual steps:.\n")
@@ -117,8 +119,8 @@ func main() {
 
 	// Return with error code if runtime regressed and corresponding flag was set
 	if failPercentage >= 0 &&
-		total_old_runtime > 0 && // don't report regression if no old entry exists
-		float64(total_old_runtime)*(1.0+0.01*float64(failPercentage)) < float64(total_new_runtime) {
+		totalOldRuntime > 0 && // don't report regression if no old entry exists
+		float64(totalOldRuntime)*(1.0+0.01*float64(failPercentage)) < float64(totalNewRuntime) {
 		fmt.Fprint(
 			os.Stderr, "Failed due to performance regressions.\n",
 		)
@@ -131,7 +133,7 @@ func clearExistingObjects(c *http.Client, url string) {
 	checkSchemaRequest := createRequest(url+"schema", "GET", nil)
 	checkSchemaResponseCode, body, _, err := performRequest(c, checkSchemaRequest)
 	if err != nil {
-		panic("perform request: %v\n" + err.Error())
+		panic(errors.Wrap(err, "perform request"))
 	}
 	if checkSchemaResponseCode != 200 {
 		return
@@ -139,13 +141,13 @@ func clearExistingObjects(c *http.Client, url string) {
 
 	var dump models.Schema
 	if err := json.Unmarshal(body, &dump); err != nil {
-		panic("Could not unmarshal read response, error: " + err.Error())
+		panic(errors.Wrap(err, "Could not unmarshal read response"))
 	}
 	for _, classObj := range dump.Classes {
 		requestDelete := createRequest(url+"schema/"+classObj.Class, "DELETE", nil)
 		responseDeleteCode, _, _, err := performRequest(c, requestDelete)
 		if err != nil {
-			panic("Could delete schema, error: " + err.Error())
+			panic(errors.Wrap(err, "Could delete schema"))
 		}
 		if responseDeleteCode != 200 {
 			panic(fmt.Sprintf("Could not delete schema, code: %v", responseDeleteCode))
@@ -153,7 +155,7 @@ func clearExistingObjects(c *http.Client, url string) {
 	}
 }
 
-func command(app string, arguments []string, wait_for_completion bool) error {
+func command(app string, arguments []string, waitForCompletion bool) error {
 	mydir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -162,7 +164,7 @@ func command(app string, arguments []string, wait_for_completion bool) error {
 	cmd := exec.Command(app, arguments...)
 	execDir := mydir + "/../../"
 	cmd.Dir = execDir
-	if wait_for_completion {
+	if waitForCompletion {
 		err = cmd.Run()
 	} else {
 		err = cmd.Start()
@@ -187,7 +189,7 @@ func readCurrentBenchmarkResults() benchmarkResult {
 	return result
 }
 
-func tearDownWeavaite() error {
+func tearDownWeaviate() error {
 	fmt.Print("Shutting down weaviate.\n")
 	app := "docker-compose"
 	arguments := []string{
@@ -203,8 +205,8 @@ func tearDownWeavaite() error {
 func startWeaviate(c *http.Client, url string) bool {
 	requestReady := createRequest(url+".well-known/ready", "GET", nil)
 
-	response_started_code, _, _, err := performRequest(c, requestReady)
-	alreadyRunning := err == nil && response_started_code == 200
+	responseStartedCode, _, _, err := performRequest(c, requestReady)
+	alreadyRunning := err == nil && responseStartedCode == 200
 
 	if alreadyRunning {
 		fmt.Print("Weaviate instance already running.\n")
@@ -214,7 +216,7 @@ func startWeaviate(c *http.Client, url string) bool {
 	fmt.Print("(Re-) build and start weaviate.\n")
 	cmd := "./tools/test/run_ci_server.sh"
 	if err := command(cmd, []string{}, true); err != nil {
-		panic("Command to (re-) build and start weaviate failed: " + err.Error())
+		panic(errors.Wrap(err, "Command to (re-) build and start weaviate failed"))
 	}
 	return false
 }
@@ -225,13 +227,13 @@ func createRequest(url string, method string, payload interface{}) *http.Request
 	if payload != nil {
 		jsonBody, err := json.Marshal(payload)
 		if err != nil {
-			panic("Could not marshal request" + err.Error())
+			panic(errors.Wrap(err, "Could not marshal request"))
 		}
 		body = bytes.NewBuffer(jsonBody)
 	}
 	request, err := http.NewRequest(method, url, body)
 	if err != nil {
-		panic("Could not create request" + err.Error())
+		panic(errors.Wrap(err, "Could not create request"))
 	}
 	request.Header.Add("Content-Type", "application/json")
 	request.Header.Add("Accept", "application/json")
