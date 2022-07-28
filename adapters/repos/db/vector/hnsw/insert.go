@@ -27,7 +27,7 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	}
 
 	h.metrics.InsertVector()
-	defer h.metrics.TrackInsert(before, "total")
+	defer h.insertMetrics.total(before)
 
 	node := &vertex{
 		id: id,
@@ -137,7 +137,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.nodes[nodeId] = node
 	h.Unlock()
 
-	h.metrics.TrackInsert(before, "prepare_and_insert_node")
+	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
@@ -146,7 +146,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrap(err, "find best entrypoint")
 	}
 
-	h.metrics.TrackInsert(before, "find_entrypoint")
+	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
 	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
@@ -154,9 +154,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
-	h.metrics.TrackInsert(before, "find_and_connect_total")
+	h.insertMetrics.findAndConnectTotal(before)
 	before = time.Now()
-	defer h.metrics.TrackInsert(before, "update_global_entrypoint")
+	defer h.insertMetrics.updateGlobalEntrypoint(before)
 
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()

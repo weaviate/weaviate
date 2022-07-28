@@ -43,6 +43,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, 
 		return &Error{path, StatusForbidden, err}
 	}
 
+	m.metrics.MergeObjectInc()
+	defer m.metrics.MergeObjectDec()
+
 	if err := m.validateObject(ctx, principal, updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}

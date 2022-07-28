@@ -31,6 +31,9 @@ func (m *Manager) AddObjectReference(
 	principal *models.Principal,
 	input *AddReferenceInput,
 ) *Error {
+	m.metrics.AddReferenceInc()
+	defer m.metrics.AddReferenceDec()
+
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID, additional.Properties{})

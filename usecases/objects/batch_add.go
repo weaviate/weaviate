@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -41,17 +40,11 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
-	if b.metrics != nil {
-		before := time.Now()
-		defer func() {
-			tookMs := time.Since(before) / time.Millisecond
-			b.metrics.BatchTime.With(prometheus.Labels{
-				"operation":  "total_uc_level",
-				"class_name": "n/a",
-				"shard_name": "n/a",
-			}).Observe(float64(tookMs))
-		}()
-	}
+	before := time.Now()
+	b.metrics.BatchInc()
+	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
+	defer b.metrics.BatchDec()
+
 	return b.addObjects(ctx, principal, objects, fields)
 }
 
@@ -63,32 +56,15 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
-
-	if b.metrics != nil {
-		b.metrics.BatchTime.With(prometheus.Labels{
-			"operation":  "total_preprocessing",
-			"class_name": "n/a",
-			"shard_name": "n/a",
-		}).
-			Observe(float64(time.Since(beforePreProcessing) / time.Millisecond))
-	}
+	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
 		res BatchObjects
 		err error
 	)
 
-	if b.metrics != nil {
-		beforePersistence := time.Now()
-		defer func() {
-			b.metrics.BatchTime.With(prometheus.Labels{
-				"operation":  "total_persistence_level",
-				"class_name": "n/a",
-				"shard_name": "n/a",
-			}).
-				Observe(float64(time.Since(beforePersistence) / time.Millisecond))
-		}()
-	}
+	beforePersistence := time.Now()
+	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}

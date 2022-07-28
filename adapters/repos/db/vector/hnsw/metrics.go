@@ -196,13 +196,23 @@ func (m *Metrics) GrowDuration(start time.Time) {
 	m.grow.Observe(took)
 }
 
-func (m *Metrics) TrackInsert(start time.Time, step string) {
+type Observer func(start time.Time)
+
+func noOpObserver(start time.Time) {
+	// do nothing
+}
+
+func (m *Metrics) TrackInsertObserver(step string) Observer {
 	if !m.enabled {
-		return
+		return noOpObserver
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.insertTime.With(prometheus.Labels{"step": step}).Observe(took)
+	curried := m.insertTime.With(prometheus.Labels{"step": step})
+
+	return func(start time.Time) {
+		took := float64(time.Since(start)) / float64(time.Millisecond)
+		curried.Observe(took)
+	}
 }
 
 func (m *Metrics) TrackDelete(start time.Time, step string) {

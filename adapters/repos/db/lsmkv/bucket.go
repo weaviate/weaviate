@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
@@ -46,7 +47,7 @@ type Bucket struct {
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	stopFlushCycle chan struct{}
+	flushCycle *cyclemanager.CycleManager
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -54,8 +55,8 @@ type Bucket struct {
 	metrics *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
 }
 
@@ -77,7 +78,6 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
-		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
 		metrics:           metrics,
 	}
@@ -88,7 +88,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		}
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
 		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
@@ -104,7 +104,9 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	b.initFlushCycle()
+	b.flushCycle = cyclemanager.New(b.initFlushCycle, "bucket flush cycle")
+	b.flushCycle.Start(cyclemanager.DefaultMemtableFlushInterval)
+
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
@@ -454,7 +456,18 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	b.stopFlushCycle <- struct{}{}
+	flushHalted := make(chan struct{})
+
+	go func() {
+		b.flushCycle.Stop(ctx)
+		flushHalted <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "long-running flush in progress")
+	case <-flushHalted:
+	}
 
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
@@ -482,12 +495,12 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) initFlushCycle() {
+func (b *Bucket) initFlushCycle(interval time.Duration) {
 	go func() {
-		t := time.Tick(100 * time.Millisecond)
+		t := time.Tick(interval)
 		for {
 			select {
-			case <-b.stopFlushCycle:
+			case <-b.flushCycle.Stopped:
 				return
 			case <-t:
 				b.flushLock.Lock()
@@ -600,7 +613,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 
 	if b.strategy == StrategyReplace && b.monitorCount {
 		// having just flushed the memtable we now have the most up2date count which
-		// is a good place to udpate the metric
+		// is a good place to update the metric
 		b.metrics.ObjectCount(b.disk.count())
 	}
 
@@ -620,7 +633,7 @@ func (b *Bucket) Strategy() string {
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
-// this function explicitly called. This allows to safge unnecessary disk
+// this function explicitly called. This allows to avoid unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write
 // on the WAL just once. This does not make a batch atomic, but it guarantees
 // that the WAL is written before a successful response is returned to the
