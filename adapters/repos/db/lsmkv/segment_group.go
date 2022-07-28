@@ -292,12 +292,19 @@ func (sg *SegmentGroup) count() int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-
 	if err := sg.compactionCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
 	}
+
+	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
+	// because compaction logic used in cycle also requires maintenance lock.
+	//
+	// If lock is grabbed by shutdown method and compaction in cycle loop starts right after,
+	// it is blocked waiting for the same lock, eventually blocking entire cycle loop and preventing to read stop signal.
+	// If stop signal can not be read, shutdown will not receive stop result and will not proceed with further execution.
+	// Maintenance lock will then never be released.
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 
 	for i, seg := range sg.segments {
 		if err := seg.close(); err != nil {
