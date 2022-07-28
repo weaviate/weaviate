@@ -53,7 +53,7 @@ func WithIdleThreshold(threshold time.Duration) BucketOption {
 	}
 }
 
-func WithSecondaryIndicies(count uint16) BucketOption {
+func WithSecondaryIndices(count uint16) BucketOption {
 	return func(b *Bucket) error {
 		b.secondaryIndices = count
 		return nil

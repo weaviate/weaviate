@@ -18,12 +18,18 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
+type (
+	NsObserver   func(ns int64)
+	Setter       func(val uint64)
+	TimeObserver func(start time.Time)
+)
+
 type Metrics struct {
 	CompactionReplace *prometheus.GaugeVec
 	CompactionSet     *prometheus.GaugeVec
 	CompactionMap     *prometheus.GaugeVec
 	ActiveSegments    *prometheus.GaugeVec
-	BloomFilters      prometheus.ObserverVec
+	bloomFilters      prometheus.ObserverVec
 	SegmentObjects    *prometheus.GaugeVec
 	SegmentSize       *prometheus.GaugeVec
 	SegmentCount      *prometheus.GaugeVec
@@ -62,7 +68,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		BloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
+		bloomFilters: promMetrics.LSMBloomFilters.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
@@ -101,29 +107,63 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 	}
 }
 
-func (m *Metrics) MemtableSize(path, strategy string, size uint64) {
-	if m == nil {
-		return
-	}
-
-	m.memtableSize.With(prometheus.Labels{
-		"path":     path,
-		"strategy": strategy,
-	}).Set(float64(size))
+func noOpTimeObserver(start time.Time) {
+	// do nothing
 }
 
-func (m *Metrics) MemtableOp(path, strategy, op string, startNs int64) {
+func noOpNsObserver(startNs int64) {
+	// do nothing
+}
+
+func noOpSetter(val uint64) {
+	// do nothing
+}
+
+func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 	if m == nil {
-		return
+		return noOpNsObserver
 	}
 
-	took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
-
-	m.memtableDurations.With(prometheus.Labels{
+	curried := m.memtableDurations.With(prometheus.Labels{
 		"operation": op,
 		"path":      path,
 		"strategy":  strategy,
-	}).Observe(took)
+	})
+
+	return func(startNs int64) {
+		took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
+		curried.Observe(took)
+	}
+}
+
+func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
+	if m == nil {
+		return noOpSetter
+	}
+
+	curried := m.memtableSize.With(prometheus.Labels{
+		"path":     path,
+		"strategy": strategy,
+	})
+
+	return func(size uint64) {
+		curried.Set(float64(size))
+	}
+}
+
+func (m *Metrics) BloomFilterObserver(strategy, operation string) TimeObserver {
+	if m == nil {
+		return noOpTimeObserver
+	}
+
+	curried := m.bloomFilters.With(prometheus.Labels{
+		"strategy":  strategy,
+		"operation": operation,
+	})
+
+	return func(before time.Time) {
+		curried.Observe(float64(time.Since(before)) / float64(time.Millisecond))
+	}
 }
 
 func (m *Metrics) TrackStartupReadWALDiskIO(read int64, nanoseconds int64) {
