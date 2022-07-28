@@ -63,15 +63,24 @@ func main() {
 	alreadyRunning := startWeaviate(c, url)
 
 	var newRuntime map[string]int64
+	var err error
 	switch benchmarkName {
 	case "SIFT":
-		newRuntime = benchmarkSift(c, url, maxEntries)
+		newRuntime, err = benchmarkSift(c, url, maxEntries)
 	default:
 		panic("Unknown benchmark " + benchmarkName)
 	}
 
+	if err != nil {
+		clearExistingObjects(c, url)
+	}
+
 	if !alreadyRunning {
 		tearDownWeavaite()
+	}
+
+	if err != nil {
+		panic("Error occurred: " + err.Error())
 	}
 
 	FullBenchmarkName := benchmarkName + "-" + fmt.Sprint(maxEntries)
@@ -114,6 +123,33 @@ func main() {
 			os.Stderr, "Failed due to performance regressions.\n",
 		)
 		os.Exit(1)
+	}
+}
+
+// If there is already a schema present, clear it out
+func clearExistingObjects(c *http.Client, url string) {
+	checkSchemaRequest := createRequest(url+"schema", "GET", nil)
+	checkSchemaResponseCode, body, _, err := performRequest(c, checkSchemaRequest)
+	if err != nil {
+		panic("perform request: %v\n" + err.Error())
+	}
+	if checkSchemaResponseCode != 200 {
+		return
+	}
+
+	var dump models.Schema
+	if err := json.Unmarshal(body, &dump); err != nil {
+		panic("Could not unmarshal read response, error: " + err.Error())
+	}
+	for _, classObj := range dump.Classes {
+		requestDelete := createRequest(url+"schema/"+classObj.Class, "DELETE", nil)
+		responseDeleteCode, _, _, err := performRequest(c, requestDelete)
+		if err != nil {
+			panic("Could delete schema, error: " + err.Error())
+		}
+		if responseDeleteCode != 200 {
+			panic(fmt.Sprintf("Could not delete schema, code: %v", responseDeleteCode))
+		}
 	}
 }
 
