@@ -104,8 +104,8 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(b.initFlushCycle, "bucket flush cycle")
-	b.flushCycle.Start(cyclemanager.DefaultMemtableFlushInterval)
+	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.initFlushCycle)
+	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
@@ -456,17 +456,8 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	flushHalted := make(chan struct{})
-
-	go func() {
-		b.flushCycle.Stop(ctx)
-		flushHalted <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
+	if err := b.flushCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running flush in progress")
-	case <-flushHalted:
 	}
 
 	b.flushLock.Lock()
@@ -495,58 +486,48 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) initFlushCycle(interval time.Duration) {
-	go func() {
-		t := time.Tick(interval)
-		for {
-			select {
-			case <-b.flushCycle.Stopped:
-				return
-			case <-t:
-				b.flushLock.Lock()
+func (b *Bucket) initFlushCycle() {
+	b.flushLock.Lock()
 
-				// to check the current size of the WAL to
-				// see if the threshold has been reached
-				stat, err := b.active.commitlog.file.Stat()
-				if err != nil {
-					b.logger.WithField("action", "lsm_wal_stat").
-						WithField("path", b.dir).
-						WithError(err).
-						Fatal("flush and switch failed")
-				}
+	// to check the current size of the WAL to
+	// see if the threshold has been reached
+	stat, err := b.active.commitlog.file.Stat()
+	if err != nil {
+		b.logger.WithField("action", "lsm_wal_stat").
+			WithField("path", b.dir).
+			WithError(err).
+			Fatal("flush and switch failed")
+	}
 
-				memtableTooLarge := b.active.Size() >= b.memTableThreshold
-				walTooLarge := uint64(stat.Size()) >= b.walThreshold
-				dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
-					b.active.IdleDuration() >= b.flushAfterIdle
-				shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	memtableTooLarge := b.active.Size() >= b.memTableThreshold
+	walTooLarge := uint64(stat.Size()) >= b.walThreshold
+	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+		b.active.IdleDuration() >= b.flushAfterIdle
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
-				// If true, the parent shard has indicated that it has
-				// entered an immutable state. During this time, the
-				// bucket should refrain from flushing until its shard
-				// indicates otherwise
-				if shouldSwitch && b.isReadOnly() {
-					b.logger.WithField("action", "lsm_memtable_flush").
-						WithField("path", b.dir).
-						Warn("flush halted due to shard READONLY status")
+	// If true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// bucket should refrain from flushing until its shard
+	// indicates otherwise
+	if shouldSwitch && b.isReadOnly() {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			Warn("flush halted due to shard READONLY status")
 
-					b.flushLock.Unlock()
-					time.Sleep(time.Second)
-					continue
-				}
+		b.flushLock.Unlock()
+		time.Sleep(time.Second)
+		return
+	}
 
-				b.flushLock.Unlock()
-				if shouldSwitch {
-					if err := b.FlushAndSwitch(); err != nil {
-						b.logger.WithField("action", "lsm_memtable_flush").
-							WithField("path", b.dir).
-							WithError(err).
-							Errorf("flush and switch failed")
-					}
-				}
-			}
+	b.flushLock.Unlock()
+	if shouldSwitch {
+		if err := b.FlushAndSwitch(); err != nil {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				WithError(err).
+				Errorf("flush and switch failed")
 		}
-	}()
+	}
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
