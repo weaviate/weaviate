@@ -20,7 +20,7 @@ func (h *hnsw) PauseMaintenance(ctx context.Context) error {
 	cleanupHalted := make(chan struct{})
 
 	go func() {
-		h.commitLog.PauseMaintenance()
+		h.commitLog.Shutdown()
 		h.tombstoneCleanupCycle.Stop(ctx)
 		cleanupHalted <- struct{}{}
 	}()

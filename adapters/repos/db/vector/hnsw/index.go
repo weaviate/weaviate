@@ -137,7 +137,6 @@ type CommitLogger interface {
 	Shutdown()
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	PauseMaintenance()
 }
 
 type BufferedLinksLogger interface {

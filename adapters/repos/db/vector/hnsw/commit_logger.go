@@ -426,10 +426,6 @@ func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 	return cancelSwitchLog
 }
 
-func (l *hnswCommitLogger) PauseMaintenance() {
-	l.cancel <- struct{}{}
-}
-
 func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
 	cancelFromOutside := make(chan struct{})
 

@@ -94,5 +94,3 @@ func (b *NoopCommitLogger) RootPath() string {
 func (b *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }
-
-func (b *NoopCommitLogger) PauseMaintenance() {}
