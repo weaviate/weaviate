@@ -91,6 +91,6 @@ func TestSnapshot_Integration(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }

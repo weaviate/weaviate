@@ -252,7 +252,7 @@ func (s *Shard) drop(force bool) error {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
 	// remove vector index
-	err = s.vectorIndex.Drop()
+	err = s.vectorIndex.Drop(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
@@ -266,7 +266,7 @@ func (s *Shard) drop(force bool) error {
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
-	err = s.propertyIndices.DropAll()
+	err = s.propertyIndices.DropAll(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
 	}
@@ -420,7 +420,7 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "flush vector index commitlog")
 	}
 
-	if err := s.vectorIndex.Shutdown(); err != nil {
+	if err := s.vectorIndex.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "shut down vector index")
 	}
 

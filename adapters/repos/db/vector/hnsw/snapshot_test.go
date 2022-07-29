@@ -39,7 +39,7 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, "long-running tombstone cleanup in progress: context deadline exceeded", err.Error())
 
-		err = idx.Shutdown()
+		err = idx.Shutdown(context.Background())
 		require.Nil(t, err)
 	})
 
@@ -64,7 +64,7 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 		err = idx.PauseMaintenance(ctx)
 		assert.Nil(t, err)
 
-		err = idx.Shutdown()
+		err = idx.Shutdown(ctx)
 		require.Nil(t, err)
 	})
 }
@@ -95,7 +95,7 @@ func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	err = idx.SwitchCommitLogs(ctx)
 	assert.Nil(t, err)
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 
@@ -140,7 +140,7 @@ func TestSnapshot_ListFiles(t *testing.T) {
 		assert.True(t, matched, "regex does not match")
 	})
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 
@@ -179,7 +179,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 
