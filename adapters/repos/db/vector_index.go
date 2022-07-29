@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -25,7 +27,7 @@ type VectorIndex interface {
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schema.VectorIndexConfig) error
-	Drop() error
-	Shutdown()
+	Drop(ctx context.Context) error
+	Shutdown(ctx context.Context) error
 	Flush() error
 }

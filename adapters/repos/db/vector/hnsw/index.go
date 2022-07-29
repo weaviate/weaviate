@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
@@ -98,7 +99,8 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cancel chan struct{}
+	cleanupInterval       time.Duration
+	tombstoneCleanupCycle *cyclemanager.CycleManager
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -109,8 +111,6 @@ type hnsw struct {
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
 
-	cleanupInterval time.Duration
-
 	pools *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
@@ -120,6 +120,8 @@ type hnsw struct {
 }
 
 type CommitLogger interface {
+	ID() string
+	Start()
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
@@ -130,9 +132,11 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop() error
+	Drop(ctx context.Context) error
 	Flush() error
-	Shutdown()
+	Shutdown(ctx context.Context) error
+	RootPath() string
+	SwitchCommitLogs(bool) error
 }
 
 type BufferedLinksLogger interface {
@@ -193,7 +197,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstones:        map[uint64]struct{}{},
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
-		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		tombstoneLock:     &sync.RWMutex{},
 		resetLock:         &sync.Mutex{},
@@ -210,6 +213,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 	}
 
+	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -541,9 +545,9 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop() error {
+func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel commit log goroutine
-	err := h.commitLog.Drop()
+	err := h.commitLog.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
@@ -555,15 +559,28 @@ func (h *hnsw) Drop() error {
 	// no loop running that could receive our cancel and we would be stuck. Thus,
 	// only cancel if we know it's been started.
 	if h.cleanupInterval != 0 {
-		h.cancel <- struct{}{}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return errors.Wrap(err, "hnsw drop")
+		}
 	}
 	return nil
 }
 
-func (h *hnsw) Shutdown() {
-	h.cancel <- struct{}{}
-	h.commitLog.Shutdown()
+func (h *hnsw) Shutdown(ctx context.Context) error {
+	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
+	if err := h.commitLog.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
 	h.cache.drop()
+
+	return nil
 }
 
 func (h *hnsw) Flush() error {

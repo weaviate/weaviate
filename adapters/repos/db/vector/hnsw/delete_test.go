@@ -106,7 +106,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		vectorIndex.Drop()
+		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
 
 	t.Run("vector cache holds no vectors", func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		vectorIndex.Drop()
+		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
 }
 
@@ -343,7 +343,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		vectorIndex.Drop()
+		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
 }
 
@@ -590,7 +590,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	// t.Fail()
 	t.Run("destroy the index", func(t *testing.T) {
-		index.Drop()
+		require.Nil(t, index.Drop(context.Background()))
 	})
 }
 
@@ -687,7 +687,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		index.Drop()
+		require.Nil(t, index.Drop(context.Background()))
 	})
 }
 
@@ -727,7 +727,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	assert.Equal(t, []uint64{1}, res, "should contain the only result")
 
 	t.Run("destroy the index", func(t *testing.T) {
-		index.Drop()
+		require.Nil(t, index.Drop(context.Background()))
 	})
 }
 
@@ -807,7 +807,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		index.Drop()
+		require.Nil(t, index.Drop(context.Background()))
 	})
 }
 

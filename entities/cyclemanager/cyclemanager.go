@@ -35,7 +35,7 @@ func (c *CycleManager) Start() {
 	c.Lock()
 	defer c.Unlock()
 
-	if c.running {
+	if c.cycleInterval <= 0 || c.running {
 		return
 	}
 
