@@ -104,7 +104,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.initFlushCycle)
+	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
@@ -486,7 +486,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) initFlushCycle() {
+func (b *Bucket) flushAndSwitchIfThresholdsMet() {
 	b.flushLock.Lock()
 
 	// to check the current size of the WAL to
