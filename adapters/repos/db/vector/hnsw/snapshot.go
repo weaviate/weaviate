@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 // PauseMaintenance makes sure that no new background processes can be started.
@@ -18,23 +17,47 @@ import (
 // If a Delete-Cleanup Cycle is running (TombstoneCleanupCycle), it is aborted,
 // as it's not feasible to wait for such a cycle to complete, as it can take hours.
 func (h *hnsw) PauseMaintenance(ctx context.Context) error {
-	g := errgroup.Group{}
+	commitLogShutdown := make(chan error)
+	cleanupCycleStop := make(chan error)
 
-	g.Go(func() error {
+	go func() {
 		if err := h.commitLog.Shutdown(ctx); err != nil {
-			return errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
+			commitLogShutdown <- errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
+			return
 		}
-		return nil
-	})
+		commitLogShutdown <- nil
+	}()
 
-	g.Go(func() error {
+	go func() {
 		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-			return errors.Wrap(ctx.Err(), "long-running tombstone cleanup in progress")
+			cleanupCycleStop <- errors.Wrap(err, "long-running tombstone cleanup in progress")
+			return
 		}
-		return nil
-	})
+		cleanupCycleStop <- nil
+	}()
 
-	return g.Wait()
+	commitLogShutdownErr := <-commitLogShutdown
+	cleanupCycleStopErr := <-cleanupCycleStop
+
+	if commitLogShutdownErr != nil && cleanupCycleStopErr != nil {
+		return errors.Errorf("%s, %s", commitLogShutdownErr, cleanupCycleStopErr)
+	}
+
+	if commitLogShutdownErr != nil {
+		// restart tombstone cleanup since it was successfully stopped.
+		// both of these cycles must be either stopped or running.
+		h.tombstoneCleanupCycle.Start()
+		return commitLogShutdownErr
+	}
+
+	if cleanupCycleStopErr != nil {
+		// restart commitlog cycle since it was successfully stopped.
+		// both of these cycles must be either stopped or running.
+		h.commitLog.Start()
+		return cleanupCycleStopErr
+	}
+
+	return nil
 }
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is

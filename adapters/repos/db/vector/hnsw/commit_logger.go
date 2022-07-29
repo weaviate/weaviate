@@ -381,12 +381,44 @@ func (l *hnswCommitLogger) Start() {
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
-	if err := l.switchLogCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "failed to stop commitlog switch cycle")
+	switchLogCycleStop := make(chan error)
+	condenseCycleStop := make(chan error)
+
+	go func() {
+		if err := l.switchLogCycle.StopAndWait(ctx); err != nil {
+			switchLogCycleStop <- errors.Wrap(err, "failed to stop commitlog switch cycle")
+			return
+		}
+		switchLogCycleStop <- nil
+	}()
+
+	go func() {
+		if err := l.condenseCycle.StopAndWait(ctx); err != nil {
+			condenseCycleStop <- errors.Wrap(err, "failed to stop commitlog condense cycle")
+			return
+		}
+		condenseCycleStop <- nil
+	}()
+
+	switchLogCycleStopErr := <-switchLogCycleStop
+	condenseCycleStopErr := <-condenseCycleStop
+
+	if switchLogCycleStopErr != nil && condenseCycleStopErr != nil {
+		return errors.Errorf("%s, %s", switchLogCycleStopErr, condenseCycleStopErr)
 	}
 
-	if err := l.condenseCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "failed to stop commitlog condense cycle")
+	if switchLogCycleStopErr != nil {
+		// restart condense cycle since it was successfully stopped.
+		// both of these cycles work together, and need to work in sync
+		l.condenseCycle.Start()
+		return switchLogCycleStopErr
+	}
+
+	if condenseCycleStopErr != nil {
+		// restart switch log cycle since it was successfully stopped.
+		// both of these cycles work together, and need to work in sync
+		l.switchLogCycle.Start()
+		return condenseCycleStopErr
 	}
 
 	return nil
