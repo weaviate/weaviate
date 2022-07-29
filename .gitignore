@@ -106,3 +106,6 @@ coverage*.txt
 
 # go mod
 vendor/
+
+# benchmark results
+test/benchmark/benchmark_results.json

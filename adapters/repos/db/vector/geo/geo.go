@@ -43,7 +43,7 @@ type vectorIndex interface {
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id uint64) error
 	Dump(...string)
-	Drop() error
+	Drop(ctx context.Context) error
 	PostStartup()
 }
 
@@ -80,8 +80,8 @@ func NewIndex(config Config) (*Index, error) {
 	return i, nil
 }
 
-func (i *Index) Drop() error {
-	if err := i.vectorIndex.Drop(); err != nil {
+func (i *Index) Drop(ctx context.Context) error {
+	if err := i.vectorIndex.Drop(ctx); err != nil {
 		return err
 	}
 
