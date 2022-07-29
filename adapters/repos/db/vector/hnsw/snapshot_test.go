@@ -18,28 +18,36 @@ import (
 
 func TestSnapshot_PauseMaintenance(t *testing.T) {
 	t.Run("assert that context timeout works for long maintenance cycle", func(t *testing.T) {
-		ctx := context.Background()
+		indexID := "snapshot-pause-maintenance-test"
 
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
+		userConfig := NewDefaultUserConfig()
+		userConfig.CleanupIntervalSeconds = 1
+
 		idx, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "snapshot-pause-maintenance-test",
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewCosineDistanceProvider(),
-			VectorForIDThunk:      testVectorForID,
-		}, NewDefaultUserConfig())
+			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:       indexID,
+			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+				return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
+					logrus.New())
+			},
+			DistanceProvider: distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: testVectorForID,
+		}, userConfig)
 		require.Nil(t, err)
 
-		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
 		err = idx.PauseMaintenance(ctx)
 		require.NotNil(t, err)
-		assert.Equal(t, "long-running tombstone cleanup in progress: context deadline exceeded", err.Error())
+		assert.Equal(t,
+			"long-running commitlog shutdown in progress: context deadline exceeded",
+			err.Error())
 
-		err = idx.Shutdown()
+		err = idx.Shutdown(context.Background())
 		require.Nil(t, err)
 	})
 
@@ -64,7 +72,7 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 		err = idx.PauseMaintenance(ctx)
 		assert.Nil(t, err)
 
-		err = idx.Shutdown()
+		err = idx.Shutdown(ctx)
 		require.Nil(t, err)
 	})
 }
@@ -95,7 +103,7 @@ func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	err = idx.SwitchCommitLogs(ctx)
 	assert.Nil(t, err)
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 
@@ -140,7 +148,7 @@ func TestSnapshot_ListFiles(t *testing.T) {
 		assert.True(t, matched, "regex does not match")
 	})
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 
@@ -179,7 +187,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	err = idx.Shutdown()
+	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
 

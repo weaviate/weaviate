@@ -11,6 +11,10 @@
 
 package hnsw
 
+import (
+	"context"
+)
+
 // NoopCommitLogger implements the CommitLogger interface, but does not
 // actually write anything to disk
 type NoopCommitLogger struct{}
@@ -65,32 +69,34 @@ func (n *NoopCommitLogger) Reset() error {
 	return nil
 }
 
-func (n *NoopCommitLogger) Drop() error {
+func (n *NoopCommitLogger) Drop(ctx context.Context) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) Shutdown() {}
+func (n *NoopCommitLogger) Shutdown(context.Context) error {
+	return nil
+}
 
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }
 
-func (b *NoopCommitLogger) NewBufferedLinksLogger() BufferedLinksLogger {
-	return b // return self as it does not do anything anyway
+func (n *NoopCommitLogger) NewBufferedLinksLogger() BufferedLinksLogger {
+	return n // return self as it does not do anything anyway
 }
 
-func (b *NoopCommitLogger) Close() error {
+func (n *NoopCommitLogger) Close() error {
 	return nil
 }
 
-func (b *NoopCommitLogger) StartSwitchLogs() chan struct{} {
+func (n *NoopCommitLogger) StartSwitchLogs() chan struct{} {
 	return make(chan struct{})
 }
 
-func (b *NoopCommitLogger) RootPath() string {
+func (n *NoopCommitLogger) RootPath() string {
 	return ""
 }
 
-func (b *NoopCommitLogger) SwitchCommitLogs(force bool) error {
+func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }

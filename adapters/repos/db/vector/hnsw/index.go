@@ -132,9 +132,9 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop() error
+	Drop(ctx context.Context) error
 	Flush() error
-	Shutdown()
+	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
 }
@@ -213,8 +213,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 	}
 
-	index.tombstoneCleanupCycle = cyclemanager.New(index.registerTombstoneCleanup,
-		"hnsw tombstone cleanup")
+	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
@@ -546,9 +545,9 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop() error {
+func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel commit log goroutine
-	err := h.commitLog.Drop()
+	err := h.commitLog.Drop(ctx)
 	if err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
@@ -563,38 +562,22 @@ func (h *hnsw) Drop() error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 
-		stopped := make(chan struct{})
-		go func() {
-			h.tombstoneCleanupCycle.Stop(context.Background())
-			stopped <- struct{}{}
-		}()
-
-		select {
-		case <-ctx.Done():
-			return errors.Wrap(ctx.Err(), "drop hnsw index")
-		case <-stopped:
+		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return errors.Wrap(err, "hnsw drop")
 		}
 	}
 	return nil
 }
 
-func (h *hnsw) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	stopped := make(chan struct{})
-	go func() {
-		h.tombstoneCleanupCycle.Stop(context.Background())
-		stopped <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return errors.Wrap(ctx.Err(), "drop hnsw index")
-	case <-stopped:
+func (h *hnsw) Shutdown(ctx context.Context) error {
+	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	h.commitLog.Shutdown()
+	if err := h.commitLog.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
 	h.cache.drop()
 
 	return nil
