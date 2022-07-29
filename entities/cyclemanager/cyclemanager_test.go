@@ -2,7 +2,6 @@ package cyclemanager
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -65,22 +64,16 @@ func TestCycleManager(t *testing.T) {
 		defer cancel()
 
 		stopResult := cm.Stop(timeoutCtx)
-		fmt.Printf("   ==> test/after trystop [%+v]\n", stopResult)
 
 		select {
 		case <-timeoutCtx.Done():
-			fmt.Printf("   ==> timeout\n")
 			t.Fatal(timeoutCtx.Err().Error(), "failed to stop")
 		case stopped := <-stopResult:
-			fmt.Printf("   ==> stopResult\n")
 			assert.True(t, stopped)
 			assert.False(t, cm.Running())
 			assert.Equal(t, "something wonderful...", <-p.results)
 		}
-		fmt.Printf("   ==> after select\n")
 	})
-
-	fmt.Printf("   ==> all end\n")
 }
 
 func TestCycleManager_timeout(t *testing.T) {
@@ -99,16 +92,13 @@ func TestCycleManager_timeout(t *testing.T) {
 		<-p.firstCycleStarted
 
 		stopResult := cm.Stop(timeoutCtx)
-		fmt.Printf("   ==> test/after trystop [%+v]\n", stopResult)
 
 		select {
 		case <-timeoutCtx.Done():
-			fmt.Printf("   ==> timeout\n")
 			assert.True(t, cm.Running())
 		case <-stopResult:
 			t.Fatal("stopped before timeout")
 		}
-		fmt.Printf("   ==> after select\n")
 
 		// make sure it is still running
 		assert.False(t, <-stopResult)
@@ -121,8 +111,6 @@ func TestCycleManager_timeout(t *testing.T) {
 		assert.True(t, <-stopResult)
 		assert.False(t, cm.Running())
 	})
-
-	fmt.Printf("   ==> all end\n")
 }
 
 func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
@@ -159,23 +147,18 @@ func TestCycleManager_handlesMultipleStops(t *testing.T) {
 	cm := New(cycleInterval, p.cycleFunc)
 
 	t.Run("multiple stops", func(t *testing.T) {
-		fmt.Printf("  ==> before start [%v]\n", time.Now())
 		cm.Start()
 		<-p.firstCycleStarted
 
 		stopResult := make([]chan bool, stopCount)
-		fmt.Printf("  ==> before stop [%v]\n", time.Now())
 		for i := 0; i < stopCount; i++ {
 			stopResult[i] = cm.Stop(context.Background())
 		}
-		fmt.Printf("  ==> after stop [%v]\n", time.Now())
+
 		for i := 0; i < stopCount; i++ {
 			assert.True(t, <-stopResult[i])
 		}
-		fmt.Printf("  ==> after chan loop [%v]\n", time.Now())
 		assert.False(t, cm.Running())
-
-		fmt.Printf("  ==> waiting for 1 result [%v]\n", time.Now())
 		assert.Equal(t, "something wonderful...", <-p.results)
 	})
 }
