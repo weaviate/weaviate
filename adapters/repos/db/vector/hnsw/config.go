@@ -14,10 +14,10 @@ package hnsw
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
@@ -42,60 +42,29 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 
 	if c.ID == "" {
-		ec.addf("id cannot be empty")
+		ec.Addf("id cannot be empty")
 	}
 
 	if c.RootPath == "" {
-		ec.addf("rootPath cannot be empty")
+		ec.Addf("rootPath cannot be empty")
 	}
 
 	if c.MakeCommitLoggerThunk == nil {
-		ec.addf("makeCommitLoggerThunk cannot be nil")
+		ec.Addf("makeCommitLoggerThunk cannot be nil")
 	}
 
 	if c.VectorForIDThunk == nil {
-		ec.addf("vectorForIDThunk cannot be nil")
+		ec.Addf("vectorForIDThunk cannot be nil")
 	}
 
 	if c.DistanceProvider == nil {
-		ec.addf("distancerProvider cannot be nil")
+		ec.Addf("distancerProvider cannot be nil")
 	}
 
-	return ec.toError()
-}
-
-type errorCompounder struct {
-	errors []error
-}
-
-func (ec *errorCompounder) addf(msg string, args ...interface{}) {
-	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
-}
-
-func (ec *errorCompounder) add(err error) {
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
-}
-
-func (ec *errorCompounder) toError() error {
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
+	return ec.ToError()
 }
 
 const (
