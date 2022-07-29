@@ -19,8 +19,8 @@ import (
 func (h *hnsw) PauseMaintenance(ctx context.Context) error {
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
-
 	}
+
 	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running tombstone cleanup in progress")
 	}

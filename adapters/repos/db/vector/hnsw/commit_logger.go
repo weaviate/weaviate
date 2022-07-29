@@ -44,8 +44,6 @@ func NewCommitLogger(rootPath, name string,
 	maintainenceInterval time.Duration, logger logrus.FieldLogger,
 	opts ...CommitlogOption) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		//cancel:               make(chan struct{}),
-		//cancelComplete:       make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
@@ -241,9 +239,6 @@ type hnswCommitLogger struct {
 	// buffer
 	sync.Mutex
 
-	cancel         chan struct{}
-	cancelComplete chan struct{}
-
 	rootPath             string
 	id                   string
 	condensor            condensor
@@ -414,6 +409,12 @@ func (l *hnswCommitLogger) startCombineAndCondenseLogs() {
 		l.logger.WithError(err).
 			WithField("action", "hsnw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
+	}
+
+	if err := l.condenseOldLogs(); err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hsnw_commit_log_condensing").
+			Error("hnsw commit log maintenance (condensing) failed")
 	}
 }
 
