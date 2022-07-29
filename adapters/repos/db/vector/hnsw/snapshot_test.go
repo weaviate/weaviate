@@ -18,8 +18,6 @@ import (
 
 func TestSnapshot_PauseMaintenance(t *testing.T) {
 	t.Run("assert that context timeout works for long maintenance cycle", func(t *testing.T) {
-		ctx := context.Background()
-
 		indexID := "snapshot-pause-maintenance-test"
 
 		dirName := makeTestDir(t)
