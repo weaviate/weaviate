@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"time"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -75,8 +74,6 @@ func (n *NoopCommitLogger) Drop(ctx context.Context) error {
 }
 
 func (n *NoopCommitLogger) Shutdown(context.Context) error {
-	// so we can test context timeouts with time.Nanosecond
-	time.Sleep(time.Microsecond)
 	return nil
 }
 

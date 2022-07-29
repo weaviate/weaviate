@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 // PauseMaintenance makes sure that no new background processes can be started.
@@ -17,15 +18,23 @@ import (
 // If a Delete-Cleanup Cycle is running (TombstoneCleanupCycle), it is aborted,
 // as it's not feasible to wait for such a cycle to complete, as it can take hours.
 func (h *hnsw) PauseMaintenance(ctx context.Context) error {
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
-	}
+	g := errgroup.Group{}
 
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running tombstone cleanup in progress")
-	}
+	g.Go(func() error {
+		if err := h.commitLog.Shutdown(ctx); err != nil {
+			return errors.Wrap(ctx.Err(), "long-running commitlog shutdown in progress")
+		}
+		return nil
+	})
 
-	return nil
+	g.Go(func() error {
+		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return errors.Wrap(ctx.Err(), "long-running tombstone cleanup in progress")
+		}
+		return nil
+	})
+
+	return g.Wait()
 }
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
