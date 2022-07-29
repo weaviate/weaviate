@@ -247,7 +247,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) initCompactionCycle() {
+func (sg *SegmentGroup) compactIfLevelsMatch() {
 	sg.monitorSegments()
 
 	if sg.eligibleForCompaction() {

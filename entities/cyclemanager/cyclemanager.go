@@ -108,12 +108,24 @@ func (c *CycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 // Stops running instance, waits for stop to occur or context to expire (which comes first)
 // Returns error if instance was not stopped
 func (c *CycleManager) StopAndWait(ctx context.Context) error {
+	// if both channels are ready, chan is selected randomly, therefore regardless of
+	// channel selected first, second one is also checked
+	stop := c.Stop(ctx)
+	done := ctx.Done()
+
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case stopped := <-c.Stop(ctx):
+	case <-done:
 		select {
-		case <-ctx.Done(): // in case stop fired first, but due to context expired
+		case stopped := <-stop:
+			if !stopped {
+				return ctx.Err()
+			}
+		default:
+			return ctx.Err()
+		}
+	case stopped := <-stop:
+		select {
+		case <-done:
 			if !stopped {
 				return ctx.Err()
 			}
@@ -148,6 +160,8 @@ func (c *CycleManager) selectedStop(ticker *time.Ticker) bool {
 	select {
 	case <-c.stop:
 	case <-ticker.C:
+		// as stop chan has higher priority,
+		// it is checked again in case of ticker was selected over stop if both were ready
 		select {
 		case <-c.stop:
 		default:
