@@ -85,7 +85,6 @@ func TestStoreLifecycle(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, []byte("bar"), res)
 
-		fmt.Printf("about to shutdown\n")
 		err = store.Shutdown(context.Background())
 		require.Nil(t, err)
 	})
