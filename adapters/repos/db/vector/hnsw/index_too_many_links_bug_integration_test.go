@@ -147,7 +147,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	t.Run("destroy the old index", func(t *testing.T) {
 		// kill the commit loger and index
-		original.Shutdown()
+		require.Nil(t, original.Shutdown(context.Background()))
 		index = nil
 		original = nil
 	})
@@ -196,6 +196,6 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
-		index.Drop()
+		require.Nil(t, index.Drop(context.Background()))
 	})
 }

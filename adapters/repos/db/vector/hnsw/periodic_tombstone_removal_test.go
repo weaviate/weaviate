@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -34,7 +35,6 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	})
 	index.PostStartup()
 
-	defer index.Shutdown()
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -68,4 +68,8 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 			return ts == 0
 		}, "wait until tombstones have been cleaned up")
 	})
+
+	if err := index.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
