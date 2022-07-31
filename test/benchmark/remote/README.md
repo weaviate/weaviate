@@ -37,3 +37,16 @@ To do all steps (including spinning up a machine) that happen _before_ running
 the benchmarks you can invoke it with the `--prepare` option. To get an
 interactive ssh session into the machine, use `--ssh`. To destroy the machine
 at an arbitrary point run `--delete_machine`.
+
+## Run on arbitrary branch
+
+*Note: Checking out a branch that does not yet have the scripts from this
+folder, will fail. You need a branch created after this script was initially
+built or has been rebased on top of it.*
+
+```
+test/benchmark/remote/run.sh --prepare
+test/benchmark/remote/run.sh --checkout <name-of-your-branch-or-commit>
+test/benchmark/remote/run.sh --benchmark
+test/benchmark/remote/run.sh --delete_machine
+```
