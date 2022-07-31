@@ -1,6 +1,6 @@
 resource "google_compute_instance" "default" {
   name         = "automated-loadtest"
-  machine_type = "c2-standard-16"
+  machine_type = var.machine_type
   zone         = "us-central1-a"
 
   tags = ["automated-loadtest"]

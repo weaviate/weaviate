@@ -4,6 +4,7 @@ PROJECT=semi-automated-benchmarking
 ZONE=us-central1-a
 INSTANCE=automated-loadtest
 GOVERSION=https://go.dev/dl/go1.18.4.linux-amd64.tar.gz
+FILE_PREFIX=${FILE_PREFIX:-""}
 
 set -eou pipefail
 
@@ -124,7 +125,7 @@ function benchmark() {
   ssh_command "cd ~/weaviate; rm test/benchmark/benchmark_results.json || true"
   ssh_command "cd ~/weaviate; test/benchmark/run_performance_tracker.sh"
   echo_green "Copy results file to local machine"
-  filename="benchmark_results_$(date +%s).json"
+  filename="${FILE_PREFIX}benchmark_results_$(date +%s).json"
   scp_command "$INSTANCE:~/weaviate/test/benchmark/benchmark_results.json" "$filename"
   echo "Results file succesfully copied to ${PWD}/$filename"
 }
