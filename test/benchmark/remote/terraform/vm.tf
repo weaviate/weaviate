@@ -9,6 +9,7 @@ resource "google_compute_instance" "default" {
     initialize_params {
       image = "debian-cloud/debian-11"
       size = 100
+      type = "pd-ssd"
     }
   }
 
