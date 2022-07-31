@@ -7,6 +7,9 @@ GOVERSION=https://go.dev/dl/go1.18.4.linux-amd64.tar.gz
 
 set -eou pipefail
 
+# change to script directory
+cd "${0%/*}" || exit
+
 function main() {
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -42,6 +45,7 @@ function run_all() {
 
   check
   prepare
+  benchmark
 }
 
 function prepare() {
@@ -80,7 +84,7 @@ function delete_machine() {
 }
 
 function install_dependencies() {
-  ssh_command "sudo apt-get update && sudo apt-get install -y git curl"
+  ssh_command "sudo apt-get update && sudo apt-get install -y git git-lfs curl"
   ssh_command "ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts"
   install_go
   install_docker
@@ -94,20 +98,28 @@ function install_go {
 }
 
 function install_docker() {
-  ssh_command "curl -fsSL https://get.docker.com -o get-docker.sh && sh ./get-docker.sh"
-  ssh_command "sudo groupadd docker"
+  ssh_command "if ! command -v docker &> /dev/null; then curl -fsSL https://get.docker.com -o get-docker.sh && sh ./get-docker.sh; fi"
+  ssh_command "sudo groupadd docker || true"
   ssh_command 'sudo usermod -aG docker $USER'
 }
 
 function clone_repository() {
   ssh_command "cd; [ ! -d weaviate ] && git clone https://github.com/semi-technologies/weaviate.git weaviate || true"
+  ssh_command "cd weaviate; git-lfs install; git-lfs pull"
   ref=$(git rev-parse HEAD | head -c 7)
   echo_green "Checking out local commit/branch $ref"
   ssh_command "cd weaviate; git checkout $ref"
 }
 
 function benchmark() {
+  echo_green "Run benchmarks on remote machine"
+  ssh_command 'echo "stop all running docker containers"; docker rm -f $(docker ps -q) || true'
+  ssh_command "cd ~/weaviate; rm test/benchmark/benchmark_results.json || true"
   ssh_command "cd ~/weaviate; test/benchmark/run_performance_tracker.sh"
+  echo_green "Copy results file to local machine"
+  filename="benchmark_results_$(date +%s).json"
+  scp_command "$INSTANCE:~/weaviate/test/benchmark/benchmark_results.json" "$filename"
+  echo "Results file succesfully copied to ${PWD}/$filename"
 }
 
 
@@ -125,6 +137,10 @@ function echo_red() {
 
 function ssh_command() {
   gcloud beta compute ssh --project=$PROJECT --zone=$ZONE  "$INSTANCE" --command="source ~/.profile; $1"
+}
+
+function scp_command() {
+  gcloud beta compute scp --project=$PROJECT --zone=$ZONE  "$@"
 }
 
 function interactive_ssh() {
