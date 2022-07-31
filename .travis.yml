@@ -13,6 +13,7 @@ before_install:
   - curl -SL "https://github.com/docker/compose/releases/download/v2.7.0/docker-compose-linux-x86_64" -o ~/.docker/cli-plugins/docker-compose
 
   - chmod a+x ~/.docker/cli-plugins/docker-buildx
+  - chmod a+x ~/.docker/cli-plugins/docker-compose
 dist: bionic
 go: 
   - "1.16.5"
