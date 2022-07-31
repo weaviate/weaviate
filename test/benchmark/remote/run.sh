@@ -3,6 +3,7 @@
 PROJECT=semi-automated-benchmarking
 ZONE=us-central1-a
 INSTANCE=automated-loadtest
+GOVERSION=https://go.dev/dl/go1.18.4.linux-amd64.tar.gz
 
 set -eou pipefail
 
@@ -14,6 +15,9 @@ function main() {
           --clone_repository) clone_repository; exit 0;;
           --delete_machine) delete_machine; exit 0;;
           --install_dependencies) install_dependencies; exit 0;;
+          --benchmark) benchmark; exit 0;;
+          --prepare) prepare; exit 0;;
+          --ssh) interactive_ssh; exit 0;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift
@@ -26,14 +30,21 @@ function print_help() {
   echo "Valid arguments include:"
   echo ""
   echo "  --all               Run everything, including machine creation & destruction"
+  echo "  --prepare           Create Machine & run all the steps prior to benchmark execution"
   echo "  --create_machine    Only create machine"
   echo "  --delete_machine    Stop & Delete running machine"
   echo "  --clone_repository  Clone and checkout Weaviate repo at specified commit"
+  echo "  --ssh               Interactive SSH session"
 }
 
 function run_all() {
   trap delete_machine EXIT
 
+  check
+  prepare
+}
+
+function prepare() {
   check
   create_machine
   install_dependencies
@@ -69,8 +80,23 @@ function delete_machine() {
 }
 
 function install_dependencies() {
-  ssh_command "sudo apt-get update && sudo apt-get install -y git"
+  ssh_command "sudo apt-get update && sudo apt-get install -y git curl"
   ssh_command "ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts"
+  install_go
+  install_docker
+}
+
+function install_go {
+  ssh_command "curl -Lo go.tar.gz $GOVERSION"
+  ssh_command "sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go.tar.gz"
+  ssh_command 'echo '"'"'PATH=$PATH:/usr/local/go/bin'"'"' >> ~/.profile'
+  ssh_command "go version"
+}
+
+function install_docker() {
+  ssh_command "curl -fsSL https://get.docker.com -o get-docker.sh && sh ./get-docker.sh"
+  ssh_command "sudo groupadd docker"
+  ssh_command 'sudo usermod -aG docker $USER'
 }
 
 function clone_repository() {
@@ -78,7 +104,10 @@ function clone_repository() {
   ref=$(git rev-parse HEAD | head -c 7)
   echo_green "Checking out local commit/branch $ref"
   ssh_command "cd weaviate; git checkout $ref"
+}
 
+function benchmark() {
+  ssh_command "cd ~/weaviate; test/benchmark/run_performance_tracker.sh"
 }
 
 
@@ -95,7 +124,11 @@ function echo_red() {
 }
 
 function ssh_command() {
-  gcloud beta compute ssh --project=$PROJECT --zone=$ZONE  "$INSTANCE" --command="$1"
+  gcloud beta compute ssh --project=$PROJECT --zone=$ZONE  "$INSTANCE" --command="source ~/.profile; $1"
+}
+
+function interactive_ssh() {
+  gcloud beta compute ssh --project=$PROJECT --zone=$ZONE  "$INSTANCE"
 }
 
 main "$@"
