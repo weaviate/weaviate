@@ -20,6 +20,7 @@ function main() {
           --install_dependencies) install_dependencies; exit 0;;
           --benchmark) benchmark; exit 0;;
           --prepare) prepare; exit 0;;
+          --checkout) checkout "$2" ; exit 0;;
           --ssh) interactive_ssh; exit 0;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
@@ -37,6 +38,7 @@ function print_help() {
   echo "  --create_machine    Only create machine"
   echo "  --delete_machine    Stop & Delete running machine"
   echo "  --clone_repository  Clone and checkout Weaviate repo at specified commit"
+  echo "  --checkout          Checkout arbitrary branch or commit"
   echo "  --ssh               Interactive SSH session"
 }
 
@@ -108,6 +110,11 @@ function clone_repository() {
   ssh_command "cd weaviate; git-lfs install; git-lfs pull"
   ref=$(git rev-parse HEAD | head -c 7)
   echo_green "Checking out local commit/branch $ref"
+  ssh_command "cd weaviate; git checkout $ref"
+}
+
+function checkout() {
+  ref="$1"
   ssh_command "cd weaviate; git checkout $ref"
 }
 
