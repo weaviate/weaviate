@@ -37,8 +37,9 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	)
 
 	for _, shard := range i.Shards {
+		s := shard
 		g.Go(func() error {
-			files, err := shard.createStoreLevelSnapshot(ctx)
+			files, err := s.createStoreLevelSnapshot(ctx)
 			if err != nil {
 				return err
 			}
@@ -49,7 +50,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 		})
 
 		g.Go(func() error {
-			files, err := shard.createVectorIndexLevelSnapshot(ctx)
+			files, err := s.createVectorIndexLevelSnapshot(ctx)
 			if err != nil {
 				return err
 			}
