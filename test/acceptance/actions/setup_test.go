@@ -15,11 +15,12 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
 func Test_Objects(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
-		assertCreateObjectClass(t, &models.Class{
+		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "ObjectTestThing",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -33,7 +34,7 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
-		assertCreateObjectClass(t, &models.Class{
+		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "TestObject",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -67,7 +68,7 @@ func Test_Objects(t *testing.T) {
 				},
 			},
 		})
-		assertCreateObjectClass(t, &models.Class{
+		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "TestObjectTwo",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
@@ -98,7 +99,7 @@ func Test_Objects(t *testing.T) {
 	t.Run("updating objects deprecated", updateObjectsDeprecated)
 
 	// tear down
-	assertDeleteObjectClass(t, "ObjectTestThing")
-	assertDeleteObjectClass(t, "TestObject")
-	assertDeleteObjectClass(t, "TestObjectTwo")
+	helper.AssertDeleteObjectClass(t, "ObjectTestThing")
+	helper.AssertDeleteObjectClass(t, "TestObject")
+	helper.AssertDeleteObjectClass(t, "TestObjectTwo")
 }

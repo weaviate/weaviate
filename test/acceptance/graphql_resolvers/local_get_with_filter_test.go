@@ -16,9 +16,11 @@ import (
 	"fmt"
 	"testing"
 
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		airports := result.Get("Get", "Airport").AsSlice()
 
 		expected := []interface{}{
@@ -71,7 +73,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		airports := result.Get("Get", "Airport").AsSlice()
 
 		expected := []interface{}{
@@ -108,7 +110,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		cityMeta := result.Get("Aggregate", "City").AsSlice()[0]
 
 		expected := map[string]interface{}{
@@ -142,7 +144,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		airport := result.Get("Get", "Airport").AsSlice()[0]
 
 		expected := map[string]interface{}{
@@ -176,7 +178,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		t.Run("no refs", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 0))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Equal", 0))
 			// Alice should be the only person that has zero places she lives in
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -184,7 +186,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("exactly one", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 1))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Equal", 1))
 			// bob should be the only person that has zero places she lives in
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -192,7 +194,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("2 or more", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("GreaterThanEqual", 2))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("GreaterThanEqual", 2))
 			// both john(2) and petra(3) should match
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 2)
 			name1 := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -221,13 +223,13 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		t.Run("noone", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Quality"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Quality"))
 			// Quality is not full field for anyone, therefore noone should be returned
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 0)
 		})
 
 		t.Run("just one is Mechanical Engineer", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Mechanical Engineer"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Mechanical Engineer"))
 			// Bob is Mechanical Engineer, though John is Senior
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -235,7 +237,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("just one is Senior Mechanical Engineer", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Senior Mechanical Engineer"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Senior Mechanical Engineer"))
 			// so to get John, his full profession name has to be used
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -243,7 +245,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("just one is Quality Assurance Manager", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Quality Assurance Manager"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Quality Assurance Manager"))
 			// petra is Quality Assurance Manager
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -271,13 +273,13 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		t.Run("noone", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("swimming"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("swimming"))
 			// swimming is not full field for anyone, therefore noone should be returned
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 0)
 		})
 
 		t.Run("just one hates swimming", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("hates swimming"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("hates swimming"))
 			// but only john hates swimming
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"].(string)
@@ -285,7 +287,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("exactly 2 loves travelling", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("loves travelling"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("loves travelling"))
 			// bob and john loves travelling, alice loves traveling very much
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 2)
 			name1 := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"].(string)
@@ -294,7 +296,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("only one likes cooking for family", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("likes cooking for family"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("likes cooking for family"))
 			// petra likes cooking for family, john simply likes cooking
 			require.Len(t, result.Get("Get", "Person").AsSlice(), 1)
 			name := result.Get("Get", "Person").AsSlice()[0].(map[string]interface{})["name"]
@@ -323,7 +325,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		t.Run("2 results by partial description", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("italian"))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("italian"))
 			pizzas := result.Get("Get", "Pizza").AsSlice()
 			require.Len(t, pizzas, 2)
 			id1 := pizzas[0].(map[string]interface{})["_additional"].(map[string]interface{})["id"]
@@ -333,7 +335,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("1 result by full description containing stopwords", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, query("Universally accepted to be the best pizza ever created."))
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("Universally accepted to be the best pizza ever created."))
 			pizzas := result.Get("Get", "Pizza").AsSlice()
 			require.Len(t, pizzas, 1)
 			id1 := pizzas[0].(map[string]interface{})["_additional"].(map[string]interface{})["id"]
@@ -341,7 +343,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 
 		t.Run("error by description containing just stopwords", func(t *testing.T) {
-			errors := ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
+			errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
 			require.Len(t, errors, 1)
 			assert.Contains(t, errors[0].Message, "invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 		})
@@ -367,7 +369,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		airport := result.Get("Get", "Airport").AsSlice()[0]
 
 		expected := map[string]interface{}{
@@ -395,7 +397,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		airport := result.Get("Get", "Airport").AsSlice()[0]
 		additional := airport.(map[string]interface{})["_additional"]
 		targetID := additional.(map[string]interface{})["id"].(string)
@@ -422,7 +424,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			`, targetCreationTime)
 
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			airport := result.Get("Get", "Airport").AsSlice()[0]
 			additional := airport.(map[string]interface{})["_additional"]
 			resultID := additional.(map[string]interface{})["id"].(string)
@@ -449,7 +451,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				}
 			`, targetUpdateTime)
 
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			airport := result.Get("Get", "Airport").AsSlice()[0]
 			additional := airport.(map[string]interface{})["_additional"]
 			resultID := additional.(map[string]interface{})["id"].(string)
@@ -482,7 +484,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 					}
 				}
 			`, id)
-			response := AssertGraphQL(t, helper.RootAuth, query)
+			response := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			result := response.Get("Get", "NoProps").AsSlice()
 			require.Len(t, result, 1)
 			additional := result[0].(map[string]interface{})["_additional"]

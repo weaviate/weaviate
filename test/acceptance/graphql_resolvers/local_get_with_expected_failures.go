@@ -14,8 +14,10 @@ package test
 import (
 	"testing"
 
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -54,7 +56,7 @@ func getsWithExpectedFailures(t *testing.T) {
 					}
 				}`
 
-			result := ErrorGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 			assert.Len(t, result, 1)
 
 			errMsg := result[0].Message
@@ -96,7 +98,7 @@ func getsWithExpectedFailures(t *testing.T) {
 					}
 				}`
 
-			result := ErrorGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 			assert.Len(t, result, 1)
 
 			errMsg := result[0].Message
