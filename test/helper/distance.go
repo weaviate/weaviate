@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package testhelper
+package helper
 
 import (
 	"testing"

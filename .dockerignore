@@ -9,3 +9,4 @@ snapshots-node2/
 data_wiki/
 logs/
 test/acceptance/
+snapshots-s3/

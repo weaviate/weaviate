@@ -60,3 +60,16 @@ func (m *StorageFileSystemModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
+
+func (m *StorageFileSystemModule) MetaInfo() (map[string]interface{}, error) {
+	metaInfo := make(map[string]interface{})
+	metaInfo["snapshotsPath"] = m.snapshotsPath
+	return metaInfo, nil
+}
+
+// verify we implement the modules.Module interface
+var (
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.SnapshotStorage(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

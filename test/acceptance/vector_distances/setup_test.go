@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
 func Test_GraphQL(t *testing.T) {
