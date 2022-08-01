@@ -46,6 +46,10 @@ func (d *DockerCompose) GetMinIO() *DockerContainer {
 	return d.getContainerByName(MinIO)
 }
 
+func (d *DockerCompose) GetGCS() *DockerContainer {
+	return d.getContainerByName(GCS)
+}
+
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
 	return d.getContainerByName(Weaviate)
 }
