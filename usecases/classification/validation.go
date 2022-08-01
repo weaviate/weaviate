@@ -12,11 +12,9 @@
 package classification
 
 import (
-	"errors"
 	"fmt"
-	"strings"
-	"sync"
 
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -29,7 +27,7 @@ const (
 
 type Validator struct {
 	schema  schema.Schema
-	errors  *errorCompounder
+	errors  *errorcompounder.SafeErrorCompounder
 	subject models.Classification
 }
 
@@ -37,7 +35,7 @@ func NewValidator(sg schemaUC.SchemaGetter, subject models.Classification) *Vali
 	schema := sg.GetSchemaSkipAuth()
 	return &Validator{
 		schema:  schema,
-		errors:  &errorCompounder{},
+		errors:  &errorcompounder.SafeErrorCompounder{},
 		subject: subject,
 	}
 }
@@ -45,7 +43,7 @@ func NewValidator(sg schemaUC.SchemaGetter, subject models.Classification) *Vali
 func (v *Validator) Do() error {
 	v.validate()
 
-	err := v.errors.toError()
+	err := v.errors.ToError()
 	if err != nil {
 		return fmt.Errorf("invalid classification: %v", err)
 	}
@@ -55,13 +53,13 @@ func (v *Validator) Do() error {
 
 func (v *Validator) validate() {
 	if v.subject.Class == "" {
-		v.errors.add(fmt.Errorf("class must be set"))
+		v.errors.Add(fmt.Errorf("class must be set"))
 		return
 	}
 
 	class := v.schema.FindClassByName(schema.ClassName(v.subject.Class))
 	if class == nil {
-		v.errors.addf("class '%s' not found in schema", v.subject.Class)
+		v.errors.Addf("class '%s' not found in schema", v.subject.Class)
 		return
 	}
 
@@ -77,7 +75,7 @@ func (v *Validator) contextualTypeFeasibility() {
 	}
 
 	if v.subject.Filters != nil && v.subject.Filters.TrainingSetWhere != nil {
-		v.errors.addf("type is 'text2vec-contextionary-contextual', but 'trainingSetWhere' filter is set, for 'text2vec-contextionary-contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
+		v.errors.Addf("type is 'text2vec-contextionary-contextual', but 'trainingSetWhere' filter is set, for 'text2vec-contextionary-contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
 	}
 }
 
@@ -87,18 +85,18 @@ func (v *Validator) knnTypeFeasibility() {
 	}
 
 	if v.subject.Filters != nil && v.subject.Filters.TargetWhere != nil {
-		v.errors.addf("type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'")
+		v.errors.Addf("type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'")
 	}
 }
 
 func (v *Validator) basedOnProperties(class *models.Class) {
 	if v.subject.BasedOnProperties == nil || len(v.subject.BasedOnProperties) == 0 {
-		v.errors.addf("basedOnProperties must have at least one property")
+		v.errors.Addf("basedOnProperties must have at least one property")
 		return
 	}
 
 	if len(v.subject.BasedOnProperties) > 1 {
-		v.errors.addf("only a single property in basedOnProperties supported at the moment, got %v",
+		v.errors.Addf("only a single property in basedOnProperties supported at the moment, got %v",
 			v.subject.BasedOnProperties)
 		return
 	}
@@ -111,30 +109,30 @@ func (v *Validator) basedOnProperties(class *models.Class) {
 func (v *Validator) basedOnProperty(class *models.Class, propName string) {
 	prop, ok := v.propertyByName(class, propName)
 	if !ok {
-		v.errors.addf("basedOnProperties: property '%s' does not exist", propName)
+		v.errors.Addf("basedOnProperties: property '%s' does not exist", propName)
 		return
 	}
 
 	dt, err := v.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
-		v.errors.addf("basedOnProperties: %v", err)
+		v.errors.Addf("basedOnProperties: %v", err)
 		return
 	}
 
 	if !dt.IsPrimitive() {
-		v.errors.addf("basedOnProperties: property '%s' must be of type 'text'", propName)
+		v.errors.Addf("basedOnProperties: property '%s' must be of type 'text'", propName)
 		return
 	}
 
 	if dt.AsPrimitive() != schema.DataTypeText {
-		v.errors.addf("basedOnProperties: property '%s' must be of type 'text'", propName)
+		v.errors.Addf("basedOnProperties: property '%s' must be of type 'text'", propName)
 		return
 	}
 }
 
 func (v *Validator) classifyProperties(class *models.Class) {
 	if v.subject.ClassifyProperties == nil || len(v.subject.ClassifyProperties) == 0 {
-		v.errors.add(fmt.Errorf("classifyProperties must have at least one property"))
+		v.errors.Addf("classifyProperties must have at least one property")
 		return
 	}
 
@@ -146,24 +144,24 @@ func (v *Validator) classifyProperties(class *models.Class) {
 func (v *Validator) classifyProperty(class *models.Class, propName string) {
 	prop, ok := v.propertyByName(class, propName)
 	if !ok {
-		v.errors.addf("classifyProperties: property '%s' does not exist", propName)
+		v.errors.Addf("classifyProperties: property '%s' does not exist", propName)
 		return
 	}
 
 	dt, err := v.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
-		v.errors.addf("classifyProperties: %v", err)
+		v.errors.Addf("classifyProperties: %v", err)
 		return
 	}
 
 	if dt.IsPrimitive() {
-		v.errors.addf("classifyProperties: property '%s' must be of reference type (cref)", propName)
+		v.errors.Addf("classifyProperties: property '%s' must be of reference type (cref)", propName)
 		return
 	}
 
 	if v.typeText2vecContextionaryContextual() {
 		if len(dt.Classes()) > 1 {
-			v.errors.addf("classifyProperties: property '%s'"+
+			v.errors.Addf("classifyProperties: property '%s'"+
 				" has more than one target class, classification of type 'text2vec-contextionary-contextual' requires exactly one target class", propName)
 			return
 		}
@@ -194,42 +192,4 @@ func (v *Validator) typeKNN() bool {
 	}
 
 	return v.subject.Type == TypeKNN
-}
-
-type errorCompounder struct {
-	sync.Mutex
-	errors []error
-}
-
-func (ec *errorCompounder) addf(msg string, args ...interface{}) {
-	ec.Lock()
-	defer ec.Unlock()
-	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
-}
-
-func (ec *errorCompounder) add(err error) {
-	ec.Lock()
-	defer ec.Unlock()
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
-}
-
-func (ec *errorCompounder) toError() error {
-	ec.Lock()
-	defer ec.Unlock()
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
 }

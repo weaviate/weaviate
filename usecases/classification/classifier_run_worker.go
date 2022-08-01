@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
@@ -25,7 +26,7 @@ type runWorker struct {
 	jobs         []search.Result
 	successCount *int64
 	errorCount   *int64
-	ec           *errorCompounder
+	ec           *errorcompounder.SafeErrorCompounder
 	classify     ClassifyItemFn
 	batchWriter  Writer
 	params       models.Classification
@@ -45,14 +46,14 @@ func (w *runWorker) work(ctx context.Context, wg *sync.WaitGroup) {
 		// check if the whole classification operation has been cancelled
 		// if yes, then abort the classifier worker
 		if err := ctx.Err(); err != nil {
-			w.ec.add(err)
+			w.ec.Add(err)
 			atomic.AddInt64(w.errorCount, 1)
 			break
 		}
 		originalIndex := (i * w.workerCount) + w.id
 		err := w.classify(item, originalIndex, w.params, w.filters, w.batchWriter)
 		if err != nil {
-			w.ec.add(err)
+			w.ec.Add(err)
 			atomic.AddInt64(w.errorCount, 1)
 		} else {
 			atomic.AddInt64(w.successCount, 1)
@@ -78,7 +79,7 @@ type runWorkers struct {
 	workers      []*runWorker
 	successCount *int64
 	errorCount   *int64
-	ec           *errorCompounder
+	ec           *errorcompounder.SafeErrorCompounder
 	classify     ClassifyItemFn
 	params       models.Classification
 	filters      Filters
@@ -94,7 +95,7 @@ func newRunWorkers(amount int, classifyFn ClassifyItemFn,
 		workers:      make([]*runWorker, amount),
 		successCount: &successCount,
 		errorCount:   &errorCount,
-		ec:           &errorCompounder{},
+		ec:           &errorcompounder.SafeErrorCompounder{},
 		classify:     classifyFn,
 		params:       params,
 		filters:      filters,
@@ -128,17 +129,17 @@ func (ws *runWorkers) work(ctx context.Context) runWorkerResults {
 	res := ws.batchWriter.Stop()
 
 	if res.SuccessCount() != *ws.successCount || res.ErrorCount() != *ws.errorCount {
-		ws.ec.add(errors.New("data save error"))
+		ws.ec.Add(errors.New("data save error"))
 	}
 
 	if res.Err() != nil {
-		ws.ec.add(res.Err())
+		ws.ec.Add(res.Err())
 	}
 
 	return runWorkerResults{
 		successCount: *ws.successCount,
 		errorCount:   *ws.errorCount,
-		err:          ws.ec.toError(),
+		err:          ws.ec.ToError(),
 	}
 }
 
