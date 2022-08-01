@@ -46,7 +46,6 @@ function print_help() {
 function run_all() {
   trap delete_machine EXIT
 
-  check
   prepare
   benchmark
 }
@@ -107,11 +106,10 @@ function install_docker() {
 }
 
 function clone_repository() {
-  ssh_command "cd; [ ! -d weaviate ] && git clone https://github.com/semi-technologies/weaviate.git weaviate || true"
+  ref=$(git rev-parse --abbrev-ref HEAD)
+  echo_green "Cloning weaviate repo to branch $ref"
+  ssh_command "cd; [ ! -d weaviate ] && git clone --depth 1 --branch $ref https://github.com/semi-technologies/weaviate.git weaviate || true"
   ssh_command "cd weaviate; git-lfs install; git-lfs pull"
-  ref=$(git rev-parse HEAD | head -c 7)
-  echo_green "Checking out local commit/branch $ref"
-  ssh_command "cd weaviate; git checkout $ref"
 }
 
 function checkout() {
@@ -138,9 +136,9 @@ function echo_green() {
 }
 
 function echo_red() {
-  green='\033[0;31m'
+  red='\033[0;31m'
   nc='\033[0m' 
-  echo -e "${green}${*}${nc}"
+  echo -e "${red}${*}${nc}"
 }
 
 function ssh_command() {

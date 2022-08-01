@@ -20,6 +20,4 @@ resource "google_compute_instance" "default" {
       // Ephemeral public IP
     }
   }
-
-  metadata_startup_script = "echo hi > /test.txt"
 }
