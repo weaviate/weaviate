@@ -20,12 +20,69 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSnapshot_IndexLevel(t *testing.T) {
+	t.Run("successful snapshot creation", func(t *testing.T) {
+		ctx := testCtx()
+		className := "IndexLevelSnapshotClass"
+		snapshotID := "index-level-snapshot-test"
+		now := time.Now().UnixNano()
+
+		_, index := testShard(ctx, className, withVectorIndexing(true))
+		// let the index age for a second so that
+		// the commitlogger filenames, which are
+		// based on current timestamp, can differ
+		time.Sleep(time.Second)
+
+		t.Run("insert data", func(t *testing.T) {
+			require.Nil(t, index.putObject(ctx, &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					Class:              className,
+					CreationTimeUnix:   now,
+					ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
+					LastUpdateTimeUnix: now,
+					Vector:             []float32{1, 2, 3},
+					VectorWeights:      nil,
+				},
+				Vector: []float32{1, 2, 3},
+			}))
+		})
+
+		t.Run("create snapshot", func(t *testing.T) {
+			snap, err := index.CreateSnapshot(ctx, snapshotID)
+			assert.Nil(t, err)
+
+			t.Run("assert snapshot file contents", func(t *testing.T) {
+				// should have 7 files:
+				//     - 6 files from lsm store:
+				//         - objects/segment-123.wal
+				//         - objects/segment-123.db
+				//         - hash_property__id/segment-123.wal
+				//         - hash_property__id/segment-123.db
+				//         - property__id/segment-123.wal
+				//         - property__id/segment-123.db
+				//     - 1 file from vector index commitlogger
+				assert.Len(t, snap.Files, 7)
+			})
+		})
+
+		t.Run("release snapshot", func(t *testing.T) {
+			err := index.ReleaseSnapshot(ctx, snapshotID)
+			assert.Nil(t, err)
+		})
+
+		err := index.Shutdown(ctx)
+		require.Nil(t, err)
+	})
+}
 
 func TestSnapshot_BucketLevel(t *testing.T) {
 	ctx := testCtx()

@@ -22,6 +22,11 @@ type Snapshot struct {
 	BasePath string   `json:"basePath"`
 }
 
+type State struct {
+	SnapshotID string
+	InProgress bool
+}
+
 // type Backup struct {
 // 	Events []BackupEvent
 // }

@@ -199,7 +199,7 @@ func testCtx() context.Context {
 	return ctx
 }
 
-func testShard(ctx context.Context, className string) (*Shard, *Index) {
+func testShard(ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
 
 	shardState := singleShardState()
@@ -219,6 +219,10 @@ func testShard(ctx context.Context, className string) (*Shard, *Index) {
 		Shards:                map[string]*Shard{},
 	}
 
+	for _, opt := range indexOpts {
+		opt(idx)
+	}
+
 	shardName := shardState.AllPhysicalShards()[0]
 
 	shd, err := NewShard(ctx, nil, shardName, idx)
@@ -229,6 +233,18 @@ func testShard(ctx context.Context, className string) (*Shard, *Index) {
 	idx.Shards[shardName] = shd
 
 	return shd, idx
+}
+
+func withVectorIndexing(affirmative bool) func(*Index) {
+	if affirmative {
+		return func(i *Index) {
+			i.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+		}
+	}
+
+	return func(i *Index) {
+		i.vectorIndexUserConfig = hnsw.UserConfig{Skip: true}
+	}
 }
 
 func testObject(className string) *storobj.Object {
