@@ -29,24 +29,38 @@ type cycleFuncProvider struct {
 }
 
 func newProvider(cycleDuration time.Duration, resultsSize uint) *cycleFuncProvider {
+	return newProviderStoppable(cycleDuration, resultsSize, 1)
+}
+
+func newProviderStoppable(cycleDuration time.Duration, resultsSize uint, stops int) *cycleFuncProvider {
 	fs := false
 	p := &cycleFuncProvider{}
 	p.results = make(chan string, resultsSize)
 	p.firstCycleStarted = make(chan struct{}, 1)
-	p.cycleFunc = func() {
+	p.cycleFunc = func(stopFunc StopFunc) {
 		p.Lock()
 		if !fs {
 			p.firstCycleStarted <- struct{}{}
 			fs = true
 		}
 		p.Unlock()
-		time.Sleep(cycleDuration)
+
+		if stops > 1 {
+			for i := 0; i < stops; i++ {
+				time.Sleep(cycleDuration / time.Duration(stops))
+				if stopFunc() {
+					return
+				}
+			}
+		} else {
+			time.Sleep(cycleDuration)
+		}
 		p.results <- "something wonderful..."
 	}
 	return p
 }
 
-func TestCycleManager(t *testing.T) {
+func TestCycleManager_beforeTimeout(t *testing.T) {
 	cycleInterval := 5 * time.Millisecond
 	cycleDuration := 1 * time.Millisecond
 	stopTimeout := 12 * time.Millisecond
@@ -87,6 +101,42 @@ func TestCycleManager(t *testing.T) {
 	})
 }
 
+func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
+
+	p := newProvider(cycleDuration, 1)
+	var cm *CycleManager
+
+	t.Run("create new", func(t *testing.T) {
+		cm = New(cycleInterval, p.cycleFunc)
+
+		assert.False(t, cm.Running())
+		assert.Equal(t, cycleInterval, cm.cycleInterval)
+		assert.NotNil(t, cm.cycleFunc)
+		assert.NotNil(t, cm.stop)
+	})
+
+	t.Run("start", func(t *testing.T) {
+		cm.Start()
+		<-p.firstCycleStarted
+
+		assert.True(t, cm.Running())
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel()
+
+		err := cm.StopAndWait(timeoutCtx)
+
+		assert.Nil(t, err)
+		assert.False(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+}
+
 func TestCycleManager_timeout(t *testing.T) {
 	cycleInterval := 5 * time.Millisecond
 	cycleDuration := 20 * time.Millisecond
@@ -124,6 +174,36 @@ func TestCycleManager_timeout(t *testing.T) {
 	})
 }
 
+func TestCycleManager_timeoutWithWait(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 20 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
+
+	p := newProvider(cycleDuration, 1)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("timeout is reached", func(t *testing.T) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel()
+
+		cm.Start()
+		<-p.firstCycleStarted
+
+		err := cm.StopAndWait(timeoutCtx)
+
+		assert.NotNil(t, err)
+		assert.Equal(t, "context deadline exceeded", err.Error())
+		assert.True(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopResult := cm.Stop(context.Background())
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+	})
+}
+
 func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
 	cycleInterval := 5 * time.Millisecond
 	cycleDuration := 1 * time.Millisecond
@@ -142,6 +222,30 @@ func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
 		stopResult := cm.Stop(context.Background())
 
 		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+		// just one result produced
+		assert.Equal(t, 1, len(p.results))
+	})
+}
+
+func TestCycleManager_doesNotStartMultipleTimesWithWait(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 1 * time.Millisecond
+
+	startCount := 5
+
+	p := newProvider(cycleDuration, uint(startCount))
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("multiple starts", func(t *testing.T) {
+		for i := 0; i < startCount; i++ {
+			cm.Start()
+		}
+		<-p.firstCycleStarted
+
+		err := cm.StopAndWait(context.Background())
+
+		assert.Nil(t, err)
 		assert.False(t, cm.Running())
 		// just one result produced
 		assert.Equal(t, 1, len(p.results))
@@ -233,6 +337,67 @@ func TestCycleManager_doesNotStopIfAllContextsAreCancelled(t *testing.T) {
 		assert.False(t, <-stopResult2)
 		assert.False(t, <-stopResult3)
 
+		assert.True(t, cm.Running())
+		assert.Equal(t, "something wonderful...", <-p.results)
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopResult := cm.Stop(context.Background())
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+	})
+}
+
+func TestCycleManager_cycleFuncStoppedDueToFrequentStopChecks(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 20 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
+
+	// despite cycleDuration is 20ms, cycle function checks every 5ms (20/4) if it needs to be stopped
+	p := newProviderStoppable(cycleDuration, 1, 4)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("cycle funcion stopped before timeout reached", func(t *testing.T) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel()
+
+		cm.Start()
+		<-p.firstCycleStarted
+
+		err := cm.StopAndWait(timeoutCtx)
+
+		assert.Nil(t, err)
+		assert.False(t, cm.Running())
+		assert.Equal(t, 0, len(p.results))
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		stopResult := cm.Stop(context.Background())
+		assert.True(t, <-stopResult)
+		assert.False(t, cm.Running())
+	})
+}
+
+func TestCycleManager_cycleFuncNotStoppedDueToRareStopChecks(t *testing.T) {
+	cycleInterval := 5 * time.Millisecond
+	cycleDuration := 20 * time.Millisecond
+	stopTimeout := 12 * time.Millisecond
+
+	// despite cycleDuration is 20ms, cycle function checks every 10ms (20/2) if it needs to be stopped
+	p := newProviderStoppable(cycleDuration, 1, 2)
+	cm := New(cycleInterval, p.cycleFunc)
+
+	t.Run("timeout reached", func(t *testing.T) {
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		defer cancel()
+
+		cm.Start()
+		<-p.firstCycleStarted
+
+		err := cm.StopAndWait(timeoutCtx)
+
+		assert.NotNil(t, err)
+		assert.Equal(t, "context deadline exceeded", err.Error())
 		assert.True(t, cm.Running())
 		assert.Equal(t, "something wonderful...", <-p.results)
 	})
