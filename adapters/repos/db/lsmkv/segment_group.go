@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
@@ -37,7 +38,7 @@ type SegmentGroup struct {
 
 	strategy string
 
-	stopCompactionCycle chan struct{}
+	compactionCycle *cyclemanager.CycleManager
 
 	logger logrus.FieldLogger
 
@@ -50,13 +51,13 @@ type SegmentGroup struct {
 	metrics    *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
 }
 
 func newSegmentGroup(dir string,
-	compactionCycle time.Duration, logger logrus.FieldLogger,
+	compactionInterval time.Duration, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
 	monitorCount bool) (*SegmentGroup, error) {
 	list, err := ioutil.ReadDir(dir)
@@ -65,14 +66,13 @@ func newSegmentGroup(dir string,
 	}
 
 	out := &SegmentGroup{
-		segments:            make([]*segment, len(list)),
-		dir:                 dir,
-		logger:              logger,
-		metrics:             metrics,
-		monitorCount:        monitorCount,
-		stopCompactionCycle: make(chan struct{}),
-		mapRequiresSorting:  mapRequiresSorting,
-		strategy:            strategy,
+		segments:           make([]*segment, len(list)),
+		dir:                dir,
+		logger:             logger,
+		metrics:            metrics,
+		monitorCount:       monitorCount,
+		mapRequiresSorting: mapRequiresSorting,
+		strategy:           strategy,
 	}
 
 	segmentIndex := 0
@@ -126,7 +126,9 @@ func newSegmentGroup(dir string,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.initCompactionCycle(compactionCycle)
+	out.compactionCycle = cyclemanager.New(compactionInterval, out.compactIfLevelsMatch)
+	out.compactionCycle.Start()
+
 	return out, nil
 }
 
@@ -290,10 +292,19 @@ func (sg *SegmentGroup) count() int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	if err := sg.compactionCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
+	}
+
+	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
+	// because compaction logic used in cycle also requires maintenance lock.
+	//
+	// If lock is grabbed by shutdown method and compaction in cycle loop starts right after,
+	// it is blocked waiting for the same lock, eventually blocking entire cycle loop and preventing to read stop signal.
+	// If stop signal can not be read, shutdown will not receive stop result and will not proceed with further execution.
+	// Maintenance lock will then never be released.
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
-
-	sg.stopCompactionCycle <- struct{}{}
 
 	for i, seg := range sg.segments {
 		if err := seg.close(); err != nil {

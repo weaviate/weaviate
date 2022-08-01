@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
@@ -46,7 +47,7 @@ type Bucket struct {
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	stopFlushCycle chan struct{}
+	flushCycle *cyclemanager.CycleManager
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -54,8 +55,8 @@ type Bucket struct {
 	metrics *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
 }
 
@@ -77,7 +78,6 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
-		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
 		metrics:           metrics,
 	}
@@ -88,7 +88,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		}
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
 		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
@@ -104,7 +104,9 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	b.initFlushCycle()
+	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle.Start()
+
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
@@ -454,7 +456,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	b.stopFlushCycle <- struct{}{}
+	if err := b.flushCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(ctx.Err(), "long-running flush in progress")
+	}
 
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
@@ -482,58 +486,48 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) initFlushCycle() {
-	go func() {
-		t := time.Tick(100 * time.Millisecond)
-		for {
-			select {
-			case <-b.stopFlushCycle:
-				return
-			case <-t:
-				b.flushLock.Lock()
+func (b *Bucket) flushAndSwitchIfThresholdsMet() {
+	b.flushLock.Lock()
 
-				// to check the current size of the WAL to
-				// see if the threshold has been reached
-				stat, err := b.active.commitlog.file.Stat()
-				if err != nil {
-					b.logger.WithField("action", "lsm_wal_stat").
-						WithField("path", b.dir).
-						WithError(err).
-						Fatal("flush and switch failed")
-				}
+	// to check the current size of the WAL to
+	// see if the threshold has been reached
+	stat, err := b.active.commitlog.file.Stat()
+	if err != nil {
+		b.logger.WithField("action", "lsm_wal_stat").
+			WithField("path", b.dir).
+			WithError(err).
+			Fatal("flush and switch failed")
+	}
 
-				memtableTooLarge := b.active.Size() >= b.memTableThreshold
-				walTooLarge := uint64(stat.Size()) >= b.walThreshold
-				dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
-					b.active.IdleDuration() >= b.flushAfterIdle
-				shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	memtableTooLarge := b.active.Size() >= b.memTableThreshold
+	walTooLarge := uint64(stat.Size()) >= b.walThreshold
+	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+		b.active.IdleDuration() >= b.flushAfterIdle
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
-				// If true, the parent shard has indicated that it has
-				// entered an immutable state. During this time, the
-				// bucket should refrain from flushing until its shard
-				// indicates otherwise
-				if shouldSwitch && b.isReadOnly() {
-					b.logger.WithField("action", "lsm_memtable_flush").
-						WithField("path", b.dir).
-						Warn("flush halted due to shard READONLY status")
+	// If true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// bucket should refrain from flushing until its shard
+	// indicates otherwise
+	if shouldSwitch && b.isReadOnly() {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			Warn("flush halted due to shard READONLY status")
 
-					b.flushLock.Unlock()
-					time.Sleep(time.Second)
-					continue
-				}
+		b.flushLock.Unlock()
+		time.Sleep(time.Second)
+		return
+	}
 
-				b.flushLock.Unlock()
-				if shouldSwitch {
-					if err := b.FlushAndSwitch(); err != nil {
-						b.logger.WithField("action", "lsm_memtable_flush").
-							WithField("path", b.dir).
-							WithError(err).
-							Errorf("flush and switch failed")
-					}
-				}
-			}
+	b.flushLock.Unlock()
+	if shouldSwitch {
+		if err := b.FlushAndSwitch(); err != nil {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				WithError(err).
+				Errorf("flush and switch failed")
 		}
-	}()
+	}
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -600,7 +594,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 
 	if b.strategy == StrategyReplace && b.monitorCount {
 		// having just flushed the memtable we now have the most up2date count which
-		// is a good place to udpate the metric
+		// is a good place to update the metric
 		b.metrics.ObjectCount(b.disk.count())
 	}
 
@@ -620,7 +614,7 @@ func (b *Bucket) Strategy() string {
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
-// this function explicitly called. This allows to safge unnecessary disk
+// this function explicitly called. This allows to avoid unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write
 // on the WAL just once. This does not make a batch atomic, but it guarantees
 // that the WAL is written before a successful response is returned to the

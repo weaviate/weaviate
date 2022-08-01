@@ -181,7 +181,7 @@ func startWeavaite(c *http.Client, url string) (bool, error) {
 	fmt.Print("(Re-) build and start weaviate.\n")
 	cmd := "./tools/test/run_ci_server.sh"
 	if err := command(cmd, []string{}, true); err != nil {
-		panic("Command to (re-) build and start weaviate failed.")
+		panic("Command to (re-) build and start weaviate failed: " + err.Error())
 	}
 	return false, nil
 }

@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +44,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -66,7 +68,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -91,7 +93,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -116,7 +118,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -141,7 +143,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 10, len(notes))
@@ -166,7 +168,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 10, len(notes))
@@ -190,7 +192,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Less(t, len(notes), defaultLimit)
@@ -214,7 +216,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Less(t, len(notes), defaultLimit)
@@ -239,7 +241,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -260,7 +262,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -282,7 +284,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -304,7 +306,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -326,7 +328,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 13, len(notes))
@@ -348,7 +350,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 		}
 		`, nearObjID)
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 13, len(notes))
@@ -373,7 +375,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 		}
 		`, nearObjID)
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Less(t, len(notes), defaultLimit)
@@ -398,7 +400,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 			`, nearObjID)
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Less(t, len(notes), defaultLimit)
@@ -422,7 +424,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 			`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -444,7 +446,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 			}
 			`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -467,7 +469,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -490,7 +492,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Greater(t, len(notes), defaultLimit)
@@ -512,7 +514,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 					}
 				}
 				`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 5, len(notes))
@@ -534,7 +536,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 					}
 				}
 				`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.NotEmpty(t, notes)
 		require.Equal(t, 5, len(notes))
@@ -559,7 +561,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.Less(t, len(notes), defaultLimit)
 	})
@@ -583,7 +585,7 @@ func gettingObjectsWithNearFields(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "RansomNote").AsSlice()
 		require.Less(t, len(notes), defaultLimit)
 	})
@@ -608,7 +610,7 @@ func gettingObjectsWithNearFieldsMultiShard(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "MultiShard").AsSlice()
 		require.Equal(t, len(notes), 3)
 	})
@@ -631,7 +633,7 @@ func gettingObjectsWithNearFieldsMultiShard(t *testing.T) {
 				}
 				`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		notes := result.Get("Get", "MultiShard").AsSlice()
 		require.Equal(t, len(notes), 3)
 	})
@@ -639,7 +641,7 @@ func gettingObjectsWithNearFieldsMultiShard(t *testing.T) {
 
 func getOneExistingID(t *testing.T, className string) string {
 	query := fmt.Sprintf("{Get {%s(limit: 1) {_additional {id}}}}", className)
-	result := AssertGraphQL(t, helper.RootAuth, query).Result.(map[string]interface{})
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Result.(map[string]interface{})
 
 	classes, ok := result["Get"].(map[string]interface{})
 	if !ok {

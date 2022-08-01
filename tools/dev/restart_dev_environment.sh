@@ -40,6 +40,9 @@ if [[ "$*" == *--prometheus* ]]; then
   ADDITIONAL_SERVICES+=('prometheus')
   ADDITIONAL_SERVICES+=('grafana')
 fi
+if [[ "$*" == *--s3* ]]; then
+  ADDITIONAL_SERVICES+=('storage-aws-s3')
+fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
@@ -72,6 +75,11 @@ fi
 if [[ "$*" == *--image* ]]; then
   echo "You have specified the --image option. Starting up"
   echo "the text2vec-contextionary model container with img2vec-image module"
+fi
+
+if [[ "$*" == *--s3* ]]; then
+  echo "You have specified the --s3 option. Starting up"
+  echo "the text2vec-contextionary model container with storage-aws-s3 module"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"
