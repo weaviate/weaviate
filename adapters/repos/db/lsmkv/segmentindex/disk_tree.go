@@ -81,36 +81,34 @@ func (t *DiskTree) getAt(offset int64, key []byte) (Node, error) {
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
-	r := bytes.NewReader(t.data)
-	r.Seek(offset, io.SeekStart)
-
-	return t.readNode(r)
+	retNode, _, err := t.readNode(t.data[offset:])
+	return retNode, err
 }
 
-func (t *DiskTree) readNode(r io.Reader) (dtNode, error) {
+func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 	var out dtNode
-	tmpBuf := make([]byte, 32) // 32 bytes (4x uint64 is the most we'll ever read at the same time)
-
-	if _, err := r.Read(tmpBuf[0:4]); err != nil {
-		return out, err
+	// in buffer needs at least 36 bytes of data:
+	// 4bytes for key length, 32bytes for position and children
+	if len(in) < 36 {
+		return out, 0, io.EOF
 	}
-
-	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
+	keyLen := int(binary.LittleEndian.Uint32(in[0 : 0+4]))
 	out.key = make([]byte, keyLen)
-	if _, err := r.Read(out.key); err != nil {
-		return out, err
+	bytesCopied := copy(out.key, in[4:4+keyLen])
+	if bytesCopied != keyLen {
+		return out, 4 + bytesCopied, errors.New("Could not copy complete key")
 	}
 
-	// read the next four 8 byte numbers at once
-	if _, err := r.Read(tmpBuf[0:32]); err != nil {
-		return out, err
-	}
-
-	out.startPos = binary.LittleEndian.Uint64(tmpBuf[0:8])
-	out.endPos = binary.LittleEndian.Uint64(tmpBuf[8:16])
-	out.leftChild = int64(binary.LittleEndian.Uint64(tmpBuf[16:24]))
-	out.rightChild = int64(binary.LittleEndian.Uint64(tmpBuf[24:32]))
-	return out, nil
+	bufferPos := keyLen + 4
+	out.startPos = binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8])
+	bufferPos += 8
+	out.endPos = binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8])
+	bufferPos += 8
+	out.leftChild = int64(binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8]))
+	bufferPos += 8
+	out.rightChild = int64(binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8]))
+	bufferPos += 8
+	return out, bufferPos, nil
 }
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {
@@ -171,10 +169,11 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 // for use cases who don't require a specific order, such as building a
 // bloom filter.
 func (t *DiskTree) AllKeys() ([][]byte, error) {
-	r := bytes.NewReader(t.data)
 	var out [][]byte
+	bufferPos := 0
 	for {
-		node, err := t.readNode(r)
+		node, readLength, err := t.readNode(t.data[bufferPos:])
+		bufferPos += readLength
 		if err == io.EOF {
 			break
 		}
