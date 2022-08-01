@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/diskio"
 )
 
@@ -122,8 +123,8 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) tombstoneCleanup() {
-	if err := h.CleanUpTombstonedNodes(); err != nil {
+func (h *hnsw) tombstoneCleanup(stopFunc cyclemanager.StopFunc) {
+	if err := h.CleanUpTombstonedNodes(stopFunc); err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
 			WithError(err).Error("tombstone cleanup errord")
 	}
