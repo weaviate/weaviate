@@ -11,7 +11,11 @@
 
 package lsmkv
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
+)
 
 type binarySearchTree struct {
 	root *binarySearchNode
@@ -24,11 +28,18 @@ func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int
 			key:           key,
 			value:         value,
 			secondaryKeys: secondaryKeys,
+			colourIsRed:   false, // root node is always black
 		}
 		return len(key) + len(value)
 	}
 
-	return t.root.insert(key, value, secondaryKeys)
+	addition, newRoot := t.root.insert(key, value, secondaryKeys)
+	if newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
+
+	return addition
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -50,11 +61,16 @@ func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 			value:         nil,
 			tombstone:     true,
 			secondaryKeys: secondaryKeys,
+			colourIsRed:   false, // root node is always black
 		}
 		return
 	}
 
-	t.root.setTombstone(key, secondaryKeys)
+	newRoot := t.root.setTombstone(key, secondaryKeys)
+	if newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
@@ -86,12 +102,92 @@ type binarySearchNode struct {
 	secondaryKeys [][]byte
 	left          *binarySearchNode
 	right         *binarySearchNode
+	parent        *binarySearchNode
 	tombstone     bool
+	colourIsRed   bool
+}
+
+func (n *binarySearchNode) Parent() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.parent
+}
+
+func (n *binarySearchNode) SetParent(parent rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeReceiver(&n)
+	}
+
+	if parent == nil {
+		n.parent = nil
+		return
+	}
+
+	n.parent = parent.(*binarySearchNode)
+}
+
+func (n *binarySearchNode) Left() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.left
+}
+
+func (n *binarySearchNode) SetLeft(left rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeReceiver(&n)
+	}
+
+	if left == nil {
+		n.left = nil
+		return
+	}
+
+	n.left = left.(*binarySearchNode)
+}
+
+func (n *binarySearchNode) Right() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.right
+}
+
+func (n *binarySearchNode) SetRight(right rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeReceiver(&n)
+	}
+
+	if right == nil {
+		n.right = nil
+		return
+	}
+
+	n.right = right.(*binarySearchNode)
+}
+
+func (n *binarySearchNode) IsRed() bool {
+	if n == nil {
+		return false
+	}
+	return n.colourIsRed
+}
+
+func (n *binarySearchNode) SetRed(isRed bool) {
+	n.colourIsRed = isRed
+}
+
+func (n *binarySearchNode) IsNil() bool {
+	return n == nil
+}
+
+func addNewSearchNodeReceiver(nodePtr **binarySearchNode) {
+	*nodePtr = &binarySearchNode{}
 }
 
 // returns net additions of insert in bytes
-func (n *binarySearchNode) insert(key, value []byte,
-	secondaryKeys [][]byte) (netAdditions int) {
+func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode) {
 	if bytes.Equal(key, n.key) {
 		// since the key already exists, we only need to take the difference
 		// between the existing value and the new one to determine net change
@@ -107,33 +203,40 @@ func (n *binarySearchNode) insert(key, value []byte,
 		n.tombstone = false
 		n.secondaryKeys = secondaryKeys
 
+		newRoot = nil // tree root does not change when replacing node
 		return
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			netAdditions = n.left.insert(key, value, secondaryKeys)
+			netAdditions, newRoot = n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
 				key:           key,
 				value:         value,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsRed:   true, // new nodes are always red, except root node which is handled in the tree itself
 			}
+			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.left))
 			netAdditions = len(key) + len(value)
 			return
 		}
 	} else {
 		if n.right != nil {
-			netAdditions = n.right.insert(key, value, secondaryKeys)
+			netAdditions, newRoot = n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{
 				key:           key,
 				value:         value,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsRed:   true,
 			}
 			netAdditions = len(key) + len(value)
+			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.right))
 			return
 		}
 	}
@@ -163,12 +266,12 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 	}
 }
 
-func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
+func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *binarySearchNode {
 	if bytes.Equal(n.key, key) {
 		n.value = nil
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
-		return
+		return nil
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -178,12 +281,13 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 				value:         nil,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsRed:   true,
 			}
-			return
-		}
+			return binarySearchNodeFromRB(rbtree.Rebalance(n.left))
 
-		n.left.setTombstone(key, secondaryKeys)
-		return
+		}
+		return n.left.setTombstone(key, secondaryKeys)
 	} else {
 		if n.right == nil {
 			n.right = &binarySearchNode{
@@ -191,12 +295,12 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) {
 				value:         nil,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
+				parent:        n,
+				colourIsRed:   true,
 			}
-			return
+			return binarySearchNodeFromRB(rbtree.Rebalance(n.right))
 		}
-
-		n.right.setTombstone(key, secondaryKeys)
-		return
+		return n.right.setTombstone(key, secondaryKeys)
 	}
 }
 
@@ -234,4 +338,13 @@ func (n *binarySearchNode) countStats(stats *countStats) {
 	if n.right != nil {
 		n.right.countStats(stats)
 	}
+}
+
+func binarySearchNodeFromRB(rbNode rbtree.Node) (bsNode *binarySearchNode) {
+	if rbNode == nil {
+		bsNode = nil
+		return
+	}
+	bsNode = rbNode.(*binarySearchNode)
+	return
 }

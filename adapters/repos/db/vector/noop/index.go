@@ -12,6 +12,8 @@
 package noop
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -45,7 +47,7 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }
 
-func (i *Index) Drop() error {
+func (i *Index) Drop(context.Context) error {
 	// silently ignore
 	return nil
 }
@@ -54,4 +56,6 @@ func (i *Index) Flush() error {
 	return nil
 }
 
-func (i *Index) Shutdown() {}
+func (i *Index) Shutdown(context.Context) error {
+	return nil
+}

@@ -23,8 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,12 +49,12 @@ func findObject(t *testing.T) {
 	)
 
 	// test setup
-	first_uuid := assertCreateObject(t, first_friend, map[string]interface{}{})
-	defer deleteClassObject(t, first_friend)
-	second_uuid := assertCreateObject(t, second_friend, map[string]interface{}{})
-	defer deleteClassObject(t, second_friend)
+	first_uuid := helper.AssertCreateObject(t, first_friend, map[string]interface{}{})
+	defer helper.DeleteClassObject(t, first_friend)
+	second_uuid := helper.AssertCreateObject(t, second_friend, map[string]interface{}{})
+	defer helper.DeleteClassObject(t, second_friend)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      cls,
 		Vectorizer: "none",
 		Properties: []*models.Property{
@@ -70,7 +69,7 @@ func findObject(t *testing.T) {
 		},
 	})
 	// tear down
-	defer deleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, cls)
 	link1 := map[string]interface{}{
 		"beacon": crossref.NewLocalhost("", first_uuid).String(),
 		"href":   fmt.Sprintf("/v1/objects/%s", first_uuid),
@@ -84,7 +83,7 @@ func findObject(t *testing.T) {
 		"friend": []interface{}{link1, link2},
 	}
 
-	uuid := assertCreateObject(t, cls, expected)
+	uuid := helper.AssertCreateObject(t, cls, expected)
 
 	r := objects.NewObjectsClassGetParams().WithID(uuid).WithClassName(cls)
 	resp, err := helper.Client(t).Objects.ObjectsClassGet(r, nil)
@@ -102,7 +101,7 @@ func headObject(t *testing.T) {
 	t.Parallel()
 	cls := "TestObjectHTTPHead"
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      cls,
 		Vectorizer: "none",
 		Properties: []*models.Property{
@@ -113,9 +112,9 @@ func headObject(t *testing.T) {
 		},
 	})
 	// tear down
-	defer deleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, cls)
 
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"name": "John",
 	})
 
@@ -138,10 +137,10 @@ func putObject(t *testing.T) {
 	)
 
 	// test setup
-	friend_uuid := assertCreateObject(t, friend_cls, map[string]interface{}{})
-	defer deleteClassObject(t, friend_cls)
+	friend_uuid := helper.AssertCreateObject(t, friend_cls, map[string]interface{}{})
+	defer helper.DeleteClassObject(t, friend_cls)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class: cls,
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
@@ -176,8 +175,8 @@ func putObject(t *testing.T) {
 		},
 	})
 	// tear down
-	defer deleteClassObject(t, cls)
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	defer helper.DeleteClassObject(t, cls)
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"testWholeNumber": 2.0,
 		"testDateTime":    time.Now(),
 		"testString":      "wibbly",
@@ -205,7 +204,7 @@ func putObject(t *testing.T) {
 	params := objects.NewObjectsClassPutParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Objects.ObjectsClassPut(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
-	actual := assertGetObject(t, cls, uuid).Properties.(map[string]interface{})
+	actual := helper.AssertGetObject(t, cls, uuid).Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 }
 
@@ -221,13 +220,13 @@ func patchObject(t *testing.T) {
 		}
 	)
 	// test setup
-	assertCreateObjectClass(t, &models.Class{ // friend
+	helper.AssertCreateObjectClass(t, &models.Class{ // friend
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, friend_cls)
-	assertCreateObjectClass(t, &models.Class{ // class
+	defer helper.DeleteClassObject(t, friend_cls)
+	helper.AssertCreateObjectClass(t, &models.Class{ // class
 		Class:        cls,
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
@@ -253,13 +252,13 @@ func patchObject(t *testing.T) {
 			},
 		},
 	})
-	defer deleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, cls)
 
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"integer1": 2.0,
 		"string1":  "wibbly",
 	})
-	friendID := assertCreateObject(t, friend_cls, nil)
+	friendID := helper.AssertCreateObject(t, friend_cls, nil)
 	link1 := map[string]interface{}{
 		"beacon": fmt.Sprintf("weaviate://localhost/%s", friendID),
 		"href":   fmt.Sprintf("/v1/objects/%s", friendID),
@@ -295,11 +294,11 @@ func patchObject(t *testing.T) {
 	updateResp, err := helper.Client(t).Objects.ObjectsClassPatch(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 	actual := func() interface{} {
-		obj := assertGetObject(t, cls, uuid)
+		obj := helper.AssertGetObject(t, cls, uuid)
 		props := obj.Properties.(map[string]interface{})
 		return props
 	}
-	testhelper.AssertEventuallyEqual(t, expected, actual)
+	helper.AssertEventuallyEqual(t, expected, actual)
 
 	params.WithID(strfmt.UUID("e5be1f32-0001-0000-0000-ebb25dfc811f"))
 	_, err = helper.Client(t).Objects.ObjectsClassPatch(params, nil)
@@ -322,20 +321,20 @@ func deleteObject(t *testing.T) {
 		}
 	)
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      classA,
 		Vectorizer: "none",
 		Properties: props,
 	})
-	defer deleteClassObject(t, classA)
+	defer helper.DeleteClassObject(t, classA)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      classB,
 		Vectorizer: "none",
 		Properties: props,
 	})
 
-	defer deleteClassObject(t, classB)
+	defer helper.DeleteClassObject(t, classB)
 
 	object1 := &models.Object{
 		Class: classA,
@@ -424,13 +423,13 @@ func postReference(t *testing.T) {
 	)
 
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, friend_cls)
-	assertCreateObjectClass(t, &models.Class{
+	defer helper.DeleteClassObject(t, friend_cls)
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
@@ -444,11 +443,11 @@ func postReference(t *testing.T) {
 			},
 		},
 	})
-	defer deleteClassObject(t, cls)
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	defer helper.DeleteClassObject(t, cls)
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"number": 2.0,
 	})
-	friendID := assertCreateObject(t, friend_cls, nil)
+	friendID := helper.AssertCreateObject(t, friend_cls, nil)
 	expected := map[string]interface{}{
 		"number": json.Number("2"),
 		"friend": []interface{}{
@@ -463,7 +462,7 @@ func postReference(t *testing.T) {
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj := assertGetObject(t, cls, uuid)
+	obj := helper.AssertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 
@@ -494,21 +493,21 @@ func putReferences(t *testing.T) {
 		}
 	)
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        first_friend,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, first_friend)
+	defer helper.DeleteClassObject(t, first_friend)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        second_friend,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, second_friend)
+	defer helper.DeleteClassObject(t, second_friend)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
@@ -522,13 +521,13 @@ func putReferences(t *testing.T) {
 			},
 		},
 	})
-	defer deleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, cls)
 
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"number": 2.0,
 	})
-	first_friendID := assertCreateObject(t, first_friend, nil)
-	second_friendID := assertCreateObject(t, second_friend, nil)
+	first_friendID := helper.AssertCreateObject(t, first_friend, nil)
+	second_friendID := helper.AssertCreateObject(t, second_friend, nil)
 
 	expected := map[string]interface{}{
 		"number": json.Number("2"),
@@ -552,7 +551,7 @@ func putReferences(t *testing.T) {
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err := helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj := assertGetObject(t, cls, uuid)
+	obj := helper.AssertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 
@@ -560,7 +559,7 @@ func putReferences(t *testing.T) {
 	params.WithID(uuid).WithBody(updateObj[:1]).WithPropertyName("friend")
 	resp, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj = assertGetObject(t, cls, uuid)
+	obj = helper.AssertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	expected["friend"] = expected["friend"].([]interface{})[:1]
 	assert.Equal(t, expected, actual)
@@ -583,7 +582,7 @@ func putReferences(t *testing.T) {
 	params.WithBody(models.MultipleRef{}).WithPropertyName("friend")
 	resp, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj = assertGetObject(t, cls, uuid)
+	obj = helper.AssertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	expected["friend"] = expected["friend"].([]interface{})[1:]
 	assert.Equal(t, expected, actual)
@@ -609,21 +608,21 @@ func deleteReference(t *testing.T) {
 		}
 	)
 	// test setup
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        first_friend,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, first_friend)
+	defer helper.DeleteClassObject(t, first_friend)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        second_friend,
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer deleteClassObject(t, second_friend)
+	defer helper.DeleteClassObject(t, second_friend)
 
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
 		Properties: []*models.Property{
@@ -637,11 +636,11 @@ func deleteReference(t *testing.T) {
 			},
 		},
 	})
-	defer deleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, cls)
 
-	first_friendID := assertCreateObject(t, first_friend, nil)
-	second_friendID := assertCreateObject(t, second_friend, nil)
-	uuid := assertCreateObject(t, cls, map[string]interface{}{
+	first_friendID := helper.AssertCreateObject(t, first_friend, nil)
+	second_friendID := helper.AssertCreateObject(t, second_friend, nil)
+	uuid := helper.AssertCreateObject(t, cls, map[string]interface{}{
 		"number": 2.0,
 		"friend": []interface{}{
 			map[string]interface{}{
@@ -670,14 +669,14 @@ func deleteReference(t *testing.T) {
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err := helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj := assertGetObject(t, cls, uuid)
+	obj := helper.AssertGetObject(t, cls, uuid)
 	actual := obj.Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 
 	// delete same reference again
 	resp, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj = assertGetObject(t, cls, uuid)
+	obj = helper.AssertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 
@@ -690,7 +689,7 @@ func deleteReference(t *testing.T) {
 	params.WithID(uuid).WithBody(updateObj).WithPropertyName("friend")
 	resp, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
-	obj = assertGetObject(t, cls, uuid)
+	obj = helper.AssertGetObject(t, cls, uuid)
 	actual = obj.Properties.(map[string]interface{})
 	assert.Equal(t, expected, actual)
 
@@ -725,9 +724,9 @@ func query(t *testing.T) {
 		first_friend = "TestObjectHTTPQueryFriend"
 	)
 	// test setup
-	assertCreateObject(t, first_friend, map[string]interface{}{})
-	defer deleteClassObject(t, first_friend)
-	assertCreateObjectClass(t, &models.Class{
+	helper.AssertCreateObject(t, first_friend, map[string]interface{}{})
+	defer helper.DeleteClassObject(t, first_friend)
+	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      cls,
 		Vectorizer: "none",
 		Properties: []*models.Property{
@@ -737,9 +736,9 @@ func query(t *testing.T) {
 			},
 		},
 	})
-	defer deleteClassObject(t, cls)
-	assertCreateObject(t, cls, map[string]interface{}{"count": 1})
-	assertCreateObject(t, cls, map[string]interface{}{"count": 1})
+	defer helper.DeleteClassObject(t, cls)
+	helper.AssertCreateObject(t, cls, map[string]interface{}{"count": 1})
+	helper.AssertCreateObject(t, cls, map[string]interface{}{"count": 1})
 
 	listParams := objects.NewObjectsListParams()
 	listParams.Class = &cls

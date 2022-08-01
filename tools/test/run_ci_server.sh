@@ -7,9 +7,9 @@ function main() {
   echo "Pull images..."
   surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
-  docker-compose -f docker-compose-test.yml build weaviate
-  echo "Start up docker-compose setup..."
-  surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
+  docker compose -f docker-compose-test.yml build weaviate
+  echo "Start up docker compose setup..."
+  surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate \
     contextionary 
 
   MAX_WAIT_SECONDS=60
@@ -22,10 +22,10 @@ function main() {
       if [ $? -eq 7 ]; then
         echo "Weaviate is not up yet. (waited for ${ALREADY_WAITING}s)"
         echo "Weaviate:"
-        docker-compose -f docker-compose-test.yml logs weaviate
+        docker compose -f docker-compose-test.yml logs weaviate
         if [ $ALREADY_WAITING -gt $MAX_WAIT_SECONDS ]; then
           echo "Weaviate did not start up in $MAX_WAIT_SECONDS."
-          docker-compose -f docker-compose-test.yml logs
+          docker compose -f docker-compose-test.yml logs
           exit 1
         else
           sleep 2

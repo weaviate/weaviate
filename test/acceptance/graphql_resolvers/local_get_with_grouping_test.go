@@ -15,7 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +33,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		expected := []interface{}{
@@ -59,7 +61,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		require.Len(t, companies, 1)
@@ -90,7 +92,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		require.Len(t, companies, 9)
@@ -133,7 +135,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				}
 			}
 			`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		assert.True(t, len(companies) > 0)
@@ -150,7 +152,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			}
 		`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		grouped := result.Get("Get", "Company").AsSlice()
 		require.Len(t, grouped, 1)
 		groupedName := grouped[0].(map[string]interface{})["name"].(string)
@@ -171,7 +173,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				}
 			}
 		`
-		result = AssertGraphQL(t, helper.RootAuth, queryWithoutWhere)
+		result = graphqlhelper.AssertGraphQL(t, helper.RootAuth, queryWithoutWhere)
 		groupedWithoutWhere := result.Get("Get", "Company").AsSlice()
 		assert.Equal(t, grouped, groupedWithoutWhere)
 	})
@@ -187,7 +189,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			}
 		`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		grouped := result.Get("Get", "Company").AsSlice()
 		require.Len(t, grouped, 1)
 		groupedName := grouped[0].(map[string]interface{})["name"].(string)
@@ -208,7 +210,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	// 		}
 	// 	}
 	// 	`
-	// 	result := AssertGraphQL(t, helper.RootAuth, query)
+	// 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	// 	companies := result.Get("Get", "Company").AsSlice()
 
 	// 	assert.Len(t, companies, 3)
@@ -241,7 +243,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	// 		}
 	// 	}
 	// 	`
-	// 	result := AssertGraphQL(t, helper.RootAuth, query)
+	// 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	// 	companies := result.Get("Get", "Company").AsSlice()
 
 	// 	assert.Len(t, companies, 3)

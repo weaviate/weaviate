@@ -122,33 +122,11 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) registerMaintainence() {
-	h.registerTombstoneCleanup()
-}
-
-func (h *hnsw) registerTombstoneCleanup() {
-	if h.cleanupInterval == 0 {
-		// user is not interested in periodically cleaning up tombstones, clean up
-		// will be manual. (This is also helpful in tests where we want to
-		// explicitly control the point at which a cleanup happens)
-		return
+func (h *hnsw) tombstoneCleanup() {
+	if err := h.CleanUpTombstonedNodes(); err != nil {
+		h.logger.WithField("action", "hnsw_tombstone_cleanup").
+			WithError(err).Error("tombstone cleanup errord")
 	}
-
-	go func() {
-		t := time.Tick(h.cleanupInterval)
-		for {
-			select {
-			case <-h.cancel:
-				return
-			case <-t:
-				err := h.CleanUpTombstonedNodes()
-				if err != nil {
-					h.logger.WithField("action", "hnsw_tombstone_cleanup").
-						WithError(err).Error("tombstone cleanup errord")
-				}
-			}
-		}
-	}()
 }
 
 // PostStartup triggers routines that should happen after startup. The startup
@@ -157,7 +135,7 @@ func (h *hnsw) registerTombstoneCleanup() {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
-	h.registerMaintainence()
+	h.tombstoneCleanupCycle.Start()
 	h.prefillCache()
 }
 

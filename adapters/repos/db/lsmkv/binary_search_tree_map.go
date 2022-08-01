@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"bytes"
 	"sort"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
 type binarySearchTreeMap struct {
@@ -23,13 +25,17 @@ type binarySearchTreeMap struct {
 func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) {
 	if t.root == nil {
 		t.root = &binarySearchNodeMap{
-			key:    key,
-			values: []MapPair{pair},
+			key:         key,
+			values:      []MapPair{pair},
+			colourIsRed: false, // root node is always black
 		}
 		return
 	}
 
-	t.root.insert(key, pair)
+	if newRoot := t.root.insert(key, pair); newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
 
 func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
@@ -49,39 +55,122 @@ func (t *binarySearchTreeMap) flattenInOrder() []*binarySearchNodeMap {
 }
 
 type binarySearchNodeMap struct {
-	key    []byte
-	values []MapPair
-	left   *binarySearchNodeMap
-	right  *binarySearchNodeMap
+	key         []byte
+	values      []MapPair
+	left        *binarySearchNodeMap
+	right       *binarySearchNodeMap
+	parent      *binarySearchNodeMap
+	colourIsRed bool
 }
 
-func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) {
+func (n *binarySearchNodeMap) Parent() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.parent
+}
+
+func (n *binarySearchNodeMap) SetParent(parent rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMapReceiver(&n)
+	}
+
+	if parent == nil {
+		n.parent = nil
+		return
+	}
+
+	n.parent = parent.(*binarySearchNodeMap)
+}
+
+func (n *binarySearchNodeMap) Left() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.left
+}
+
+func (n *binarySearchNodeMap) SetLeft(left rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMapReceiver(&n)
+	}
+
+	if left == nil {
+		n.left = nil
+		return
+	}
+
+	n.left = left.(*binarySearchNodeMap)
+}
+
+func (n *binarySearchNodeMap) Right() rbtree.Node {
+	if n == nil {
+		return nil
+	}
+	return n.right
+}
+
+func (n *binarySearchNodeMap) SetRight(right rbtree.Node) {
+	if n == nil {
+		addNewSearchNodeMapReceiver(&n)
+	}
+
+	if right == nil {
+		n.right = nil
+		return
+	}
+
+	n.right = right.(*binarySearchNodeMap)
+}
+
+func (n *binarySearchNodeMap) IsRed() bool {
+	if n == nil {
+		return false
+	}
+	return n.colourIsRed
+}
+
+func (n *binarySearchNodeMap) SetRed(isRed bool) {
+	n.colourIsRed = isRed
+}
+
+func (n *binarySearchNodeMap) IsNil() bool {
+	return n == nil
+}
+
+func addNewSearchNodeMapReceiver(nodePtr **binarySearchNodeMap) {
+	*nodePtr = &binarySearchNodeMap{}
+}
+
+func (n *binarySearchNodeMap) insert(key []byte, pair MapPair) *binarySearchNodeMap {
 	if bytes.Equal(key, n.key) {
 		n.values = append(n.values, pair)
-		return
+		return nil // tree root does not change when replacing node
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			n.left.insert(key, pair)
-			return
+			return n.left.insert(key, pair)
 		} else {
 			n.left = &binarySearchNodeMap{
-				key:    key,
-				values: []MapPair{pair},
+				key:         key,
+				parent:      n,
+				colourIsRed: true,
+				values:      []MapPair{pair},
 			}
-			return
+			return binarySearchNodeMapFromRB(rbtree.Rebalance(n.left))
 		}
 	} else {
 		if n.right != nil {
-			n.right.insert(key, pair)
-			return
+			return n.right.insert(key, pair)
 		} else {
 			n.right = &binarySearchNodeMap{
-				key:    key,
-				values: []MapPair{pair},
+				key:         key,
+				parent:      n,
+				colourIsRed: true,
+				values:      []MapPair{pair},
 			}
-			return
+			return binarySearchNodeMapFromRB(rbtree.Rebalance(n.right))
 		}
 	}
 }
@@ -122,8 +211,9 @@ func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
 	// that while a memtable is open writes a much more common, thus we write map
 	// KVs unsorted and only sort/dedup them on read.
 	right = append([]*binarySearchNodeMap{{
-		key:    n.key,
-		values: sortAndDedupValues(n.values),
+		key:         n.key,
+		values:      sortAndDedupValues(n.values),
+		colourIsRed: n.colourIsRed,
 	}}, right...)
 	return append(left, right...)
 }
@@ -157,4 +247,13 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 	}
 
 	return out[:outIndex]
+}
+
+func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
+	if rbNode == nil {
+		bsNode = nil
+		return
+	}
+	bsNode = rbNode.(*binarySearchNodeMap)
+	return
 }

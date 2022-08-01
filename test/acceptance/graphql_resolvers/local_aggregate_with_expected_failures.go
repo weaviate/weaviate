@@ -16,14 +16,15 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func aggregatesWithExpectedFailures(t *testing.T) {
 	t.Run("with nearVector, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					CustomVectorClass(
@@ -55,7 +56,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("with nearObject, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City(
@@ -87,7 +88,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("with nearText, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City(
@@ -119,7 +120,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("with nearVector, where filter, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					CustomVectorClass(
@@ -156,7 +157,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("with nearObject, where filter, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City (where: {
@@ -212,7 +213,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("with nearText, where filter, no certainty", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City (where: {
@@ -268,7 +269,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 	})
 
 	t.Run("objectLimit passed with no nearMedia", func(t *testing.T) {
-		result := ErrorGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					CustomVectorClass(objectLimit: 1){
@@ -325,7 +326,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 					}
 				}`
 
-			result := ErrorGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 			assert.Len(t, result, 1)
 
 			errMsg := result[0].Message
