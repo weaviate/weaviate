@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -45,7 +46,7 @@ type batchWriter struct {
 	batchObjects    objects.BatchObjects
 	saveObjectItems chan objects.BatchObjects
 	errorCount      int64
-	ec              *errorCompounder
+	ec              *errorcompounder.SafeErrorCompounder
 	cancel          chan struct{}
 	batchTreshold   int
 }
@@ -57,7 +58,7 @@ func newBatchWriter(vectorRepo vectorRepo) Writer {
 		batchObjects:    objects.BatchObjects{},
 		saveObjectItems: make(chan objects.BatchObjects),
 		errorCount:      0,
-		ec:              &errorCompounder{},
+		ec:              &errorcompounder.SafeErrorCompounder{},
 		cancel:          make(chan struct{}),
 		batchTreshold:   100,
 	}
@@ -79,7 +80,7 @@ func (r *batchWriter) Start() {
 func (r *batchWriter) Stop() WriterResults {
 	r.cancel <- struct{}{}
 	r.saveObjects(r.batchObjects)
-	return batchWriterResults{int64(r.batchItemsCount) - r.errorCount, r.errorCount, r.ec.toError()}
+	return batchWriterResults{int64(r.batchItemsCount) - r.errorCount, r.errorCount, r.ec.ToError()}
 }
 
 func (r *batchWriter) storeObject(item search.Result) error {
@@ -124,11 +125,11 @@ func (r *batchWriter) saveObjects(items objects.BatchObjects) {
 	if len(items) > 0 {
 		saved, err := r.vectorRepo.BatchPutObjects(ctx, items)
 		if err != nil {
-			r.ec.add(err)
+			r.ec.Add(err)
 		}
 		for i := range saved {
 			if saved[i].Err != nil {
-				r.ec.add(saved[i].Err)
+				r.ec.Add(saved[i].Err)
 				r.errorCount++
 			}
 		}

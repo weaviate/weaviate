@@ -11,6 +11,8 @@
 
 package projector
 
+import "github.com/semi-technologies/weaviate/entities/errorcompounder"
+
 type Params struct {
 	Enabled          bool
 	Algorithm        *string // optional parameter
@@ -36,32 +38,32 @@ func (p *Params) setDefaults(inputSize, dims int) {
 }
 
 func (p *Params) validate(inputSize, dims int) error {
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	if *p.Algorithm != "tsne" {
-		ec.addf("algorithm %s is not supported: must be one of: tsne", *p.Algorithm)
+		ec.Addf("algorithm %s is not supported: must be one of: tsne", *p.Algorithm)
 	}
 
 	if *p.Perplexity >= inputSize {
-		ec.addf("perplexity must be smaller than amount of items: %d >= %d", *p.Perplexity, inputSize)
+		ec.Addf("perplexity must be smaller than amount of items: %d >= %d", *p.Perplexity, inputSize)
 	}
 
 	if *p.Iterations < 1 {
-		ec.addf("iterations must be at least 1, got: %d", *p.Iterations)
+		ec.Addf("iterations must be at least 1, got: %d", *p.Iterations)
 	}
 
 	if *p.LearningRate < 1 {
-		ec.addf("learningRate must be at least 1, got: %d", *p.LearningRate)
+		ec.Addf("learningRate must be at least 1, got: %d", *p.LearningRate)
 	}
 
 	if *p.Dimensions < 1 {
-		ec.addf("dimensions must be at least 1, got: %d", *p.Dimensions)
+		ec.Addf("dimensions must be at least 1, got: %d", *p.Dimensions)
 	}
 
 	if *p.Dimensions >= dims {
-		ec.addf("dimensions must be smaller than source dimensions: %d >= %d", *p.Dimensions, dims)
+		ec.Addf("dimensions must be smaller than source dimensions: %d >= %d", *p.Dimensions, dims)
 	}
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func (p *Params) min(a, b int) int {

@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
 )
 
@@ -123,20 +124,20 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, nil
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 < ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return nil, err
 	}
 
@@ -166,20 +167,20 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "clean up tmp combining files")
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 > ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return "", false, err
 	}
 
