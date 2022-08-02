@@ -18,7 +18,7 @@ before_install:
   - chmod a+x ~/.docker/cli-plugins/docker-compose
 dist: bionic
 go: 
-  - "1.16.5"
+  - "1.19rc2"
 env:
   matrix:
   # Force using modules.
