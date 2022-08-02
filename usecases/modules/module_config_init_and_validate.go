@@ -44,7 +44,8 @@ func (p *Provider) SetClassDefaults(class *models.Class) {
 // SetSinglePropertyDefaults can be used when a property is added later, e.g.
 // as part of merging in a ref prop after a class has already been created
 func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
-	prop *models.Property) {
+	prop *models.Property,
+) {
 	if class.Vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
 		return
@@ -63,7 +64,8 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 }
 
 func (p *Provider) setPerClassConfigDefaults(class *models.Class,
-	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator) {
+	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
+) {
 	modDefaults := cc.ClassConfigDefaults()
 	userSpecified := cfg.Class()
 	mergedConfig := map[string]interface{}{}
@@ -83,7 +85,8 @@ func (p *Provider) setPerClassConfigDefaults(class *models.Class,
 }
 
 func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
-	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator) {
+	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
+) {
 	for _, prop := range class.Properties {
 		p.setSinglePropertyConfigDefaults(class, prop, cfg, cc)
 	}
@@ -91,7 +94,8 @@ func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 
 func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 	prop *models.Property, cfg *ClassBasedModuleConfig,
-	cc modulecapabilities.ClassConfigurator) {
+	cc modulecapabilities.ClassConfigurator,
+) {
 	dt, _ := schema.GetPropertyDataType(class, prop.Name)
 	modDefaults := cc.PropertyConfigDefaults(dt)
 	userSpecified := cfg.Property(prop.Name)

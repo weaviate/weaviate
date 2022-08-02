@@ -32,7 +32,8 @@ type RowReaderFrequency struct {
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, shardVersion uint16) *RowReaderFrequency {
+	operator filters.Operator, keyOnly bool, shardVersion uint16,
+) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:       bucket,
 		value:        value,
@@ -111,7 +112,8 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFrequency,
-	allowEqual bool) error {
+	allowEqual bool,
+) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -141,7 +143,8 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 // matching row is only included if allowEqual==true, otherwise it ends one
 // prior to that.
 func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequency,
-	allowEqual bool) error {
+	allowEqual bool,
+) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -255,7 +258,8 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 // newCursor will either return a regular cursor - or a key-only cursor if
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
-	opts ...lsmkv.MapListOption) *lsmkv.CursorMap {
+	opts ...lsmkv.MapListOption,
+) *lsmkv.CursorMap {
 	if rr.shardVersion < 2 {
 		opts = append(opts, lsmkv.MapListLegacySortingRequired())
 	}

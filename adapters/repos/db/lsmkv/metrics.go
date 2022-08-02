@@ -41,7 +41,8 @@ type Metrics struct {
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
-	shardName string) *Metrics {
+	shardName string,
+) *Metrics {
 	replace := promMetrics.AsyncOperations.MustCurryWith(prometheus.Labels{
 		"operation":  "compact_lsm_segments_stratreplace",
 		"class_name": className,

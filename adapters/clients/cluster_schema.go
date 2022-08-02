@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -32,7 +32,8 @@ func NewClusterSchema(httpClient *http.Client) *ClusterSchema {
 }
 
 func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/schema/transactions/"
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -67,7 +68,7 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 			return cluster.ErrConcurrentTransaction
 		}
 
-		body, _ := ioutil.ReadAll(res.Body)
+		body, _ := io.ReadAll(res.Body)
 		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)
 	}
@@ -76,7 +77,8 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 }
 
 func (c *ClusterSchema) AbortTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/schema/transactions/" + tx.ID
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -100,7 +102,8 @@ func (c *ClusterSchema) AbortTransaction(ctx context.Context, host string,
 }
 
 func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/schema/transactions/" + tx.ID + "/commit"
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: host, Path: path}

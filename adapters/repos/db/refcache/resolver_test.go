@@ -251,7 +251,8 @@ type fakeCacher struct {
 }
 
 func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties search.SelectProperties,
-	additional additional.Properties) error {
+	additional additional.Properties,
+) error {
 	return nil
 }
 

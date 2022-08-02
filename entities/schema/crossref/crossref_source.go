@@ -37,7 +37,8 @@ type RefSource struct {
 }
 
 func NewSource(className schema.ClassName,
-	property schema.PropertyName, id strfmt.UUID) *RefSource {
+	property schema.PropertyName, id strfmt.UUID,
+) *RefSource {
 	return &RefSource{
 		Local:    true,
 		PeerName: "localhost",

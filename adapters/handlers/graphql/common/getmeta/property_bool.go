@@ -21,7 +21,8 @@ import (
 )
 
 func booleanPropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaBooleanFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),

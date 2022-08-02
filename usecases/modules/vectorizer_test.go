@@ -86,7 +86,8 @@ func (m dummyModuleNoCapabilities) Name() string {
 }
 
 func (m dummyModuleNoCapabilities) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	return nil
 }
 
@@ -104,7 +105,8 @@ type dummyVectorizerModule struct {
 }
 
 func (m dummyVectorizerModule) VectorizeObject(ctx context.Context,
-	in *models.Object, cfg moduletools.ClassConfig) error {
+	in *models.Object, cfg moduletools.ClassConfig,
+) error {
 	in.Vector = []float32{1, 2, 3}
 	return nil
 }

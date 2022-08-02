@@ -80,7 +80,8 @@ func geoPropID(shardID string, propName string) string {
 }
 
 func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
-	status objectInsertStatus) error {
+	status objectInsertStatus,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -97,7 +98,8 @@ func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 
 func (s *Shard) updatePropertySpecificIndex(propName string,
 	index propertyspecific.Index, obj *storobj.Object,
-	status objectInsertStatus) error {
+	status objectInsertStatus,
+) error {
 	if index.Type != schema.DataTypeGeoCoordinates {
 		return fmt.Errorf("unsupported per-property index type %q", index.Type)
 	}
@@ -107,7 +109,8 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 }
 
 func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
-	obj *storobj.Object, status objectInsertStatus) error {
+	obj *storobj.Object, status objectInsertStatus,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -122,7 +125,8 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 }
 
 func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
-	obj *storobj.Object, status objectInsertStatus) error {
+	obj *storobj.Object, status objectInsertStatus,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -152,7 +156,8 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 }
 
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
-	docID uint64) error {
+	docID uint64,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}

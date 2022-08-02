@@ -35,7 +35,8 @@ type Metrics struct {
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
-	className, shardName string) *Metrics {
+	className, shardName string,
+) *Metrics {
 	if prom == nil {
 		return &Metrics{enabled: false}
 	}

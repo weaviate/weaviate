@@ -15,7 +15,7 @@
 package db
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -23,7 +23,7 @@ import (
 
 func getIndexFilenames(dirName string, className string) ([]string, error) {
 	filenames := []string{}
-	infos, err := ioutil.ReadDir(dirName)
+	infos, err := os.ReadDir(dirName)
 	if err != nil {
 		return filenames, err
 	}

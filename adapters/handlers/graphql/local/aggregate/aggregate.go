@@ -30,7 +30,8 @@ type ModulesProvider interface {
 
 // Build the Aggregate Kinds schema
 func Build(dbSchema *schema.Schema, config config.Config,
-	modulesProvider ModulesProvider) (*graphql.Field, error) {
+	modulesProvider ModulesProvider,
+) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
@@ -55,7 +56,8 @@ func Build(dbSchema *schema.Schema, config config.Config,
 }
 
 func classFields(databaseSchema []*models.Class,
-	config config.Config, modulesProvider ModulesProvider) (*graphql.Object, error) {
+	config config.Config, modulesProvider ModulesProvider,
+) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
@@ -75,7 +77,8 @@ func classFields(databaseSchema []*models.Class,
 }
 
 func classField(class *models.Class, description string,
-	config config.Config, modulesProvider ModulesProvider) (*graphql.Field, error) {
+	config config.Config, modulesProvider ModulesProvider,
+) (*graphql.Field, error) {
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
 		// as it would not have any fields. So we have to return (without an
@@ -246,7 +249,8 @@ type propertyFieldMaker func(class *models.Class,
 	property *models.Property, prefix string) *graphql.Object
 
 func makePropertyField(class *models.Class, property *models.Property,
-	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
+	fieldMaker propertyFieldMaker,
+) (*graphql.Field, error) {
 	prefix := "Aggregate"
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregateProperty, property.Name),

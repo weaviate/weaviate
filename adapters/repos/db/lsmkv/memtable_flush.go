@@ -173,7 +173,8 @@ func (l *Memtable) flushDataMap(f io.Writer) ([]keyIndex, error) {
 }
 
 func (l *Memtable) flushDataCollection(f io.Writer,
-	flat []*binarySearchNodeMulti) ([]keyIndex, error) {
+	flat []*binarySearchNodeMulti,
+) ([]keyIndex, error) {
 	totalDataLength := totalValueSizeCollection(flat)
 	header := segmentHeader{
 		indexStart:       uint64(totalDataLength + SegmentHeaderSize),

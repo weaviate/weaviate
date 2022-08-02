@@ -60,7 +60,8 @@ func (r *RefFinder) Find(className libschema.ClassName) []filters.Path {
 }
 
 func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*models.Class,
-	schema libschema.Schema) []filters.Path {
+	schema libschema.Schema,
+) []filters.Path {
 	var out []filters.Path
 
 	for _, class := range classes {
@@ -76,7 +77,8 @@ func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*model
 }
 
 func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
-	schema libschema.Schema, depth int) ([]filters.Path, bool) {
+	schema libschema.Schema, depth int,
+) ([]filters.Path, bool) {
 	var out []filters.Path
 
 	if depth > r.depthLimit {
@@ -105,7 +107,8 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 
 func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class,
 	propName string, haystack libschema.ClassName, schema libschema.Schema,
-	depth int) []filters.Path {
+	depth int,
+) []filters.Path {
 	if haystack == needle {
 		// direct match
 		return []filters.Path{

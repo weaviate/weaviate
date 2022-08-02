@@ -36,7 +36,8 @@ type Store struct {
 }
 
 func New(rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics) (*Store, error) {
+	metrics *Metrics,
+) (*Store, error) {
 	s := &Store{
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
@@ -89,7 +90,8 @@ func (s *Store) bucketDir(bucketName string) string {
 }
 
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
-	opts ...BucketOption) error {
+	opts ...BucketOption,
+) error {
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}

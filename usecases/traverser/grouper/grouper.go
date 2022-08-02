@@ -31,7 +31,8 @@ func New(logger logrus.FieldLogger) *Grouper {
 
 // Group using the applied strategy and force
 func (g *Grouper) Group(in []search.Result, strategy string,
-	force float32) ([]search.Result, error) {
+	force float32,
+) ([]search.Result, error) {
 	groups := groups{logger: g.logger}
 
 	for _, current := range in {

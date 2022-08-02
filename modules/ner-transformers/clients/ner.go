@@ -16,7 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
@@ -59,7 +59,8 @@ func New(origin string, logger logrus.FieldLogger) *ner {
 }
 
 func (v *ner) GetTokens(ctx context.Context, property,
-	text string) ([]ent.TokenResult, error) {
+	text string,
+) ([]ent.TokenResult, error) {
 	body, err := json.Marshal(nerInput{
 		Text: text,
 	})
@@ -79,7 +80,7 @@ func (v *ner) GetTokens(ctx context.Context, property,
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}

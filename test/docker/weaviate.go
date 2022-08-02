@@ -27,7 +27,8 @@ const Weaviate = "weaviate"
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage string) (*DockerContainer, error) {
+	weaviateImage string,
+) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
 		path, err := os.Getwd()

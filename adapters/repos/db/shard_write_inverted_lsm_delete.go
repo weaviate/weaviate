@@ -22,7 +22,8 @@ import (
 )
 
 func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
-	docID uint64) error {
+	docID uint64,
+) error {
 	for _, prop := range props {
 		b := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 		if b == nil {
@@ -56,7 +57,8 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 }
 
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64) error {
+	item inverted.Countable, docID uint64,
+) error {
 	if b.Strategy() != lsmkv.StrategyMapCollection {
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
@@ -83,7 +85,8 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 }
 
 func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64) error {
+	item inverted.Countable, docID uint64,
+) error {
 	if b.Strategy() != lsmkv.StrategySetCollection {
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}

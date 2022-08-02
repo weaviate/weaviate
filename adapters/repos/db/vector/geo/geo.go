@@ -118,7 +118,8 @@ func (i *Index) Add(id uint64, coordinates *models.GeoCoordinates) error {
 // WithinGeoRange searches the index by the specified range. It is thread-safe
 // and can be called concurrently.
 func (i *Index) WithinRange(ctx context.Context,
-	geoRange filters.GeoRange) ([]uint64, error) {
+	geoRange filters.GeoRange,
+) ([]uint64, error) {
 	if geoRange.GeoCoordinates == nil {
 		return nil, fmt.Errorf("invalid arguments: GeoCoordinates in range must be set")
 	}

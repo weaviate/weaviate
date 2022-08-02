@@ -41,7 +41,8 @@ func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearc
 
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className string) ([]float32, error) {
+	moduleParams map[string]interface{}, className string,
+) ([]float32, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
 		return nil, err
@@ -73,7 +74,8 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
 	nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className ...string) error {
+	moduleParams map[string]interface{}, className ...string,
+) error {
 	if len(moduleParams) == 1 && nearVector != nil && nearObject != nil {
 		return errors.Errorf("found 'nearText' and 'nearVector' and 'nearObject' parameters " +
 			"which are conflicting, choose one instead")
@@ -137,7 +139,8 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 }
 
 func (v *nearParamsVector) vectorFromModules(ctx context.Context,
-	className, paramName string, paramValue interface{}) ([]float32, error) {
+	className, paramName string, paramValue interface{},
+) ([]float32, error) {
 	if v.modulesProvider != nil {
 		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
 			className, paramName, paramValue, v.findVector,
@@ -163,7 +166,8 @@ func (v *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]fl
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
-	params *searchparams.NearObject) ([]float32, error) {
+	params *searchparams.NearObject,
+) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
 	}
@@ -183,7 +187,8 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
-	nearObject *searchparams.NearObject, moduleParams map[string]interface{}) float64 {
+	nearObject *searchparams.NearObject, moduleParams map[string]interface{},
+) float64 {
 	if nearVector != nil {
 		if nearVector.Certainty != 0 {
 			return nearVector.Certainty

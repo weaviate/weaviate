@@ -35,7 +35,8 @@ import (
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties,
-	additional additional.Properties) (*storobj.Object, error) {
+	additional additional.Properties,
+) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -59,7 +60,8 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (s *Shard) multiObjectByID(ctx context.Context,
-	query []multi.Identifier) ([]*storobj.Object, error) {
+	query []multi.Identifier,
+) ([]*storobj.Object, error) {
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -117,7 +119,8 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
-	indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+	indexID uint64, acceptDeleted bool,
+) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
@@ -160,7 +163,8 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +
@@ -189,7 +193,8 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -260,7 +265,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 }
 
 func (s *Shard) objectsByDocID(ids []uint64,
-	additional additional.Properties) ([]*storobj.Object, error) {
+	additional additional.Properties,
+) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, len(ids))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -297,7 +303,8 @@ func (s *Shard) objectsByDocID(ids []uint64,
 
 func (s *Shard) objectList(ctx context.Context, limit int,
 	sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName) ([]*storobj.Object, error) {
+	className schema.ClassName,
+) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, additional, className)
 		if err != nil {
@@ -311,7 +318,8 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 
 func (s *Shard) allObjectList(ctx context.Context, limit int,
 	additional additional.Properties,
-	className schema.ClassName) ([]*storobj.Object, error) {
+	className schema.ClassName,
+) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 
 	i := 0
@@ -332,7 +340,8 @@ func (s *Shard) allObjectList(ctx context.Context, limit int,
 }
 
 func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
-	additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+	additional additional.Properties, className schema.ClassName,
+) ([]uint64, error) {
 	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
 	docIDs, err := lsmSorter.Sort(ctx, limit, sort, additional)
 	if err != nil {
@@ -343,7 +352,8 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 
 func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
 	additional additional.Properties, className schema.ClassName,
-	docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
+	docIDs []uint64, dists []float32,
+) ([]uint64, []float32, error) {
 	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
 	sortedDocIDs, sortedDists, err := lsmSorter.SortDocIDsAndDists(ctx, limit, sort, docIDs, dists, additional)
 	if err != nil {
@@ -353,7 +363,8 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 }
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
-	addl additional.Properties) (helpers.AllowList, error) {
+	addl additional.Properties,
+) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).

@@ -68,7 +68,8 @@ func newMockResolver(t *testing.T, params mockParams) *mockResolver {
 }
 
 func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{},
-	fieldName string) (result interface{}, err error) {
+	fieldName string,
+) (result interface{}, err error) {
 	if params.reportFilter {
 		filters, err := ExtractFilters(args, fieldName)
 		if err != nil {

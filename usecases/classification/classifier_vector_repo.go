@@ -28,7 +28,8 @@ func newVectorClassSearchRepo(vectorRepo vectorRepo) *vectorClassSearchRepo {
 }
 
 func (r *vectorClassSearchRepo) VectorClassSearch(ctx context.Context,
-	params modulecapabilities.VectorClassSearchParams) ([]search.Result, error) {
+	params modulecapabilities.VectorClassSearchParams,
+) ([]search.Result, error) {
 	return r.vectorRepo.VectorClassSearch(ctx, traverser.GetParams{
 		Filters:    params.Filters,
 		Pagination: params.Pagination,

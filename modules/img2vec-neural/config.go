@@ -26,12 +26,14 @@ func (m *ImageModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *ImageModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 func (m *ImageModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return icheck.Validate()
 }

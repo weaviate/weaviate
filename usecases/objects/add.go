@@ -31,7 +31,8 @@ type schemaManager interface {
 
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
-	object *models.Object) (*models.Object, error) {
+	object *models.Object,
+) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
 		return nil, err
@@ -50,7 +51,8 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
-	id strfmt.UUID) (strfmt.UUID, error) {
+	id strfmt.UUID,
+) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
 		if err != nil {
@@ -69,7 +71,8 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object) (*models.Object, error) {
+	object *models.Object,
+) (*models.Object, error) {
 	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID)
 	if err != nil {
 		return nil, err
@@ -99,7 +102,8 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 }
 
 func (m *Manager) vectorizeAndPutObject(ctx context.Context, object *models.Object,
-	principal *models.Principal) error {
+	principal *models.Principal,
+) error {
 	err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
 		m.logger).Do(ctx, object, principal)
 	if err != nil {

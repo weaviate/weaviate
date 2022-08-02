@@ -66,7 +66,8 @@ type Validator struct {
 }
 
 func New(schema schema.Schema, exists exists,
-	config *config.WeaviateConfig) *Validator {
+	config *config.WeaviateConfig,
+) *Validator {
 	return &Validator{
 		schema: schema,
 		exists: exists,
@@ -94,7 +95,8 @@ func validateClass(class string) error {
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
 func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
-	errorVal string) error {
+	errorVal string,
+) error {
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
 		return fmt.Errorf("invalid reference: %s", err)
@@ -117,7 +119,8 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 }
 
 func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
-	errorVal string) error {
+	errorVal string,
+) error {
 	if refs == nil {
 		return nil
 	}
