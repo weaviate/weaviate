@@ -311,3 +311,7 @@ func (t *PropertyLengthTracker) Drop() error {
 
 	return nil
 }
+
+func (t *PropertyLengthTracker) FileName() string {
+	return t.file.Name()
+}

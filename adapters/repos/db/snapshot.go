@@ -24,11 +24,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 		return nil, err
 	}
 
-	snap := &snapshots.Snapshot{
-		ID:        id,
-		StartedAt: time.Now(),
-		BasePath:  i.Config.RootPath,
-	}
+	snap := snapshots.New(id, time.Now(), i.Config.RootPath)
 
 	var (
 		snapshotFilesLock sync.Mutex
@@ -38,6 +34,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 
 	for _, shard := range i.Shards {
 		s := shard
+
 		g.Go(func() error {
 			files, err := s.createStoreLevelSnapshot(ctx)
 			if err != nil {
@@ -59,10 +56,16 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 			snapshotFiles = append(snapshotFiles, files...)
 			return nil
 		})
-	}
 
-	if err := g.Wait(); err != nil {
-		return nil, err
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+
+		shardMeta, err := s.readSnapshotMetadata()
+		if err != nil {
+			return nil, errors.Wrap(err, "create snapshot")
+		}
+		snap.ShardMetadata[s.name] = shardMeta
 	}
 
 	snap.Files = snapshotFiles

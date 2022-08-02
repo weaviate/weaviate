@@ -37,7 +37,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		snapshotID := "index-level-snapshot-test"
 		now := time.Now().UnixNano()
 
-		_, index := testShard(ctx, className, withVectorIndexing(true))
+		shard, index := testShard(ctx, className, withVectorIndexing(true))
 		// let the index age for a second so that
 		// the commitlogger filenames, which are
 		// based on current timestamp, can differ
@@ -73,6 +73,13 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				//         - property__id/segment-123.db
 				//     - 1 file from vector index commitlogger
 				assert.Len(t, snap.Files, 7)
+			})
+
+			t.Run("assert shard metadata contents", func(t *testing.T) {
+				assert.NotNil(t, snap.ShardMetadata)
+				assert.Len(t, snap.ShardMetadata, 1)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].DocIDCounter)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].PropLengthTracker)
 			})
 		})
 

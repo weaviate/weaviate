@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"io/ioutil"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
@@ -38,4 +40,31 @@ func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, e
 	}
 
 	return files, nil
+}
+
+func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
+	counterContents, err := s.readIndexCounter()
+	if err != nil {
+		return nil, errors.Wrapf(err,
+			"failed to read index counter for shard '%s'", s.name)
+	}
+
+	propLenContents, err := s.readPropLengthTracker()
+	if err != nil {
+		return nil, errors.Wrapf(err,
+			"failed to read prop length tracker for shard '%s'", s.name)
+	}
+
+	return &snapshots.ShardMetadata{
+		DocIDCounter:      counterContents,
+		PropLengthTracker: propLenContents,
+	}, nil
+}
+
+func (s *Shard) readIndexCounter() ([]byte, error) {
+	return ioutil.ReadFile(s.counter.FileName())
+}
+
+func (s *Shard) readPropLengthTracker() ([]byte, error) {
+	return ioutil.ReadFile(s.propLengths.FileName())
 }

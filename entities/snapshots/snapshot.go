@@ -17,9 +17,24 @@ type Snapshot struct {
 	StartedAt   time.Time `json:"startedAt"`
 	CompletedAt time.Time `json:"completedAt"`
 
-	ID       string   `json:"id"`
-	Files    []string `json:"files"`
-	BasePath string   `json:"basePath"`
+	ID            string                    `json:"id"`
+	Files         []string                  `json:"files"`
+	BasePath      string                    `json:"basePath"`
+	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
+}
+
+func New(id string, startedAt time.Time, basePath string) *Snapshot {
+	return &Snapshot{
+		ID:            id,
+		StartedAt:     startedAt,
+		BasePath:      basePath,
+		ShardMetadata: make(map[string]*ShardMetadata),
+	}
+}
+
+type ShardMetadata struct {
+	DocIDCounter      []byte `json:"docIdCounter"`
+	PropLengthTracker []byte `json:"propLengthTracker"`
 }
 
 type State struct {
