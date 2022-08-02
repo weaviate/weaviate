@@ -16,7 +16,10 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -86,6 +89,18 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				assert.NotEmpty(t, snap.ShardingState)
 				assert.NotEmpty(t, snap.Schema)
 			})
+
+			t.Run("assert snapshot disk contents", func(t *testing.T) {
+				snapPath := path.Join(snap.BasePath, "snapshots", snap.ID)
+
+				contents, err := ioutil.ReadFile(snapPath)
+				require.Nil(t, err)
+
+				expected, err := json.Marshal(snap)
+				require.Nil(t, err)
+
+				assert.Equal(t, expected, contents)
+			})
 		})
 
 		t.Run("release snapshot", func(t *testing.T) {
@@ -93,8 +108,13 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.Nil(t, err)
 		})
 
-		err := index.Shutdown(ctx)
-		require.Nil(t, err)
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
 	})
 
 	t.Run("failed snapshot creation from expired context", func(t *testing.T) {
@@ -116,6 +136,14 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				"context deadline exceeded, long-running tombstone cleanup in progress: " +
 				"context deadline exceeded")
 		assert.EqualError(t, expectedErr, err.Error())
+
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
 	})
 
 	t.Run("failed snapshot creation from existing unreleased snapshot", func(t *testing.T) {
@@ -137,6 +165,14 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			"is not yet released, this means its contents have not yet been fully copied "+
 			"to its destination, try again later", inProgressSnapshotID)
 		assert.EqualError(t, expectedErr, err.Error())
+
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
 	})
 }
 
@@ -212,7 +248,8 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("shutdown shard", func(t *testing.T) {
+	t.Run("cleanup", func(t *testing.T) {
 		require.Nil(t, shard.shutdown(ctx))
+		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
 	})
 }

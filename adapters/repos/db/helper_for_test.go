@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -200,7 +201,9 @@ func testCtx() context.Context {
 }
 
 func testShard(ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
 
 	shardState := singleShardState()
 	sch := schema.Schema{
