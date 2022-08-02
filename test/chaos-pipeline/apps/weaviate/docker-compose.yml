@@ -1,0 +1,27 @@
+---
+version: '3.9'
+services:
+  weaviate:
+    init: true
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
+    - --scheme
+    - http
+    image: semitechnologies/weaviate:$WEAVIATE_VERSION
+    ports:
+    - 8080:8080
+    - 6060:6060
+    restart: on-failure:0
+    volumes:
+      - ./data:/var/lib/weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: ''
+      CLUSTER_HOSTNAME: 'node1' 
+...

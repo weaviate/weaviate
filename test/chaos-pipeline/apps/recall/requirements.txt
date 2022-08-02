@@ -1,0 +1,3 @@
+torch==1.8.1+cpu
+weaviate-client==2.4.0
+nltk==3.5

@@ -95,6 +95,27 @@ jobs:
     stage: test
     script: 
     - ./test/run.sh --acceptance_module_tests || travis_terminate 1
+  - name: "Chaos: Import during constant kills/crashes"
+    script: ./import_while_crashing.sh
+    if: type != pull_request
+  - name: "Chaos: Heavy object store imports while crashing"
+    script: ./import_while_crashing_no_vector.sh
+    if: type != pull_request
+  - name: "Chaos: Compare Recall after import to after restart"
+    script: ./compare_recall_after_restart.sh
+    if: type != pull_request
+  - name: "Chaos: Concurrent inverted index read/write"
+    script: ./concurrent_inverted_index_read_write.sh
+    if: type != pull_request
+  - name: "Chaos: Consecutive create and update operations"
+    script: ./consecutive_create_and_update_operations.sh
+    if: type != pull_request
+  - name: "Chaos: Batch insert mismatch"
+    script: ./batch_insert_mismatch.sh
+    if: type != pull_request
+  - name: "Chaos: REST PATCH requests stop working after restart"
+    script: ./rest_patch_stops_working_after_restart.sh
+    if: type != pull_request
   - name: "Push docker container"
     if: type != pull_request
     stage: deploy

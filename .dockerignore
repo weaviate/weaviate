@@ -9,4 +9,6 @@ snapshots-node2/
 data_wiki/
 logs/
 test/acceptance/
+test/benchmark/
+test/chaos-pipeline/
 snapshots-s3/
