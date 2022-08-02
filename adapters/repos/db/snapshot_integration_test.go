@@ -131,11 +131,14 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		snap, err := index.CreateSnapshot(timeout, snapshotID)
 		assert.Nil(t, snap)
 
-		expectedErr := fmt.Errorf(
-			"create snapshot: long-running commitlog shutdown in progress: " +
-				"context deadline exceeded, long-running tombstone cleanup in progress: " +
-				"context deadline exceeded")
-		assert.EqualError(t, expectedErr, err.Error())
+		// due to concurrently running cycle shutdowns,
+		// we cannot always know which will error first
+		// amongst the affected cycles (i.e. compaction,
+		// tombstone cleanup, etc)
+		expected1 := "create snapshot: long-running"
+		expected2 := "context deadline exceeded"
+		assert.Contains(t, err.Error(), expected1)
+		assert.Contains(t, err.Error(), expected2)
 
 		t.Run("cleanup", func(t *testing.T) {
 			err := index.Shutdown(ctx)
