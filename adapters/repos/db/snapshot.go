@@ -35,8 +35,15 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
+	schema, err := i.marshalSchema()
+	if err != nil {
+		return nil, errors.Wrap(err, "create snapshot")
+	}
+
 	snap.ShardingState = shardingState
+	snap.Schema = schema
 	snap.CompletedAt = time.Now()
+
 	return snap, nil
 }
 
@@ -71,4 +78,15 @@ func (i *Index) marshalShardingState() ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func (i *Index) marshalSchema() ([]byte, error) {
+	schema := i.getSchema.GetSchemaSkipAuth()
+
+	b, err := schema.GetClass(i.Config.ClassName).MarshalBinary()
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal schema")
+	}
+
+	return b, err
 }

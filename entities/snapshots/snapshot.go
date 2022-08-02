@@ -25,7 +25,9 @@ type Snapshot struct {
 	BasePath      string                    `json:"basePath"`
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
+	Schema        []byte                    `json:"schema"`
 
+	// so shard-level snapshotting can be safely parallelized
 	sync.Mutex `json:"-"`
 }
 

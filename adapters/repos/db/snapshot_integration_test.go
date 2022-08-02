@@ -81,6 +81,11 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				assert.NotEmpty(t, snap.ShardMetadata[shard.name].DocIDCounter)
 				assert.NotEmpty(t, snap.ShardMetadata[shard.name].PropLengthTracker)
 			})
+
+			t.Run("assert schema state", func(t *testing.T) {
+				assert.NotEmpty(t, snap.ShardingState)
+				assert.NotEmpty(t, snap.Schema)
+			})
 		})
 
 		t.Run("release snapshot", func(t *testing.T) {
