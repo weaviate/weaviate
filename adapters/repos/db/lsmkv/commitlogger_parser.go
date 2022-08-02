@@ -31,7 +31,8 @@ type commitloggerParser struct {
 }
 
 func newCommitLoggerParser(path string, activeMemtable *Memtable,
-	strategy string, metrics *Metrics) *commitloggerParser {
+	strategy string, metrics *Metrics,
+) *commitloggerParser {
 	return &commitloggerParser{
 		path:         path,
 		memtable:     activeMemtable,

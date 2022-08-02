@@ -153,7 +153,8 @@ func testProperty() *models.Property {
 
 // New Local Schema *Manager
 func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
-	client cluster.Client) *schemauc.Manager {
+	client cluster.Client,
+) *schemauc.Manager {
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},

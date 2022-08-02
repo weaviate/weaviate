@@ -32,7 +32,8 @@ func (m *TransformersModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *TransformersModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{
 		"skip":                  !vectorizer.DefaultPropertyIndexed,
 		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
@@ -40,7 +41,8 @@ func (m *TransformersModule) PropertyConfigDefaults(
 }
 
 func (m *TransformersModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	settings := vectorizer.NewClassSettings(cfg)
 	return NewConfigValidator(m.logger).Do(ctx, class, cfg, settings)
 }
@@ -62,7 +64,8 @@ func NewConfigValidator(logger logrus.FieldLogger) *ConfigValidator {
 }
 
 func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
-	cfg moduletools.ClassConfig, settings ClassSettings) error {
+	cfg moduletools.ClassConfig, settings ClassSettings,
+) error {
 	// In text2vec-transformers (as opposed to e.g. text2vec-contextionary) the
 	// assumption is that the models will be able to deal with any words, even
 	// previously unseen ones. Therefore we do not need to validate individual
@@ -78,7 +81,8 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 }
 
 func (cv *ConfigValidator) validateIndexState(ctx context.Context,
-	class *models.Class, settings ClassSettings) error {
+	class *models.Class, settings ClassSettings,
+) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -116,7 +120,8 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 }
 
 func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(
-	ctx context.Context, class *models.Class, settings ClassSettings) {
+	ctx context.Context, class *models.Class, settings ClassSettings,
+) {
 	if !settings.VectorizeClassName() {
 		// if the user choses not to vectorize the class name, this means they must
 		// have chosen something else to vectorize, otherwise the validation would

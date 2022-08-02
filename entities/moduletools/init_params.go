@@ -26,7 +26,8 @@ type InitParams struct {
 }
 
 func NewInitParams(storageProvider StorageProvider, appState interface{},
-	logger logrus.FieldLogger) ModuleInitParams {
+	logger logrus.FieldLogger,
+) ModuleInitParams {
 	return &InitParams{storageProvider, appState, logger}
 }
 

@@ -26,7 +26,8 @@ type batchObjectHandlers struct {
 }
 
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Objects, params.Body.Fields)
 	if err != nil {
@@ -68,7 +69,8 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 }
 
 func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -116,7 +118,8 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 }
 
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
 		params.Body.Match, params.Body.DryRun, params.Body.Output)
 	if err != nil {

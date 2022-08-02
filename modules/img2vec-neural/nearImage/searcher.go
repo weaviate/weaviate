@@ -42,13 +42,15 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 
 func (s *Searcher) vectorForNearImageParam(ctx context.Context, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig) ([]float32, error) {
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
 	return s.vectorFromNearImageParam(ctx, params.(*NearImageParams), findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearImageParam(ctx context.Context,
 	params *NearImageParams, findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig) ([]float32, error) {
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
 	// find vector for given search query
 	searchID := fmt.Sprintf("search_%v", time.Now().UnixNano())
 	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, params.Image)

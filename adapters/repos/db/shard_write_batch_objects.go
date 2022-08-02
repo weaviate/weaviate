@@ -26,7 +26,8 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object) []error {
+	objects []*storobj.Object,
+) []error {
 	if s.isReadOnly() {
 		return []error{storagestate.ErrStatusReadOnly}
 	}
@@ -52,7 +53,8 @@ func newObjectsBatcher(s *Shard) *objectsBatcher {
 
 // Objects imports the specified objects in parallel in a batch-fashion
 func (b *objectsBatcher) Objects(ctx context.Context,
-	objects []*storobj.Object) []error {
+	objects []*storobj.Object,
+) []error {
 	beforeBatch := time.Now()
 	defer b.shard.metrics.BatchObject(beforeBatch, len(objects))
 
@@ -87,7 +89,8 @@ func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
 }
 
 func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
-	batch []*storobj.Object) []error {
+	batch []*storobj.Object,
+) []error {
 	errs := make([]error, len(batch))
 	errLock := &sync.Mutex{}
 
@@ -118,7 +121,8 @@ func (b *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 }
 
 func (b *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
-	objectIndex int, object *storobj.Object) error {
+	objectIndex int, object *storobj.Object,
+) error {
 	if _, ok := b.duplicates[objectIndex]; ok {
 		return nil
 	}
@@ -221,7 +225,8 @@ func (b *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
 }
 
 func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
-	object *storobj.Object, status objectInsertStatus, index int) {
+	object *storobj.Object, status objectInsertStatus, index int,
+) {
 	if err := ctx.Err(); err != nil {
 		b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 		return

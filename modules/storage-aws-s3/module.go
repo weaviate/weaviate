@@ -48,7 +48,8 @@ func (m *StorageS3Module) Type() modulecapabilities.ModuleType {
 }
 
 func (m *StorageS3Module) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	if err := m.initSnapshotStorage(ctx); err != nil {

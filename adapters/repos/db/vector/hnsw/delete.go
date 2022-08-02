@@ -386,7 +386,8 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
-	oldEntrypoint uint64) (uint64, int, bool) {
+	oldEntrypoint uint64,
+) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// entrypoint has already been changed (this could be due to a new import
 		// for example, nothing to do for us
@@ -443,7 +444,8 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel int,
-	oldEntrypoint uint64) (uint64, int) {
+	oldEntrypoint uint64,
+) (uint64, int) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// the current global entrypoint is different from our local entrypoint, so
 		// we can just use the global one, as the global one is guaranteed to be

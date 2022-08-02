@@ -16,7 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
@@ -39,7 +39,8 @@ func New(origin string, logger logrus.FieldLogger) *vectorizer {
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context,
-	id, image string) (*ent.VectorizationResult, error) {
+	id, image string,
+) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(vecRequest{
 		ID:    id,
 		Image: image,
@@ -60,7 +61,7 @@ func (v *vectorizer) Vectorize(ctx context.Context,
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}

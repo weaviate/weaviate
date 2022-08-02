@@ -45,7 +45,8 @@ func (m *StorageFileSystemModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *StorageFileSystemModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	snapshotsPath := os.Getenv(snapshotsPathName)

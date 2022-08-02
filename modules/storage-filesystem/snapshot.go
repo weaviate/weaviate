@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -150,7 +149,7 @@ func (m *StorageFileSystemModule) saveMeta(dstSnapshotPath string, snapshot snap
 	}
 
 	metaFile := filepath.Join(dstSnapshotPath, "snapshot.json")
-	if err := ioutil.WriteFile(metaFile, content, os.ModePerm); err != nil {
+	if err := os.WriteFile(metaFile, content, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "save_meta").
 			WithField("snapshot_id", snapshot.ID).

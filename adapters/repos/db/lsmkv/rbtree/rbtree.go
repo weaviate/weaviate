@@ -32,11 +32,11 @@ type Node interface {
 // Throughout ths file the following relationships between nodes are used:
 // GP = grandparent, P = parent, U = uncle, S = sibling, N = node that was just added
 //
-//     GP
-//   /   \
-//  U     P
-//       / \
-//      S   N
+//	   GP
+//	 /   \
+//	U     P
+//	     / \
+//	    S   N
 func Rebalance(node Node) Node {
 	for {
 		parent := node.Parent()
@@ -106,11 +106,11 @@ func recolourNodes(nodes ...Node) {
 // After this rotation, the former right child (FC) will be the new parent and the former parent (FP) will
 // be the left node of the new parent. The left child of the former child is transferred to the former parent.
 //
-//      FP                                FC
-//   /      \         left rotate        /  \
-//  FP_R     FC          =>            FP   FC_R
-//          / \                       / \
-//       FC_L   FC_R               FP_R  FC_L
+//	    FP                                FC
+//	 /      \         left rotate        /  \
+//	FP_R     FC          =>            FP   FC_R
+//	        / \                       / \
+//	     FC_L   FC_R               FP_R  FC_L
 //
 // In case FP was the root of the tree, FC will be the new root of the tree.
 func leftRotate(rotationNode Node) Node {

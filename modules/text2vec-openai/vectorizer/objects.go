@@ -58,7 +58,8 @@ func sortStringKeys(schema_map map[string]interface{}) []string {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	settings ClassSettings) error {
+	settings ClassSettings,
+) error {
 	vec, err := v.object(ctx, object.Class, object.Properties, settings)
 	if err != nil {
 		return err
@@ -69,7 +70,8 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
-	value interface{}) {
+	value interface{},
+) {
 	valueString, ok := value.(string)
 	if ok {
 		if icheck.VectorizePropertyName(propName) {
@@ -83,7 +85,8 @@ func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, icheck ClassSettings) ([]float32, error) {
+	schema interface{}, icheck ClassSettings,
+) ([]float32, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {

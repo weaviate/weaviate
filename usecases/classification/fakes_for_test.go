@@ -96,7 +96,8 @@ type fakeVectorRepoKNN struct {
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
 	return f.unclassified, nil
@@ -104,7 +105,8 @@ func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 
 func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter) ([]NeighborRef, error) {
+	filter *libfilters.LocalFilter,
+) ([]NeighborRef, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -156,12 +158,14 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 
 func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	panic("not implemented")
 }
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams) ([]search.Result, error) {
+	params traverser.GetParams,
+) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
 	return nil, fmt.Errorf("vector class search not implemented in fake")
@@ -221,19 +225,22 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	return f.unclassified, nil
 }
 
 func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter) ([]NeighborRef, error) {
+	filter *libfilters.LocalFilter,
+) ([]NeighborRef, error) {
 	panic("not implemented")
 }
 
 func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	panic("not implemented")
 }
 
@@ -247,7 +254,8 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams) ([]search.Result, error) {
+	params traverser.GetParams,
+) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)
 		return filteredTargets, nil
@@ -335,7 +343,8 @@ func NewFakeModuleClassifyFn() *fakeModuleClassifyFn {
 }
 
 func (c *fakeModuleClassifyFn) classifyFn(item search.Result, itemIndex int,
-	params models.Classification, filters modulecapabilities.Filters, writer modulecapabilities.Writer) error {
+	params models.Classification, filters modulecapabilities.Filters, writer modulecapabilities.Writer,
+) error {
 	var classified []string
 
 	classifiedProp := c.fakeClassification(&item, "exactCategory", c.fakeExactCategoryMappings)
@@ -358,7 +367,8 @@ func (c *fakeModuleClassifyFn) classifyFn(item search.Result, itemIndex int,
 }
 
 func (c *fakeModuleClassifyFn) fakeClassification(item *search.Result, propName string,
-	fakes map[string]string) string {
+	fakes map[string]string,
+) string {
 	if target, ok := fakes[item.ID.String()]; ok {
 		beacon := "weaviate://localhost/" + target
 		item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
@@ -373,7 +383,8 @@ func (c *fakeModuleClassifyFn) fakeClassification(item *search.Result, propName 
 }
 
 func (c *fakeModuleClassifyFn) extendItemWithObjectMeta(item *search.Result,
-	params models.Classification, classified []string) {
+	params models.Classification, classified []string,
+) {
 	if item.AdditionalProperties == nil {
 		item.AdditionalProperties = models.AdditionalProperties{}
 	}
@@ -395,12 +406,14 @@ func NewFakeModulesProvider() *fakeModulesProvider {
 }
 
 func (m *fakeModulesProvider) ParseClassifierSettings(name string,
-	params *models.Classification) error {
+	params *models.Classification,
+) error {
 	return nil
 }
 
 func (m *fakeModulesProvider) GetClassificationFn(className, name string,
-	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	params modulecapabilities.ClassifyParams,
+) (modulecapabilities.ClassifyItemFn, error) {
 	if name == "text2vec-contextionary-custom-contextual" {
 		return m.fakeModuleClassifyFn.classifyFn, nil
 	}

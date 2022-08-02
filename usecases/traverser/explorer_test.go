@@ -2366,7 +2366,8 @@ type fakeModulesProvider struct {
 
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	return vectorForParams(ctx, params, findVectorFn, nil)
@@ -2374,7 +2375,8 @@ func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, classNa
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	return vectorForParams(ctx, params, findVectorFn, nil)
@@ -2392,19 +2394,22 @@ func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
 }
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string) (search.Results, error) {
+	searchVector []float32, capability string,
+) (search.Results, error) {
 	txt2vec := p.getFakeT2Vec()
 	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
 		for name, value := range moduleParams {
@@ -2429,7 +2434,8 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
-	capability string) modulecapabilities.AdditionalPropertyFn {
+	capability string,
+) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
 		return additionalProperty.SearchFunctions.ObjectGet

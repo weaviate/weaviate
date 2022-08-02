@@ -58,7 +58,8 @@ func AssertEventuallyEqual(t *testing.T, expected interface{}, actualThunk func(
 }
 
 func AssertEventuallyEqualWithFrequencyAndTimeout(t *testing.T, expected interface{}, actualThunk func() interface{},
-	interval time.Duration, timeout time.Duration, msg ...interface{}) {
+	interval time.Duration, timeout time.Duration, msg ...interface{},
+) {
 	elapsed := 0 * time.Millisecond
 	fakeT := &fakeT{}
 

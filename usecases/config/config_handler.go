@@ -14,7 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"regexp"
 
 	"github.com/go-openapi/swag"
@@ -196,7 +196,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	// Read config file
-	file, err := ioutil.ReadFile(configFileName)
+	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {

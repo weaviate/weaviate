@@ -26,7 +26,8 @@ import (
 
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	err := m.authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
@@ -36,7 +37,8 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -87,7 +89,8 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
-	shardState *sharding.State) error {
+	shardState *sharding.State,
+) error {
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
@@ -220,7 +223,8 @@ func (m *Manager) validateProperty(property *models.Property, class *models.Clas
 }
 
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	if class.VectorIndexType != "hnsw" {
 		return errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
@@ -238,7 +242,8 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Manager) parseShardingConfig(ctx context.Context,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	parsed, err := sharding.ParseConfig(class.ShardingConfig,
 		m.clusterState.NodeCount())
 	if err != nil {

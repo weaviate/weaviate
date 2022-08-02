@@ -17,7 +17,8 @@ import (
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, limit int,
-	allowList helpers.AllowList) ([]uint64, []float32, error) {
+	allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
 	results := priorityqueue.NewMax(limit)
 
 	for candidate := range allowList {
