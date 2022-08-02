@@ -20,7 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 )
 
-func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
+func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 

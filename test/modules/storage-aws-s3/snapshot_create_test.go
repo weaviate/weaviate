@@ -40,7 +40,9 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 
 		endpoint := os.Getenv(minioEndpoint)
 		s3Config := s3.NewConfig(endpoint, "bucket", false)
-		s3, err := s3.New(s3Config, logger)
+		s3, err := s3.New(s3Config, logger, "dummyString")
+		path, _ := os.Getwd()
+		s3.SetDataPath(path)
 		require.Nil(t, err)
 
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)

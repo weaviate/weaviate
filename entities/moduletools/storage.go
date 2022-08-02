@@ -13,6 +13,7 @@ package moduletools
 
 type StorageProvider interface {
 	Storage(name string) (Storage, error)
+	DataPath() string
 }
 
 type ScanFn func(k, v []byte) (bool, error)
