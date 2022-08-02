@@ -6,7 +6,45 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"golang.org/x/sync/errgroup"
 )
+
+func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) error {
+	var g errgroup.Group
+
+	g.Go(func() error {
+		files, err := s.createStoreLevelSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		snap.Lock()
+		defer snap.Unlock()
+		snap.Files = append(snap.Files, files...)
+		return nil
+	})
+
+	g.Go(func() error {
+		files, err := s.createVectorIndexLevelSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		snap.Lock()
+		defer snap.Unlock()
+		snap.Files = append(snap.Files, files...)
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	shardMeta, err := s.readSnapshotMetadata()
+	if err != nil {
+		return errors.Wrap(err, "create snapshot")
+	}
+	snap.ShardMetadata[s.name] = shardMeta
+	return nil
+}
 
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
 	if err := s.store.PauseCompaction(ctx); err != nil {

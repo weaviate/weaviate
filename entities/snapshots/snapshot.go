@@ -11,7 +11,10 @@
 
 package snapshots
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Snapshot struct {
 	StartedAt   time.Time `json:"startedAt"`
@@ -21,6 +24,9 @@ type Snapshot struct {
 	Files         []string                  `json:"files"`
 	BasePath      string                    `json:"basePath"`
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
+	ShardingState []byte                    `json:"shardingState"`
+
+	sync.Mutex `json:"-"`
 }
 
 func New(id string, startedAt time.Time, basePath string) *Snapshot {

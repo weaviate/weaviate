@@ -2,12 +2,10 @@ package db
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"golang.org/x/sync/errgroup"
 )
 
 // CreateSnapshot creates a new active snapshot for all state in this index across
@@ -26,49 +24,18 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 
 	snap := snapshots.New(id, time.Now(), i.Config.RootPath)
 
-	var (
-		snapshotFilesLock sync.Mutex
-		snapshotFiles     []string
-		g                 errgroup.Group
-	)
-
 	for _, shard := range i.Shards {
-		s := shard
-
-		g.Go(func() error {
-			files, err := s.createStoreLevelSnapshot(ctx)
-			if err != nil {
-				return err
-			}
-			snapshotFilesLock.Lock()
-			defer snapshotFilesLock.Unlock()
-			snapshotFiles = append(snapshotFiles, files...)
-			return nil
-		})
-
-		g.Go(func() error {
-			files, err := s.createVectorIndexLevelSnapshot(ctx)
-			if err != nil {
-				return err
-			}
-			snapshotFilesLock.Lock()
-			defer snapshotFilesLock.Unlock()
-			snapshotFiles = append(snapshotFiles, files...)
-			return nil
-		})
-
-		if err := g.Wait(); err != nil {
+		if err := shard.createSnapshot(ctx, snap); err != nil {
 			return nil, err
 		}
-
-		shardMeta, err := s.readSnapshotMetadata()
-		if err != nil {
-			return nil, errors.Wrap(err, "create snapshot")
-		}
-		snap.ShardMetadata[s.name] = shardMeta
 	}
 
-	snap.Files = snapshotFiles
+	shardingState, err := i.marshalShardingState()
+	if err != nil {
+		return nil, errors.Wrap(err, "create snapshot")
+	}
+
+	snap.ShardingState = shardingState
 	snap.CompletedAt = time.Now()
 	return snap, nil
 }
@@ -95,4 +62,13 @@ func (i *Index) initSnapshot(id string) error {
 	}
 
 	return nil
+}
+
+func (i *Index) marshalShardingState() ([]byte, error) {
+	b, err := i.getSchema.ShardingState(i.Config.ClassName.String()).JSON()
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal sharding state")
+	}
+
+	return b, nil
 }
