@@ -154,10 +154,11 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
-	h.Lock()
+	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+) {
+	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
-	h.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -277,9 +278,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.Lock()
+	h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Return(visited)
-	h.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	// results are passed on, so it's in the callers responsibility to return the
 	// list to the pool after using it
