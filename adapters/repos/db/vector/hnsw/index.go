@@ -546,13 +546,6 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context) error {
-	// cancel commit log goroutine
-	err := h.commitLog.Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "commit log drop")
-	}
-	// cancel vector cache goroutine
-	h.cache.drop()
 	// cancel tombstone cleanup goroutine
 
 	// if the interval is 0 we never started a cleanup cycle, therefore there is
@@ -566,6 +559,17 @@ func (h *hnsw) Drop(ctx context.Context) error {
 			return errors.Wrap(err, "hnsw drop")
 		}
 	}
+
+	// cancel vector cache goroutine
+	h.cache.drop()
+
+	// cancel commit logger last, as the tombstone cleanup cycle might still
+	// write while it's still running
+	err := h.commitLog.Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "commit log drop")
+	}
+
 	return nil
 }
 
