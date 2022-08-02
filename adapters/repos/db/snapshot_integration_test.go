@@ -15,6 +15,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"regexp"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +83,48 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 
 		err := index.Shutdown(ctx)
 		require.Nil(t, err)
+	})
+
+	t.Run("failed snapshot creation from expired context", func(t *testing.T) {
+		ctx := testCtx()
+
+		className := "IndexLevelSnapshotClass"
+		snapshotID := "index-level-snapshot-test"
+
+		_, index := testShard(ctx, className, withVectorIndexing(true))
+
+		timeout, cancel := context.WithTimeout(context.Background(), 0)
+		defer cancel()
+
+		snap, err := index.CreateSnapshot(timeout, snapshotID)
+		assert.Nil(t, snap)
+
+		expectedErr := fmt.Errorf(
+			"create snapshot: long-running commitlog shutdown in progress: " +
+				"context deadline exceeded, long-running tombstone cleanup in progress: " +
+				"context deadline exceeded")
+		assert.EqualError(t, expectedErr, err.Error())
+	})
+
+	t.Run("failed snapshot creation from existing unreleased snapshot", func(t *testing.T) {
+		ctx := testCtx()
+		className := "IndexLevelSnapshotClass"
+		inProgressSnapshotID := "index-level-snapshot-test"
+
+		_, index := testShard(ctx, className, withVectorIndexing(true))
+
+		index.snapshotState = snapshots.State{
+			SnapshotID: inProgressSnapshotID,
+			InProgress: true,
+		}
+
+		snap, err := index.CreateSnapshot(ctx, "some-new-snapshot")
+		assert.Nil(t, snap)
+
+		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+
+			"is not yet released, this means its contents have not yet been fully copied "+
+			"to its destination, try again later", inProgressSnapshotID)
+		assert.EqualError(t, expectedErr, err.Error())
 	})
 }
 
