@@ -37,7 +37,8 @@ type compactorReplace struct {
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
-	scratchSpacePath string) *compactorReplace {
+	scratchSpacePath string,
+) *compactorReplace {
 	return &compactorReplace{
 		c1:                  c1,
 		c2:                  c2,
@@ -148,7 +149,8 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 }
 
 func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
-	secondaryKeys [][]byte, tombstone bool) (keyIndex, error) {
+	secondaryKeys [][]byte, tombstone bool,
+) (keyIndex, error) {
 	segNode := segmentReplaceNode{
 		offset:              offset,
 		tombstone:           tombstone,
@@ -176,7 +178,8 @@ func (c *compactorReplace) writeIndices(keys []keyIndex) error {
 // writer and it is now safe to seek to the beginning and override the initial
 // header
 func (c *compactorReplace) writeHeader(level, version, secondaryIndices uint16,
-	startOfIndex uint64) error {
+	startOfIndex uint64,
+) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}

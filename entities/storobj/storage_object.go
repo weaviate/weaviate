@@ -17,12 +17,12 @@ import (
 	"encoding/json"
 	"io"
 	"math"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -60,7 +60,8 @@ func FromBinary(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties) (*Object, error) {
+	addProp additional.Properties,
+) (*Object, error) {
 	ko := &Object{}
 
 	var version uint8
@@ -88,44 +89,44 @@ func FromBinaryOptional(data []byte,
 		vectorWeightsLength uint32
 	)
 
-	ec := &errorCompounder{}
-	ec.add(binary.Read(r, le, &ko.docID), "doc id")
-	ec.add(binary.Read(r, le, &kindByte), "kind")
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.AddWrap(binary.Read(r, le, &ko.docID), "doc id")
+	ec.AddWrap(binary.Read(r, le, &kindByte), "kind")
 	_, err := r.Read(uuidBytes)
-	ec.add(err, "uuid")
-	ec.add(binary.Read(r, le, &createTime), "create time")
-	ec.add(binary.Read(r, le, &updateTime), "update time")
-	ec.add(binary.Read(r, le, &vectorLength), "vector length")
+	ec.AddWrap(err, "uuid")
+	ec.AddWrap(binary.Read(r, le, &createTime), "create time")
+	ec.AddWrap(binary.Read(r, le, &updateTime), "update time")
+	ec.AddWrap(binary.Read(r, le, &vectorLength), "vector length")
 	if addProp.Vector {
 		ko.Vector = make([]float32, vectorLength)
-		ec.add(binary.Read(r, le, &ko.Vector), "read vector")
+		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
 	} else {
 		io.CopyN(io.Discard, r, int64(vectorLength*4))
 	}
-	ec.add(binary.Read(r, le, &classNameLength), "class name length")
+	ec.AddWrap(binary.Read(r, le, &classNameLength), "class name length")
 	className := make([]byte, classNameLength)
 	_, err = r.Read(className)
-	ec.add(err, "class name")
-	ec.add(binary.Read(r, le, &schemaLength), "schema length")
+	ec.AddWrap(err, "class name")
+	ec.AddWrap(binary.Read(r, le, &schemaLength), "schema length")
 	schema := make([]byte, schemaLength)
 	_, err = r.Read(schema)
-	ec.add(err, "schema")
-	ec.add(binary.Read(r, le, &metaLength), "additional length")
+	ec.AddWrap(err, "schema")
+	ec.AddWrap(binary.Read(r, le, &metaLength), "additional length")
 	var meta []byte
 	if addProp.Classification || len(addProp.ModuleParams) > 0 {
 		meta = make([]byte, metaLength)
 		_, err = r.Read(meta)
-		ec.add(err, "read additional")
+		ec.AddWrap(err, "read additional")
 	} else {
 		io.CopyN(io.Discard, r, int64(metaLength))
 	}
 
-	ec.add(binary.Read(r, le, &vectorWeightsLength), "vector weights length")
+	ec.AddWrap(binary.Read(r, le, &vectorWeightsLength), "vector weights length")
 	vectorWeights := make([]byte, vectorWeightsLength)
 	_, err = r.Read(vectorWeights)
-	ec.add(err, "vector weights")
+	ec.AddWrap(err, "vector weights")
 
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return nil, errors.Wrap(err, "compound err")
 	}
 
@@ -192,7 +193,8 @@ func (ko *Object) Properties() models.PropertySchema {
 }
 
 func (ko *Object) PropertiesWithAdditional(
-	additional additional.Properties) models.PropertySchema {
+	additional additional.Properties,
+) models.PropertySchema {
 	properties := ko.Properties()
 
 	if additional.RefMeta {
@@ -280,7 +282,8 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 }
 
 func SearchResultsWithDists(in []*Object, additional additional.Properties,
-	dists []float32) search.Results {
+	dists []float32,
+) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
@@ -367,32 +370,32 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	buf := bytes.NewBuffer(nil)
 	le := binary.LittleEndian
-	ec.add(binary.Write(buf, le, &ko.MarshallerVersion))
-	ec.add(binary.Write(buf, le, &ko.docID))
-	ec.add(binary.Write(buf, le, kindByte))
+	ec.Add(binary.Write(buf, le, &ko.MarshallerVersion))
+	ec.Add(binary.Write(buf, le, &ko.docID))
+	ec.Add(binary.Write(buf, le, kindByte))
 	_, err = buf.Write(idBytes)
-	ec.add(err)
-	ec.add(binary.Write(buf, le, ko.CreationTimeUnix()))
-	ec.add(binary.Write(buf, le, ko.LastUpdateTimeUnix()))
-	ec.add(binary.Write(buf, le, vectorLength))
-	ec.add(binary.Write(buf, le, ko.Vector))
-	ec.add(binary.Write(buf, le, classNameLength))
+	ec.Add(err)
+	ec.Add(binary.Write(buf, le, ko.CreationTimeUnix()))
+	ec.Add(binary.Write(buf, le, ko.LastUpdateTimeUnix()))
+	ec.Add(binary.Write(buf, le, vectorLength))
+	ec.Add(binary.Write(buf, le, ko.Vector))
+	ec.Add(binary.Write(buf, le, classNameLength))
 	_, err = buf.Write(className)
-	ec.add(err)
-	ec.add(binary.Write(buf, le, schemaLength))
+	ec.Add(err)
+	ec.Add(binary.Write(buf, le, schemaLength))
 	_, err = buf.Write(schema)
-	ec.add(err)
-	ec.add(binary.Write(buf, le, metaLength))
+	ec.Add(err)
+	ec.Add(binary.Write(buf, le, metaLength))
 	_, err = buf.Write(meta)
-	ec.add(err)
-	ec.add(binary.Write(buf, le, vectorWeightsLength))
+	ec.Add(err)
+	ec.Add(binary.Write(buf, le, vectorWeightsLength))
 	_, err = buf.Write(vectorWeights)
-	ec.add(err)
+	ec.Add(err)
 
-	return buf.Bytes(), ec.toError()
+	return buf.Bytes(), ec.ToError()
 }
 
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
@@ -423,34 +426,34 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		vectorWeightsLength uint32
 	)
 
-	ec := &errorCompounder{}
-	ec.add(binary.Read(r, le, &ko.docID))
-	ec.add(binary.Read(r, le, &kindByte))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(binary.Read(r, le, &ko.docID))
+	ec.Add(binary.Read(r, le, &kindByte))
 	_, err := r.Read(uuidBytes)
-	ec.add(err)
-	ec.add(binary.Read(r, le, &createTime))
-	ec.add(binary.Read(r, le, &updateTime))
-	ec.add(binary.Read(r, le, &vectorLength))
+	ec.Add(err)
+	ec.Add(binary.Read(r, le, &createTime))
+	ec.Add(binary.Read(r, le, &updateTime))
+	ec.Add(binary.Read(r, le, &vectorLength))
 	ko.Vector = make([]float32, vectorLength)
-	ec.add(binary.Read(r, le, &ko.Vector))
-	ec.add(binary.Read(r, le, &classNameLength))
+	ec.Add(binary.Read(r, le, &ko.Vector))
+	ec.Add(binary.Read(r, le, &classNameLength))
 	className := make([]byte, classNameLength)
 	_, err = r.Read(className)
-	ec.add(err)
-	ec.add(binary.Read(r, le, &schemaLength))
+	ec.Add(err)
+	ec.Add(binary.Read(r, le, &schemaLength))
 	schema := make([]byte, schemaLength)
 	_, err = r.Read(schema)
-	ec.add(err)
-	ec.add(binary.Read(r, le, &metaLength))
+	ec.Add(err)
+	ec.Add(binary.Read(r, le, &metaLength))
 	meta := make([]byte, metaLength)
 	_, err = r.Read(meta)
-	ec.add(err)
-	ec.add(binary.Read(r, le, &vectorWeightsLength))
+	ec.Add(err)
+	ec.Add(binary.Read(r, le, &vectorWeightsLength))
 	vectorWeights := make([]byte, vectorWeightsLength)
 	_, err = r.Read(vectorWeights)
-	ec.add(err)
+	ec.Add(err)
 
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return err
 	}
 
@@ -501,7 +504,8 @@ func VectorFromBinary(in []byte) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, additionalB []byte, vectorWeightsB []byte) error {
+	schemaB []byte, additionalB []byte, vectorWeightsB []byte,
+) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err
@@ -628,35 +632,4 @@ func deepCopyMRef(orig models.MultipleRef) models.MultipleRef {
 	}
 
 	return out
-}
-
-type errorCompounder struct {
-	errors []error
-}
-
-func (ec *errorCompounder) add(err error, wrapMsg ...string) {
-	if err != nil {
-		if len(wrapMsg) == 0 {
-			ec.errors = append(ec.errors, err)
-		} else {
-			ec.errors = append(ec.errors, errors.Wrap(err, wrapMsg[0]))
-		}
-	}
-}
-
-func (ec *errorCompounder) toError() error {
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.New(msg.String())
 }

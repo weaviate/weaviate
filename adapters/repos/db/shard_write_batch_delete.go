@@ -26,7 +26,8 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) deleteObjectBatch(ctx context.Context,
-	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	docIDs []uint64, dryRun bool,
+) objects.BatchSimpleObjects {
 	if s.isReadOnly() {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
@@ -46,19 +47,22 @@ func newDeleteObjectsBatcher(shard *Shard) *deleteObjectsBatcher {
 }
 
 func (b *deleteObjectsBatcher) Delete(ctx context.Context,
-	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	docIDs []uint64, dryRun bool,
+) objects.BatchSimpleObjects {
 	b.delete(ctx, docIDs, dryRun)
 	b.flushWALs(ctx)
 	return b.objects
 }
 
 func (b *deleteObjectsBatcher) delete(ctx context.Context,
-	docIDs []uint64, dryRun bool) {
+	docIDs []uint64, dryRun bool,
+) {
 	b.objects = b.deleteSingleBatchInLSM(ctx, docIDs, dryRun)
 }
 
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
-	batch []uint64, dryRun bool) objects.BatchSimpleObjects {
+	batch []uint64, dryRun bool,
+) objects.BatchSimpleObjects {
 	before := time.Now()
 	defer b.shard.metrics.BatchDelete(before, "shard_delete_all")
 
@@ -91,7 +95,8 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 }
 
 func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
-	docID uint64, dryRun bool) objects.BatchSimpleObject {
+	docID uint64, dryRun bool,
+) objects.BatchSimpleObject {
 	before := time.Now()
 	defer b.shard.metrics.BatchDelete(before, "shard_delete_individual_total")
 
@@ -138,7 +143,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 }
 
 func (s *Shard) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter) ([]uint64, error) {
+	filters *filters.LocalFilter,
+) ([]uint64, error) {
 	// This method is used exclusively for batch delete, so we can always
 	// prevent filter caching, as a Batch-Delete filter will lead to a state
 	// mutation, making the filter not reusable anyway.

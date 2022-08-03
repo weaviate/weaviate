@@ -27,7 +27,8 @@ import (
 
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, class string,
-	id strfmt.UUID, additional additional.Properties) (*models.Object, error) {
+	id strfmt.UUID, additional additional.Properties,
+) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
 		path = fmt.Sprintf("objects/%s/%s", class, id)
@@ -56,7 +57,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, sort, order *string, additional additional.Properties) ([]*models.Object, error) {
+	offset, limit *int64, sort, order *string, additional additional.Properties,
+) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -74,7 +76,8 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID) (*models.Class, error) {
+	id strfmt.UUID,
+) (*models.Class, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -102,7 +105,8 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
-	adds additional.Properties) (res *search.Result, err error) {
+	adds additional.Properties,
+) (res *search.Result, err error) {
 	if class != "" {
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds)
 	} else {
@@ -127,7 +131,8 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 }
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
-	sort, order *string, additional additional.Properties) ([]*models.Object, error) {
+	sort, order *string, additional additional.Properties,
+) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)

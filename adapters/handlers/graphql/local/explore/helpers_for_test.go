@@ -108,7 +108,8 @@ func newMockResolverEmptySchema() *mockResolver {
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
-	principal *models.Principal, params traverser.ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params traverser.ExploreParams,
+) ([]search.Result, error) {
 	args := m.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }

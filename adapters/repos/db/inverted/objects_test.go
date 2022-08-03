@@ -313,6 +313,7 @@ func TestAnalyzeObject(t *testing.T) {
 		})
 
 		t.Run("with array properties", func(t *testing.T) {
+			//nolint:gofumpt // the following block is formatted differently with go1.18 vs go1.19
 			schema := map[string]interface{}{
 				"descriptions": []interface{}{"I am great!", "I am also great!"},
 				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},

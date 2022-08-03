@@ -57,7 +57,8 @@ func (m *QnAModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *QnAModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -122,7 +123,8 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 }
 
 func (m *QnAModule) initAdditional(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	// TODO: proper config management
 	uri := os.Getenv("QNA_INFERENCE_API")
 	if uri == "" {

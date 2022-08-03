@@ -94,7 +94,8 @@ type fakeVectorRepoKNN struct {
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
 	return f.unclassified, nil
@@ -102,7 +103,8 @@ func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 
 func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter) ([]usecasesclassfication.NeighborRef, error) {
+	filter *libfilters.LocalFilter,
+) ([]usecasesclassfication.NeighborRef, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -154,12 +156,14 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 
 func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	panic("not implemented")
 }
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams) ([]search.Result, error) {
+	params traverser.GetParams,
+) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
 	return nil, fmt.Errorf("vector class search not implemented in fake")
@@ -219,19 +223,22 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	return f.unclassified, nil
 }
 
 func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter) ([]usecasesclassfication.NeighborRef, error) {
+	filter *libfilters.LocalFilter,
+) ([]usecasesclassfication.NeighborRef, error) {
 	panic("not implemented")
 }
 
 func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	panic("not implemented")
 }
 
@@ -245,7 +252,8 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams) ([]search.Result, error) {
+	params traverser.GetParams,
+) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)
 		return filteredTargets, nil
@@ -300,11 +308,13 @@ func NewFakeModulesProvider(vectorizer *fakeVectorizer) *fakeModulesProvider {
 }
 
 func (m *fakeModulesProvider) ParseClassifierSettings(name string,
-	params *models.Classification) error {
+	params *models.Classification,
+) error {
 	return m.contextualClassifier.ParseClassifierSettings(params)
 }
 
 func (m *fakeModulesProvider) GetClassificationFn(className, name string,
-	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	params modulecapabilities.ClassifyParams,
+) (modulecapabilities.ClassifyItemFn, error) {
 	return m.contextualClassifier.ClassifyFn(params)
 }

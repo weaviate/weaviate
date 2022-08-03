@@ -21,7 +21,8 @@ import (
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,
-	classifier *classification.Classifier) {
+	classifier *classification.Classifier,
+) {
 	api.ClassificationsClassificationsGetHandler = classifications.ClassificationsGetHandlerFunc(
 		func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
 			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))

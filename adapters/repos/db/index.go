@@ -76,7 +76,8 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
-	promMetrics *monitoring.PrometheusMetrics) (*Index, error) {
+	promMetrics *monitoring.PrometheusMetrics,
+) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
@@ -149,7 +150,8 @@ func (i *Index) addTimestampProperties(ctx context.Context) error {
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig) error {
+	updated schema.VectorIndexConfig,
+) error {
 	// an updated is not specific to one shard, but rather all
 	for name, shard := range i.Shards {
 		// At the moment, we don't do anything in an update that could fail, but
@@ -172,7 +174,8 @@ func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
 }
 
 func (i *Index) updateInvertedIndexConfig(ctx context.Context,
-	updated schema.InvertedIndexConfig) error {
+	updated schema.InvertedIndexConfig,
+) error {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
 
@@ -234,7 +237,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
-	object *storobj.Object) error {
+	object *storobj.Object,
+) error {
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -343,7 +347,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 // return value []error gives the error for the index with the positions
 // matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object) []error {
+	objects []*storobj.Object,
+) []error {
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -405,7 +410,8 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
-	objects []*storobj.Object) []error {
+	objects []*storobj.Object,
+) []error {
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -431,7 +437,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences) []error {
+	refs objects.BatchReferences,
+) []error {
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
@@ -475,7 +482,8 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 }
 
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
-	refs objects.BatchReferences) []error {
+	refs objects.BatchReferences,
+) []error {
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -486,7 +494,8 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	props search.SelectProperties, additional additional.Properties,
+) (*storobj.Object, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return nil, err
@@ -512,7 +521,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties) (*storobj.Object, error) {
+	additional additional.Properties,
+) (*storobj.Object, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -527,7 +537,8 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
-	ids []strfmt.UUID) ([]*storobj.Object, error) {
+	ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -542,7 +553,8 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 }
 
 func (i *Index) multiObjectByID(ctx context.Context,
-	query []multi.Identifier) ([]*storobj.Object, error) {
+	query []multi.Identifier,
+) ([]*storobj.Object, error) {
 	type idsAndPos struct {
 		ids []multi.Identifier
 		pos []int
@@ -639,7 +651,8 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
-	id strfmt.UUID) (bool, error) {
+	id strfmt.UUID,
+) (bool, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return false, errors.Errorf("shard %q does not exist locally", shardName)
@@ -655,7 +668,8 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties) ([]*storobj.Object, error) {
+	additional additional.Properties,
+) ([]*storobj.Object, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -720,19 +734,22 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,
-	scores []float32) ([]*storobj.Object, []float32) {
+	scores []float32,
+) ([]*storobj.Object, []float32) {
 	return newScoresSorter().sort(objects, scores)
 }
 
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
-	sort []filters.Sort, limit int) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, limit int,
+) ([]*storobj.Object, []float32, error) {
 	return sorter.New(i.getSchema.GetSchemaSkipAuth()).
 		Sort(objects, scores, limit, sort)
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	dist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	sort []filters.Sort, additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -809,7 +826,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -857,7 +875,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID) error {
+	id strfmt.UUID,
+) error {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -895,7 +914,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
-	mergeDoc objects.MergeDocument) error {
+	mergeDoc objects.MergeDocument,
+) error {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -910,7 +930,8 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params) (*aggregation.Result, error) {
+	params aggregation.Params,
+) (*aggregation.Result, error) {
 	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
 	shardNames := shardState.AllPhysicalShards()
 
@@ -941,7 +962,8 @@ func (i *Index) aggregate(ctx context.Context,
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
-	params aggregation.Params) (*aggregation.Result, error) {
+	params aggregation.Params,
+) (*aggregation.Result, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -1009,7 +1031,8 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter) (map[string][]uint64, error) {
+	filters *filters.LocalFilter,
+) (map[string][]uint64, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
@@ -1039,7 +1062,8 @@ func (i *Index) findDocIDs(ctx context.Context,
 }
 
 func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter) ([]uint64, error) {
+	filters *filters.LocalFilter,
+) ([]uint64, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return nil, errors.Errorf("shard %q does not exist locally", shardName)
@@ -1054,7 +1078,8 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context,
-	shardDocIDs map[string][]uint64, dryRun bool) (objects.BatchSimpleObjects, error) {
+	shardDocIDs map[string][]uint64, dryRun bool,
+) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
 
@@ -1096,7 +1121,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 }
 
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	docIDs []uint64, dryRun bool,
+) objects.BatchSimpleObjects {
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return objects.BatchSimpleObjects{

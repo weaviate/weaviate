@@ -37,7 +37,8 @@ type propValuePair struct {
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
-	tolerateDuplicates bool) error {
+	tolerateDuplicates bool,
+) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == filters.InternalPropBackwardsCompatID {

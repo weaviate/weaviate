@@ -43,7 +43,8 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 }
 
 func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
+) ([]float32, error) {
 	return s.vectorFromNearTextParam(ctx,
 		params.(*NearTextParams),
 		findVectorFn,
@@ -51,7 +52,8 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
@@ -90,7 +92,8 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	var objectVectors [][]float32
 
 	if len(values) > 0 {

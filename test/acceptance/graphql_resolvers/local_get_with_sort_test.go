@@ -17,7 +17,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -297,7 +299,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.property, tt.order))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.property, tt.order))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -383,7 +385,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -437,7 +439,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.order))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.order))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -464,7 +466,7 @@ func gettingObjectsWithSort(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		got := result.Get("Get", "City").AsSlice()
 		assert.Empty(t, got)
 	})
@@ -541,7 +543,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -622,7 +624,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -696,7 +698,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -770,7 +772,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -849,7 +851,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -928,7 +930,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, buildSortFilter(tt.sort)))
 				got := result.Get("Get", "City").AsSlice()
 				if !reflect.DeepEqual(got, tt.expected) {
 					t.Errorf("sort objects got = %v, want %v", got, tt.expected)
@@ -1014,7 +1016,7 @@ func gettingObjectsWithSort(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				result := ErrorGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.className, buildSortFilter(tt.sort)))
+				result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.className, buildSortFilter(tt.sort)))
 				for _, gqlError := range result {
 					assert.Equal(t, tt.expectedMsg, gqlError.Message)
 				}

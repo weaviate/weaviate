@@ -39,7 +39,8 @@ type keyAndTombstoneCallbackFn func(key []byte, tomstone bool)
 
 func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
 	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
-	callback keyAndTombstoneCallbackFn) *bufferedKeyAndTombstoneExtractor {
+	callback keyAndTombstoneCallbackFn,
+) *bufferedKeyAndTombstoneExtractor {
 	return &bufferedKeyAndTombstoneExtractor{
 		rawSegment:          rawSegment,
 		offset:              initialOffset,

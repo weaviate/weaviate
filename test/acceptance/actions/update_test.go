@@ -21,15 +21,14 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
 // run from setup_test.go
 func updateObjectsDeprecated(t *testing.T) {
 	t.Run("update and set number", func(t *testing.T) {
-		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", uuid)
+		uuid := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testNumber": 41.0,
@@ -45,7 +44,7 @@ func updateObjectsDeprecated(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, update.Class, uuid)
+			updatedObject := helper.AssertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			if updatedSchema["testNumber"] == nil {
 				return nil
@@ -53,12 +52,12 @@ func updateObjectsDeprecated(t *testing.T) {
 			num, _ := updatedSchema["testNumber"].(json.Number).Float64()
 			return num
 		}
-		testhelper.AssertEventuallyEqual(t, 41.0, actualThunk)
+		helper.AssertEventuallyEqual(t, 41.0, actualThunk)
 	})
 
 	t.Run("update and set string", func(t *testing.T) {
-		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", uuid)
+		uuid := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testString": "wibbly wobbly",
@@ -74,17 +73,17 @@ func updateObjectsDeprecated(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, update.Class, uuid)
+			updatedObject := helper.AssertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testString"]
 		}
-		testhelper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
+		helper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
 	})
 
 	t.Run("update and set bool", func(t *testing.T) {
 		t.Parallel()
-		uuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", uuid)
+		uuid := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, "TestObject", uuid)
 
 		schema := models.PropertySchema(map[string]interface{}{
 			"testTrueFalse": true,
@@ -101,18 +100,18 @@ func updateObjectsDeprecated(t *testing.T) {
 		helper.AssertRequestOk(t, updateResp, err, nil)
 
 		actualThunk := func() interface{} {
-			updatedObject := assertGetObject(t, update.Class, uuid)
+			updatedObject := helper.AssertGetObject(t, update.Class, uuid)
 			updatedSchema := updatedObject.Properties.(map[string]interface{})
 			return updatedSchema["testTrueFalse"]
 		}
-		testhelper.AssertEventuallyEqual(t, true, actualThunk)
+		helper.AssertEventuallyEqual(t, true, actualThunk)
 	})
 
 	t.Run("can patch object with cref", func(t *testing.T) {
-		thingToRefID := assertCreateObject(t, "ObjectTestThing", nil)
-		assertGetObjectEventually(t, "ObjectTestThing", thingToRefID)
-		objectID := assertCreateObject(t, "TestObject", nil)
-		assertGetObjectEventually(t, "TestObject", objectID)
+		thingToRefID := helper.AssertCreateObject(t, "ObjectTestThing", nil)
+		helper.AssertGetObjectEventually(t, "ObjectTestThing", thingToRefID)
+		objectID := helper.AssertCreateObject(t, "TestObject", nil)
+		helper.AssertGetObjectEventually(t, "TestObject", objectID)
 
 		merge := &models.Object{
 			Class: "TestObject",
@@ -134,7 +133,7 @@ func updateObjectsDeprecated(t *testing.T) {
 		helper.AssertRequestOk(t, patchResp, err, nil)
 
 		actualThunk := func() interface{} {
-			patchedObject := assertGetObject(t, merge.Class, objectID)
+			patchedObject := helper.AssertGetObject(t, merge.Class, objectID)
 
 			rawRef, ok := patchedObject.Properties.(map[string]interface{})["testReference"]
 			if !ok {
@@ -161,6 +160,6 @@ func updateObjectsDeprecated(t *testing.T) {
 			return refMap["beacon"]
 		}
 
-		testhelper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/%s", thingToRefID), actualThunk)
+		helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/%s", thingToRefID), actualThunk)
 	})
 }

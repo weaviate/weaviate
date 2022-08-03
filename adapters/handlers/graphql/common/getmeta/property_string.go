@@ -21,7 +21,8 @@ import (
 )
 
 func stringPropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaDateFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
@@ -59,7 +60,8 @@ func stringPropertyFields(class *models.Class,
 }
 
 func stringTopOccurrences(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaMetaPointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),

@@ -34,7 +34,8 @@ type localRepo interface {
 }
 
 func NewDistributeRepo(remoteClient cluster.Client,
-	memberLister cluster.MemberLister, localRepo localRepo) *DistributedRepo {
+	memberLister cluster.MemberLister, localRepo localRepo,
+) *DistributedRepo {
 	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient)
 	txRemote := cluster.NewTxManager(broadcaster)
 	repo := &DistributedRepo{
@@ -48,7 +49,8 @@ func NewDistributeRepo(remoteClient cluster.Client,
 }
 
 func (r *DistributedRepo) Get(ctx context.Context,
-	id strfmt.UUID) (*models.Classification, error) {
+	id strfmt.UUID,
+) (*models.Classification, error) {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -56,7 +58,8 @@ func (r *DistributedRepo) Get(ctx context.Context,
 }
 
 func (r *DistributedRepo) Put(ctx context.Context,
-	pl models.Classification) error {
+	pl models.Classification,
+) error {
 	r.Lock()
 	defer r.Unlock()
 
@@ -77,7 +80,8 @@ func (r *DistributedRepo) Put(ctx context.Context,
 }
 
 func (r *DistributedRepo) incomingCommit(ctx context.Context,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	if tx.Type != classification.TransactionPut {
 		return errors.Errorf("unrecognized tx type: %s", tx.Type)
 	}

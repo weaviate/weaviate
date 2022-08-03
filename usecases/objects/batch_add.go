@@ -14,21 +14,20 @@ package objects
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
+	"github.com/google/uuid"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 )
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string) (BatchObjects, error) {
+	objects []*models.Object, fields []*string,
+) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
 		return nil, err
@@ -49,7 +48,8 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string) (BatchObjects, error) {
+	classes []*models.Object, fields []*string,
+) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
@@ -81,7 +81,8 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 }
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string) BatchObjects {
+	classes []*models.Object, fields []*string,
+) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchObject, len(classes))
 
@@ -100,32 +101,33 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
 	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
-	fieldsToKeep map[string]struct{}) {
+	fieldsToKeep map[string]struct{},
+) {
 	defer wg.Done()
 
 	var id strfmt.UUID
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 
 	// Auto Schema
 	err := b.autoSchemaManager.autoSchema(ctx, principal, concept)
-	ec.add(err)
+	ec.Add(err)
 
 	if concept.ID == "" {
 		// Generate UUID for the new object
 		uid, err := generateUUID()
 		id = uid
-		ec.add(err)
+		ec.Add(err)
 	} else {
 		if _, err := uuid.Parse(concept.ID.String()); err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		id = concept.ID
 	}
 
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
-	ec.add(err)
+	ec.Add(err)
 
 	// Create Action object
 	object := &models.Object{}
@@ -149,16 +151,16 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	}
 
 	err = validation.New(s, b.vectorRepo.Exists, b.config).Object(ctx, object)
-	ec.add(err)
+	ec.Add(err)
 
 	err = newVectorObtainer(b.vectorizerProvider, b.schemaManager,
 		b.logger).Do(ctx, object, principal)
-	ec.add(err)
+	ec.Add(err)
 
 	*resultsC <- BatchObject{
 		UUID:          id,
 		Object:        object,
-		Err:           ec.toError(),
+		Err:           ec.ToError(),
 		OriginalIndex: originalIndex,
 		Vector:        object.Vector,
 	}
@@ -171,33 +173,6 @@ func objectsChanToSlice(c chan BatchObject) BatchObjects {
 	}
 
 	return result
-}
-
-type errorCompounder struct {
-	errors []error
-}
-
-func (ec *errorCompounder) add(err error) {
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
-}
-
-func (ec *errorCompounder) toError() error {
-	if len(ec.errors) == 0 {
-		return nil
-	}
-
-	var msg strings.Builder
-	for i, err := range ec.errors {
-		if i != 0 {
-			msg.WriteString(", ")
-		}
-
-		msg.WriteString(err.Error())
-	}
-
-	return errors.Errorf(msg.String())
 }
 
 func unixNow() int64 {

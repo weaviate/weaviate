@@ -21,7 +21,8 @@ import (
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList) error {
+	denyList helpers.AllowList,
+) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, targetLevel,
 		currentMaxLevel, denyList)
 
@@ -42,7 +43,8 @@ type neighborFinderConnector struct {
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList) *neighborFinderConnector {
+	denyList helpers.AllowList,
+) *neighborFinderConnector {
 	return &neighborFinderConnector{
 		graph:           graph,
 		node:            node,
@@ -177,7 +179,8 @@ func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 }
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
-	level int) error {
+	level int,
+) error {
 	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
 		return nil

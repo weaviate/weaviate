@@ -80,7 +80,8 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 }
 
 func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregation.Group,
-	pos int, shardGroup aggregation.Group) {
+	pos int, shardGroup aggregation.Group,
+) {
 	combinedGroups[pos].Count += shardGroup.Count
 
 	for propName, prop := range shardGroup.Properties {
@@ -162,7 +163,8 @@ func (sc ShardCombiner) finalizeNumerical(combined map[string]float64) map[strin
 }
 
 func (sc ShardCombiner) mergeBooleanProp(combined,
-	source aggregation.Boolean) aggregation.Boolean {
+	source aggregation.Boolean,
+) aggregation.Boolean {
 	combined.Count += source.Count
 	combined.TotalFalse += source.TotalFalse
 	combined.TotalTrue += source.TotalTrue
@@ -176,7 +178,8 @@ func (sc ShardCombiner) finalizeBoolean(combined aggregation.Boolean) aggregatio
 }
 
 func (sc ShardCombiner) mergeTextProp(combined,
-	source aggregation.Text) aggregation.Text {
+	source aggregation.Text,
+) aggregation.Text {
 	combined.Count += source.Count
 
 	for _, textOcc := range source.Items {

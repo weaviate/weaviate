@@ -52,7 +52,8 @@ func (m *ImageModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *ImageModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -65,7 +66,8 @@ func (m *ImageModule) Init(ctx context.Context,
 }
 
 func (m *ImageModule) initVectorizer(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	// TODO: proper config management
 	uri := os.Getenv("IMAGE_INFERENCE_API")
 	if uri == "" {
@@ -88,7 +90,8 @@ func (m *ImageModule) RootHandler() http.Handler {
 }
 
 func (m *ImageModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig) error {
+	obj *models.Object, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }

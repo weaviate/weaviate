@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,7 +35,7 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 		return errors.Wrap(err, "recover commit log")
 	}
 
-	list, err := ioutil.ReadDir(b.dir)
+	list, err := os.ReadDir(b.dir)
 	if err != nil {
 		return err
 	}

@@ -25,7 +25,8 @@ import (
 
 func (p *SpellCheckProvider) findSpellCheck(ctx context.Context,
 	in []search.Result, params *Params, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	if len(in) > 0 {
 		name, texts, err := p.paramHelper.getTexts(argumentModuleParams)
 		if err != nil {

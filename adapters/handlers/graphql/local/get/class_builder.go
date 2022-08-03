@@ -30,7 +30,8 @@ type classBuilder struct {
 }
 
 func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider) *classBuilder {
+	modulesProvider ModulesProvider,
+) *classBuilder {
 	b := &classBuilder{}
 
 	b.logger = logger

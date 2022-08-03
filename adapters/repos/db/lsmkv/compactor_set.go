@@ -37,7 +37,8 @@ type compactorSet struct {
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
-	scratchSpacePath string) *compactorSet {
+	scratchSpacePath string,
+) *compactorSet {
 	return &compactorSet{
 		c1:                  c1,
 		c2:                  c2,
@@ -149,7 +150,8 @@ func (c *compactorSet) writeKeys() ([]keyIndex, error) {
 }
 
 func (c *compactorSet) writeIndividualNode(offset int, key []byte,
-	values []value) (keyIndex, error) {
+	values []value,
+) (keyIndex, error) {
 	return (&segmentCollectionNode{
 		values:     values,
 		primaryKey: key,
@@ -172,7 +174,8 @@ func (c *compactorSet) writeIndices(keys []keyIndex) error {
 // writer and it is now safe to seek to the beginning and override the initial
 // header
 func (c *compactorSet) writeHeader(level, version, secondaryIndices uint16,
-	startOfIndex uint64) error {
+	startOfIndex uint64,
+) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}

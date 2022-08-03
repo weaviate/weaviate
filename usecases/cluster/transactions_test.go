@@ -99,18 +99,21 @@ type fakeBroadcaster struct {
 }
 
 func (f *fakeBroadcaster) BroadcastTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	return f.openErr
 }
 
 func (f *fakeBroadcaster) BroadcastAbortTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	f.abortCalledId = tx.ID
 	return nil
 }
 
 func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	return f.commitErr
 }
 
@@ -220,18 +223,21 @@ type wrapTxManagerAsBroadcaster struct {
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	return w.txManager.IncomingBeginTransaction(ctx, tx)
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastAbortTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	w.txManager.IncomingAbortTransaction(ctx, tx)
 	return nil
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastCommitTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	return w.txManager.IncomingCommitTransaction(ctx, tx)
 }
 
@@ -241,7 +247,8 @@ type slowMultiBroadcaster struct {
 }
 
 func (b *slowMultiBroadcaster) BroadcastTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	time.Sleep(b.delay)
 	for _, node := range b.nodes {
 		if err := node.IncomingBeginTransaction(ctx, tx); err != nil {
@@ -252,7 +259,8 @@ func (b *slowMultiBroadcaster) BroadcastTransaction(ctx context.Context,
 }
 
 func (b *slowMultiBroadcaster) BroadcastAbortTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	time.Sleep(b.delay)
 	for _, node := range b.nodes {
 		node.IncomingAbortTransaction(ctx, tx)
@@ -262,7 +270,8 @@ func (b *slowMultiBroadcaster) BroadcastAbortTransaction(ctx context.Context,
 }
 
 func (b *slowMultiBroadcaster) BroadcastCommitTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	time.Sleep(b.delay)
 	for _, node := range b.nodes {
 		if err := node.IncomingCommitTransaction(ctx, tx); err != nil {

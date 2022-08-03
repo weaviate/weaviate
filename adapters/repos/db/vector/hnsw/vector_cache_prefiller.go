@@ -38,7 +38,8 @@ type cache interface {
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,
-	logger logrus.FieldLogger) *vectorCachePrefiller {
+	logger logrus.FieldLogger,
+) *vectorCachePrefiller {
 	return &vectorCachePrefiller{
 		cache:  cache,
 		index:  index,
@@ -65,7 +66,8 @@ func (pf *vectorCachePrefiller) Prefill(ctx context.Context, limit int) error {
 
 // returns false if the max has been reached, true otherwise
 func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
-	level, limit int) (bool, error) {
+	level, limit int,
+) (bool, error) {
 	// TODO: this makes zero sense, just copy the lists, don't actually block
 	//  !!!!
 

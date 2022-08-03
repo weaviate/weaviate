@@ -229,7 +229,7 @@ package test
 // func (p *peerServer) handle(w http.ResponseWriter, r *http.Request) {
 // 	p.Lock()
 // 	defer p.Unlock()
-// 	body, err := ioutil.ReadAll(r.Body)
+// 	body, err := io.ReadAll(r.Body)
 // 	if err != nil {
 // 		panic("could not read body: " + err.Error())
 // 	}

@@ -26,7 +26,8 @@ import (
 // ClassPropertyField builds one class field for a Meta Query based on the
 // underlying schema type
 func ClassPropertyField(dataType schema.DataType, class *models.Class,
-	property *models.Property, prefix string) (*graphql.Field, error) {
+	property *models.Property, prefix string,
+) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeDate, schema.DataTypeBlob:
 		return makePropertyField(class, property, stringPropertyFields, prefix)
@@ -48,7 +49,8 @@ type propertyFieldMaker func(class *models.Class,
 	property *models.Property, prefix string) *graphql.Object
 
 func makePropertyField(class *models.Class, property *models.Property,
-	fieldMaker propertyFieldMaker, prefix string) (*graphql.Field, error) {
+	fieldMaker propertyFieldMaker, prefix string,
+) (*graphql.Field, error) {
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.MetaProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),

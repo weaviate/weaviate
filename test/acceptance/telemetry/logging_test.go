@@ -104,7 +104,7 @@ package test
 // 	client := &http.Client{}
 // 	resp, err := client.Do(req)
 // 	if err == nil {
-// 		body, _ := ioutil.ReadAll(resp.Body)
+// 		body, _ := io.ReadAll(resp.Body)
 // 		defer resp.Body.Close()
 // 		return body
 // 	}
