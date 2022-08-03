@@ -351,51 +351,76 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	vectorLength := uint16(len(ko.Vector))
+	vectorLength := len(ko.Vector)
 	className := []byte(ko.Class())
-	classNameLength := uint16(len(className))
+	classNameLength := len(className)
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
-	schemaLength := uint32(len(schema))
+	schemaLength := len(schema)
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
-	metaLength := uint32(len(meta))
+	metaLength := len(meta)
 	vectorWeights, err := json.Marshal(ko.VectorWeights())
 	if err != nil {
 		return nil, err
 	}
-	vectorWeightsLength := uint32(len(vectorWeights))
+	vectorWeightsLength := len(vectorWeights)
 
-	ec := &errorcompounder.ErrorCompounder{}
-	buf := bytes.NewBuffer(nil)
-	le := binary.LittleEndian
-	ec.Add(binary.Write(buf, le, &ko.MarshallerVersion))
-	ec.Add(binary.Write(buf, le, &ko.docID))
-	ec.Add(binary.Write(buf, le, kindByte))
-	_, err = buf.Write(idBytes)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, ko.CreationTimeUnix()))
-	ec.Add(binary.Write(buf, le, ko.LastUpdateTimeUnix()))
-	ec.Add(binary.Write(buf, le, vectorLength))
-	ec.Add(binary.Write(buf, le, ko.Vector))
-	ec.Add(binary.Write(buf, le, classNameLength))
-	_, err = buf.Write(className)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, schemaLength))
-	_, err = buf.Write(schema)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, metaLength))
-	_, err = buf.Write(meta)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, vectorWeightsLength))
-	_, err = buf.Write(vectorWeights)
-	ec.Add(err)
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
+	byteBuffer := make([]byte, totalBufferLength)
+	byteBuffer[0] = ko.MarshallerVersion
+	binary.LittleEndian.PutUint64(byteBuffer[1:9], ko.docID)
+	byteBuffer[9] = kindByte
 
-	return buf.Bytes(), ec.ToError()
+	bufPos := 10
+	lenidBytes := len(idBytes)
+	copy(byteBuffer[bufPos:bufPos+lenidBytes], idBytes)
+	bufPos += lenidBytes
+
+	binary.LittleEndian.PutUint64(byteBuffer[bufPos:bufPos+8], uint64(ko.CreationTimeUnix()))
+	bufPos += 8
+
+	binary.LittleEndian.PutUint64(byteBuffer[bufPos:bufPos+8], uint64(ko.LastUpdateTimeUnix()))
+	bufPos += 8
+
+	binary.LittleEndian.PutUint16(byteBuffer[bufPos:bufPos+2], uint16(vectorLength))
+	bufPos += 2
+
+	for j := 0; j < vectorLength; j++ {
+		start := bufPos + j*4
+		binary.LittleEndian.PutUint32(byteBuffer[start:start+4], math.Float32bits(ko.Vector[j]))
+	}
+	bufPos += vectorLength * 4
+
+	binary.LittleEndian.PutUint16(byteBuffer[bufPos:bufPos+2], uint16(classNameLength))
+	bufPos += 2
+
+	copy(byteBuffer[bufPos:bufPos+classNameLength], className)
+	bufPos += classNameLength
+
+	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(schemaLength))
+	bufPos += 4
+
+	copy(byteBuffer[bufPos:bufPos+schemaLength], schema)
+	bufPos += schemaLength
+
+	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(metaLength))
+	bufPos += 4
+
+	copy(byteBuffer[bufPos:bufPos+metaLength], meta)
+	bufPos += metaLength
+
+	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(vectorWeightsLength))
+	bufPos += 4
+
+	copy(byteBuffer[bufPos:bufPos+vectorWeightsLength], vectorWeights)
+	// bufPos += vectorWeightsLength  // not used anymore
+
+	return byteBuffer, nil
 }
 
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
