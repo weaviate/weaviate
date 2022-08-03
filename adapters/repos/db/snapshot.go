@@ -44,7 +44,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	snap.Schema = schema
 	snap.CompletedAt = time.Now()
 
-	if err := snap.Write(); err != nil {
+	if err := snap.WriteToDisk(); err != nil {
 		return nil, err
 	}
 

@@ -91,7 +91,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			})
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snapPath := path.Join(snap.BasePath, "snapshots", snap.ID)
+				snapPath := path.Join(snap.BasePath, "snapshots", snap.ID) + ".json"
 
 				contents, err := ioutil.ReadFile(snapPath)
 				require.Nil(t, err)

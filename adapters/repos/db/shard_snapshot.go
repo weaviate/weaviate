@@ -47,12 +47,24 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 }
 
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
-	if err := s.store.PauseCompaction(ctx); err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
-	}
+	var g errgroup.Group
 
-	if err := s.store.FlushMemtables(ctx); err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
+	g.Go(func() error {
+		if err := s.store.PauseCompaction(ctx); err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.store.FlushMemtables(ctx); err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	files, err := s.store.ListFiles(ctx)
@@ -64,12 +76,24 @@ func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) 
 }
 
 func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, error) {
-	if err := s.vectorIndex.PauseMaintenance(ctx); err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
-	}
+	var g errgroup.Group
 
-	if err := s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
+	g.Go(func() error {
+		if err := s.vectorIndex.PauseMaintenance(ctx); err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	files, err := s.vectorIndex.ListFiles(ctx)

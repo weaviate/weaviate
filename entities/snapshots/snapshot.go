@@ -36,7 +36,7 @@ type Snapshot struct {
 	sync.Mutex `json:"-"`
 }
 
-func (snap *Snapshot) Write() error {
+func (snap *Snapshot) WriteToDisk() error {
 	b, err := json.Marshal(snap)
 	if err != nil {
 		return errors.Wrap(err, "write snapshot to disk")
@@ -48,7 +48,7 @@ func (snap *Snapshot) Write() error {
 		return errors.Wrap(err, "write snapshot to disk")
 	}
 
-	snapPath = path.Join(snapPath, snap.ID)
+	snapPath = path.Join(snapPath, snap.ID) + ".json"
 
 	if err := os.WriteFile(snapPath, b, os.ModePerm); err != nil {
 		return errors.Wrap(err, "write snapshot to disk")
