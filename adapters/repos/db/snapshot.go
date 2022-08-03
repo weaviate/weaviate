@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"golang.org/x/sync/errgroup"
 )
 
 // CreateSnapshot creates a new active snapshot for all state in this index across
@@ -22,12 +23,23 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 		return nil, err
 	}
 
-	snap := snapshots.New(id, time.Now(), i.Config.RootPath)
+	var (
+		snap = snapshots.New(id, time.Now(), i.Config.RootPath)
+		g    errgroup.Group
+	)
 
 	for _, shard := range i.Shards {
-		if err := shard.createSnapshot(ctx, snap); err != nil {
-			return nil, err
-		}
+		s := shard
+		g.Go(func() error {
+			if err := s.createSnapshot(ctx, snap); err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	shardingState, err := i.marshalShardingState()

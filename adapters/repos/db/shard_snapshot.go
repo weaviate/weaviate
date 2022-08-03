@@ -42,7 +42,11 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 	if err != nil {
 		return errors.Wrap(err, "create snapshot")
 	}
+
+	snap.Lock()
 	snap.ShardMetadata[s.name] = shardMeta
+	snap.Unlock()
+
 	return nil
 }
 
