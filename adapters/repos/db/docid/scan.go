@@ -12,7 +12,6 @@
 package docid
 
 import (
-	"bytes"
 	"encoding/binary"
 
 	"github.com/pkg/errors"
@@ -73,10 +72,9 @@ func (os *objectScannerLSM) init() error {
 }
 
 func (os *objectScannerLSM) scan() error {
+	docIDBytes := make([]byte, 8)
 	for _, id := range os.pointers {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
+		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
 			return err
