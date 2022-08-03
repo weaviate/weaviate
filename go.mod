@@ -35,6 +35,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.13.0
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
+	go.mongodb.org/mongo-driver v1.10.1 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
