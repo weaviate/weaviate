@@ -19,9 +19,6 @@ dist: bionic
 go: 
   - "1.19"
 env:
-  matrix:
-  # Force using modules.
-  - GO111MODULE=on
   global:
   # location of the open-api specs
   - WEAVIATESCHEMAFILE=openapi-specs/schema.json
