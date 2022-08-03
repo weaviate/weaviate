@@ -426,22 +426,12 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
 func (ko *Object) UnmarshalBinary(data []byte) error {
-	var version uint8
-	r := bytes.NewReader(data)
-	le := binary.LittleEndian
-	if err := binary.Read(r, le, &version); err != nil {
-		return err
-	}
-
+	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	ko.MarshallerVersion = version
-
 	var (
-		kindByte            uint8
-		uuidBytes           = make([]byte, 16)
 		createTime          int64
 		updateTime          int64
 		vectorLength        uint16
@@ -451,36 +441,45 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		vectorWeightsLength uint32
 	)
 
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.Add(binary.Read(r, le, &ko.docID))
-	ec.Add(binary.Read(r, le, &kindByte))
-	_, err := r.Read(uuidBytes)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &createTime))
-	ec.Add(binary.Read(r, le, &updateTime))
-	ec.Add(binary.Read(r, le, &vectorLength))
+	ko.MarshallerVersion = version
+	ko.docID = binary.LittleEndian.Uint64(data[1:9])
+	uuidBytes := data[10:26]
+	createTime = int64(binary.LittleEndian.Uint64(data[26:34]))
+	updateTime = int64(binary.LittleEndian.Uint64(data[34:42]))
+	vectorLength = binary.LittleEndian.Uint16(data[42:44])
 	ko.Vector = make([]float32, vectorLength)
-	ec.Add(binary.Read(r, le, &ko.Vector))
-	ec.Add(binary.Read(r, le, &classNameLength))
-	className := make([]byte, classNameLength)
-	_, err = r.Read(className)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &schemaLength))
-	schema := make([]byte, schemaLength)
-	_, err = r.Read(schema)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &metaLength))
-	meta := make([]byte, metaLength)
-	_, err = r.Read(meta)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &vectorWeightsLength))
-	vectorWeights := make([]byte, vectorWeightsLength)
-	_, err = r.Read(vectorWeights)
-	ec.Add(err)
-
-	if err := ec.ToError(); err != nil {
-		return err
+	for j := 0; j < int(vectorLength); j++ {
+		start := 44 + j*4
+		ko.Vector[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[start : start+4]))
 	}
+	bufPos := uint32(44 + vectorLength*4)
+	classNameLength = binary.LittleEndian.Uint16(data[bufPos : bufPos+2])
+	bufPos += 2
+
+	className := make([]byte, classNameLength)
+	copy(className, data[bufPos:bufPos+uint32(classNameLength)])
+	bufPos += uint32(classNameLength)
+
+	schemaLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
+	bufPos += 4
+
+	schema := make([]byte, schemaLength)
+	copy(schema, data[bufPos:bufPos+schemaLength])
+	bufPos += schemaLength
+
+	metaLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
+	bufPos += 4
+
+	meta := make([]byte, metaLength)
+	copy(meta, data[bufPos:bufPos+metaLength])
+	bufPos += metaLength
+
+	vectorWeightsLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
+	bufPos += 4
+
+	vectorWeights := make([]byte, vectorWeightsLength)
+	copy(vectorWeights, data[bufPos:bufPos+vectorWeightsLength])
+	// bufPos += vectorWeightsLength  // not used after
 
 	uuidParsed, err := uuid.FromBytes(uuidBytes)
 	if err != nil {
