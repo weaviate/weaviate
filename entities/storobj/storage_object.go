@@ -18,6 +18,8 @@ import (
 	"io"
 	"math"
 
+	"github.com/semi-technologies/weaviate/usecases/byteOperations"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -351,24 +353,24 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	vectorLength := len(ko.Vector)
+	vectorLength := uint32(len(ko.Vector))
 	className := []byte(ko.Class())
-	classNameLength := len(className)
+	classNameLength := uint32(len(className))
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
-	schemaLength := len(schema)
+	schemaLength := uint32(len(schema))
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
-	metaLength := len(meta)
+	metaLength := uint32(len(meta))
 	vectorWeights, err := json.Marshal(ko.VectorWeights())
 	if err != nil {
 		return nil, err
 	}
-	vectorWeightsLength := len(vectorWeights)
+	vectorWeightsLength := uint32(len(vectorWeights))
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
 	byteBuffer := make([]byte, totalBufferLength)
@@ -376,49 +378,41 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	binary.LittleEndian.PutUint64(byteBuffer[1:9], ko.docID)
 	byteBuffer[9] = kindByte
 
-	bufPos := 10
-	lenidBytes := len(idBytes)
-	copy(byteBuffer[bufPos:bufPos+lenidBytes], idBytes)
-	bufPos += lenidBytes
+	bufPos := uint32(10)
+	byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, idBytes)
 
-	binary.LittleEndian.PutUint64(byteBuffer[bufPos:bufPos+8], uint64(ko.CreationTimeUnix()))
-	bufPos += 8
+	byteOperations.WriteUint64(byteBuffer, &bufPos, uint64(ko.CreationTimeUnix()))
+	byteOperations.WriteUint64(byteBuffer, &bufPos, uint64(ko.LastUpdateTimeUnix()))
+	byteOperations.WriteUint16(byteBuffer, &bufPos, uint16(vectorLength))
 
-	binary.LittleEndian.PutUint64(byteBuffer[bufPos:bufPos+8], uint64(ko.LastUpdateTimeUnix()))
-	bufPos += 8
-
-	binary.LittleEndian.PutUint16(byteBuffer[bufPos:bufPos+2], uint16(vectorLength))
-	bufPos += 2
-
-	for j := 0; j < vectorLength; j++ {
+	for j := uint32(0); j < vectorLength; j++ {
 		start := bufPos + j*4
 		binary.LittleEndian.PutUint32(byteBuffer[start:start+4], math.Float32bits(ko.Vector[j]))
 	}
 	bufPos += vectorLength * 4
 
-	binary.LittleEndian.PutUint16(byteBuffer[bufPos:bufPos+2], uint16(classNameLength))
-	bufPos += 2
+	byteOperations.WriteUint16(byteBuffer, &bufPos, uint16(classNameLength))
+	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, className)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	}
 
-	copy(byteBuffer[bufPos:bufPos+classNameLength], className)
-	bufPos += classNameLength
+	byteOperations.WriteUint32(byteBuffer, &bufPos, schemaLength)
+	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, schema)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy schema")
+	}
 
-	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(schemaLength))
-	bufPos += 4
-
-	copy(byteBuffer[bufPos:bufPos+schemaLength], schema)
-	bufPos += schemaLength
-
-	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(metaLength))
-	bufPos += 4
-
-	copy(byteBuffer[bufPos:bufPos+metaLength], meta)
-	bufPos += metaLength
-
-	binary.LittleEndian.PutUint32(byteBuffer[bufPos:bufPos+4], uint32(vectorWeightsLength))
-	bufPos += 4
-
-	copy(byteBuffer[bufPos:bufPos+vectorWeightsLength], vectorWeights)
-	// bufPos += vectorWeightsLength  // not used anymore
+	byteOperations.WriteUint32(byteBuffer, &bufPos, metaLength)
+	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, meta)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy meta")
+	}
+	byteOperations.WriteUint32(byteBuffer, &bufPos, vectorWeightsLength)
+	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, vectorWeights)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
 
 	return byteBuffer, nil
 }
@@ -430,60 +424,51 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
-
-	var (
-		createTime          int64
-		updateTime          int64
-		vectorLength        uint16
-		classNameLength     uint16
-		schemaLength        uint32
-		metaLength          uint32
-		vectorWeightsLength uint32
-	)
-
 	ko.MarshallerVersion = version
-	ko.docID = binary.LittleEndian.Uint64(data[1:9])
-	uuidBytes := data[10:26]
-	createTime = int64(binary.LittleEndian.Uint64(data[26:34]))
-	updateTime = int64(binary.LittleEndian.Uint64(data[34:42]))
-	vectorLength = binary.LittleEndian.Uint16(data[42:44])
-	ko.Vector = make([]float32, vectorLength)
-	for j := 0; j < int(vectorLength); j++ {
-		start := 44 + j*4
-		ko.Vector[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[start : start+4]))
-	}
-	bufPos := uint32(44 + vectorLength*4)
-	classNameLength = binary.LittleEndian.Uint16(data[bufPos : bufPos+2])
-	bufPos += 2
 
-	className := make([]byte, classNameLength)
-	copy(className, data[bufPos:bufPos+uint32(classNameLength)])
-	bufPos += uint32(classNameLength)
+	bufPos := uint32(1)
+	ko.docID = byteOperations.ReadUint64(data, &bufPos)
+	bufPos += 1 // kind-byte
 
-	schemaLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
-	bufPos += 4
-
-	schema := make([]byte, schemaLength)
-	copy(schema, data[bufPos:bufPos+schemaLength])
-	bufPos += schemaLength
-
-	metaLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
-	bufPos += 4
-
-	meta := make([]byte, metaLength)
-	copy(meta, data[bufPos:bufPos+metaLength])
-	bufPos += metaLength
-
-	vectorWeightsLength = binary.LittleEndian.Uint32(data[bufPos : bufPos+4])
-	bufPos += 4
-
-	vectorWeights := make([]byte, vectorWeightsLength)
-	copy(vectorWeights, data[bufPos:bufPos+vectorWeightsLength])
-	// bufPos += vectorWeightsLength  // not used after
-
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
+	uuidParsed, err := uuid.FromBytes(data[bufPos : bufPos+16])
 	if err != nil {
 		return err
+	}
+	bufPos += 16
+
+	createTime := int64(byteOperations.ReadUint64(data, &bufPos))
+	updateTime := int64(byteOperations.ReadUint64(data, &bufPos))
+
+	vectorLength := byteOperations.ReadUint16(data, &bufPos)
+	ko.Vector = make([]float32, vectorLength)
+	for j := uint32(0); j < uint32(vectorLength); j++ {
+		start := bufPos + j*4
+		ko.Vector[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[start : start+4]))
+	}
+	bufPos += uint32(vectorLength * 4)
+
+	classNameLength := uint32(byteOperations.ReadUint16(data, &bufPos))
+	className, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, classNameLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy class name")
+	}
+
+	schemaLength := byteOperations.ReadUint32(data, &bufPos)
+	schema, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, schemaLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy schema")
+	}
+
+	metaLength := byteOperations.ReadUint32(data, &bufPos)
+	meta, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, metaLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy meta")
+	}
+
+	vectorWeightsLength := byteOperations.ReadUint32(data, &bufPos)
+	vectorWeights, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, vectorWeightsLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
 	return ko.parseObject(
