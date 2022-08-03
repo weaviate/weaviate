@@ -121,9 +121,16 @@ func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
 			"failed to read prop length tracker for shard '%s'", s.name)
 	}
 
+	shardVersion, err := s.readShardVersion()
+	if err != nil {
+		return nil, errors.Wrapf(err,
+			"failed to read shard version for shard '%s'", s.name)
+	}
+
 	return &snapshots.ShardMetadata{
 		DocIDCounter:      counterContents,
 		PropLengthTracker: propLenContents,
+		ShardVersion:      shardVersion,
 	}, nil
 }
 
@@ -133,4 +140,8 @@ func (s *Shard) readIndexCounter() ([]byte, error) {
 
 func (s *Shard) readPropLengthTracker() ([]byte, error) {
 	return ioutil.ReadFile(s.propLengths.FileName())
+}
+
+func (s *Shard) readShardVersion() ([]byte, error) {
+	return ioutil.ReadFile(s.versioner.path)
 }

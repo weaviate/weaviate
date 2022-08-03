@@ -29,12 +29,29 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSnapshot_IndexLevel(t *testing.T) {
 	t.Run("successful snapshot creation", func(t *testing.T) {
+		t.Run("setup env", func(t *testing.T) {
+			var spec struct {
+				Info struct {
+					Version string `json:"version"`
+				} `json:"info"`
+			}
+
+			contents, err := ioutil.ReadFile("../../../openapi-specs/schema.json")
+			require.Nil(t, err)
+
+			require.Nil(t, json.Unmarshal(contents, &spec))
+			// this is normally set on server start up, so
+			// it needs to be manually set for this test
+			config.ServerVersion = spec.Info.Version
+		})
+
 		ctx := testCtx()
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
@@ -83,11 +100,17 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				assert.Len(t, snap.ShardMetadata, 1)
 				assert.NotEmpty(t, snap.ShardMetadata[shard.name].DocIDCounter)
 				assert.NotEmpty(t, snap.ShardMetadata[shard.name].PropLengthTracker)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].ShardVersion)
 			})
 
 			t.Run("assert schema state", func(t *testing.T) {
 				assert.NotEmpty(t, snap.ShardingState)
 				assert.NotEmpty(t, snap.Schema)
+			})
+
+			t.Run("assert server version", func(t *testing.T) {
+				assert.NotEmpty(t, snap.ServerVersion)
+				assert.Equal(t, config.ServerVersion, snap.ServerVersion)
 			})
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {

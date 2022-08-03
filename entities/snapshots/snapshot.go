@@ -31,6 +31,7 @@ type Snapshot struct {
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
 	Schema        []byte                    `json:"schema"`
+	ServerVersion string                    `json:"serverVersion"`
 
 	// so shard-level snapshotting can be safely parallelized
 	sync.Mutex `json:"-"`
@@ -69,6 +70,7 @@ func New(id string, startedAt time.Time, basePath string) *Snapshot {
 type ShardMetadata struct {
 	DocIDCounter      []byte `json:"docIdCounter"`
 	PropLengthTracker []byte `json:"propLengthTracker"`
+	ShardVersion      []byte `json:"shardVersion"`
 }
 
 type State struct {

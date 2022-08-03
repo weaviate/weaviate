@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -69,6 +70,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 
 	snap.ShardingState = shardingState
 	snap.Schema = schema
+	snap.ServerVersion = config.ServerVersion
 	snap.CompletedAt = time.Now()
 
 	if err := snap.WriteToDisk(); err != nil {
