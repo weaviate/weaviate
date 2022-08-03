@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/minio/minio-go/v7"
@@ -80,8 +81,8 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 			return errors.Wrapf(err, "store snapshot aborted")
 		}
 
-		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", s.dataPath, srcRelPath)
+		objectName := s.makeObjectName(snapshotID, srcRelPath)
+		filePath := s.makeFilePath(s.dataPath, srcRelPath)
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
 		if err != nil {
@@ -93,7 +94,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	if err != nil {
 		return errors.Wrapf(err, "save meta")
 	}
-	objectName := fmt.Sprintf("%s/snapshot.json", snapshotID)
+	objectName := s.makeObjectName(snapshotID, "snapshot.json")
 	reader := bytes.NewReader(content)
 	_, err = s.client.PutObject(ctx, bucketName, objectName, reader, reader.Size(), putOptions)
 	if err != nil {
@@ -102,8 +103,44 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	return nil
 }
 
+func (s *s3) makeFilePath(dataPath, relPath string) string {
+	return fmt.Sprintf("%s/%s", dataPath, relPath)
+}
+
+func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
+	return fmt.Sprintf("%s/%s", snapshotId, srcRelPath)
+}
+
 func (s *s3) RestoreSnapshot(ctx context.Context, snapshotId string) error {
-	// TODO implement
-	s.logger.Errorf("RestoreSnapshot of StorageAWSS3Module not yet implemented")
+	objectName := s.makeObjectName(snapshotId, "snapshot.json")
+
+	// Load the metadata into a snapshot struct
+	var snapshot snapshots.Snapshot
+	val, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return errors.Wrapf(err, "get file %s", objectName)
+	}
+	data, err := io.ReadAll(val)
+	if err != nil {
+		return errors.Wrapf(err, "read file %s", objectName)
+	}
+	err = json.Unmarshal(data, &snapshot)
+	if err != nil {
+		return errors.Wrapf(err, "unmarshal meta")
+	}
+	// Restore the files
+	for _, srcRelPath := range snapshot.Files {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrapf(err, "restore snapshot aborted")
+		}
+
+		// Get srcRelPath from the bucket
+		objectName := s.makeObjectName(snapshotId, srcRelPath)
+		filePath := s.makeFilePath(s.dataPath, srcRelPath)
+		_, err := s.client.FPutObject(ctx, s.config.BucketName(), objectName, filePath, minio.PutObjectOptions{})
+		if err != nil {
+			return errors.Wrapf(err, "get file %s", objectName)
+		}
+	}
 	return nil
 }
