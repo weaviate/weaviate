@@ -89,13 +89,15 @@ jobs:
           bash <(curl -s https://codecov.io/bash) -F integration
           rm -f coverage.txt
       fi
-  - name: "Acceptance and benchmark tests (requiring docker to run)"
+  - name: "Acceptance tests (requiring docker to run)"
     stage: test
+    if: type != pull_request
     script: 
     - ./test/run.sh --acceptance-only || travis_terminate 1
   - name: "Acceptance tests for modules"
     stage: test
-    script: 
+    if: type != pull_request
+    script:
     - ./test/run.sh --acceptance-module-tests-only || travis_terminate 1
   - name: "Push docker container"
     if: type != pull_request
