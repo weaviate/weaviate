@@ -21,7 +21,8 @@ import (
 )
 
 func addNumericalAggregations(prop *aggregation.Property,
-	aggs []aggregation.Aggregator, agg *numericalAggregator) {
+	aggs []aggregation.Aggregator, agg *numericalAggregator,
+) {
 	if prop.NumericalAggregations == nil {
 		prop.NumericalAggregations = map[string]float64{}
 	}
@@ -107,7 +108,8 @@ func (a *numericalAggregator) buildPairsFromCounts() {
 }
 
 func (a *numericalAggregator) AddFloat64Row(number []byte,
-	count uint64) error {
+	count uint64,
+) error {
 	numberParsed, err := inverted.ParseLexicographicallySortableFloat64(number)
 	if err != nil {
 		return errors.Wrap(err, "read float64")

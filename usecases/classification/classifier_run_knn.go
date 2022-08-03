@@ -20,7 +20,8 @@ import (
 )
 
 func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,
-	params models.Classification, filters Filters, writer Writer) error {
+	params models.Classification, filters Filters, writer Writer,
+) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 

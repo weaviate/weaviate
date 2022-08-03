@@ -20,7 +20,8 @@ import (
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
-	settings ClassSettings) ([]float32, error) {
+	settings ClassSettings,
+) ([]float32, error) {
 	res, err := v.client.VectorizeQuery(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
 		PoolingStrategy: settings.PoolingStrategy(),
 	})

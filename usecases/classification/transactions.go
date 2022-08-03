@@ -26,7 +26,8 @@ type TransactionPutPayload struct {
 }
 
 func UnmarshalTransaction(txType cluster.TransactionType,
-	payload json.RawMessage) (interface{}, error) {
+	payload json.RawMessage,
+) (interface{}, error) {
 	switch txType {
 	case TransactionPut:
 		return unmarshalPut(payload)

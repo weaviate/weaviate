@@ -45,9 +45,11 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 
 	h.cache.grow(uint64(len(newIndex)))
 
+	h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Destroy()
 	h.pools.visitedLists = nil
 	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+500)
+	h.pools.visitedListsLock.Unlock()
 
 	h.nodes = newIndex
 
@@ -61,7 +63,8 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 // caller must make sure to lock the graph as concurrent reads/write would
 // otherwise be possible
 func growIndexToAccomodateNode(index []*vertex, id uint64,
-	logger logrus.FieldLogger) ([]*vertex, bool, error) {
+	logger logrus.FieldLogger,
+) ([]*vertex, bool, error) {
 	before := time.Now()
 	previousSize := uint64(len(index))
 	if id < previousSize {

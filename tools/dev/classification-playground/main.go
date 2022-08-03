@@ -17,7 +17,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -220,12 +220,12 @@ func getUnclassified(size int) []post {
 	}
 
 	if res.StatusCode != 200 {
-		bb, _ := ioutil.ReadAll(res.Body)
+		bb, _ := io.ReadAll(res.Body)
 		panic(fmt.Errorf("status is %d: %s", res.StatusCode, bb))
 	}
 
 	defer res.Body.Close()
-	bytes, err := ioutil.ReadAll(res.Body)
+	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		panic(err)
 	}
@@ -314,12 +314,12 @@ func classify(v []float32, k int) (string, string, string, string) {
 	}
 
 	if res.StatusCode != 200 {
-		bb, _ := ioutil.ReadAll(res.Body)
+		bb, _ := io.ReadAll(res.Body)
 		panic(fmt.Errorf("status is %d: %s", res.StatusCode, bb))
 	}
 
 	defer res.Body.Close()
-	bytes, err := ioutil.ReadAll(res.Body)
+	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		panic(err)
 	}

@@ -68,7 +68,8 @@ func (m *ClipModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *ClipModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -100,7 +101,8 @@ func (m *ClipModule) InitExtension(modules []modulecapabilities.Module) error {
 }
 
 func (m *ClipModule) initVectorizer(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	// TODO: proper config management
 	uri := os.Getenv("CLIP_INFERENCE_API")
 	if uri == "" {
@@ -125,7 +127,8 @@ func (m *ClipModule) RootHandler() http.Handler {
 }
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig) error {
+	obj *models.Object, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.imageVectorizer.Object(ctx, obj, icheck)
 }

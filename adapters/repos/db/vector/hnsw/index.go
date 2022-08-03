@@ -14,7 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -165,7 +165,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 
 	if cfg.Logger == nil {
 		logger := logrus.New()
-		logger.Out = ioutil.Discard
+		logger.Out = io.Discard
 		cfg.Logger = logger
 	}
 
@@ -323,7 +323,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 // }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32) (uint64, error) {
+	entryPointID uint64, nodeVec []float32,
+) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
@@ -546,13 +547,6 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context) error {
-	// cancel commit log goroutine
-	err := h.commitLog.Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "commit log drop")
-	}
-	// cancel vector cache goroutine
-	h.cache.drop()
 	// cancel tombstone cleanup goroutine
 
 	// if the interval is 0 we never started a cleanup cycle, therefore there is
@@ -566,6 +560,17 @@ func (h *hnsw) Drop(ctx context.Context) error {
 			return errors.Wrap(err, "hnsw drop")
 		}
 	}
+
+	// cancel vector cache goroutine
+	h.cache.drop()
+
+	// cancel commit logger last, as the tombstone cleanup cycle might still
+	// write while it's still running
+	err := h.commitLog.Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "commit log drop")
+	}
+
 	return nil
 }
 

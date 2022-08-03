@@ -1,6 +1,8 @@
 addons:
   hosts:
-    - db  
+    - db
+git:
+  lfs_skip_smudge: true
 before_install: 
   # install a newer docker version which supports buildx
   - sudo rm -rf /var/lib/apt/lists/*
@@ -10,10 +12,12 @@ before_install:
   - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
   - mkdir -vp ~/.docker/cli-plugins/
   - curl --silent -L "https://github.com/docker/buildx/releases/download/v0.3.0/buildx-v0.3.0.linux-amd64" > ~/.docker/cli-plugins/docker-buildx
+  - curl -SL "https://github.com/docker/compose/releases/download/v2.7.0/docker-compose-linux-x86_64" -o ~/.docker/cli-plugins/docker-compose
   - chmod a+x ~/.docker/cli-plugins/docker-buildx
+  - chmod a+x ~/.docker/cli-plugins/docker-compose
 dist: bionic
 go: 
-  - "1.16.5"
+  - "1.19"
 env:
   matrix:
   # Force using modules.
@@ -73,7 +77,7 @@ jobs:
   - name: "Unit and integration tests"
     stage: test
     script: 
-    - ./test/run.sh --unit_and_integration_tests || travis_terminate 1
+    - ./test/run.sh --unit-and-integration-only || travis_terminate 1
     - |
       if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
           # send to codecov.io
@@ -86,8 +90,14 @@ jobs:
       fi
   - name: "Acceptance tests (requiring docker to run)"
     stage: test
+    if: type != pull_request
     script: 
-    - ./test/run.sh --acceptance_tests || travis_terminate 1
+    - ./test/run.sh --acceptance-only || travis_terminate 1
+  - name: "Acceptance tests for modules"
+    stage: test
+    if: type != pull_request
+    script:
+    - ./test/run.sh --acceptance-module-tests-only || travis_terminate 1
   - name: "Push docker container"
     if: type != pull_request
     stage: deploy

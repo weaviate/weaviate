@@ -36,7 +36,8 @@ func New(schema schema.Schema) Sorter {
 }
 
 func (s sorterHelper) Sort(objects []*storobj.Object,
-	scores []float32, limit int, sort []filters.Sort) ([]*storobj.Object, []float32, error) {
+	scores []float32, limit int, sort []filters.Sort,
+) ([]*storobj.Object, []float32, error) {
 	objs, scrs := objects, scores
 	for j := range sort {
 		objs, scrs = newObjectsSorter(s.schema, objs, scrs).
@@ -114,7 +115,8 @@ func (s *lsmSorterImpl) SortDocIDs(ctx context.Context, limit int, sort []filter
 }
 
 func (s *lsmSorterImpl) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
-	ids []uint64, dists []float32, additional additional.Properties) ([]uint64, []float32, error) {
+	ids []uint64, dists []float32, additional additional.Properties,
+) ([]uint64, []float32, error) {
 	docIDs, distances := ids, dists
 	for j := range sort {
 		property, order, err := s.getPropertyAndOrder(sort[len(sort)-1-j])

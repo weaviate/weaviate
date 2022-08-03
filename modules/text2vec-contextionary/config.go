@@ -28,7 +28,8 @@ func (m *ContextionaryModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *ContextionaryModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{
 		"skip":                  !vectorizer.DefaultPropertyIndexed,
 		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
@@ -36,7 +37,8 @@ func (m *ContextionaryModule) PropertyConfigDefaults(
 }
 
 func (m *ContextionaryModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewIndexChecker(cfg)
 	return m.configValidator.Do(ctx, class, cfg, icheck)
 }

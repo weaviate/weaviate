@@ -133,7 +133,8 @@ func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 }
 
 func optionalIntFromMap(in map[string]interface{}, name string,
-	setFn func(v int)) error {
+	setFn func(v int),
+) error {
 	value, ok := in[name]
 	if !ok {
 		return nil
@@ -161,7 +162,8 @@ func optionalIntFromMap(in map[string]interface{}, name string,
 }
 
 func optionalStringFromMap(in map[string]interface{}, name string,
-	setFn func(v string)) error {
+	setFn func(v string),
+) error {
 	value, ok := in[name]
 	if !ok {
 		return nil

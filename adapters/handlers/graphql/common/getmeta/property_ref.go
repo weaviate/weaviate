@@ -21,7 +21,8 @@ import (
 )
 
 func refPropertyObj(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	fields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),

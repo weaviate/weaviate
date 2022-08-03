@@ -61,7 +61,8 @@ func (ua *unfilteredAggregator) Do(ctx context.Context) (*aggregation.Result, er
 }
 
 func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
-	out *aggregation.Result) error {
+	out *aggregation.Result,
+) error {
 	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return errors.Errorf("objects bucket is nil")
@@ -81,7 +82,8 @@ func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 }
 
 func (ua unfilteredAggregator) properties(
-	ctx context.Context) (map[string]aggregation.Property, error) {
+	ctx context.Context,
+) (map[string]aggregation.Property, error) {
 	if len(ua.params.Properties) == 0 {
 		return nil, nil
 	}
@@ -109,7 +111,8 @@ func (ua unfilteredAggregator) properties(
 }
 
 func (ua unfilteredAggregator) property(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	aggType, dt, err := ua.aggTypeOfProperty(prop.Name)
 	if err != nil {
 		return nil, err

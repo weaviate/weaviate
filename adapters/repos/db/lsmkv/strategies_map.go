@@ -108,7 +108,8 @@ func (m *mapDecoder) doSimplified(in []value) ([]MapPair, error) {
 }
 
 func (m *mapDecoder) removeTombstonesFromResults(candidates []MapPair,
-	tombstones []tombstone) []MapPair {
+	tombstones []tombstone,
+) []MapPair {
 	after := make([]MapPair, len(candidates))
 	newPos := 0
 	for origPos, candidate := range candidates {

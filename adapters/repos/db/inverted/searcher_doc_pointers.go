@@ -24,7 +24,8 @@ import (
 )
 
 func (fs *Searcher) docPointers(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool,
+) (docPointers, error) {
 	if pv.operator == filters.OperatorWithinGeoRange {
 		// geo props cannot be served by the inverted index and they require an
 		// external index. So, instead of trying to serve this chunk of the filter
@@ -38,7 +39,8 @@ func (fs *Searcher) docPointers(prop string, b *lsmkv.Bucket, limit int,
 }
 
 func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool,
+) (docPointers, error) {
 	if pv.hasFrequency {
 		return fs.docPointersInvertedFrequency(prop, b, limit, pv, tolerateDuplicates)
 	}
@@ -47,7 +49,8 @@ func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
 }
 
 func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool,
+) (docPointers, error) {
 	rr := NewRowReader(b, pv.value, pv.operator, false)
 
 	var pointers docPointers
@@ -91,7 +94,8 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 }
 
 func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, tolerateDuplicates bool) (docPointers, error) {
+	pv *propValuePair, tolerateDuplicates bool,
+) (docPointers, error) {
 	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, fs.shardVersion)
 
 	var pointers docPointers

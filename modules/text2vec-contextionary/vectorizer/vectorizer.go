@@ -61,7 +61,8 @@ func New(client client) *Vectorizer {
 
 // Object object to vector
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	icheck ClassIndexCheck) error {
+	icheck ClassIndexCheck,
+) error {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
@@ -87,7 +88,8 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
-	value interface{}) {
+	value interface{},
+) {
 	valueString, ok := value.(string)
 	if ok {
 		if icheck.VectorizePropertyName(propName) {
@@ -102,7 +104,8 @@ func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, overrides map[string]string,
-	icheck ClassIndexCheck) ([]float32, []txt2vecmodels.InterpretationSource, error) {
+	icheck ClassIndexCheck,
+) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	var corpi []string
 
 	if icheck.VectorizeClassName() {

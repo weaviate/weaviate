@@ -37,7 +37,8 @@ func NewResolver(cacher cacher) *Resolver {
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties) ([]search.Result, error) {
+	properties search.SelectProperties, additional additional.Properties,
+) ([]search.Result, error) {
 	if err := r.cacher.Build(ctx, objects, properties, additional); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
@@ -46,7 +47,8 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 }
 
 func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
-	additional additional.Properties) ([]search.Result, error) {
+	additional additional.Properties,
+) ([]search.Result, error) {
 	for i, obj := range objects {
 		parsed, err := r.parseObject(obj, properties, additional)
 		if err != nil {
@@ -60,7 +62,8 @@ func (r *Resolver) parseObjects(objects []search.Result, properties search.Selec
 }
 
 func (r *Resolver) parseObject(object search.Result, properties search.SelectProperties,
-	additional additional.Properties) (search.Result, error) {
+	additional additional.Properties,
+) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
 	}
@@ -80,7 +83,8 @@ func (r *Resolver) parseObject(object search.Result, properties search.SelectPro
 }
 
 func (r *Resolver) parseSchema(schema map[string]interface{},
-	properties search.SelectProperties) (map[string]interface{}, error) {
+	properties search.SelectProperties,
+) (map[string]interface{}, error) {
 	for propName, value := range schema {
 		refs, ok := value.(models.MultipleRef)
 		if !ok {
@@ -108,7 +112,8 @@ func (r *Resolver) parseSchema(schema map[string]interface{},
 }
 
 func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
-	selectProp search.SelectProperty) ([]interface{}, error) {
+	selectProp search.SelectProperty,
+) ([]interface{}, error) {
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
 		innerProperties := selectPropRef.RefProperties
@@ -123,7 +128,8 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 }
 
 func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
-	innerProperties search.SelectProperties) ([]interface{}, error) {
+	innerProperties search.SelectProperties,
+) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
 		resolved, err := r.resolveRef(item, desiredClass, innerProperties)
@@ -142,7 +148,8 @@ func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
 }
 
 func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
-	innerProperties search.SelectProperties) (*search.LocalRef, error) {
+	innerProperties search.SelectProperties,
+) (*search.LocalRef, error) {
 	var out search.LocalRef
 
 	ref, err := crossref.Parse(item.Beacon.String())

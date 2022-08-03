@@ -79,3 +79,13 @@ services:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
     ports: 
       - "8007:8080"
+  storage-aws-s3:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./snapshots-s3:/data
+    environment:
+      MINIO_ROOT_USER: aws_access_key
+      MINIO_ROOT_PASSWORD: aws_secret_key
+    command: server /data

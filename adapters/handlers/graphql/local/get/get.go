@@ -32,7 +32,8 @@ type ModulesProvider interface {
 
 // Build the Local.Get part of the graphql tree
 func Build(schema *schema.Schema, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider) (*graphql.Field, error) {
+	modulesProvider ModulesProvider,
+) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}

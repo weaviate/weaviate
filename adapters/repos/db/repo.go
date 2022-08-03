@@ -53,7 +53,8 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	promMetrics *monitoring.PrometheusMetrics) *DB {
+	promMetrics *monitoring.PrometheusMetrics,
+) *DB {
 	return &DB{
 		logger:       logger,
 		config:       config,

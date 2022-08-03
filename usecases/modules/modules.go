@@ -81,7 +81,8 @@ func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 }
 
 func (m *Provider) Init(ctx context.Context,
-	params moduletools.ModuleInitParams, logger logrus.FieldLogger) error {
+	params moduletools.ModuleInitParams, logger logrus.FieldLogger,
+) error {
 	for i, mod := range m.GetAll() {
 		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
@@ -223,12 +224,14 @@ func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	return class.Vectorizer == module || !m.isVectorizerModule(moduleType)
 }
 
 func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	if class == nil {
 		return !m.HasMultipleVectorizers()
 	}
@@ -236,7 +239,8 @@ func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, mod
 }
 
 func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	for _, c := range schema.Classes {
 		if m.shouldIncludeClassArgument(c, module, moduleType) {
 			return true
@@ -404,7 +408,8 @@ func (m *Provider) ExtractAdditionalField(className, name string, params []*ast.
 
 // GetObjectAdditionalExtend extends rest api get queries with additional properties
 func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
-	in *search.Result, moduleParams map[string]interface{}) (*search.Result, error) {
+	in *search.Result, moduleParams map[string]interface{},
+) (*search.Result, error) {
 	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
 	if err != nil {
 		return nil, err
@@ -414,27 +419,31 @@ func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
 
 // ListObjectsAdditionalExtend extends rest api list queries with additional properties
 func (m *Provider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}) (search.Results, error) {
+	in search.Results, moduleParams map[string]interface{},
+) (search.Results, error) {
 	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (m *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
 func (m *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
 func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	capability string, argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := m.getClassFromSearchResult(toBeExtended)
@@ -487,7 +496,8 @@ func (m *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, 
 }
 
 func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
-	moduleParams map[string]interface{}, capability string) error {
+	moduleParams map[string]interface{}, capability string,
+) error {
 	for name := range moduleParams {
 		additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
@@ -554,7 +564,8 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models
 // Get { Class() } for example
 func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	class, err := m.getClass(className)
 	if err != nil {
 		return nil, err
@@ -585,7 +596,8 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 // Explore() { } for example
 func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	for _, mod := range m.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
@@ -605,7 +617,8 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 
 // ParseClassifierSettings parses and adds classifier specific settings
 func (m *Provider) ParseClassifierSettings(name string,
-	params *models.Classification) error {
+	params *models.Classification,
+) error {
 	class, err := m.getClass(params.Class)
 	if err != nil {
 		return err
@@ -626,7 +639,8 @@ func (m *Provider) ParseClassifierSettings(name string,
 
 // GetClassificationFn returns given module's classification
 func (m *Provider) GetClassificationFn(className, name string,
-	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	params modulecapabilities.ClassifyParams,
+) (modulecapabilities.ClassifyItemFn, error) {
 	class, err := m.getClass(className)
 	if err != nil {
 		return nil, err

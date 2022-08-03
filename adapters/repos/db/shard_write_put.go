@@ -69,7 +69,8 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) updateVectorIndex(vector []float32,
-	status objectInsertStatus) error {
+	status objectInsertStatus,
+) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
 	// exists. otherwise, the associated doc id is left dangling,
@@ -94,7 +95,8 @@ func (s *Shard) updateVectorIndex(vector []float32,
 }
 
 func (s *Shard) putObjectLSM(object *storobj.Object,
-	idBytes []byte, skipInverted bool) (objectInsertStatus, error) {
+	idBytes []byte, skipInverted bool,
+) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
@@ -143,7 +145,8 @@ type objectInsertStatus struct {
 // didn't exist before), we will get a new docID from the central counter.
 // Otherwise, we will reuse the previous docID and mark this as an update
 func (s *Shard) determineInsertStatus(previous []byte,
-	next *storobj.Object) (objectInsertStatus, error) {
+	next *storobj.Object,
+) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
 	if previous == nil {
@@ -180,7 +183,8 @@ func (s *Shard) determineInsertStatus(previous []byte,
 // method only makes sense under very special conditions, such as those
 // outlined in mutableMergeObjectInTx
 func (s *Shard) determineMutableInsertStatus(previous []byte,
-	next *storobj.Object) (objectInsertStatus, error) {
+	next *storobj.Object,
+) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
 	if previous == nil {
@@ -203,7 +207,8 @@ func (s *Shard) determineMutableInsertStatus(previous []byte,
 }
 
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
-	docID uint64) error {
+	docID uint64,
+) error {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	docIDBytes := keyBuf.Bytes()
@@ -212,7 +217,8 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 }
 
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
-	status objectInsertStatus, previous []byte) error {
+	status objectInsertStatus, previous []byte,
+) error {
 	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
@@ -274,7 +280,8 @@ func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inv
 }
 
 func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
-	previous []byte) error {
+	previous []byte,
+) error {
 	if !status.docIDChanged {
 		// nothing to do
 		return nil

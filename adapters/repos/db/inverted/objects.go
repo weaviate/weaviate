@@ -25,7 +25,8 @@ import (
 )
 
 func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
-	uuid strfmt.UUID) ([]Property, error) {
+	uuid strfmt.UUID,
+) ([]Property, error) {
 	propsMap := map[string]*models.Property{}
 	for _, prop := range props {
 		propsMap[prop.Name] = prop
@@ -56,7 +57,8 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
-	input map[string]interface{}) ([]Property, error) {
+	input map[string]interface{},
+) ([]Property, error) {
 	var out []Property
 	for key, prop := range propsMap {
 		if len(prop.DataType) < 1 {
@@ -136,7 +138,8 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string) error {
+	prop *models.Property, input map[string]interface{}, propName string,
+) error {
 	value, ok := input[propName]
 	if !ok {
 		// skip any primitive prop that's not set
@@ -164,7 +167,8 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 // extendPropertiesWithPrimitive mutates the passed in properties, by extending
 // it with an additional property - if applicable
 func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string) error {
+	prop *models.Property, input map[string]interface{}, propName string,
+) error {
 	var property *Property
 	var err error
 
@@ -399,7 +403,8 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 // will be added. If the ref is set the ref-prop itself will also be added and
 // contain all references as values
 func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string) error {
+	prop *models.Property, input map[string]interface{}, propName string,
+) error {
 	value, ok := input[propName]
 	if !ok {
 		// explicitly set zero-value, so we can index for "ref not set"
@@ -433,7 +438,8 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 }
 
 func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
-	value models.MultipleRef) (*Property, error) {
+	value models.MultipleRef,
+) (*Property, error) {
 	items, err := a.RefCount(value)
 	if err != nil {
 		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
@@ -447,7 +453,8 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 }
 
 func (a *Analyzer) analyzeRefProp(prop *models.Property,
-	value models.MultipleRef) (*Property, error) {
+	value models.MultipleRef,
+) (*Property, error) {
 	items, err := a.Ref(value)
 	if err != nil {
 		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)

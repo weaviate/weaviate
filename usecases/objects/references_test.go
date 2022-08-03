@@ -403,9 +403,7 @@ func Test_ReferenceDelete(t *testing.T) {
 
 	fake_properties := func(refs ...*models.SingleRef) map[string]interface{} {
 		mrefs := make(models.MultipleRef, len(refs))
-		for i, r := range refs {
-			mrefs[i] = r
-		}
+		copy(mrefs, refs)
 		return map[string]interface{}{
 			"name": "MyZoo",
 			prop:   mrefs,

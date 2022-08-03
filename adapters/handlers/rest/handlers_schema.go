@@ -25,7 +25,8 @@ type schemaHandlers struct {
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		switch err.(type) {
@@ -42,7 +43,8 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 }
 
 func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := s.manager.UpdateClass(params.HTTPRequest.Context(), principal, params.ClassName,
 		params.ObjectClass)
 	if err != nil {
@@ -64,7 +66,8 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 }
 
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
@@ -100,7 +103,8 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 }
 
 func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -134,7 +138,8 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 }
 
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
@@ -153,7 +158,8 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 }
 
 func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := s.manager.UpdateShardStatus(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
 	if err != nil {
@@ -173,7 +179,8 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 }
 
 func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCreateParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	snapshot, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.Body)
 	if err != nil {
@@ -191,7 +198,8 @@ func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCrea
 }
 
 func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,
-	principal *models.Principal) middleware.Responder {
+	principal *models.Principal,
+) middleware.Responder {
 	err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.ID)
 	if err != nil {

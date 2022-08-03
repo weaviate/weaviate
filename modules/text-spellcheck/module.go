@@ -52,7 +52,8 @@ func (m *SpellCheckModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *SpellCheckModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	uri := os.Getenv("SPELLCHECK_INFERENCE_API")
 	if uri == "" {
 		return errors.Errorf("required variable SPELLCHECK_INFERENCE_API is not set")

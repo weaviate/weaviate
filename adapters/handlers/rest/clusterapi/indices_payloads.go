@@ -227,7 +227,8 @@ type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, addP additional.Properties) ([]byte, error) {
+	sort []filters.Sort, addP additional.Properties,
+) ([]byte, error) {
 	type params struct {
 		SearchVector   []float32                    `json:"searchVector"`
 		Limit          int                          `json:"limit"`
@@ -242,7 +243,8 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
-	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, additional.Properties, error) {
+	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, additional.Properties, error,
+) {
 	type searchParametersPayload struct {
 		SearchVector   []float32                    `json:"searchVector"`
 		Distance       float32                      `json:"distance"`
@@ -302,7 +304,8 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 }
 
 func (p searchResultsPayload) Marshal(objs []*storobj.Object,
-	dists []float32) ([]byte, error) {
+	dists []float32,
+) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
 	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)

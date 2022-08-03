@@ -45,7 +45,8 @@ func (f *FeatureProjector) AdditonalPropertyDefaultValue() interface{} {
 
 func (f *FeatureProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return f.Reduce(in, parameters)
 	}

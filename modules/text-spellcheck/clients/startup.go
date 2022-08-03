@@ -20,7 +20,8 @@ import (
 )
 
 func (s *spellCheck) WaitForStartup(initCtx context.Context,
-	interval time.Duration) error {
+	interval time.Duration,
+) error {
 	t := time.Tick(interval)
 	expired := initCtx.Done()
 	var lastErr error
