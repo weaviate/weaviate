@@ -140,6 +140,12 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		assert.Contains(t, err.Error(), expected1)
 		assert.Contains(t, err.Error(), expected2)
 
+		// snapshot state is reset on failure, so that
+		// subsequent calls to create a snapshot are
+		// not blocked
+		assert.False(t, index.snapshotState.InProgress)
+		assert.Empty(t, index.snapshotState.SnapshotID)
+
 		t.Run("cleanup", func(t *testing.T) {
 			err := index.Shutdown(ctx)
 			require.Nil(t, err)

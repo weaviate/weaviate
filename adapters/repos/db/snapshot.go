@@ -39,16 +39,31 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	}
 
 	if err := g.Wait(); err != nil {
+		// TODO: restart all paused cycles here
+		//       once ReleaseSnapshot is impl,
+		//		 and store-level cycle-resume
+		//       methods are available
+		defer i.resetSnapshotState()
 		return nil, err
 	}
 
 	shardingState, err := i.marshalShardingState()
 	if err != nil {
+		// TODO: restart all paused cycles here
+		//       once ReleaseSnapshot is impl,
+		//		 and store-level cycle-resume
+		//       methods are available
+		defer i.resetSnapshotState()
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
 	schema, err := i.marshalSchema()
 	if err != nil {
+		// TODO: restart all paused cycles here
+		//       once ReleaseSnapshot is impl,
+		//		 and store-level cycle-resume
+		//       methods are available
+		defer i.resetSnapshotState()
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
@@ -57,6 +72,11 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	snap.CompletedAt = time.Now()
 
 	if err := snap.WriteToDisk(); err != nil {
+		// TODO: restart all paused cycles here
+		//       once ReleaseSnapshot is impl,
+		//		 and store-level cycle-resume
+		//       methods are available
+		defer i.resetSnapshotState()
 		return nil, err
 	}
 
@@ -67,7 +87,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 // async background and maintenance processes. It errors if the snapshot does not exist
 // or is already inactive.
 func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
-	i.snapshotState = snapshots.State{InProgress: false}
+	i.resetSnapshotState()
 	return nil
 }
 
@@ -85,6 +105,10 @@ func (i *Index) initSnapshot(id string) error {
 	}
 
 	return nil
+}
+
+func (i *Index) resetSnapshotState() {
+	i.snapshotState = snapshots.State{InProgress: false}
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
