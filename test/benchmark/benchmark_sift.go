@@ -12,19 +12,17 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -52,13 +50,7 @@ func createSchemaSIFTRequest(url string) *http.Request {
 			"vectorCacheMaxObjects": 1000000000,
 		},
 	}
-
-	jsonSchema, _ := json.Marshal(classObj)
-	request, err := http.NewRequest("POST", url+"schema", bytes.NewReader(jsonSchema))
-	if err != nil {
-		panic("Could not create schema request, error: " + err.Error())
-	}
-	request.Header.Set("content-type", "application/json")
+	request := createRequest(url+"schema", "POST", classObj)
 	return request
 }
 
@@ -77,9 +69,18 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 
 	f, err := os.Open("sift/" + file)
 	if err != nil {
-		panic("Could not open SIFT file, error: " + err.Error())
+		panic(errors.Wrap(err, "Could not open SIFT file"))
 	}
 	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		panic(errors.Wrap(err, "Could not get SIFT file properties"))
+	}
+	fileSize := fi.Size()
+	if fileSize < 1000000 {
+		panic("The file is only " + fmt.Sprint(fileSize) + " bytes long. Did you forgot to install git lfs?")
+	}
 
 	// The sift data is a binary file containing floating point vectors
 	// For each entry, the first 4 bytes is the length of the vector (in number of floats, not in bytes)
@@ -128,123 +129,87 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	return objects
 }
 
-func sendRequests(c *http.Client, request *http.Request) (*http.Response, int64, error) {
-	timeStart := time.Now()
-	response, err := c.Do(request)
-	return response, time.Since(timeStart).Milliseconds(), err
-}
-
-// If there is already a schema present, clear it out
-func clearExistingObjects(c *http.Client, url string) {
-	checkSchemaRequest, _ := http.NewRequest("GET", url+"schema", bytes.NewReader(make([]byte, 0)))
-	checkSchemaResponse, err := c.Do(checkSchemaRequest)
-	if err == nil && checkSchemaResponse.StatusCode != 200 {
-		return
-	}
-	schemaResponseBytes, _ := ioutil.ReadAll(checkSchemaResponse.Body)
-	checkSchemaResponse.Body.Close()
-
-	var dump models.Schema
-	if err := json.Unmarshal(schemaResponseBytes, &dump); err != nil {
-		panic("Could not unmarshal read response, error: " + err.Error())
-	}
-	for _, classObj := range dump.Classes {
-		requestDelete, _ := http.NewRequest("DELETE", url+"schema/"+classObj.Class, nil)
-		responseDelete, err := c.Do(requestDelete)
-		if err != nil || responseDelete.StatusCode != 200 {
-			panic("Could delete schema, error: " + err.Error())
-		}
-		responseDelete.Body.Close()
-	}
-}
-
-func benchmarkSift(c *http.Client, url string, maxObjects int) map[string]int64 {
+func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64, error) {
 	clearExistingObjects(c, url)
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
-	objectsJSON, _ := json.Marshal(batch{objects})
-
 	queries := readSiftFloat("sift_query.fvecs", maxObjects/100)
 	requestSchema := createSchemaSIFTRequest(url)
 
 	passedTime := make(map[string]int64)
 
 	// Add schema
-	responseSchema, timeSchema, err := sendRequests(c, requestSchema)
+	responseSchemaCode, _, timeSchema, err := performRequest(c, requestSchema)
 	passedTime["AddSchema"] = timeSchema
-	if err != nil || responseSchema.StatusCode != 200 {
-		panic("Could not add schema, error: " + err.Error())
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not add schema, error: ")
+	} else if responseSchemaCode != 200 {
+		return nil, errors.Errorf("Could not add schma, http error code: %v", responseSchemaCode)
 	}
-	responseSchema.Body.Close()
 
 	// Batch-add
-	requestAdd, err := http.NewRequest("POST", url+"batch/objects", bytes.NewReader(objectsJSON))
-	if err != nil {
-		panic("Could not create batch request, error: " + err.Error())
-	}
-	requestAdd.Header.Set("content-type", "application/json")
-	responseAdd, timeBatchAdd, err := sendRequests(c, requestAdd)
+	requestAdd := createRequest(url+"batch/objects", "POST", batch{objects})
+	responseAddCode, _, timeBatchAdd, err := performRequest(c, requestAdd)
 	passedTime["BatchAdd"] = timeBatchAdd
-	if err != nil || responseAdd.StatusCode != 200 {
-		panic("Could not add batch, error: " + err.Error())
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not add batch, error: ")
+	} else if responseAddCode != 200 {
+		return nil, errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
 	}
-	responseAdd.Body.Close()
 
 	// Read entries
 	nrSearchResultsUse := nrSearchResults
 	if maxObjects < nrSearchResultsUse {
 		nrSearchResultsUse = maxObjects
 	}
-	requestRead, _ := http.NewRequest("GET", url+"objects?limit="+fmt.Sprint(nrSearchResultsUse)+"&class="+class, bytes.NewReader(make([]byte, 0)))
-	requestRead.Header.Set("content-type", "application/json")
-	responseRead, timeGetObjects, err := sendRequests(c, requestRead)
+	requestRead := createRequest(url+"objects?limit="+fmt.Sprint(nrSearchResultsUse)+"&class="+class, "GET", nil)
+	responseReadCode, body, timeGetObjects, err := performRequest(c, requestRead)
 	passedTime["GetObjects"] = timeGetObjects
-	if err != nil || responseRead.StatusCode != 200 {
-		panic("Could not add batch, error: " + err.Error())
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not read objects")
+	} else if responseReadCode != 200 {
+		return nil, errors.New("Could not read objects, http error code: " + fmt.Sprint(responseReadCode))
 	}
-	entriesBytes, _ := ioutil.ReadAll(responseRead.Body)
-	responseRead.Body.Close()
 	var result map[string]interface{}
-	if err := json.Unmarshal(entriesBytes, &result); err != nil {
-		panic("Could not unmarshal read response, error: " + err.Error())
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, errors.Wrap(err, "Could not unmarshal read response")
 	}
 	if int(result["totalResults"].(float64)) != nrSearchResultsUse {
-		panic("Found " + fmt.Sprint(int(result["totalResults"].(float64))) + " results. Expected " + fmt.Sprint(nrSearchResultsUse) + ".")
+		err_string := "Found " + fmt.Sprint(int(result["totalResults"].(float64))) +
+			" results. Expected " + fmt.Sprint(nrSearchResultsUse) + "."
+		return nil, errors.New(err_string)
 	}
 
 	// Use sample queries
 	for _, query := range queries {
 		queryString := "{Get{" + class + "(nearVector: {vector:" + fmt.Sprint(query.Vector) + " }){counter}}}"
-		queryJSON, _ := json.Marshal(models.GraphQLQuery{
+		requestQuery := createRequest(url+"graphql", "POST", models.GraphQLQuery{
 			Query: queryString,
 		})
-
-		requestQuery, _ := http.NewRequest("POST", url+"graphql", bytes.NewReader(queryJSON))
-		requestQuery.Header.Set("content-type", "application/json")
-		responseQuery, timeQuery, err := sendRequests(c, requestQuery)
+		responseQueryCode, body, timeQuery, err := performRequest(c, requestQuery)
 		passedTime["Query"] += timeQuery
-
-		if err != nil || responseQuery.StatusCode != 200 {
-			panic("Query error, error: " + err.Error())
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not query objects")
+		} else if responseQueryCode != 200 {
+			return nil, errors.Errorf("Could not query objects, http error code: %v", responseQueryCode)
 		}
-		bytes, _ := ioutil.ReadAll(responseQuery.Body)
-		responseQuery.Body.Close()
 		var result map[string]interface{}
-		if err := json.Unmarshal(bytes, &result); err != nil {
-			panic("Could not unmarshal query response, error: " + err.Error())
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, errors.Wrap(err, "Could not unmarshal query response")
 		}
 		if result["data"] == nil || result["errors"] != nil {
-			panic("GraphQL Error")
+			return nil, errors.New("GraphQL Error")
 		}
 	}
 
 	// Delete class (with schema and all entries) to clear all entries so next round can start fresh
-	requestDelete, _ := http.NewRequest("DELETE", url+"schema/"+class, nil)
-	responseDelete, timeDelete, err := sendRequests(c, requestDelete)
+	requestDelete := createRequest(url+"schema/"+class, "DELETE", nil)
+	responseDeleteCode, _, timeDelete, err := performRequest(c, requestDelete)
 	passedTime["Delete"] += timeDelete
-	if err != nil || responseDelete.StatusCode != 200 {
-		panic("Could delete schema, error: " + err.Error())
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not delete class")
+	} else if responseDeleteCode != 200 {
+		return nil, errors.Errorf("Could not delete class, http error code: %v", responseDeleteCode)
 	}
-	responseDelete.Body.Close()
 
-	return passedTime
+	return passedTime, nil
 }
