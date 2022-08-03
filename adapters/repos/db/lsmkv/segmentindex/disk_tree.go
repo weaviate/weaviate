@@ -13,8 +13,9 @@ package segmentindex
 
 import (
 	"bytes"
-	"encoding/binary"
 	"io"
+
+	"github.com/semi-technologies/weaviate/usecases/byteOperations"
 
 	"github.com/pkg/errors"
 )
@@ -92,23 +93,21 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 	if len(in) < 36 {
 		return out, 0, io.EOF
 	}
-	keyLen := int(binary.LittleEndian.Uint32(in[0 : 0+4]))
-	out.key = make([]byte, keyLen)
-	bytesCopied := copy(out.key, in[4:4+keyLen])
-	if bytesCopied != keyLen {
-		return out, 4 + bytesCopied, errors.New("Could not copy complete key")
-	}
 
-	bufferPos := keyLen + 4
-	out.startPos = binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8])
-	bufferPos += 8
-	out.endPos = binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8])
-	bufferPos += 8
-	out.leftChild = int64(binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8]))
-	bufferPos += 8
-	out.rightChild = int64(binary.LittleEndian.Uint64(in[bufferPos : bufferPos+8]))
-	bufferPos += 8
-	return out, bufferPos, nil
+	bufferPos := uint32(0)
+
+	keyLen := byteOperations.ReadUint32(in, &bufferPos)
+	copiedBytes, err := byteOperations.CopyBytesFromBuffer(in, &bufferPos, keyLen)
+	if err != nil {
+		return out, int(bufferPos), errors.Wrap(err, "Could not copy node key")
+	}
+	out.key = copiedBytes
+
+	out.startPos = byteOperations.ReadUint64(in, &bufferPos)
+	out.endPos = byteOperations.ReadUint64(in, &bufferPos)
+	out.leftChild = int64(byteOperations.ReadUint64(in, &bufferPos))
+	out.rightChild = int64(byteOperations.ReadUint64(in, &bufferPos))
+	return out, int(bufferPos), nil
 }
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {
