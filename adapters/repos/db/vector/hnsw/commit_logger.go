@@ -14,8 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +41,8 @@ func commitLogDirectory(rootPath, name string) string {
 
 func NewCommitLogger(rootPath, name string,
 	maintainenceInterval time.Duration, logger logrus.FieldLogger,
-	opts ...CommitlogOption) (*hnswCommitLogger, error) {
+	opts ...CommitlogOption,
+) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:             rootPath,
 		id:                   name,
@@ -109,7 +108,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -152,7 +151,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 // getCurrentCommitLogFileName returns the fileName and true if a file was
 // present. If no file was present, the second arg is false.
 func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -187,8 +186,8 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 	return files[0].Name(), true, nil
 }
 
-func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
-	out := make([]fs.FileInfo, len(in))
+func removeTmpScratchFiles(in []os.DirEntry) []os.DirEntry {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
@@ -203,8 +202,9 @@ func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
 }
 
 func removeTmpCombiningFiles(dirPath string,
-	in []fs.FileInfo) ([]fs.FileInfo, error) {
-	out := make([]fs.FileInfo, len(in))
+	in []os.DirEntry,
+) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".combined.tmp") {
@@ -324,7 +324,8 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
-	target uint64) error {
+	target uint64,
+) error {
 	l.Lock()
 	defer l.Unlock()
 

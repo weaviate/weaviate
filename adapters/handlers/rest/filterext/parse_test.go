@@ -494,7 +494,8 @@ func inputIntFilterWithValue(value int) *models.WhereFilter {
 }
 
 func inputIntFilterWithValueAndPath(value int,
-	path []string) *models.WhereFilter {
+	path []string,
+) *models.WhereFilter {
 	return &models.WhereFilter{
 		Operator: "Equal",
 		ValueInt: ptInt(value),

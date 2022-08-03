@@ -60,7 +60,8 @@ func FromBinary(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties) (*Object, error) {
+	addProp additional.Properties,
+) (*Object, error) {
 	ko := &Object{}
 
 	var version uint8
@@ -192,7 +193,8 @@ func (ko *Object) Properties() models.PropertySchema {
 }
 
 func (ko *Object) PropertiesWithAdditional(
-	additional additional.Properties) models.PropertySchema {
+	additional additional.Properties,
+) models.PropertySchema {
 	properties := ko.Properties()
 
 	if additional.RefMeta {
@@ -280,7 +282,8 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 }
 
 func SearchResultsWithDists(in []*Object, additional additional.Properties,
-	dists []float32) search.Results {
+	dists []float32,
+) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
@@ -501,7 +504,8 @@ func VectorFromBinary(in []byte) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, additionalB []byte, vectorWeightsB []byte) error {
+	schemaB []byte, additionalB []byte, vectorWeightsB []byte,
+) error {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err

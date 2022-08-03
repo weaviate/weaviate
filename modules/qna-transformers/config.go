@@ -25,12 +25,14 @@ func (m *QnAModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *QnAModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 func (m *QnAModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	return nil
 }
 

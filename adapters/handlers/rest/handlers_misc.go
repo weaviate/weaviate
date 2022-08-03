@@ -36,7 +36,8 @@ type swaggerJSON struct {
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	schemaManager schemaManager, modulesProvider ModulesProvider) {
+	schemaManager schemaManager, modulesProvider ModulesProvider,
+) {
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {

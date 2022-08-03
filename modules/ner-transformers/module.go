@@ -50,7 +50,8 @@ func (m *NERModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *NERModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init additional")
 	}
@@ -58,7 +59,8 @@ func (m *NERModule) Init(ctx context.Context,
 }
 
 func (m *NERModule) initAdditional(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	uri := os.Getenv("NER_INFERENCE_API")
 	if uri == "" {
 		return errors.Errorf("required variable NER_INFERENCE_API is not set")

@@ -254,7 +254,8 @@ func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
 // pos indicates the position of a secondary index, assumes unsorted keys and
 // sorts them
 func (s *segmentIndices) buildAndMarshalSecondary(w io.Writer, pos int,
-	keys []keyIndex) (int64, error) {
+	keys []keyIndex,
+) (int64, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	i := 0
 	for _, key := range keys {
@@ -683,7 +684,8 @@ func resizeValuesOfCollectionNode(node *segmentCollectionNode, size uint64) {
 }
 
 func resizeValueOfCollectionNodeAtPos(node *segmentCollectionNode, pos int,
-	size uint64) {
+	size uint64,
+) {
 	if cap(node.values[pos].value) >= int(size) {
 		node.values[pos].value = node.values[pos].value[:size]
 	} else {

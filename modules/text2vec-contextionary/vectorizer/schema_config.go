@@ -41,12 +41,14 @@ type RemoteClient interface {
 }
 
 func NewConfigValidator(rc RemoteClient,
-	logger logrus.FieldLogger) *ConfigValidator {
+	logger logrus.FieldLogger,
+) *ConfigValidator {
 	return &ConfigValidator{remote: rc, logger: logger}
 }
 
 func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
-	cfg moduletools.ClassConfig, icheck IndexChecker) error {
+	cfg moduletools.ClassConfig, icheck IndexChecker,
+) error {
 	err := cv.validateClassName(ctx, class.Class, icheck.VectorizeClassName())
 	if err != nil {
 		return errors.Errorf("invalid class name")
@@ -74,7 +76,8 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 }
 
 func (cv *ConfigValidator) validateClassName(ctx context.Context, className string,
-	vectorizeClass bool) error {
+	vectorizeClass bool,
+) error {
 	// class name
 	if !vectorizeClass {
 		// if the user chooses not to vectorize the class, we don't need to check
@@ -117,7 +120,8 @@ func (cv *ConfigValidator) validateClassName(ctx context.Context, className stri
 }
 
 func (cv *ConfigValidator) validatePropertyName(ctx context.Context,
-	propertyName string, vectorize bool) error {
+	propertyName string, vectorize bool,
+) error {
 	if !vectorize {
 		// user does not want to vectorize this property name, so we don't have to
 		// validate it
@@ -159,7 +163,8 @@ func (cv *ConfigValidator) validatePropertyName(ctx context.Context,
 }
 
 func (cv *ConfigValidator) validateIndexState(ctx context.Context,
-	class *models.Class, icheck IndexChecker) error {
+	class *models.Class, icheck IndexChecker,
+) error {
 	if icheck.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -199,7 +204,8 @@ func (cv *ConfigValidator) validateIndexState(ctx context.Context,
 }
 
 func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(
-	ctx context.Context, class *models.Class, icheck IndexChecker) {
+	ctx context.Context, class *models.Class, icheck IndexChecker,
+) {
 	if !icheck.VectorizeClassName() {
 		// if the user choses not to vectorize the class name, this means they must
 		// have chosen something else to vectorize, otherwise the validation would

@@ -44,7 +44,8 @@ type ClassSearcher interface {
 
 func newRefFilterExtractor(classSearcher ClassSearcher,
 	filter *filters.Clause, className schema.ClassName,
-	schema schema.Schema) *refFilterExtractor {
+	schema schema.Schema,
+) *refFilterExtractor {
 	return &refFilterExtractor{
 		filter:        filter,
 		className:     className,

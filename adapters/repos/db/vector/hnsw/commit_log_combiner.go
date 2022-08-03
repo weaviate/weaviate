@@ -28,7 +28,8 @@ type CommitLogCombiner struct {
 }
 
 func NewCommitLogCombiner(rootPath, id string, threshold int64,
-	logger logrus.FieldLogger) *CommitLogCombiner {
+	logger logrus.FieldLogger,
+) *CommitLogCombiner {
 	return &CommitLogCombiner{
 		rootPath:  rootPath,
 		id:        id,
@@ -176,7 +177,8 @@ func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
 }
 
 func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
-	toDeletes ...string) error {
+	toDeletes ...string,
+) error {
 	// do the rename before the delete, because if we crash in between we end up
 	// with duplicate files both with and without the ".condensed" suffix. The
 	// new (and complete) merged file will not carry the suffix whereas the

@@ -80,7 +80,8 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
-	ids []uint64) (map[string]aggregation.Property, error) {
+	ids []uint64,
+) (map[string]aggregation.Property, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare aggregators for props")
@@ -102,7 +103,8 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 }
 
 func (fa *filteredAggregator) analyzeObject(ctx context.Context,
-	obj *storobj.Object, propAggs map[string]propAgg) error {
+	obj *storobj.Object, propAggs map[string]propAgg,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

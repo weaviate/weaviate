@@ -52,7 +52,8 @@ type UpdateClassPayload struct {
 }
 
 func UnmarshalTransaction(txType cluster.TransactionType,
-	payload json.RawMessage) (interface{}, error) {
+	payload json.RawMessage,
+) (interface{}, error) {
 	switch txType {
 	case AddClass:
 		return unmarshalAddClass(payload)

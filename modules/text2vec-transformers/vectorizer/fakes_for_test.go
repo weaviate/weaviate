@@ -23,7 +23,8 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) VectorizeObject(ctx context.Context,
-	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	text string, cfg ent.VectorizationConfig,
+) (*ent.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
@@ -34,7 +35,8 @@ func (c *fakeClient) VectorizeObject(ctx context.Context,
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	text string, cfg ent.VectorizationConfig,
+) (*ent.VectorizationResult, error) {
 	return c.VectorizeObject(ctx, text, cfg)
 }
 

@@ -19,7 +19,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -251,7 +250,7 @@ func performRequest(c *http.Client, request *http.Request) (int, []byte, int64, 
 		return 0, nil, requestTime, err
 	}
 
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	response.Body.Close()
 	if err != nil {
 		return 0, nil, requestTime, err

@@ -29,7 +29,8 @@ const (
 
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string) (*BatchDeleteResponse, error) {
+	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+) (*BatchDeleteResponse, error) {
 	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
 	if err != nil {
 		return nil, err
@@ -48,7 +49,8 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string) (*BatchDeleteResponse, error) {
+	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+) (*BatchDeleteResponse, error) {
 	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("validate: %v", err)
@@ -63,7 +65,8 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 }
 
 func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
-	result BatchDeleteResult) (*BatchDeleteResponse, error) {
+	result BatchDeleteResult,
+) (*BatchDeleteResponse, error) {
 	response := &BatchDeleteResponse{
 		Match:  match,
 		Output: output,
@@ -78,7 +81,8 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 }
 
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string) (*BatchDeleteParams, error) {
+	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+) (*BatchDeleteParams, error) {
 	if match == nil {
 		return nil, errors.New("empty match clause")
 	}

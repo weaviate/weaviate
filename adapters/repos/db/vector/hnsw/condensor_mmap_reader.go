@@ -29,7 +29,8 @@ func newMmapCondensorReader() *MmapCondensorReader {
 }
 
 func (r *MmapCondensorReader) Do(source *os.File, index mmapIndex,
-	targetName string) error {
+	targetName string,
+) error {
 	r.reader = bufio.NewReaderSize(source, 1024*1024)
 
 	scratchFile, err := os.Create(targetName)

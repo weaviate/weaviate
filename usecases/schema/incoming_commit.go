@@ -58,7 +58,8 @@ func (m *Manager) handleAddClassCommit(ctx context.Context, tx *cluster.Transact
 }
 
 func (m *Manager) handleAddPropertyCommit(ctx context.Context,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -72,7 +73,8 @@ func (m *Manager) handleAddPropertyCommit(ctx context.Context,
 }
 
 func (m *Manager) handleDeleteClassCommit(ctx context.Context,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -86,7 +88,8 @@ func (m *Manager) handleDeleteClassCommit(ctx context.Context,
 }
 
 func (m *Manager) handleUpdateClassCommit(ctx context.Context,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	m.Lock()
 	defer m.Unlock()
 

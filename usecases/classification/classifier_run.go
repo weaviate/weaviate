@@ -32,7 +32,8 @@ import (
 // the respective files such as classifier_run_knn.go
 
 func (c *Classifier) run(params models.Classification,
-	filters Filters) {
+	filters Filters,
+) {
 	ctx, cancel := contextWithTimeout(30 * time.Minute)
 	defer cancel()
 
@@ -69,7 +70,8 @@ func (c *Classifier) run(params models.Classification,
 }
 
 func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context.CancelFunc,
-	className schema.ClassName) {
+	className schema.ClassName,
+) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
@@ -87,7 +89,8 @@ func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context
 }
 
 func (c *Classifier) prepareRun(params models.Classification, filters Filters,
-	unclassifiedItems []search.Result) (ClassifyItemFn, error) {
+	unclassifiedItems []search.Result,
+) (ClassifyItemFn, error) {
 	c.logBeginPreparation(params)
 	defer c.logFinishPreparation(params)
 
@@ -116,7 +119,8 @@ func (c *Classifier) prepareRun(params models.Classification, filters Filters,
 }
 
 func (c *Classifier) getClassifyParams(params models.Classification,
-	filters Filters, unclassifiedItems []search.Result) modulecapabilities.ClassifyParams {
+	filters Filters, unclassifiedItems []search.Result,
+) modulecapabilities.ClassifyParams {
 	return modulecapabilities.ClassifyParams{
 		Schema:            c.schemaGetter.GetSchemaSkipAuth(),
 		Params:            params,
@@ -129,7 +133,8 @@ func (c *Classifier) getClassifyParams(params models.Classification,
 // runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
 func (c *Classifier) runItems(ctx context.Context, classifyItem ClassifyItemFn, params models.Classification, filters Filters,
-	items []search.Result) (models.Classification, error) {
+	items []search.Result,
+) (models.Classification, error) {
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
 		workerCount = len(items)
@@ -169,7 +174,8 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 }
 
 func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
-	params models.Classification, classified []string) {
+	params models.Classification, classified []string,
+) {
 	// don't overwrite existing non-classification meta info
 	if item.AdditionalProperties == nil {
 		item.AdditionalProperties = models.AdditionalProperties{}

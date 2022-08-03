@@ -66,7 +66,8 @@ func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *OpenAIModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	if err := m.initVectorizer(ctx, m.logger); err != nil {
@@ -99,7 +100,8 @@ func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error 
 }
 
 func (m *OpenAIModule) initVectorizer(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
 	client := clients.New(apiKey, logger)
 
@@ -121,7 +123,8 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 }
 
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig) error {
+	obj *models.Object, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }

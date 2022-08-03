@@ -46,7 +46,8 @@ type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return in, nil
 }
 
@@ -64,7 +65,8 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -82,7 +84,8 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -110,7 +113,8 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -209,13 +213,15 @@ func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, par
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, argumentModuleParams map[string]interface{}) (search.Results, error) {
+	searchVector []float32, capability string, argumentModuleParams map[string]interface{},
+) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
 	for name, value := range moduleParams {
@@ -237,7 +243,8 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) getAdditionalPropertyFn(additionalProperty modulecapabilities.AdditionalProperty,
-	capability string) modulecapabilities.AdditionalPropertyFn {
+	capability string,
+) modulecapabilities.AdditionalPropertyFn {
 	switch capability {
 	case "ObjectGet":
 		return additionalProperty.SearchFunctions.ObjectGet
@@ -332,13 +339,15 @@ func newExploreMockResolver() *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params traverser.GetParams) (interface{}, error) {
+	params traverser.GetParams,
+) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
 
 func (m *mockResolver) Explore(ctx context.Context,
-	principal *models.Principal, params traverser.ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params traverser.ExploreParams,
+) ([]search.Result, error) {
 	args := m.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }

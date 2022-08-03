@@ -52,7 +52,8 @@ func TestModulesWithSearchers(t *testing.T) {
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				findVectorFn modulecapabilities.FindVectorFn,
-				cfg moduletools.ClassConfig) ([]float32, error) {
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
 				// verify that the config tool is set, as this is a per-class search,
 				// so it must be set
 				assert.NotNil(t, cfg)
@@ -82,7 +83,8 @@ func TestModulesWithSearchers(t *testing.T) {
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
 				findVectorFn modulecapabilities.FindVectorFn,
-				cfg moduletools.ClassConfig) ([]float32, error) {
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
 				// this is a cross-class search, such as is used for Explore{}, in this
 				// case we do not have class-based config, so the optional argument is
 				// nil! Modules must be able to deal with this situation!
@@ -131,7 +133,8 @@ func (m *dummySearcherModule) withArg(arg string) *dummySearcherModule {
 
 // a helper for our test
 func (m *dummySearcherModule) withSearcher(arg string,
-	impl modulecapabilities.VectorForParams) *dummySearcherModule {
+	impl modulecapabilities.VectorForParams,
+) *dummySearcherModule {
 	m.searchers[arg] = impl
 	return m
 }

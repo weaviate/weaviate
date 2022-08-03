@@ -19,7 +19,8 @@ import (
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
-	settings ClassSettings) ([]float32, error) {
+	settings ClassSettings,
+) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, []string{v.joinSentences(inputs)}, []string{})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")

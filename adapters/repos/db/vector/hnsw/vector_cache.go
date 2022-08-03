@@ -40,7 +40,8 @@ type shardedLockCache struct {
 var shardFactor = uint64(512)
 
 func newShardedLockCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger, normalizeOnRead bool) *shardedLockCache {
+	logger logrus.FieldLogger, normalizeOnRead bool,
+) *shardedLockCache {
 	vc := &shardedLockCache{
 		vectorForID:     vecForID,
 		cache:           make([][]float32, initialSize),
@@ -247,7 +248,8 @@ type noopCache struct {
 }
 
 func NewNoopCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger) *noopCache {
+	logger logrus.FieldLogger,
+) *noopCache {
 	return &noopCache{vectorForID: vecForID}
 }
 

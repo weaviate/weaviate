@@ -37,7 +37,8 @@ type autoSchemaManager struct {
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig, logger logrus.FieldLogger) *autoSchemaManager {
+	config *config.WeaviateConfig, logger logrus.FieldLogger,
+) *autoSchemaManager {
 	return &autoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
@@ -47,7 +48,8 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object) error {
+	object *models.Object,
+) error {
 	if m.config.Enabled {
 		return m.performAutoSchema(ctx, principal, object)
 	}
@@ -55,7 +57,8 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 }
 
 func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object) error {
+	object *models.Object,
+) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if object == nil {
@@ -78,7 +81,8 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 }
 
 func (m *autoSchemaManager) getClass(principal *models.Principal,
-	object *models.Object) (*models.Class, error) {
+	object *models.Object,
+) (*models.Class, error) {
 	s, err := m.schemaManager.GetSchema(principal)
 	if err != nil {
 		return nil, err
@@ -88,7 +92,8 @@ func (m *autoSchemaManager) getClass(principal *models.Principal,
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property) error {
+	className string, properties []*models.Property,
+) error {
 	class := &models.Class{
 		Class:       className,
 		Properties:  properties,
@@ -101,7 +106,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 }
 
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property, existingProperties []*models.Property) error {
+	className string, properties []*models.Property, existingProperties []*models.Property,
+) error {
 	propertiesToAdd := []*models.Property{}
 	for _, prop := range properties {
 		found := false

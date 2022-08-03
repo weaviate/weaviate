@@ -61,7 +61,8 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 }
 
 func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
-	name string) (*models.Class, error) {
+	name string,
+) (*models.Class, error) {
 	err := m.authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return nil, err
@@ -83,7 +84,8 @@ func (m *Manager) ShardingState(className string) *sharding.State {
 }
 
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string) (models.ShardStatusList, error) {
+	className string,
+) (models.ShardStatusList, error) {
 	err := m.authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err

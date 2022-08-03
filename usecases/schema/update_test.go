@@ -385,13 +385,15 @@ type configMigrator struct {
 }
 
 func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig) error {
+	old, updated schema.VectorIndexConfig,
+) error {
 	m.vectorConfigValidateCalledWith = updated
 	return m.vectorConfigValidationError
 }
 
 func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schema.VectorIndexConfig) error {
+	className string, updated schema.VectorIndexConfig,
+) error {
 	m.vectorConfigUpdateCalledWith = updated
 	m.vectorConfigUpdateCalled = true
 	return nil

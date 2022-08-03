@@ -287,7 +287,8 @@ func vectorToProto(in []float32) *pb.Vector {
 }
 
 func (c *Client) WaitForStartupAndValidateVersion(startupCtx context.Context,
-	requiredMinimumVersion string, interval time.Duration) error {
+	requiredMinimumVersion string, interval time.Duration,
+) error {
 	for {
 		if err := startupCtx.Err(); err != nil {
 			return errors.Wrap(err, "wait for contextionary remote inference service")

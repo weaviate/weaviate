@@ -29,7 +29,8 @@ type vectorObtainer struct {
 }
 
 func newVectorObtainer(vectorizerProvider VectorizerProvider,
-	schemaManager schemaManager, logger logrus.FieldLogger) *vectorObtainer {
+	schemaManager schemaManager, logger logrus.FieldLogger,
+) *vectorObtainer {
 	return &vectorObtainer{
 		vectorizerProvider: vectorizerProvider,
 		schemaManager:      schemaManager,
@@ -40,7 +41,8 @@ func newVectorObtainer(vectorizerProvider VectorizerProvider,
 // Do retrieves the correct vector and makes sure it is set on the passed-in
 // *models.Object. (This method mutates its paremeter)
 func (vo *vectorObtainer) Do(ctx context.Context, obj *models.Object,
-	principal *models.Principal) error {
+	principal *models.Principal,
+) error {
 	vectorizerName, cfg, err := vo.getVectorizerOfClass(obj.Class, principal)
 	if err != nil {
 		return err
@@ -89,7 +91,8 @@ func (vo *vectorObtainer) Do(ctx context.Context, obj *models.Object,
 }
 
 func (vo *vectorObtainer) getVectorizerOfClass(className string,
-	principal *models.Principal) (string, interface{}, error) {
+	principal *models.Principal,
+) (string, interface{}, error) {
 	s, err := vo.schemaManager.GetSchema(principal)
 	if err != nil {
 		return "", nil, err
@@ -106,7 +109,8 @@ func (vo *vectorObtainer) getVectorizerOfClass(className string,
 }
 
 func (vo *vectorObtainer) validateVectorPresent(obj *models.Object,
-	hnswConfig hnsw.UserConfig) error {
+	hnswConfig hnsw.UserConfig,
+) error {
 	if hnswConfig.Skip && len(obj.Vector) > 0 {
 		vo.logger.WithField("className", obj.Class).
 			Warningf("this class is configured to skip vector indexing, " +

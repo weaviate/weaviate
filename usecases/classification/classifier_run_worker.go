@@ -87,7 +87,8 @@ type runWorkers struct {
 }
 
 func newRunWorkers(amount int, classifyFn ClassifyItemFn,
-	params models.Classification, filters Filters, vectorRepo vectorRepo) *runWorkers {
+	params models.Classification, filters Filters, vectorRepo vectorRepo,
+) *runWorkers {
 	var successCount int64
 	var errorCount int64
 

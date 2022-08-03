@@ -47,7 +47,8 @@ type textAggregator struct {
 }
 
 func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
-	v []byte, propName schema.PropertyName) error {
+	v []byte, propName schema.PropertyName,
+) error {
 	items, ok, err := storobj.ParseAndExtractTextProp(v, propName.String())
 	if err != nil {
 		return errors.Wrap(err, "parse and extract prop")

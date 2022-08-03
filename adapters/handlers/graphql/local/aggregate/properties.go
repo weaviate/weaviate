@@ -87,7 +87,8 @@ func numericPropertyFields(class *models.Class, property *models.Property, prefi
 }
 
 func datePropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaDateFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
@@ -129,7 +130,8 @@ func datePropertyFields(class *models.Class,
 }
 
 func referencePropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
@@ -181,7 +183,8 @@ func extractReferenceAggregation(source interface{}) (*aggregation.Reference, er
 }
 
 func booleanPropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
@@ -262,7 +265,8 @@ func extractBooleanAggregation(source interface{}) (*aggregation.Boolean, error)
 }
 
 func stringPropertyFields(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getAggregatePointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
@@ -327,7 +331,8 @@ func textResolver(extractor textExtractorFunc) func(p graphql.ResolveParams) (in
 }
 
 func stringTopOccurrences(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getAggregateAggregatePointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
