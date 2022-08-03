@@ -25,12 +25,14 @@ func (m *SpellCheckModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *SpellCheckModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 func (m *SpellCheckModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	return nil
 }
 

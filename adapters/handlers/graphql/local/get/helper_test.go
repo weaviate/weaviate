@@ -44,7 +44,8 @@ type fakeInterpretation struct {
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -62,7 +63,8 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -90,7 +92,8 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -121,7 +124,8 @@ type fakePathBuilder struct {
 }
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
-	in []search.Result, params interface{}, limit *int) ([]search.Result, error) {
+	in []search.Result, params interface{}, limit *int,
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -634,7 +638,8 @@ func newMockResolverWithNoModules() *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params traverser.GetParams) (interface{}, error) {
+	params traverser.GetParams,
+) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

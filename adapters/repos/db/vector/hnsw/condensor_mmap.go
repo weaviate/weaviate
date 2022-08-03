@@ -59,7 +59,8 @@ func (c *MmapCondensor) analyze(file *os.File) (mmapIndex, error) {
 }
 
 func (c *MmapCondensor) read(source *os.File, index mmapIndex,
-	targetName string) error {
+	targetName string,
+) error {
 	return newMmapCondensorReader().Do(source, index, targetName)
 }
 

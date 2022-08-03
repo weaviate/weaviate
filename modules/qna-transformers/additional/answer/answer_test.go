@@ -501,7 +501,8 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 type fakeQnAClient struct{}
 
 func (c *fakeQnAClient) Answer(ctx context.Context,
-	text, question string) (*ent.AnswerResult, error) {
+	text, question string,
+) (*ent.AnswerResult, error) {
 	if text == "rerank 0.9" {
 		return c.getAnswer(question, "rerank 0.9", 0.9), nil
 	}

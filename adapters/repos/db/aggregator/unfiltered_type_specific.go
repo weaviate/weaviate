@@ -23,18 +23,21 @@ import (
 )
 
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolRow)
 }
 
 func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolArrayRow)
 }
 
 func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 	prop aggregation.ParamProperty,
-	parseFn func(agg *boolAggregator, k []byte, v [][]byte) error) (*aggregation.Property, error) {
+	parseFn func(agg *boolAggregator, k []byte, v [][]byte) error,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type: aggregation.PropertyTypeBoolean,
 	}
@@ -91,7 +94,8 @@ func (ua unfilteredAggregator) parseAndAddBoolArrayRow(agg *boolAggregator, k []
 }
 
 func (ua unfilteredAggregator) floatProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
@@ -119,7 +123,8 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 }
 
 func (ua unfilteredAggregator) intProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
@@ -147,7 +152,8 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 }
 
 func (ua unfilteredAggregator) dateProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:             aggregation.PropertyTypeDate,
 		DateAggregations: map[string]interface{}{},
@@ -175,7 +181,8 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 }
 
 func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
-	v [][]byte) error {
+	v [][]byte,
+) error {
 	if len(k) != 8 {
 		// dates are stored as epoch nanoseconds, we expect to see an int64
 		return fmt.Errorf("unexpected key length on inverted index, "+
@@ -190,7 +197,8 @@ func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
 }
 
 func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k []byte,
-	v [][]byte) error {
+	v [][]byte,
+) error {
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
@@ -206,7 +214,8 @@ func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k [
 }
 
 func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k []byte,
-	v [][]byte) error {
+	v [][]byte,
+) error {
 	if len(k) != 8 {
 		// we expect to see either an int64 or a float64, so any non-8 length
 		// is unexpected
@@ -222,7 +231,8 @@ func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k []b
 }
 
 func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregator,
-	v []byte, propName schema.PropertyName) error {
+	v []byte, propName schema.PropertyName,
+) error {
 	items, ok, err := storobj.ParseAndExtractNumberArrayProp(v, propName.String())
 	if err != nil {
 		return errors.Wrap(err, "parse and extract prop")
@@ -243,7 +253,8 @@ func (ua unfilteredAggregator) parseAndAddNumberArrayRow(agg *numericalAggregato
 }
 
 func (ua unfilteredAggregator) textProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:            aggregation.PropertyTypeText,
 		TextAggregation: aggregation.Text{},
@@ -275,7 +286,8 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 }
 
 func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
-	prop aggregation.ParamProperty) (*aggregation.Property, error) {
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},

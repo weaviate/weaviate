@@ -46,7 +46,8 @@ type SnapshotProvider struct {
 }
 
 func NewSnapshotProvider(snapshotter Snapshotter,
-	storageProvider modulecapabilities.SnapshotStorage) (*SnapshotProvider, error) {
+	storageProvider modulecapabilities.SnapshotStorage,
+) (*SnapshotProvider, error) {
 	return &SnapshotProvider{ /*TODO*/ }, nil
 }
 
@@ -74,7 +75,8 @@ type BackupManager struct {
 
 // CreateBackup is called by the User
 func (bm *BackupManager) CreateBackup(ctx context.Context, className string,
-	storageProviderName string) error {
+	storageProviderName string,
+) error {
 	// get snapshotter from Index for className
 	var snapshotter Snapshotter
 
@@ -97,6 +99,7 @@ func (bm *BackupManager) CreateBackup(ctx context.Context, className string,
 }
 
 func (bm *BackupManager) RestoreBackup(ctx context.Context, className string,
-	storageProviderName string, backupID string) error {
+	storageProviderName string, backupID string,
+) error {
 	panic("not implemented")
 }

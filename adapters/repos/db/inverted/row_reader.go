@@ -35,7 +35,8 @@ type RowReader struct {
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool) *RowReader {
+	operator filters.Operator, keyOnly bool,
+) *RowReader {
 	return &RowReader{
 		bucket:   bucket,
 		value:    value,
@@ -104,7 +105,8 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
 func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
-	allowEqual bool) error {
+	allowEqual bool,
+) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -134,7 +136,8 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 // matching row is only included if allowEqual==true, otherwise it ends one
 // prior to that.
 func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
-	allowEqual bool) error {
+	allowEqual bool,
+) error {
 	c := rr.newCursor()
 	defer c.Close()
 

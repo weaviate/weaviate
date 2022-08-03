@@ -66,7 +66,8 @@ type vectorClassSearch interface {
 
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider) *Explorer {
+	modulesProvider ModulesProvider,
+) *Explorer {
 	return &Explorer{
 		search:           search,
 		logger:           logger,
@@ -82,7 +83,8 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
-	params GetParams) ([]interface{}, error) {
+	params GetParams,
+) ([]interface{}, error) {
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -110,7 +112,8 @@ func (e *Explorer) GetClass(ctx context.Context,
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context,
-	params GetParams) ([]interface{}, error) {
+	params GetParams,
+) ([]interface{}, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -164,7 +167,8 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 }
 
 func (e *Explorer) getClassExploration(ctx context.Context,
-	params GetParams) ([]interface{}, error) {
+	params GetParams,
+) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
@@ -205,7 +209,8 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
-	params GetParams) ([]interface{}, error) {
+	params GetParams,
+) ([]interface{}, error) {
 	// if both grouping and whereFilter/sort are present, the below
 	// class search will eventually call storobj.FromBinaryOptional
 	// to unmarshal the record. in this case, we must manually set
@@ -245,7 +250,8 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	input []search.Result,
-	searchVector []float32, params GetParams) ([]interface{}, error) {
+	searchVector []float32, params GetParams,
+) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
@@ -350,7 +356,8 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 }
 
 func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
-	refClass search.SelectClass) {
+	refClass search.SelectClass,
+) {
 	innerRefClass, ok := ref.([]interface{})
 	if ok {
 		for _, innerRefProp := range innerRefClass {
@@ -370,7 +377,8 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 }
 
 func (e *Explorer) Concepts(ctx context.Context,
-	params ExploreParams) ([]search.Result, error) {
+	params ExploreParams,
+) ([]search.Result, error) {
 	if err := e.validateExploreParams(params); err != nil {
 		return nil, errors.Wrap(err, "invalid params")
 	}
@@ -398,7 +406,8 @@ func (e *Explorer) Concepts(ctx context.Context,
 }
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
-	results *[]search.Result, params ExploreParams) error {
+	results *[]search.Result, params ExploreParams,
+) error {
 	distance, withDistance := extractDistanceFromExploreParams(params)
 	certainty := extractCertaintyFromExploreParams(params)
 
@@ -424,13 +433,15 @@ func (e *Explorer) validateExploreParams(params ExploreParams) error {
 }
 
 func (e *Explorer) vectorFromParams(ctx context.Context,
-	params GetParams) ([]float32, error) {
+	params GetParams,
+) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
 		params.NearObject, params.ModuleParams, params.ClassName)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
-	params ExploreParams) ([]float32, error) {
+	params ExploreParams,
+) ([]float32, error) {
 	err := e.nearParamsVector.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
 	if err != nil {
 		return nil, err
@@ -462,7 +473,8 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 
 // similar to vectorFromModules, but not specific to a single class
 func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
-	paramName string, paramValue interface{}) ([]float32, error) {
+	paramName string, paramValue interface{},
+) ([]float32, error) {
 	if e.modulesProvider != nil {
 		vector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
 			paramName, paramValue, e.nearParamsVector.findVector,

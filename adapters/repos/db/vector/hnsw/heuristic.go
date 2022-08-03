@@ -19,7 +19,8 @@ import (
 )
 
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
-	max int, denyList helpers.AllowList) error {
+	max int, denyList helpers.AllowList,
+) error {
 	if input.Len() < max {
 		return nil
 	}

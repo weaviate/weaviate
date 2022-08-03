@@ -36,7 +36,8 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics) (*Memtable, error) {
+	secondaryIndices uint16, metrics *Metrics,
+) (*Memtable, error) {
 	cl, err := newCommitLogger(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")

@@ -14,7 +14,7 @@ package extensions
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -72,7 +72,7 @@ func Test_UserFacingHandlers(t *testing.T) {
 		res := w.Result()
 		defer res.Body.Close()
 
-		readBody, err := ioutil.ReadAll(res.Body)
+		readBody, err := io.ReadAll(res.Body)
 		require.Nil(t, err)
 		assert.Equal(t, http.StatusOK, res.StatusCode)
 		assert.Equal(t, body, readBody)
@@ -97,7 +97,8 @@ type fakeProxy struct {
 }
 
 func (f *fakeProxy) AddExtension(ctx context.Context,
-	ext *models.C11yExtension) error {
+	ext *models.C11yExtension,
+) error {
 	return f.err
 }
 

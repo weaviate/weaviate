@@ -190,7 +190,8 @@ func (sg *SegmentGroup) compactOnce() error {
 }
 
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
-	newPathTmp string) error {
+	newPathTmp string,
+) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -353,7 +354,8 @@ func (s *segmentLevelStats) fillMissingLevels() {
 }
 
 func (s *segmentLevelStats) report(metrics *Metrics,
-	strategy, dir string) {
+	strategy, dir string,
+) {
 	for level, size := range s.indexes {
 		metrics.SegmentSize.With(prometheus.Labels{
 			"strategy": strategy,

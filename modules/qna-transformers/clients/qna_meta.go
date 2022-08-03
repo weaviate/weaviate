@@ -14,7 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
@@ -32,7 +32,7 @@ func (v *qna) MetaInfo() (map[string]interface{}, error) {
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read meta response body")
 	}

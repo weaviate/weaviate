@@ -19,7 +19,8 @@ import (
 )
 
 func mergeAndOptimized(children []*propValuePair,
-	acceptDuplicates bool) (*docPointers, error) {
+	acceptDuplicates bool,
+) (*docPointers, error) {
 	sets := make([]*docPointers, len(children))
 
 	// Since the nested filter could have further children which are AND/OR

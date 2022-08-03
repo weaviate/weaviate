@@ -14,8 +14,8 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"regexp"
 
 	"github.com/bmatcuk/doublestar"
@@ -30,7 +30,7 @@ var (
 func init() {
 	headerSectionRe = regexp.MustCompile(`^(//.*\n)*\n`)
 	buildTagRe = regexp.MustCompile(`^//go:build`)
-	h, err := ioutil.ReadFile("tools/license_headers/header.txt")
+	h, err := os.ReadFile("tools/license_headers/header.txt")
 	fatal(err)
 	targetHeader = bytes.TrimSpace(h)
 }
@@ -45,7 +45,7 @@ func main() {
 }
 
 func processSingleFile(name string) error {
-	bytes, err := ioutil.ReadFile(name)
+	bytes, err := os.ReadFile(name)
 	if err != nil {
 		return fmt.Errorf("%s: %v", name, err)
 	}
@@ -80,7 +80,7 @@ func headerNeedsUpdate(content []byte) bool {
 func extendWithHeader(name string, content []byte) error {
 	target := append(targetHeader, []byte("\n\n")...)
 	updated := append(target, content...)
-	return ioutil.WriteFile(name, updated, 0)
+	return os.WriteFile(name, updated, 0)
 }
 
 func updateHeader(name string, content []byte) error {
@@ -94,7 +94,7 @@ func updateHeader(name string, content []byte) error {
 	// input doc
 	target := append(targetHeader, []byte("\n\n")...)
 	replaced := headerSectionRe.ReplaceAll(content, target)
-	return ioutil.WriteFile(name, replaced, 0)
+	return os.WriteFile(name, replaced, 0)
 }
 
 func hasNoHeader(content []byte, name string) bool {

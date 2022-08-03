@@ -40,7 +40,8 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 		expectedError error
 	}
 	buildInvalidTests := func(op filters.Operator, path []interface{},
-		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
+		correctDt schema.DataType, dts []schema.DataType, value interface{},
+	) []test {
 		out := make([]test, len(dts))
 		for i, dt := range dts {
 			useInstead := correctDt
@@ -64,7 +65,8 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 	}
 
 	buildInvalidRefCountTests := func(op filters.Operator, path []interface{},
-		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
+		correctDt schema.DataType, dts []schema.DataType, value interface{},
+	) []test {
 		out := make([]test, len(dts))
 		for i, dt := range dts {
 			out[i] = test{
@@ -84,7 +86,8 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 	}
 
 	buildInvalidNestedTests := func(op filters.Operator, path []interface{},
-		correctDt schema.DataType, dts []schema.DataType, value interface{}) []test {
+		correctDt schema.DataType, dts []schema.DataType, value interface{},
+	) []test {
 		out := make([]test, len(dts))
 		for i, dt := range dts {
 			useInstead := correctDt
@@ -486,7 +489,8 @@ func schemaForFiltersValidation() schema.Schema {
 }
 
 func buildFilter(op filters.Operator, path []interface{}, dataType schema.DataType,
-	value interface{}) *filters.LocalFilter {
+	value interface{},
+) *filters.LocalFilter {
 	pathParsed, err := filters.ParsePath(path, "ClassOne")
 	if err != nil {
 		panic(err)
@@ -504,7 +508,8 @@ func buildFilter(op filters.Operator, path []interface{}, dataType schema.DataTy
 }
 
 func buildNestedFilter(op filters.Operator,
-	childFilters ...*filters.LocalFilter) *filters.LocalFilter {
+	childFilters ...*filters.LocalFilter,
+) *filters.LocalFilter {
 	out := &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: op,

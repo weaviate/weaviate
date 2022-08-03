@@ -30,7 +30,8 @@ func (e *Interpretation) AdditonalPropertyDefaultValue() interface{} {
 
 func (e *Interpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	// this is a special case additional value
 	// this value is being added to storage object in vectorization process
 	// interpretation is being saved in DB when making vectorization
