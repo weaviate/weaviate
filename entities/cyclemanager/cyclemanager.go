@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-type CycleFunc func()
+type (
+	StopFunc  func() bool
+	CycleFunc func(StopFunc)
+)
 
 type CycleManager struct {
 	sync.RWMutex
@@ -66,7 +69,7 @@ func (c *CycleManager) Start() {
 				c.Unlock()
 				continue
 			}
-			c.cycleFunc()
+			c.cycleFunc(c.stopFunc)
 		}
 	}()
 
@@ -165,6 +168,13 @@ func (c *CycleManager) anyCtxValid() bool {
 		}
 	}
 	return false
+}
+
+func (c *CycleManager) stopFunc() bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.anyCtxValid()
 }
 
 func (c *CycleManager) selectedStop(ticker *time.Ticker) bool {

@@ -335,7 +335,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			err = index.Delete(8)
 			require.Nil(t, err)
 
-			err = index.CleanUpTombstonedNodes()
+			err = index.CleanUpTombstonedNodes(neverStop)
 			require.Nil(t, err)
 		})
 
@@ -390,7 +390,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		err = secondIndex.CleanUpTombstonedNodes()
+		err = secondIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 
 		err := secondIndex.Add(3, testVectors[3])
@@ -433,7 +433,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		err = thirdIndex.CleanUpTombstonedNodes()
+		err = thirdIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
 
