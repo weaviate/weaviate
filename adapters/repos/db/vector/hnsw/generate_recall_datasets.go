@@ -22,12 +22,12 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func main() {
 	dimensions := 256
-	size := 25000
+	size := 10000
 	queries := 1000
 
 	vectors := make([][]float32, size)
@@ -40,7 +40,7 @@ func main() {
 		for j := 0; j < dimensions; j++ {
 			vector[j] = rand.Float32()
 		}
-		vectors[i] = vector
+		vectors[i] = Normalize(vector)
 
 	}
 	fmt.Printf("done\n")
@@ -51,13 +51,13 @@ func main() {
 		for j := 0; j < dimensions; j++ {
 			queryVector[j] = rand.Float32()
 		}
-		queryVectors[i] = queryVector
+		queryVectors[i] = Normalize(queryVector)
 	}
 	fmt.Printf("done\n")
 
 	fmt.Printf("defining truth through brute force")
 
-	k := 1
+	k := 10
 	for i, query := range queryVectors {
 		truths[i] = bruteForce(vectors, query, k)
 	}
@@ -94,7 +94,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	distances := make([]distanceAndIndex, len(vectors))
 
 	for i, vec := range vectors {
-		dist := 1 - asm.Dot(Normalize(query), Normalize(vec))
+		dist, _, _ := distancer.NewCosineDistanceProvider().SingleDist(query, vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
