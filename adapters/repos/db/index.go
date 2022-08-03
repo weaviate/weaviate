@@ -55,7 +55,9 @@ type Index struct {
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
-	snapshotState         snapshots.State
+
+	snapshotState     snapshots.State
+	snapshotStateLock sync.Mutex
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex

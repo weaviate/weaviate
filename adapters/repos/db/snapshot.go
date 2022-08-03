@@ -92,6 +92,9 @@ func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
 }
 
 func (i *Index) initSnapshot(id string) error {
+	i.snapshotStateLock.Lock()
+	defer i.snapshotStateLock.Unlock()
+
 	if i.snapshotState.InProgress {
 		return errors.Errorf(
 			"cannot create new snapshot, snapshot ‘%s’ is not yet released, this "+
