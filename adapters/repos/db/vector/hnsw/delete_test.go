@@ -200,7 +200,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 
 	t.Run("runnign the cleanup", func(t *testing.T) {
-		err := vectorIndex.CleanUpTombstonedNodes()
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
 
@@ -282,7 +282,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		for i := range vectors {
 			if i%10 == 0 {
 				// occasionally run clean up
-				err := vectorIndex.CleanUpTombstonedNodes()
+				err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 				require.Nil(t, err)
 			}
 
@@ -295,7 +295,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		}
 
 		// finally run one final cleanup
-		err := vectorIndex.CleanUpTombstonedNodes()
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
 
@@ -327,7 +327,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		err := vectorIndex.CleanUpTombstonedNodes()
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
 	})
 
@@ -345,6 +345,137 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
+}
+
+func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32) (index *hnsw, remainingResult []uint64) {
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	})
+	require.Nil(t, err)
+
+	// to speed up test execution, size of nodes array is decreased
+	// from default 25k to little over number of vectors
+	index.nodes = make([]*vertex, int(1.2*float64(len(vectors))))
+
+	for i, vec := range vectors {
+		err := index.Add(uint64(i), vec)
+		require.Nil(t, err)
+	}
+
+	for i := range vectors {
+		if i%2 != 0 {
+			continue
+		}
+		err := index.Delete(uint64(i))
+		require.Nil(t, err)
+	}
+
+	res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
+	require.Nil(t, err)
+	require.True(t, len(res) > 0)
+
+	for _, elem := range res {
+		if elem%2 == 0 {
+			t.Errorf("search result contained an even element: %d", elem)
+		}
+	}
+
+	return index, res
+}
+
+func genStopAtFunc(i int) func() bool {
+	counter := 0
+	return func() bool {
+		if counter < i {
+			counter++
+			return false
+		}
+		return true
+	}
+}
+
+func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	var index *hnsw
+	var possibleStopsCount int
+	// due to not yet resolved bug (https://semi-technology.atlassian.net/browse/WEAVIATE-179)
+	// db can return less vectors than are actually stored after tombstones cleanup
+	// controlRemainingResult contains all odd vectors (before cleanup was performed)
+	// controlRemainingResultAfterCleanup contains most of odd vectors (after cleanup was performed)
+	//
+	// this test verifies if partial cleanup will not change search output, therefore depedning on
+	// where cleanup method was stopped, subset of controlRemainingResult is expected, though all
+	// vectors from controlRemainingResultAfterCleanup should be returned
+	// TODO to be simplified after fixing WEAVIATE-179, all results should be the same
+	var controlRemainingResult []uint64
+	var controlRemainingResultAfterCleanup []uint64
+
+	t.Run("create control index", func(t *testing.T) {
+		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+	})
+
+	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
+		counter := 0
+		countingStopFunc := func() bool {
+			counter++
+			return false
+		}
+
+		err := index.CleanUpTombstonedNodes(countingStopFunc)
+		require.Nil(t, err)
+
+		possibleStopsCount = counter
+	})
+
+	t.Run("search remaining elements after cleanup", func(t *testing.T) {
+		res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+
+		for _, elem := range res {
+			if elem%2 == 0 {
+				t.Errorf("search result contained an even element: %d", elem)
+			}
+		}
+		controlRemainingResultAfterCleanup = res
+	})
+
+	t.Run("destroy the control index", func(t *testing.T) {
+		require.Nil(t, index.Drop(context.Background()))
+	})
+
+	for i := 0; i < possibleStopsCount; i++ {
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+
+		t.Run("stop cleanup at place", func(t *testing.T) {
+			require.Nil(t, index.CleanUpTombstonedNodes(genStopAtFunc(i)))
+		})
+
+		t.Run("search remaining elements after partial cleanup", func(t *testing.T) {
+			res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
+			require.Nil(t, err)
+			require.Subset(t, controlRemainingResult, res)
+			require.Subset(t, res, controlRemainingResultAfterCleanup)
+		})
+
+		t.Run("destroy the index", func(t *testing.T) {
+			require.Nil(t, index.Drop(context.Background()))
+		})
+	}
 }
 
 // we need a certain number of elements so that we can make sure that nodes
@@ -569,7 +700,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 			err = index.Delete(8)
 			require.Nil(t, err)
 
-			err = index.CleanUpTombstonedNodes()
+			err = index.CleanUpTombstonedNodes(neverStop)
 			require.Nil(t, err)
 		})
 
@@ -778,7 +909,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("clean up tombstoned nodes", func(t *testing.T) {
-		require.Nil(t, index.CleanUpTombstonedNodes())
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
 	})
 
 	t.Run("verify against control AFTER Tombstone Cleanup", func(t *testing.T) {
@@ -793,7 +924,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("clean up tombstoned nodes", func(t *testing.T) {
-		require.Nil(t, index.CleanUpTombstonedNodes())
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
 	})
 
 	t.Run("now delete the entrypoint", func(t *testing.T) {
@@ -803,7 +934,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 	})
 
 	t.Run("clean up tombstoned nodes", func(t *testing.T) {
-		require.Nil(t, index.CleanUpTombstonedNodes())
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -842,4 +973,8 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 	}
 
 	return out
+}
+
+func neverStop() bool {
+	return false
 }

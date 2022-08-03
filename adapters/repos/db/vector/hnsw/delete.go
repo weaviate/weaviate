@@ -18,8 +18,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
+
+type breakCleanUpTombstonedNodesFunc func() bool
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
@@ -129,11 +132,11 @@ func (h *hnsw) getEntrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) copyTombstonesToAllowList(resetCtx context.Context) (ok bool, deleteList helpers.AllowList) {
+func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, deleteList helpers.AllowList) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	if resetCtx.Err() != nil {
+	if breakCleanUpTombstonedNodes() {
 		return false, nil
 	}
 
@@ -163,7 +166,7 @@ func (h *hnsw) copyTombstonesToAllowList(resetCtx context.Context) (ok bool, del
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
 // edges that were previously pointing to the tombstoned nodes
-func (h *hnsw) CleanUpTombstonedNodes() error {
+func (h *hnsw) CleanUpTombstonedNodes(stopFunc cyclemanager.StopFunc) error {
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
@@ -171,24 +174,28 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	resetCtx := h.resetCtx
 	h.resetLock.Unlock()
 
-	ok, deleteList := h.copyTombstonesToAllowList(resetCtx)
+	breakCleanUpTombstonedNodes := func() bool {
+		return resetCtx.Err() != nil || stopFunc()
+	}
+
+	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
 		return nil
 	}
 
-	if ok, err := h.reassignNeighborsOf(deleteList, resetCtx); err != nil {
+	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return err
 	} else if !ok {
 		return nil
 	}
 
-	if ok, err := h.replaceDeletedEntrypoint(deleteList, resetCtx); err != nil {
+	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return err
 	} else if !ok {
 		return nil
 	}
 
-	if ok, err := h.removeTombstonesAndNodes(deleteList, resetCtx); err != nil {
+	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return err
 	} else if !ok {
 		return nil
@@ -201,11 +208,11 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	return nil
 }
 
-func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
+func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	if resetCtx.Err() != nil {
+	if breakCleanUpTombstonedNodes() {
 		return false, nil
 	}
 
@@ -229,13 +236,13 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, resetCtx c
 	return true, nil
 }
 
-func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
+func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
 
 	for n := 0; n < size; n++ {
-		if ok, err := h.reassignNeighbor(uint64(n), deleteList, resetCtx); err != nil {
+		if ok, err := h.reassignNeighbor(uint64(n), deleteList, breakCleanUpTombstonedNodes); err != nil {
 			return false, errors.Wrap(err, "reassign neighbor edges")
 		} else if !ok {
 			return false, nil
@@ -245,11 +252,11 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, resetCtx contex
 	return true, nil
 }
 
-func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
+func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	if resetCtx.Err() != nil {
+	if breakCleanUpTombstonedNodes() {
 		return false, nil
 	}
 
@@ -515,7 +522,7 @@ func (h *hnsw) addTombstone(id uint64) error {
 	return h.commitLog.AddTombstone(id)
 }
 
-func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, resetCtx context.Context) (ok bool, err error) {
+func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	for id := range deleteList {
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
@@ -523,7 +530,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, resetCtx c
 		h.tombstoneLock.Unlock()
 
 		h.resetLock.Lock()
-		if resetCtx.Err() == nil {
+		if !breakCleanUpTombstonedNodes() {
 			h.nodes[id] = nil
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()
