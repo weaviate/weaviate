@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/models"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -22,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 type filteredAggregator struct {
@@ -87,9 +88,9 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return nil, errors.Wrap(err, "prepare aggregators for props")
 	}
 
-	scan := func(obj *storobj.Object) (bool, error) {
-		if err := fa.analyzeObject(ctx, obj, propAggs); err != nil {
-			return false, errors.Wrapf(err, "analyze object %s", obj.ID())
+	scan := func(properties *models.PropertySchema, docID uint64) (bool, error) {
+		if err := fa.analyzeObject(ctx, properties, propAggs); err != nil {
+			return false, errors.Wrapf(err, "analyze object %d", docID)
 		}
 		return true, nil
 	}
@@ -103,18 +104,18 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 }
 
 func (fa *filteredAggregator) analyzeObject(ctx context.Context,
-	obj *storobj.Object, propAggs map[string]propAgg,
+	properties *models.PropertySchema, propAggs map[string]propAgg,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	if obj.Properties() == nil {
+	if properties == nil {
 		return nil
 	}
 
 	for propName, prop := range propAggs {
-		value, ok := obj.Properties().(map[string]interface{})[propName]
+		value, ok := (*properties).(map[string]interface{})[propName]
 		if !ok {
 			continue
 		}

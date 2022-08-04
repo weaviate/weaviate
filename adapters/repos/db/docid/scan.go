@@ -14,6 +14,8 @@ package docid
 import (
 	"encoding/binary"
 
+	"github.com/semi-technologies/weaviate/entities/models"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
@@ -22,7 +24,7 @@ import (
 
 // ObjectScanFn is called once per object, if false or an error is returned,
 // the scanning will stop
-type ObjectScanFn func(obj *storobj.Object) (bool, error)
+type ObjectScanFn func(prop *models.PropertySchema, docID uint64) (bool, error)
 
 // ScanObjectsLSM calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
@@ -83,13 +85,13 @@ func (os *objectScannerLSM) scan() error {
 		if res == nil {
 			continue
 		}
-
-		elem, err := storobj.FromBinary(res)
+		var properties models.PropertySchema
+		err = storobj.UnmarshalPropertiesFromObject(res, &properties)
 		if err != nil {
 			return errors.Wrapf(err, "unmarshal data object")
 		}
 
-		continueScan, err := os.scanFn(elem)
+		continueScan, err := os.scanFn(&properties, id)
 		if err != nil {
 			return errors.Wrapf(err, "scan")
 		}
