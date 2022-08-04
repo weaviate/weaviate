@@ -34,16 +34,6 @@ func addTestDataHamming(t *testing.T) {
 			"name": "object_2",
 		},
 		Vector: []float32{
-			10, 10, 10,
-		},
-	})
-
-	createObject(t, &models.Object{
-		Class: "Hamming_Class",
-		Properties: map[string]interface{}{
-			"name": "object_3",
-		},
-		Vector: []float32{
 			10, 10, 12,
 		},
 	})
@@ -51,7 +41,7 @@ func addTestDataHamming(t *testing.T) {
 	createObject(t, &models.Object{
 		Class: "Hamming_Class",
 		Properties: map[string]interface{}{
-			"name": "object_4",
+			"name": "object_3",
 		},
 		Vector: []float32{
 			10, 11, 12,
@@ -64,7 +54,7 @@ func testHamming(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 		{
 			Get{
-				Hamming_Class(nearVector:{vector: [10,11,12]}){
+				Hamming_Class(nearVector:{vector: [10,10,10]}){
 					name 
 					_additional{distance}
 				}
@@ -113,7 +103,7 @@ func testHamming(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 		{
 			Get{
-				Hamming_Class(nearVector:{vector: [10,11,12], distance: 365}){
+				Hamming_Class(nearVector:{vector: [10,10,10], distance: 365}){
 					name 
 					_additional{distance}
 				}
@@ -134,7 +124,7 @@ func testHamming(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 		{
 			Get{
-				Hamming_Class(nearVector:{vector: [10,11,12], distance: 2}){
+				Hamming_Class(nearVector:{vector: [10,10,10], distance: 1.5}){
 					name 
 					_additional{distance}
 				}
@@ -155,7 +145,7 @@ func testHamming(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 		{
 			Get{
-				Hamming_Class(nearVector:{vector: [10,11,12], distance: 0.5}){
+				Hamming_Class(nearVector:{vector: [10,10,10], distance: 0.5}){
 					name 
 					_additional{distance}
 				}
@@ -176,7 +166,7 @@ func testHamming(t *testing.T) {
 		res := AssertGraphQL(t, nil, `
 		{
 			Get{
-				Hamming_Class(nearVector:{vector: [10,11,12], distance: 0}){
+				Hamming_Class(nearVector:{vector: [10,10,10], distance: 0}){
 					name 
 					_additional{distance}
 				}
