@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //go:build integrationTest
 // +build integrationTest
 
@@ -37,13 +48,15 @@ func TestSnapshot_Integration(t *testing.T) {
 	}, NewDefaultUserConfig())
 	require.Nil(t, err)
 
+	// let the index age for a second so that
+	// the commitlogger filenames, which are
+	// based on current timestamp, can differ
+	time.Sleep(time.Second)
+
 	t.Run("pause maintenance", func(t *testing.T) {
 		err = idx.PauseMaintenance(ctx)
 		require.Nil(t, err)
 	})
-
-	// give the index a sec to pause maintenance cycle
-	time.Sleep(time.Second)
 
 	t.Run("switch commit logs", func(t *testing.T) {
 		err = idx.SwitchCommitLogs(ctx)

@@ -84,7 +84,8 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 // needs ids for sake of something like aggregation, a maxLimit of -1 can be
 // passed in to truly obtain all results from the vector index.
 func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
-	allowList helpers.AllowList) ([]uint64, []float32, error) {
+	allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
@@ -154,10 +155,11 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error) {
-	h.Lock()
+	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+) {
+	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
-	h.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -218,9 +220,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			defer h.pools.connList.Put(connections)
 		}
 
-		for i, conn := range candidateNode.connections[level] {
-			(*connections)[i] = conn
-		}
+		copy(*connections, candidateNode.connections[level])
 		candidateNode.Unlock()
 
 		for _, neighborID := range *connections {
@@ -277,9 +277,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.Lock()
+	h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Return(visited)
-	h.Unlock()
+	h.pools.visitedListsLock.Unlock()
 
 	// results are passed on, so it's in the callers responsibility to return the
 	// list to the pool after using it
@@ -288,7 +288,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue, level int,
-	visitedList *visited.List, allowList helpers.AllowList) {
+	visitedList *visited.List, allowList helpers.AllowList,
+) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
@@ -312,7 +313,8 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 }
 
 func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
-	distancer distancer.Distancer) (float32, error) {
+	distancer distancer.Distancer,
+) (float32, error) {
 	if results.Len() > 0 {
 		id := results.Top().ID
 		d, ok, err := h.distanceToNode(distancer, id)
@@ -335,7 +337,8 @@ func (h *hnsw) currentWorstResultDistance(results *priorityqueue.Queue,
 }
 
 func (h *hnsw) distanceToNode(distancer distancer.Distancer,
-	nodeID uint64) (float32, bool, error) {
+	nodeID uint64,
+) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -374,7 +377,8 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	ef int, allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
 	}

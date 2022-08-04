@@ -34,14 +34,13 @@ import (
 // | repeat    | page is now 1, repeat all of above
 //
 // Fixed Assumptions:
-// - First two bytes always used to indicate end of index, minimal value is 02,
-//   as the first possible value with index length=0 is after the two bytes
-//   themselves.
-// - 64 buckets of float32 per property (=256B per prop), excluding the index
-// - One index row is always 4+len(propName), consisting of a uint16 prop name
-//   length pointer, the name itself and an offset pointer pointing to the start
-//   (first byte) of the buckets
-//
+//   - First two bytes always used to indicate end of index, minimal value is 02,
+//     as the first possible value with index length=0 is after the two bytes
+//     themselves.
+//   - 64 buckets of float32 per property (=256B per prop), excluding the index
+//   - One index row is always 4+len(propName), consisting of a uint16 prop name
+//     length pointer, the name itself and an offset pointer pointing to the start
+//     (first byte) of the buckets
 type PropertyLengthTracker struct {
 	file  *os.File
 	path  string
@@ -93,7 +92,8 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 }
 
 func (t *PropertyLengthTracker) TrackProperty(propName string,
-	value float32) {
+	value float32,
+) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -188,7 +188,8 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
 }
 
 func (t *PropertyLengthTracker) canPageFit(propName []byte,
-	offset uint16, lastBucketOffset uint16) bool {
+	offset uint16, lastBucketOffset uint16,
+) bool {
 	// lastBucketOffset represents the end of the writable area, offset
 	// represents the start, which means we can take the delta to see // how
 	// much space is left on this page
@@ -310,4 +311,8 @@ func (t *PropertyLengthTracker) Drop() error {
 	}
 
 	return nil
+}
+
+func (t *PropertyLengthTracker) FileName() string {
+	return t.file.Name()
 }

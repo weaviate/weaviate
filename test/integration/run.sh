@@ -8,15 +8,9 @@ function echo_yellow() {
   echo -e "${yellow}${*}${nc}"
 }
 
-norestart=false
 includeslow=false
 
 for arg in "$@"; do
-  if [[ $arg == --no-restart ]]; then
-    norestart=true
-    shift
-  fi
-
   if [[ $arg == --include-slow ]]; then
     includeslow=true
     shift

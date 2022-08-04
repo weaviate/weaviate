@@ -44,7 +44,8 @@ type contextualItemClassifier struct {
 }
 
 func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
-	params models.Classification, classified []string) {
+	params models.Classification, classified []string,
+) {
 	// don't overwrite existing non-classification meta info
 	if item.AdditionalProperties == nil {
 		item.AdditionalProperties = models.AdditionalProperties{}
@@ -64,7 +65,8 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 func (c *Classifier) makeClassifyItemContextual(schema schema.Schema, preparedContext contextualPreparationContext) func(search.Result,
 	int, models.Classification, modulecapabilities.Filters, modulecapabilities.Writer) error {
 	return func(item search.Result, itemIndex int, params models.Classification,
-		filters modulecapabilities.Filters, writer modulecapabilities.Writer) error {
+		filters modulecapabilities.Filters, writer modulecapabilities.Writer,
+	) error {
 		vectorizer := c.vectorizer
 		run := &contextualItemClassifier{
 			item:        item,
@@ -230,7 +232,8 @@ func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string
 }
 
 func (c *contextualItemClassifier) boostByInformationGain(targetProp string, percentile int,
-	maxBoost float32) map[string]string {
+	maxBoost float32,
+) map[string]string {
 	cutoff := int(float32(percentile) / float32(100) * float32(len(c.rankedWords[targetProp])))
 	out := make(map[string]string, cutoff)
 
@@ -310,7 +313,8 @@ func (c *contextualItemClassifier) rank(in []*scoredWord) []scoredWord {
 }
 
 func (c *contextualItemClassifier) scoreWords(words []string, vectors [][]float32,
-	targetProp string) ([]*scoredWord, error) {
+	targetProp string,
+) ([]*scoredWord, error) {
 	if len(words) != len(vectors) {
 		return nil, fmt.Errorf("fatal: word list (l=%d) and vector list (l=%d) have different lengths",
 			len(words), len(vectors))
@@ -332,7 +336,8 @@ func (c *contextualItemClassifier) scoreWords(words []string, vectors [][]float3
 }
 
 func (c *contextualItemClassifier) scoreWord(word string, vector []float32,
-	targetProp string) (*scoredWord, error) {
+	targetProp string,
+) (*scoredWord, error) {
 	var all []float32
 	minimum := float32(1000000.00)
 

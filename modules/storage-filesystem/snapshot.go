@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -24,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
-func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
+func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "store snapshot aborted")
 	}
@@ -82,7 +81,7 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 	return nil
 }
 
-func (m *StorageFileSystemModule) createSnapshotDir(snapshot snapshots.Snapshot) (snapshotPath string, err error) {
+func (m *StorageFileSystemModule) createSnapshotDir(snapshot *snapshots.Snapshot) (snapshotPath string, err error) {
 	snapshotPath = filepath.Join(m.snapshotsPath, snapshot.ID)
 	if err = os.Mkdir(snapshotPath, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
@@ -138,7 +137,7 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 	return nil
 }
 
-func (m *StorageFileSystemModule) saveMeta(dstSnapshotPath string, snapshot snapshots.Snapshot) error {
+func (m *StorageFileSystemModule) saveMeta(dstSnapshotPath string, snapshot *snapshots.Snapshot) error {
 	content, err := json.Marshal(snapshot)
 	if err != nil {
 		m.logger.WithField("module", m.Name()).
@@ -150,7 +149,7 @@ func (m *StorageFileSystemModule) saveMeta(dstSnapshotPath string, snapshot snap
 	}
 
 	metaFile := filepath.Join(dstSnapshotPath, "snapshot.json")
-	if err := ioutil.WriteFile(metaFile, content, os.ModePerm); err != nil {
+	if err := os.WriteFile(metaFile, content, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "save_meta").
 			WithField("snapshot_id", snapshot.ID).

@@ -23,7 +23,8 @@ import (
 )
 
 func addDateAggregations(prop *aggregation.Property,
-	aggs []aggregation.Aggregator, agg *dateAggregator) {
+	aggs []aggregation.Aggregator, agg *dateAggregator,
+) {
 	if prop.DateAggregations == nil {
 		prop.DateAggregations = map[string]interface{}{}
 	}

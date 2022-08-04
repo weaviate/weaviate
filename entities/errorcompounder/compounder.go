@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package projector
+package errorcompounder
 
 import (
 	"fmt"
@@ -18,15 +18,27 @@ import (
 	"github.com/pkg/errors"
 )
 
-type errorCompounder struct {
+type ErrorCompounder struct {
 	errors []error
 }
 
-func (ec *errorCompounder) addf(msg string, args ...interface{}) {
+func (ec *ErrorCompounder) Add(err error) {
+	if err != nil {
+		ec.errors = append(ec.errors, err)
+	}
+}
+
+func (ec *ErrorCompounder) Addf(msg string, args ...interface{}) {
 	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
 }
 
-func (ec *errorCompounder) toError() error {
+func (ec *ErrorCompounder) AddWrap(err error, wrapMsg ...string) {
+	if err != nil {
+		ec.errors = append(ec.errors, errors.Wrap(err, wrapMsg[0]))
+	}
+}
+
+func (ec *ErrorCompounder) ToError() error {
 	if len(ec.errors) == 0 {
 		return nil
 	}
@@ -41,4 +53,8 @@ func (ec *errorCompounder) toError() error {
 	}
 
 	return errors.New(msg.String())
+}
+
+func (ec *ErrorCompounder) Len() int {
+	return len(ec.errors)
 }

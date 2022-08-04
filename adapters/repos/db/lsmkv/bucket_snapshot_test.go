@@ -21,7 +21,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
-
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -25,13 +25,13 @@ import (
 // mismatch, the version can be used to make specific decisions
 //
 // CHANGELOG
-// - Version 1 - Everything up until Weaviate v1.10.1 inclusive
-// - Version 2 - Inverted Index is now stored in an always sorted fashion and
-//   doc ids are stored as BigEndian. To make this backward-compatible with v1,
-//   doc ids need to be read and written as Little Endian. In addition, an
-//   additional sort step is required in three places: during a MapList call,
-//   during a Map Cursor and during Map Compactions. BM25 is entirely disabled
-//   prior to this version
+//   - Version 1 - Everything up until Weaviate v1.10.1 inclusive
+//   - Version 2 - Inverted Index is now stored in an always sorted fashion and
+//     doc ids are stored as BigEndian. To make this backward-compatible with v1,
+//     doc ids need to be read and written as Little Endian. In addition, an
+//     additional sort step is required in three places: during a MapList call,
+//     during a Map Cursor and during Map Compactions. BM25 is entirely disabled
+//     prior to this version
 const (
 	ShardCodeBaseVersion                  = uint16(2)
 	ShardCodeBaseMinimumVersionForStartup = uint16(1)
@@ -40,7 +40,7 @@ const (
 type shardVersioner struct {
 	version uint16
 
-	// we don't need the file after initialization, but still need to track it's
+	// we don't need the file after initialization, but still need to track its
 	// path so we can delete it on .Drop()
 	path string
 }

@@ -18,8 +18,9 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,7 +92,7 @@ func Test_UnindexedProperty(t *testing.T) {
 		}
 		`
 
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		objects := result.Get("Get", className).AsSlice()
 
 		expected := []interface{}{
@@ -116,7 +117,7 @@ func Test_UnindexedProperty(t *testing.T) {
 			}
 		}
 		`
-		res, err := QueryGraphQL(t, helper.RootAuth, "", query, nil)
+		res, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
 		require.Nil(t, err)
 		assert.True(t, len(res.Errors) > 0, "this query should be impossible as the field was not indexed")
 	})

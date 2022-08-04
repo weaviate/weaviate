@@ -26,15 +26,15 @@ type modulesProvider interface {
 type Snapshotter interface { // implemented by the index
 	// Snapshot creates a snapshot which is metadata referencing files on disk.
 	// While the snapshot exists, the index makes sure that those files are never
-	// changed, for examle by stopping compactions.
+	// changed, for example by stopping compactions.
 	//
 	// The index stays usable with a snapshot present, it can still accept
 	// reads+writes, as the index is built in an append-only-way.
 	//
 	// Snapshot() fails if another snapshot exists.
-	Snapshot(ctx context.Context) (snapshots.Snapshot, error)
+	Snapshot(ctx context.Context) (*snapshots.Snapshot, error)
 
-	// ReleaseSnapshot signals to the unederlyhing index that the files have been
+	// ReleaseSnapshot signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions.
 	ReleaseSnapshot(ctx context.Context, id string) error
@@ -46,7 +46,8 @@ type SnapshotProvider struct {
 }
 
 func NewSnapshotProvider(snapshotter Snapshotter,
-	storageProvider modulecapabilities.SnapshotStorage) (*SnapshotProvider, error) {
+	storageProvider modulecapabilities.SnapshotStorage,
+) (*SnapshotProvider, error) {
 	return &SnapshotProvider{ /*TODO*/ }, nil
 }
 
@@ -74,7 +75,8 @@ type BackupManager struct {
 
 // CreateBackup is called by the User
 func (bm *BackupManager) CreateBackup(ctx context.Context, className string,
-	storageProviderName string) error {
+	storageProviderName string,
+) error {
 	// get snapshotter from Index for className
 	var snapshotter Snapshotter
 
@@ -97,6 +99,7 @@ func (bm *BackupManager) CreateBackup(ctx context.Context, className string,
 }
 
 func (bm *BackupManager) RestoreBackup(ctx context.Context, className string,
-	storageProviderName string, backupID string) error {
+	storageProviderName string, backupID string,
+) error {
 	panic("not implemented")
 }

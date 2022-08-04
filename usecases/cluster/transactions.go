@@ -51,7 +51,8 @@ func (c *TxManager) SetCommitFn(fn CommitFn) {
 }
 
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
-	payload interface{}) (*Transaction, error) {
+	payload interface{},
+) (*Transaction, error) {
 	c.Lock()
 
 	if c.currentTransaction != nil {
@@ -118,7 +119,8 @@ func (c *TxManager) CommitTransaction(ctx context.Context, tx *Transaction) erro
 }
 
 func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -131,7 +133,8 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 }
 
 func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
-	tx *Transaction) {
+	tx *Transaction,
+) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -144,7 +147,8 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 }
 
 func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
-	tx *Transaction) error {
+	tx *Transaction,
+) error {
 	c.Lock()
 	defer c.Unlock()
 

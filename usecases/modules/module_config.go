@@ -22,7 +22,8 @@ type ClassBasedModuleConfig struct {
 }
 
 func NewClassBasedModuleConfig(class *models.Class,
-	moduleName string) *ClassBasedModuleConfig {
+	moduleName string,
+) *ClassBasedModuleConfig {
 	return &ClassBasedModuleConfig{
 		class:      class,
 		moduleName: moduleName,

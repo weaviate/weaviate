@@ -56,7 +56,8 @@ func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
 }
 
 func (c *Deserializer) Do(fd *bufio.Reader,
-	initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, int, error) {
+	initialState *DeserializationResult, keepLinkReplaceInformation bool,
+) (*DeserializationResult, int, error) {
 	validLength := 0
 	out := initialState
 	if out == nil {
@@ -207,7 +208,8 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 }
 
 func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
-	keepReplaceInfo bool) (int, error) {
+	keepReplaceInfo bool,
+) (int, error) {
 	source, err := c.readUint64(r)
 	if err != nil {
 		return 0, err
@@ -257,7 +259,8 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 }
 
 func (c *Deserializer) ReadAddLinks(r io.Reader,
-	res *DeserializationResult) (int, error) {
+	res *DeserializationResult,
+) (int, error) {
 	source, err := c.readUint64(r)
 	if err != nil {
 		return 0, err
@@ -319,7 +322,8 @@ func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]st
 }
 
 func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
-	keepReplaceInfo bool) error {
+	keepReplaceInfo bool,
+) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
@@ -340,7 +344,8 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 }
 
 func (c *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
-	keepReplaceInfo bool) error {
+	keepReplaceInfo bool,
+) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err

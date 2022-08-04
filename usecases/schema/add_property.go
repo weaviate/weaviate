@@ -21,7 +21,8 @@ import (
 
 // AddClassProperty to an existing Class
 func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property) error {
+	class string, property *models.Property,
+) error {
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
@@ -31,7 +32,8 @@ func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Princi
 }
 
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
-	prop *models.Property) error {
+	prop *models.Property,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -75,7 +77,8 @@ func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property)
 }
 
 func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
-	className string, prop *models.Property) error {
+	className string, prop *models.Property,
+) error {
 	semanticSchema := m.state.SchemaFor()
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {

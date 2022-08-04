@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		require.Greater(t, len(companies), 0)
@@ -70,7 +72,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		expected := []interface{}{
@@ -223,7 +225,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		extractNeighbors := func(in interface{}) []interface{} {
@@ -252,7 +254,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Company").AsSlice()
 
 		extractProjections := func(in interface{}) []interface{} {

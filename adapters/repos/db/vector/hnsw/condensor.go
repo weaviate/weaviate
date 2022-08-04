@@ -19,6 +19,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
 )
 
@@ -155,19 +156,19 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 
 // AddNode adds an empty node
 func (c *MemoryCondensor) AddNode(node *vertex) error {
-	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, AddNode))
-	ec.add(c.writeUint64(c.newLog, node.id))
-	ec.add(c.writeUint16(c.newLog, uint16(node.level)))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, AddNode))
+	ec.Add(c.writeUint64(c.newLog, node.id))
+	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
-	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
-	ec.add(c.writeUint64(c.newLog, nodeid))
-	ec.add(c.writeUint16(c.newLog, uint16(level)))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
+	ec.Add(c.writeUint64(c.newLog, nodeid))
+	ec.Add(c.writeUint16(c.newLog, uint16(level)))
 
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
@@ -178,10 +179,10 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []ui
 			WithField("maximum_length", targetLength).
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
-	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
-	ec.add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
+	ec.Add(c.writeUint16(c.newLog, uint16(targetLength)))
+	ec.Add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets []uint64) error {
@@ -200,30 +201,30 @@ func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets [
 }
 
 func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
-	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, AddLinkAtLevel))
-	ec.add(c.writeUint64(c.newLog, nodeid))
-	ec.add(c.writeUint16(c.newLog, uint16(level)))
-	ec.add(c.writeUint64(c.newLog, target))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, AddLinkAtLevel))
+	ec.Add(c.writeUint64(c.newLog, nodeid))
+	ec.Add(c.writeUint16(c.newLog, uint16(level)))
+	ec.Add(c.writeUint64(c.newLog, target))
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
-	ec.add(c.writeUint64(c.newLog, id))
-	ec.add(c.writeUint16(c.newLog, uint16(level)))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
+	ec.Add(c.writeUint64(c.newLog, id))
+	ec.Add(c.writeUint16(c.newLog, uint16(level)))
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
-	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, AddTombstone))
-	ec.add(c.writeUint64(c.newLog, nodeid))
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, AddTombstone))
+	ec.Add(c.writeUint64(c.newLog, nodeid))
 
-	return ec.toError()
+	return ec.ToError()
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {

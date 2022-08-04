@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -32,7 +32,8 @@ func NewClusterClassifications(httpClient *http.Client) *ClusterClassifications 
 }
 
 func (c *ClusterClassifications) OpenTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/classifications/transactions/"
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -67,7 +68,7 @@ func (c *ClusterClassifications) OpenTransaction(ctx context.Context, host strin
 			return cluster.ErrConcurrentTransaction
 		}
 
-		body, _ := ioutil.ReadAll(res.Body)
+		body, _ := io.ReadAll(res.Body)
 		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)
 	}
@@ -76,7 +77,8 @@ func (c *ClusterClassifications) OpenTransaction(ctx context.Context, host strin
 }
 
 func (c *ClusterClassifications) AbortTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/classifications/transactions/" + tx.ID
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -100,7 +102,8 @@ func (c *ClusterClassifications) AbortTransaction(ctx context.Context, host stri
 }
 
 func (c *ClusterClassifications) CommitTransaction(ctx context.Context, host string,
-	tx *cluster.Transaction) error {
+	tx *cluster.Transaction,
+) error {
 	path := "/classifications/transactions/" + tx.ID + "/commit"
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: host, Path: path}

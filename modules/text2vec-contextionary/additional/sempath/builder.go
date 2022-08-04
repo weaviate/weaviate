@@ -50,7 +50,8 @@ func (e *PathBuilder) AdditonalPropertyDefaultValue() interface{} {
 
 func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return f.CalculatePath(in, parameters)
 	}
@@ -97,7 +98,8 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 }
 
 func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []search.Result, params *Params,
-	searchNeighbors []*txt2vecmodels.NearestNeighbor) (*txt2vecmodels.SemanticPath, error) {
+	searchNeighbors []*txt2vecmodels.NearestNeighbor,
+) (*txt2vecmodels.SemanticPath, error) {
 	dims := len(obj.Vector)
 	matrix, neighbors, err := f.vectorsToMatrix(obj, allObjects, dims, params, searchNeighbors)
 	if err != nil {
@@ -149,7 +151,8 @@ func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*txt2vecmodels.Neare
 
 // TODO: document behavior if it actually stays like this
 func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
-	params *Params, searchNeighbors []*txt2vecmodels.NearestNeighbor) (*mat.Dense, []*txt2vecmodels.NearestNeighbor, error) {
+	params *Params, searchNeighbors []*txt2vecmodels.NearestNeighbor,
+) (*mat.Dense, []*txt2vecmodels.NearestNeighbor, error) {
 	items := 1 // the initial object
 	var neighbors []*txt2vecmodels.NearestNeighbor
 	neighbors = f.extractNeighbors(allObjects)
@@ -228,7 +231,8 @@ func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*txt2vecmo
 }
 
 func (f *PathBuilder) buildPath(neighbors []*txt2vecmodels.NearestNeighbor, searchVector []float32,
-	target []float32) *txt2vecmodels.SemanticPath {
+	target []float32,
+) *txt2vecmodels.SemanticPath {
 	var path []*txt2vecmodels.SemanticPathElement
 
 	minDist := float32(math.MaxFloat32)
@@ -301,7 +305,8 @@ func copyNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.Nearest
 }
 
 func (f *PathBuilder) addDistancesToPath(path *txt2vecmodels.SemanticPath, neighbors []*txt2vecmodels.NearestNeighbor,
-	searchVector, targetVector []float32) (*txt2vecmodels.SemanticPath, error) {
+	searchVector, targetVector []float32,
+) (*txt2vecmodels.SemanticPath, error) {
 	for i, elem := range path.Path {
 		vec, ok := neighborVecByConcept(neighbors, elem.Concept)
 		if !ok {

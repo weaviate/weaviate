@@ -13,18 +13,20 @@ package get
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
-	property *models.Property, className string) *graphql.Field {
+	property *models.Property, className string,
+) *graphql.Field {
 	refClasses := propertyType.Classes()
-	propertyName := strings.Title(property.Name)
+	propertyName := cases.Title(language.Und, cases.NoLower).String(property.Name)
 	dataTypeClasses := []*graphql.Object{}
 
 	for _, refClassName := range refClasses {

@@ -14,7 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"regexp"
 
 	"github.com/go-openapi/swag"
@@ -24,6 +24,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
+
+// ServerVersion is set when the misc handlers are setup.
+// When misc handlers are setup, the entire swagger spec
+// is already being parsed for the server version. This is
+// a good time for us to set ServerVersion, so that the
+// spec only needs to be parsed once.
+var ServerVersion string
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -196,7 +203,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	// Read config file
-	file, err := ioutil.ReadFile(configFileName)
+	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {

@@ -32,7 +32,8 @@ type HostnameSource interface {
 }
 
 func NewNodeIterator(source HostnameSource,
-	strategy NodeIterationStrategy) (*NodeIterator, error) {
+	strategy NodeIterationStrategy,
+) (*NodeIterator, error) {
 	if strategy != StartRandom {
 		return nil, errors.New("unsupported strategy")
 	}

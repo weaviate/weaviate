@@ -75,7 +75,8 @@ type ModulesProvider interface {
 }
 
 func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
-	logger logrus.FieldLogger, modulesProvider ModulesProvider) *Classifier {
+	logger logrus.FieldLogger, modulesProvider ModulesProvider,
+) *Classifier {
 	return &Classifier{
 		logger:                logger,
 		schemaGetter:          sg,

@@ -17,13 +17,14 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func aggregatesWithoutGroupingOrFilters(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City {
@@ -140,7 +141,7 @@ func aggregatesWithoutGroupingOrFilters(t *testing.T) {
 }
 
 func localMetaWithFilters(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City (where: {
@@ -251,7 +252,7 @@ func localMetaWithFilters(t *testing.T) {
 // This test prevents a regression on the fix for
 // https://github.com/semi-technologies/weaviate/issues/824
 func localMeta_StringPropsNotSetEverywhere(t *testing.T) {
-	AssertGraphQL(t, helper.RootAuth, `
+	graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate {
 				City {
@@ -268,7 +269,7 @@ func localMeta_StringPropsNotSetEverywhere(t *testing.T) {
 }
 
 func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				ArrayClass {
@@ -364,7 +365,7 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 }
 
 func aggregatesArrayClassWithGrouping(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
+	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 	{
 		Aggregate{
 			ArrayClass(groupBy:["numbers"]){
@@ -405,7 +406,7 @@ func aggregatesArrayClassWithGrouping(t *testing.T) {
 
 func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City (where: {
@@ -515,7 +516,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 	})
 
 	t.Run("with certainty", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City (where: {
@@ -626,7 +627,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 
 func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City (where: {
@@ -735,7 +736,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 	})
 
 	t.Run("with certainty", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				City (where: {
@@ -846,7 +847,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 
 func localMetaWithNearVectorFilter(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				CustomVectorClass(
@@ -896,7 +897,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 	})
 
 	t.Run("with certainty", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{
 			Aggregate{
 				CustomVectorClass(
@@ -949,7 +950,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 	t.Run("with distance", func(t *testing.T) {
 		t.Run("with expected results, low certainty", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -992,7 +993,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 		})
 
 		t.Run("with no expected results, low distance", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -1033,7 +1034,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 		})
 
 		t.Run("with expected results, low distance", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -1077,7 +1078,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 
 	t.Run("with certainty", func(t *testing.T) {
 		t.Run("with expected results, low certainty", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -1120,7 +1121,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 		})
 
 		t.Run("with no expected results, high certainty", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -1161,7 +1162,7 @@ func localMetaWithWhereAndNearVectorFilters(t *testing.T) {
 		})
 
 		t.Run("with expected results, high certainty", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
 					CustomVectorClass(
@@ -1241,13 +1242,13 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 			},
 		}
 
-		result := AssertGraphQL(t, helper.RootAuth, query).Result
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Result
 		assert.EqualValues(t, expected, result)
 	})
 
 	t.Run("with nearText", func(t *testing.T) {
 		t.Run("with distance", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City (
@@ -1292,7 +1293,7 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 		})
 
 		t.Run("with certainty", func(t *testing.T) {
-			result := AssertGraphQL(t, helper.RootAuth, `
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate{
 					City (
@@ -1354,7 +1355,7 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 				}
 			}`
 
-		vectorResult := AssertGraphQL(t, helper.RootAuth, getQuery).
+		vectorResult := graphqlhelper.AssertGraphQL(t, helper.RootAuth, getQuery).
 			Get("Get", "Company").
 			AsSlice()[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
 
@@ -1385,7 +1386,7 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 			}
 		`, vector)
 
-		aggResult := AssertGraphQL(t, helper.RootAuth, aggQuery).Result
+		aggResult := graphqlhelper.AssertGraphQL(t, helper.RootAuth, aggQuery).Result
 
 		expected := map[string]interface{}{
 			"Aggregate": map[string]interface{}{
@@ -1409,7 +1410,7 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 func localMetaWithObjectLimit(t *testing.T) {
 	t.Run("with nearObject and distance", func(t *testing.T) {
 		objectLimit := 1
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate{
 					City (
@@ -1439,7 +1440,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 
 	t.Run("with nearObject and distance", func(t *testing.T) {
 		objectLimit := 1
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate{
 					City (
@@ -1468,7 +1469,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 
 	t.Run("with nearObject and certainty", func(t *testing.T) {
 		objectLimit := 1
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate{
 					City (
@@ -1497,7 +1498,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 
 	t.Run("with nearObject and no certainty", func(t *testing.T) {
 		objectLimit := 2
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate{
 					City (
@@ -1524,7 +1525,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 	})
 
 	t.Run("with nearObject and very high distance, no objectLimit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
    				RansomNote(
@@ -1551,7 +1552,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 	})
 
 	t.Run("with nearObject and very low certainty, no objectLimit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
    				RansomNote(
@@ -1578,7 +1579,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 	})
 
 	t.Run("with nearObject and low distance (few results), high objectLimit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
    				RansomNote(
@@ -1608,7 +1609,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 	})
 
 	t.Run("with nearObject and high certainty (few results), high objectLimit", func(t *testing.T) {
-		result := AssertGraphQL(t, helper.RootAuth, `
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Aggregate {
    				RansomNote(
@@ -1639,7 +1640,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 
 	t.Run("with nearText and no distance/certainty, where filter and groupBy", func(t *testing.T) {
 		objectLimit := 4
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate {
 					Company (
@@ -1701,7 +1702,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 
 	t.Run("with nearObject and certainty, where filter", func(t *testing.T) {
 		objectLimit := 1
-		result := AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
 			{
 				Aggregate{
 					City (
@@ -1749,7 +1750,7 @@ func aggregatesOnDateFields(t *testing.T) {
 				}
 			}
 		}`
-		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
 		assert.Len(t, result, 1)
 
 		expected := []interface{}{
@@ -1786,7 +1787,7 @@ func aggregatesOnDateFields(t *testing.T) {
 			}
 		}`
 
-		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
 		assert.Len(t, result, 10)
 
 		expected := []interface{}{
@@ -1906,7 +1907,7 @@ func aggregatesOnDateFields(t *testing.T) {
 			}
 		}`
 
-		result := AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "HasDateField").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{

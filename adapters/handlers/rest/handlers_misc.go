@@ -36,12 +36,17 @@ type swaggerJSON struct {
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	schemaManager schemaManager, modulesProvider ModulesProvider) {
+	schemaManager schemaManager, modulesProvider ModulesProvider,
+) {
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {
 		panic(err)
 	}
+
+	// this is a good time for us to set ServerVersion,
+	// so that the spec only needs to be parsed once.
+	config.ServerVersion = swj.Info.Version
 
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 		metaInfos := map[string]interface{}{}

@@ -23,7 +23,8 @@ import (
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference) (BatchReferences, error) {
+	refs []*models.BatchReference,
+) (BatchReferences, error) {
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
 		return nil, err
@@ -78,7 +79,8 @@ func (b *BatchManager) validateReferencesConcurrently(refs []*models.BatchRefere
 }
 
 func (b *BatchManager) validateReference(wg *sync.WaitGroup, ref *models.BatchReference,
-	i int, resultsC *chan BatchReference) {
+	i int, resultsC *chan BatchReference,
+) {
 	defer wg.Done()
 	var errors []error
 	source, err := crossref.ParseSource(string(ref.From))

@@ -206,7 +206,8 @@ func (i *indices) postObject() http.Handler {
 }
 
 func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
-	index, shard string) {
+	index, shard string,
+) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -228,7 +229,8 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 }
 
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	index, shard string) {
+	index, shard string,
+) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -336,7 +338,8 @@ func (i *indices) getObject() http.Handler {
 }
 
 func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
-	index, shard, id string) {
+	index, shard, id string,
+) {
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

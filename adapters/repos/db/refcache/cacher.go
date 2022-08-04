@@ -72,7 +72,8 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties) error {
+	properties search.SelectProperties, additional additional.Properties,
+) error {
 	c.additional = additional
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
@@ -171,7 +172,8 @@ func (c *Cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, e
 }
 
 func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
-	properties search.SelectProperties) (search.SelectProperties, error) {
+	properties search.SelectProperties,
+) (search.SelectProperties, error) {
 	if properties != nil {
 		// don't overwrite the properties if the caller has explicitly set them,
 		// this can only mean they're at the root level

@@ -74,7 +74,8 @@ func (c *Cleaner) cleanupProperty(tx *bolt.Tx, p *models.Property) error {
 }
 
 func (c *Cleaner) cleanupBucket(tx *bolt.Tx, id []byte,
-	hasFrequency bool, propName string) error {
+	hasFrequency bool, propName string,
+) error {
 	propsBucket := tx.Bucket(id)
 	if propsBucket == nil {
 		return nil

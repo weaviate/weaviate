@@ -63,7 +63,8 @@ type Shard struct {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index) (*Shard, error) {
+	shardName string, index *Index,
+) (*Shard, error) {
 	before := time.Now()
 
 	rand, err := newBufferedRandomGen(64 * 1024)
@@ -398,7 +399,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig) error {
+	updated schema.VectorIndexConfig,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}

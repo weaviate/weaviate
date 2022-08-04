@@ -45,7 +45,8 @@ func (m *StorageFileSystemModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *StorageFileSystemModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	snapshotsPath := os.Getenv(snapshotsPathName)
@@ -60,3 +61,16 @@ func (m *StorageFileSystemModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
+
+func (m *StorageFileSystemModule) MetaInfo() (map[string]interface{}, error) {
+	metaInfo := make(map[string]interface{})
+	metaInfo["snapshotsPath"] = m.snapshotsPath
+	return metaInfo, nil
+}
+
+// verify we implement the modules.Module interface
+var (
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.SnapshotStorage(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

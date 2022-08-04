@@ -61,7 +61,8 @@ type Bucket struct {
 }
 
 func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
-	metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
+	metrics *Metrics, opts ...BucketOption,
+) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -486,7 +487,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet() {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 	b.flushLock.Lock()
 
 	// to check the current size of the WAL to

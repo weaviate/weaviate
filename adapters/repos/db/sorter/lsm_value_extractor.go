@@ -27,7 +27,8 @@ type lsmPropertyExtractor struct {
 }
 
 func newPropertyExtractor(className schema.ClassName,
-	classHelper *classHelper, property string) *lsmPropertyExtractor {
+	classHelper *classHelper, property string,
+) *lsmPropertyExtractor {
 	return &lsmPropertyExtractor{className, classHelper, property}
 }
 
