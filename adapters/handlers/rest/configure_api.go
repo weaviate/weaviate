@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -92,6 +93,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
+
+	config.ServerVersion = parseVersionFromSwaggerSpec()
 
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
@@ -523,4 +526,19 @@ func setupGoProfiling(config config.Config) {
 	if config.Profiling.MutexProfileFraction > 0 {
 		goruntime.SetMutexProfileFraction(config.Profiling.MutexProfileFraction)
 	}
+}
+
+func parseVersionFromSwaggerSpec() string {
+	spec := struct {
+		Info struct {
+			Version string `json:"version"`
+		} `json:"info"`
+	}{}
+
+	err := json.Unmarshal(SwaggerJSON, &spec)
+	if err != nil {
+		panic(err)
+	}
+
+	return spec.Info.Version
 }
