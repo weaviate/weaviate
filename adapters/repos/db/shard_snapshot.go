@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"golang.org/x/sync/errgroup"
 )
@@ -48,6 +49,45 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 	snap.Unlock()
 
 	return nil
+}
+
+func (s *Shard) releaseSnapshot(ctx context.Context) error {
+	var g errgroup.Group
+
+	g.Go(func() error {
+		return s.store.ResumeCompaction(ctx)
+	})
+
+	g.Go(func() error {
+		return s.vectorIndex.ResumeMaintenance(ctx)
+	})
+
+	if err := g.Wait(); err != nil {
+		err = s.rollbackSnapshotRelease(ctx, err)
+		return errors.Wrapf(err, "failed to release snapshot for shard '%s'", s.name)
+	}
+
+	return nil
+}
+
+func (s *Shard) rollbackSnapshotRelease(ctx context.Context, err error) error {
+	var (
+		errs = &errorcompounder.ErrorCompounder{}
+		g    errgroup.Group
+	)
+
+	errs.Add(err)
+
+	g.Go(func() error {
+		return s.store.PauseCompaction(ctx)
+	})
+
+	g.Go(func() error {
+		return s.vectorIndex.PauseMaintenance(ctx)
+	})
+
+	errs.AddWrap(g.Wait(), "pause compaction and maintenance")
+	return errs.ToError()
 }
 
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
