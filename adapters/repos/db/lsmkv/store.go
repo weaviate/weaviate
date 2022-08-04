@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
@@ -136,4 +137,119 @@ func (s *Store) WriteWALs() error {
 	}
 
 	return nil
+}
+
+// bucketJobStatus is used to safely track the status of
+// a job applied to each of a store's buckets when run
+// in parallel
+type bucketJobStatus struct {
+	sync.Mutex
+	buckets map[*Bucket]error
+}
+
+func newBucketJobStatus() *bucketJobStatus {
+	return &bucketJobStatus{
+		buckets: make(map[*Bucket]error),
+	}
+}
+
+type jobFunc func(context.Context, *Bucket) (interface{}, error)
+
+type rollbackFunc func(context.Context, *Bucket) error
+
+func (s *Store) PauseCompaction(ctx context.Context) error {
+	pauseCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.PauseCompaction(ctx)
+	}
+
+	resumeCompaction := func(ctx context.Context, b *Bucket) error {
+		return b.ResumeCompaction(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, pauseCompaction, resumeCompaction)
+	return err
+}
+
+func (s *Store) FlushMemtables(ctx context.Context) error {
+	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.FlushMemtable(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, flushMemtable, nil)
+	return err
+}
+
+func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
+	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return b.ListFiles(ctx)
+	}
+
+	result, err := s.runJobOnBuckets(ctx, listFiles, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, res := range result {
+		files = append(files, res.([]string)...)
+	}
+
+	return files, nil
+}
+
+// runJobOnBuckets applies a jobFunc to each bucket in the store in parallel.
+// The jobFunc allows for the job to return an arbitrary value.
+// Additionally, a rollbackFunc may be provided which will be run on the target
+// bucket in the event of an unsuccessful job.
+func (s *Store) runJobOnBuckets(ctx context.Context, jobFunc jobFunc,
+	rollbackFunc rollbackFunc) ([]interface{}, error) {
+	var (
+		status      = newBucketJobStatus()
+		resultQueue = make(chan interface{}, len(s.bucketsByName))
+		wg          = sync.WaitGroup{}
+	)
+
+	for _, bucket := range s.bucketsByName {
+		wg.Add(1)
+		b := bucket
+		go func() {
+			status.Lock()
+			defer status.Unlock()
+			res, err := jobFunc(ctx, b)
+			resultQueue <- res
+			status.buckets[b] = err
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	close(resultQueue)
+
+	var errs errorcompounder.ErrorCompounder
+	for _, err := range status.buckets {
+		errs.Add(err)
+	}
+
+	if errs.Len() != 0 {
+		// if any of the bucket jobs failed, and a
+		// rollbackFunc has been provided, attempt
+		// to roll back. if this fails, the err is
+		// added to the compounder
+		for b, jobErr := range status.buckets {
+			if jobErr != nil && rollbackFunc != nil {
+				if rollbackErr := rollbackFunc(ctx, b); rollbackErr != nil {
+					errs.AddWrap(rollbackErr, "bucket job rollback")
+				}
+			}
+		}
+
+		return nil, errs.ToError()
+	}
+
+	var finalResult []interface{}
+	for res := range resultQueue {
+		finalResult = append(finalResult, res)
+	}
+
+	return finalResult, nil
 }

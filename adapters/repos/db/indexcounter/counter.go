@@ -54,6 +54,12 @@ func New(shardID string, rootPath string) (*Counter, error) {
 	}, nil
 }
 
+func (c *Counter) Get() uint64 {
+	c.Lock()
+	defer c.Unlock()
+	return c.count
+}
+
 func (c *Counter) GetAndInc() (uint64, error) {
 	c.Lock()
 	defer c.Unlock()
@@ -88,4 +94,8 @@ func (c *Counter) Drop() error {
 		return errors.Wrap(err, "drop counter file")
 	}
 	return nil
+}
+
+func (c *Counter) FileName() string {
+	return c.f.Name()
 }

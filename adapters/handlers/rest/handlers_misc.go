@@ -44,6 +44,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 		panic(err)
 	}
 
+	// this is a good time for us to set ServerVersion,
+	// so that the spec only needs to be parsed once.
+	config.ServerVersion = swj.Info.Version
+
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 		metaInfos := map[string]interface{}{}
 
