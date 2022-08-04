@@ -214,8 +214,9 @@ func (s *Store) ResumeCompaction(ctx context.Context) error {
 // The jobFunc allows for the job to return an arbitrary value.
 // Additionally, a rollbackFunc may be provided which will be run on the target
 // bucket in the event of an unsuccessful job.
-func (s *Store) runJobOnBuckets(ctx context.Context, jobFunc jobFunc,
-	rollbackFunc rollbackFunc) ([]interface{}, error) {
+func (s *Store) runJobOnBuckets(ctx context.Context,
+	jobFunc jobFunc, rollbackFunc rollbackFunc,
+) ([]interface{}, error) {
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
