@@ -42,18 +42,13 @@ func removeDir(t *testing.T, dirPath string) {
 	}
 }
 
-func createSnapshotInstance(t *testing.T, dirPath string) snapshots.Snapshot {
+func createSnapshotInstance(t *testing.T, dirPath string) *snapshots.Snapshot {
 	startedAt := time.Now()
 	basePath, _ := os.Getwd()
-	filePaths := createTestFiles(t, dirPath)
+	snap := snapshots.New("snapshot_id", startedAt, basePath)
+	snap.Files = createTestFiles(t, dirPath)
 
-	return snapshots.Snapshot{
-		ID:          "snapshot_id",
-		StartedAt:   startedAt,
-		CompletedAt: time.Now(),
-		Files:       filePaths,
-		BasePath:    basePath,
-	}
+	return snap
 }
 
 func createTestFiles(t *testing.T, dirPath string) []string {

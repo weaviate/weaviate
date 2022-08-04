@@ -48,13 +48,15 @@ func TestSnapshot_Integration(t *testing.T) {
 	}, NewDefaultUserConfig())
 	require.Nil(t, err)
 
+	// let the index age for a second so that
+	// the commitlogger filenames, which are
+	// based on current timestamp, can differ
+	time.Sleep(time.Second)
+
 	t.Run("pause maintenance", func(t *testing.T) {
 		err = idx.PauseMaintenance(ctx)
 		require.Nil(t, err)
 	})
-
-	// give the index a sec to pause maintenance cycle
-	time.Sleep(time.Second)
 
 	t.Run("switch commit logs", func(t *testing.T) {
 		err = idx.SwitchCommitLogs(ctx)

@@ -40,7 +40,7 @@ const (
 type shardVersioner struct {
 	version uint16
 
-	// we don't need the file after initialization, but still need to track it's
+	// we don't need the file after initialization, but still need to track its
 	// path so we can delete it on .Drop()
 	path string
 }

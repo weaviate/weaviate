@@ -54,3 +54,7 @@ func (ec *ErrorCompounder) ToError() error {
 
 	return errors.New(msg.String())
 }
+
+func (ec *ErrorCompounder) Len() int {
+	return len(ec.errors)
+}
