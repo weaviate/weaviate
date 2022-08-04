@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 )
 
-func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
+func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
