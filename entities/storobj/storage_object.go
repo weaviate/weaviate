@@ -417,6 +417,33 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	return byteBuffer, nil
 }
 
+// UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
+//
+// Check MarshalBinary for the order of elements in the input array
+func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchema) error {
+	if data[0] != uint8(1) {
+		return errors.Errorf("unsupported binary marshaller version %d", data[0])
+	}
+
+	bufPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+
+	// get the length of the vector, each element is a float32 (4 bytes)
+	vectorLength := byteOperations.ReadUint16(data, &bufPos)
+	bufPos += uint32(vectorLength) * 4
+
+	// length of class name
+	classnameLength := byteOperations.ReadUint16(data, &bufPos)
+	bufPos += uint32(classnameLength)
+
+	// property schema length
+	propertyLength := byteOperations.ReadUint32(data, &bufPos)
+	if err := json.Unmarshal(data[bufPos:bufPos+propertyLength], properties); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
 func (ko *Object) UnmarshalBinary(data []byte) error {
