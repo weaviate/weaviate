@@ -29,6 +29,11 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 		g    errgroup.Group
 	)
 
+	// preliminary write to persist a snapshot status of "started"
+	if err := snap.WriteToDisk(); err != nil {
+		return nil, errors.Wrap(err, "create snapshot")
+	}
+
 	for _, shard := range i.Shards {
 		s := shard
 		g.Go(func() error {
@@ -71,6 +76,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	snap.ShardingState = shardingState
 	snap.Schema = schema
 	snap.ServerVersion = config.ServerVersion
+	snap.Status = snapshots.StatusCreated
 	snap.CompletedAt = time.Now()
 
 	if err := snap.WriteToDisk(); err != nil {
@@ -89,7 +95,17 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 // async background and maintenance processes. It errors if the snapshot does not exist
 // or is already inactive.
 func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
-	i.resetSnapshotState()
+	snap, err := snapshots.ReadFromDisk(id, i.Config.RootPath)
+	if err != nil {
+		return errors.Wrap(err, "release snapshot")
+	}
+
+	snap.Status = snapshots.StatusReleased
+	if err := snap.WriteToDisk(); err != nil {
+		return errors.Wrap(err, "release snapshot")
+	}
+
+	defer i.resetSnapshotState()
 	return nil
 }
 
@@ -113,6 +129,8 @@ func (i *Index) initSnapshot(id string) error {
 }
 
 func (i *Index) resetSnapshotState() {
+	i.snapshotStateLock.Lock()
+	defer i.snapshotStateLock.Unlock()
 	i.snapshotState = snapshots.State{InProgress: false}
 }
 

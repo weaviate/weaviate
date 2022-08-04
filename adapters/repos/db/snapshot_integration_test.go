@@ -129,6 +129,16 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		t.Run("release snapshot", func(t *testing.T) {
 			err := index.ReleaseSnapshot(ctx, snapshotID)
 			assert.Nil(t, err)
+
+			assert.False(t, index.snapshotState.InProgress)
+
+			t.Run("assert snapshot disk contents", func(t *testing.T) {
+				snap, err := snapshots.ReadFromDisk(snapshotID, index.Config.RootPath)
+				require.Nil(t, err)
+
+				assert.NotEmpty(t, snap.CompletedAt)
+				assert.Equal(t, snapshots.StatusReleased, snap.Status)
+			})
 		})
 
 		t.Run("cleanup", func(t *testing.T) {
