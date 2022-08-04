@@ -197,6 +197,19 @@ func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 	return files, nil
 }
 
+func (s *Store) ResumeCompaction(ctx context.Context) error {
+	resumeCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.ResumeCompaction(ctx)
+	}
+
+	pauseCompaction := func(ctx context.Context, b *Bucket) error {
+		return b.PauseCompaction(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, resumeCompaction, pauseCompaction)
+	return err
+}
+
 // runJobOnBuckets applies a jobFunc to each bucket in the store in parallel.
 // The jobFunc allows for the job to return an arbitrary value.
 // Additionally, a rollbackFunc may be provided which will be run on the target

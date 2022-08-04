@@ -95,6 +95,19 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 // async background and maintenance processes. It errors if the snapshot does not exist
 // or is already inactive.
 func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
+	var g errgroup.Group
+
+	for _, shard := range i.Shards {
+		s := shard
+		g.Go(func() error {
+			return s.releaseSnapshot(ctx)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return errors.Wrap(err, "release snapshot")
+	}
+
 	snap, err := snapshots.ReadFromDisk(id, i.Config.RootPath)
 	if err != nil {
 		return errors.Wrap(err, "release snapshot")
