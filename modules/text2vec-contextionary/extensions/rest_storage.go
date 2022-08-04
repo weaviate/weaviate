@@ -12,7 +12,7 @@
 package extensions
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 )
 
@@ -105,7 +105,7 @@ func (h *RESTStorageHandlers) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))

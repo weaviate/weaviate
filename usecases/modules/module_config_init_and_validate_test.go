@@ -229,7 +229,8 @@ func (d *dummyModuleClassConfigurator) ClassConfigDefaults() map[string]interfac
 }
 
 func (d *dummyModuleClassConfigurator) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{
 		"per-prop-1": "prop default value",
 		"per-prop-2": "prop default value",
@@ -237,7 +238,8 @@ func (d *dummyModuleClassConfigurator) PropertyConfigDefaults(
 }
 
 func (d *dummyModuleClassConfigurator) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	return d.validateError
 }
 

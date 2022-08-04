@@ -48,7 +48,8 @@ type graphQL struct {
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, traverser Traverser,
-	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider) (GraphQL, error) {
+	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider,
+) (GraphQL, error) {
 	logger.WithField("action", "graphql_rebuild").
 		WithField("schema", schema).
 		Debug("rebuilding the graphql schema")
@@ -81,7 +82,8 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 }
 
 func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config, modulesProvider *modules.Provider) (graphql.Schema, error) {
+	config config.Config, modulesProvider *modules.Provider,
+) (graphql.Schema, error) {
 	localSchema, err := local.Build(dbSchema, logger, config, modulesProvider)
 	if err != nil {
 		return graphql.Schema{}, err

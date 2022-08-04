@@ -70,7 +70,8 @@ func (fixer *CorruptCommitLogFixer) Do(fileNames []string) ([]string, error) {
 }
 
 func (fixer *CorruptCommitLogFixer) listContains(haystack []string,
-	needle string) bool {
+	needle string,
+) bool {
 	for _, hay := range haystack {
 		if hay == needle {
 			return true

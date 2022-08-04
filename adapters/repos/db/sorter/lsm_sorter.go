@@ -167,7 +167,8 @@ func (s *lsmSorter) toDists(candidates []docIDAndValue) []float32 {
 }
 
 func (s *lsmSorter) currentIsBetterThanWorstElement(candidates []docIDAndValue,
-	limit int, curr interface{}, order string) bool {
+	limit int, curr interface{}, order string,
+) bool {
 	if s.getLimit(limit) == 0 || len(candidates) < limit {
 		return true
 	}
@@ -176,7 +177,8 @@ func (s *lsmSorter) currentIsBetterThanWorstElement(candidates []docIDAndValue,
 }
 
 func (s *lsmSorter) addToCandidates(candidates []docIDAndValue,
-	limit int, newEntry docIDAndValue, order string) []docIDAndValue {
+	limit int, newEntry docIDAndValue, order string,
+) []docIDAndValue {
 	if len(candidates) == 0 {
 		return []docIDAndValue{newEntry}
 	}

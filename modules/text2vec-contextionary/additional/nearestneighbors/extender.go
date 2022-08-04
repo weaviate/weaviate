@@ -41,7 +41,8 @@ func (e *Extender) AdditonalPropertyDefaultValue() interface{} {
 
 func (e *Extender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return e.Multi(ctx, in, limit)
 }
 

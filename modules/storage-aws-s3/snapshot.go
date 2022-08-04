@@ -13,24 +13,32 @@ package modstgs3
 
 import (
 	"context"
+	"os"
+	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 )
 
-func (m *StorageAWSS3Module) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
-	// TODO implement
-	m.logger.Errorf("StoreSnapshot of StorageAWSS3Module not yet implemented")
-	return nil
+func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageAWSS3Module) RestoreSnapshot(ctx context.Context, snapshotId string) error {
-	// TODO implement
-	m.logger.Errorf("RestoreSnapshot of StorageAWSS3Module not yet implemented")
-	return nil
+func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, snapshotId string) error {
+	return m.storageProvider.RestoreSnapshot(ctx, snapshotId)
 }
 
-func (m *StorageAWSS3Module) initSnapshotStorage(ctx context.Context) error {
-	// TODO implement
-	m.logger.Errorf("initSnapshotStorage of StorageAWSS3Module not yet implemented")
+func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
+	endpoint := os.Getenv(s3Endpoint)
+	bucketName := os.Getenv(s3Bucket)
+	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) == "true"
+	config := s3.NewConfig(endpoint, bucketName, useSSL)
+	storageProvider, err := s3.New(config, m.logger)
+	if err != nil {
+		return errors.Wrap(err, "initialize AWS S3 module")
+	}
+	m.config = config
+	m.storageProvider = storageProvider
 	return nil
 }

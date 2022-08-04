@@ -87,7 +87,8 @@ func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *ContextionaryModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.storageProvider = params.GetStorageProvider()
 	appState, ok := params.GetAppState().(*state.State)
 	if !ok {
@@ -209,7 +210,8 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig) error {
+	obj *models.Object, cfg moduletools.ClassConfig,
+) error {
 	icheck := localvectorizer.NewIndexChecker(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }

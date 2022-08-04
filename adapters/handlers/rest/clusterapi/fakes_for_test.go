@@ -137,7 +137,8 @@ func (f *fakeClusterState) NodeCount() int {
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,
-	shardingState *sharding.State) error {
+	shardingState *sharding.State,
+) error {
 	return nil
 }
 

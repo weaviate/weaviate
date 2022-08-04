@@ -17,20 +17,20 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
 func removingObjects(t *testing.T) {
-	objectId := assertCreateObject(t, "TestObject", map[string]interface{}{})
+	objectId := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
 
 	// Yes, it's created
-	_ = assertGetObjectEventually(t, "TestObject", objectId)
+	_ = helper.AssertGetObjectEventually(t, "TestObject", objectId)
 
 	// Now perorm the the deletion
 	delResp, err := helper.Client(t).Objects.ObjectsDelete(objects.NewObjectsDeleteParams().WithID(objectId), nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
-	_ = assertGetObjectFailsEventually(t, objectId)
+	_ = helper.AssertGetObjectFailsEventually(t, objectId)
 
 	// And verify that the object is gone
 	getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(objectId), nil)

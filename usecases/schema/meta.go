@@ -19,7 +19,8 @@ import (
 
 // UpdateMeta for object
 func (m *Manager) UpdateMeta(ctx context.Context,
-	atContext strfmt.URI, maintainer strfmt.Email, name string) error {
+	atContext strfmt.URI, maintainer strfmt.Email, name string,
+) error {
 	semanticSchema := m.state.SchemaFor()
 	semanticSchema.Maintainer = maintainer
 	semanticSchema.Name = name

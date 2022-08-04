@@ -24,7 +24,8 @@ import (
 // If the class contains a network ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
-	class string, id strfmt.UUID, updates *models.Object) (*models.Object, error) {
+	class string, id strfmt.UUID, updates *models.Object,
+) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
 		path = fmt.Sprintf("objects/%s", id)
@@ -47,7 +48,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	class string, id strfmt.UUID, updates *models.Object) (*models.Object, error) {
+	class string, id strfmt.UUID, updates *models.Object,
+) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}

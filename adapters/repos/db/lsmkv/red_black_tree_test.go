@@ -361,8 +361,8 @@ func getIndexInSlice(reorderedKeys []uint, key []byte) int {
 // 4) Red nodes only have black (or nil) children
 //
 // In addition this also validates some general tree properties:
-//  - root has no parent
-//  - if node A is a child of B, B must be the parent of A)
+//   - root has no parent
+//   - if node A is a child of B, B must be the parent of A)
 func validateRBTree(t *testing.T, rootNode rbtree.Node) {
 	require.False(t, rootNode.IsRed())
 	require.True(t, rootNode.Parent().IsNil())

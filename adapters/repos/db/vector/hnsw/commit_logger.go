@@ -14,8 +14,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,7 +41,8 @@ func commitLogDirectory(rootPath, name string) string {
 
 func NewCommitLogger(rootPath, name string,
 	maintainenceInterval time.Duration, logger logrus.FieldLogger,
-	opts ...CommitlogOption) (*hnswCommitLogger, error) {
+	opts ...CommitlogOption,
+) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:             rootPath,
 		id:                   name,
@@ -108,7 +108,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -123,20 +123,20 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, nil
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 < ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return nil, err
 	}
 
@@ -151,7 +151,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 // getCurrentCommitLogFileName returns the fileName and true if a file was
 // present. If no file was present, the second arg is false.
 func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -166,28 +166,28 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "clean up tmp combining files")
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 > ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return "", false, err
 	}
 
 	return files[0].Name(), true, nil
 }
 
-func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
-	out := make([]fs.FileInfo, len(in))
+func removeTmpScratchFiles(in []os.DirEntry) []os.DirEntry {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
@@ -202,8 +202,9 @@ func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
 }
 
 func removeTmpCombiningFiles(dirPath string,
-	in []fs.FileInfo) ([]fs.FileInfo, error) {
-	out := make([]fs.FileInfo, len(in))
+	in []os.DirEntry,
+) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".combined.tmp") {
@@ -323,7 +324,8 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
-	target uint64) error {
+	target uint64,
+) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -428,7 +430,7 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startSwitchLogs() {
+func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
 	if err := l.SwitchCommitLogs(false); err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hsnw_commit_log_maintenance").
@@ -436,7 +438,7 @@ func (l *hnswCommitLogger) startSwitchLogs() {
 	}
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs() {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.StopFunc) {
 	if err := l.combineLogs(); err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hsnw_commit_log_combining").

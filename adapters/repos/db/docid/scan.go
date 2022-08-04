@@ -41,7 +41,8 @@ type objectScannerLSM struct {
 }
 
 func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
-	scan ObjectScanFn) *objectScannerLSM {
+	scan ObjectScanFn,
+) *objectScannerLSM {
 	return &objectScannerLSM{
 		store:    store,
 		pointers: pointers,

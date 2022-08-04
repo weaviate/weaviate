@@ -49,7 +49,8 @@ func newMockResolver(cfg config.Config) *mockResolver {
 }
 
 func (m *mockResolver) Aggregate(ctx context.Context, principal *models.Principal,
-	params *aggregation.Params) (interface{}, error) {
+	params *aggregation.Params,
+) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

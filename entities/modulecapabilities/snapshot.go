@@ -18,6 +18,6 @@ import (
 )
 
 type SnapshotStorage interface {
-	StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error
-	RestoreSnapshot(ctx context.Context, snapshotId string) error
+	StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error
+	RestoreSnapshot(ctx context.Context, snapshotID string) error
 }

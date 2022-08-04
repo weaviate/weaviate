@@ -18,29 +18,38 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 	"github.com/sirupsen/logrus"
 )
 
-const Name = "storage-aws-s3"
+const (
+	Name       = "storage-aws-s3"
+	s3Endpoint = "STORAGE_S3_ENDPOINT"
+	s3Bucket   = "STORAGE_S3_BUCKET"
+	s3UseSSL   = "STORAGE_S3_USE_SSL"
+)
 
-type StorageAWSS3Module struct {
-	logger logrus.FieldLogger
+type StorageS3Module struct {
+	logger          logrus.FieldLogger
+	storageProvider modulecapabilities.SnapshotStorage
+	config          s3.Config
 }
 
-func New() *StorageAWSS3Module {
-	return &StorageAWSS3Module{}
+func New() *StorageS3Module {
+	return &StorageS3Module{}
 }
 
-func (m *StorageAWSS3Module) Name() string {
+func (m *StorageS3Module) Name() string {
 	return Name
 }
 
-func (m *StorageAWSS3Module) Type() modulecapabilities.ModuleType {
+func (m *StorageS3Module) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Storage
 }
 
-func (m *StorageAWSS3Module) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+func (m *StorageS3Module) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	if err := m.initSnapshotStorage(ctx); err != nil {
@@ -50,7 +59,22 @@ func (m *StorageAWSS3Module) Init(ctx context.Context,
 	return nil
 }
 
-func (m *StorageAWSS3Module) RootHandler() http.Handler {
+func (m *StorageS3Module) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
+
+func (m *StorageS3Module) MetaInfo() (map[string]interface{}, error) {
+	metaInfo := make(map[string]interface{})
+	metaInfo["endpoint"] = m.config.Endpoint()
+	metaInfo["bucketName"] = m.config.BucketName()
+	metaInfo["useSSL"] = m.config.UseSSL()
+	return metaInfo, nil
+}
+
+// verify we implement the modules.Module interface
+var (
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.SnapshotStorage(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

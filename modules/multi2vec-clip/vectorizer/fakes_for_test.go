@@ -65,7 +65,8 @@ func (c fakeClassConfig) Property(propName string) map[string]interface{} {
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	texts, images []string) (*ent.VectorizationResult, error) {
+	texts, images []string,
+) (*ent.VectorizationResult, error) {
 	result := &ent.VectorizationResult{
 		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},

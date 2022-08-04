@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"testing"
@@ -73,7 +72,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		require.ElementsMatch(t, []string{"1000", "1002", "1004"}, fileNames)
 
 		t.Run("the first file is correctly combined", func(t *testing.T) {
-			contents, err := ioutil.ReadFile(commitLogFileName(rootPath, id, "1000"))
+			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1000"))
 			require.Nil(t, err)
 			require.Len(t, contents, 600)
 			assert.Equal(t, contents[0:6], []byte("file1\n"))
@@ -81,7 +80,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		})
 
 		t.Run("the second file is correctly combined", func(t *testing.T) {
-			contents, err := ioutil.ReadFile(commitLogFileName(rootPath, id, "1002"))
+			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1002"))
 			require.Nil(t, err)
 			require.Len(t, contents, 600)
 			assert.Equal(t, contents[0:6], []byte("file3\n"))
@@ -89,7 +88,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		})
 
 		t.Run("latest file is unchanged", func(t *testing.T) {
-			contents, err := ioutil.ReadFile(commitLogFileName(rootPath, id, "1004"))
+			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1004"))
 			require.Nil(t, err)
 			require.Len(t, contents, 50)
 			assert.Equal(t, contents[0:8], []byte("current\n"))

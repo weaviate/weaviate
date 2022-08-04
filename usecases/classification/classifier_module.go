@@ -43,6 +43,7 @@ type moduleClassification struct {
 }
 
 func (c *moduleClassification) classifyFn(item search.Result, itemIndex int,
-	params models.Classification, filters Filters, writer Writer) error {
+	params models.Classification, filters Filters, writer Writer,
+) error {
 	return c.classifyItemFn(item, itemIndex, params, filters, &moduleWriter{writer})
 }

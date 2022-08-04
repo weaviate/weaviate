@@ -33,7 +33,8 @@ import (
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
-	property *models.Property, className string) *graphql.Field {
+	property *models.Property, className string,
+) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{
@@ -198,7 +199,8 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider) graphql.Field {
+	class *models.Class, modulesProvider ModulesProvider,
+) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,

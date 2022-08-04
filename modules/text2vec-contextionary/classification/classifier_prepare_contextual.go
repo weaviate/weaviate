@@ -34,7 +34,8 @@ type contextualPreparationContext struct {
 
 func (c *Classifier) prepareContextualClassification(schema schema.Schema,
 	vectorRepo modulecapabilities.VectorClassSearchRepo, params models.Classification,
-	filters libclassification.Filters, items search.Results) (contextualPreparationContext, error) {
+	filters libclassification.Filters, items search.Results,
+) (contextualPreparationContext, error) {
 	p := &contextualPreparer{
 		inputItems: items,
 		params:     params,

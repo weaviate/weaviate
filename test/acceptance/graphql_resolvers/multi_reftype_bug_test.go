@@ -15,9 +15,11 @@ import (
 	"fmt"
 	"testing"
 
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -144,7 +146,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{"name": "source with ref to One"},
@@ -171,7 +173,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetOne"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{
@@ -219,7 +221,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetOne"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{
@@ -272,7 +274,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetTwo"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{
@@ -320,7 +322,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetTwo"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{
@@ -377,7 +379,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetOne"), className("TargetTwo"))
-				result := AssertGraphQL(t, helper.RootAuth, query)
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 				actual := result.Get("Get", className("Source")).AsSlice()
 				expected := []interface{}{
 					map[string]interface{}{
@@ -436,7 +438,7 @@ func TestMultipleRefTypeIssues(t *testing.T) {
 			}
 		}
 		`, className("Source"), className("TargetOne"), className("TargetTwo"))
-			result := AssertGraphQL(t, helper.RootAuth, query)
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 			actual := result.Get("Get", className("Source")).AsSlice()
 			expected := []interface{}{
 				map[string]interface{}{

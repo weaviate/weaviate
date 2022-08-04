@@ -86,7 +86,8 @@ func (v *Validator) properties(ctx context.Context, object interface{}) error {
 }
 
 func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName string, pv interface{},
-	className string, dataType *schema.DataType) (interface{}, error) {
+	className string, dataType *schema.DataType,
+) (interface{}, error) {
 	var (
 		data interface{}
 		err  error
@@ -182,7 +183,8 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 }
 
 func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{},
-	className string) (interface{}, error) {
+	className string,
+) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
 		return nil, fmt.Errorf("reference must be an array, but got a map: %#v", refValue)
@@ -397,7 +399,8 @@ func blobVal(val interface{}) (string, error) {
 }
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
-	pvcr map[string]interface{}, className string) (*models.SingleRef, error) {
+	pvcr map[string]interface{}, className string,
+) (*models.SingleRef, error) {
 	delete(pvcr, "href")
 
 	// Return different types of errors for cref input

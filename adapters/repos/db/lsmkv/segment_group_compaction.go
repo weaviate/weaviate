@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 )
 
 func (sg *SegmentGroup) eligibleForCompaction() bool {
@@ -189,7 +190,8 @@ func (sg *SegmentGroup) compactOnce() error {
 }
 
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
-	newPathTmp string) error {
+	newPathTmp string,
+) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -247,7 +249,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) compactIfLevelsMatch() {
+func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.StopFunc) {
 	sg.monitorSegments()
 
 	if sg.eligibleForCompaction() {
@@ -352,7 +354,8 @@ func (s *segmentLevelStats) fillMissingLevels() {
 }
 
 func (s *segmentLevelStats) report(metrics *Metrics,
-	strategy, dir string) {
+	strategy, dir string,
+) {
 	for level, size := range s.indexes {
 		metrics.SegmentSize.With(prometheus.Labels{
 			"strategy": strategy,

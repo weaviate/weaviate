@@ -41,7 +41,8 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	settings ClassSettings) error {
+	settings ClassSettings,
+) error {
 	vec, err := v.object(ctx, object.ID, object.Properties, settings)
 	if err != nil {
 		return err
@@ -61,7 +62,8 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]fl
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	schema interface{}, ichek ClassSettings) ([]float32, error) {
+	schema interface{}, ichek ClassSettings,
+) ([]float32, error) {
 	// vectorize image
 	images := []string{}
 	if schema != nil {

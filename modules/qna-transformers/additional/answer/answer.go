@@ -59,7 +59,8 @@ func (p *AnswerProvider) AdditionalFieldFn(classname string) *graphql.Field {
 
 func (p *AnswerProvider) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return p.findAnswer(ctx, in, parameters, limit, argumentModuleParams)
 	}

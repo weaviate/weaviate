@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	sch "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
 func Test_GraphQL(t *testing.T) {

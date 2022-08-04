@@ -13,7 +13,7 @@ package concepts
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -47,7 +47,7 @@ func TestHandlers(t *testing.T) {
 
 		res := w.Result()
 		defer res.Body.Close()
-		json, err := ioutil.ReadAll(res.Body)
+		json, err := io.ReadAll(res.Body)
 		require.Nil(t, err)
 		expected := `{"individualWords":[{` +
 			`"info":{"vector":[0.1,0.2]},"present":true,"word":"my-concept"}]}`
@@ -65,7 +65,7 @@ func TestHandlers(t *testing.T) {
 
 		res := w.Result()
 		defer res.Body.Close()
-		json, err := ioutil.ReadAll(res.Body)
+		json, err := io.ReadAll(res.Body)
 		require.Nil(t, err)
 		expected := `{"error":[{"message":"invalid input"}]}`
 
@@ -83,7 +83,8 @@ func (f *fakeInspector) reset() {
 }
 
 func (f *fakeInspector) GetWords(ctx context.Context,
-	concept string) (*models.C11yWordsResponse, error) {
+	concept string,
+) (*models.C11yWordsResponse, error) {
 	return &models.C11yWordsResponse{
 		IndividualWords: []*models.C11yWordsResponseIndividualWordsItems0{
 			{

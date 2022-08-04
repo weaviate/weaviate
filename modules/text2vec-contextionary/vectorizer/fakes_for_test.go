@@ -32,7 +32,8 @@ func (c *fakeClient) VectorForWord(ctx context.Context, word string) ([]float32,
 }
 
 func (c *fakeClient) NearestWordsByVector(ctx context.Context,
-	vector []float32, n int, k int) ([]string, []float32, error) {
+	vector []float32, n int, k int,
+) ([]string, []float32, error) {
 	return []string{"word1", "word2"}, []float32{0.1, 0.2}, nil
 }
 

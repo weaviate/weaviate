@@ -27,7 +27,8 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences) []error {
+	refs objects.BatchReferences,
+) []error {
 	if s.isReadOnly() {
 		return []error{errors.Errorf("shard is read-only")}
 	}
@@ -52,7 +53,8 @@ func newReferencesBatcher(s *Shard) *referencesBatcher {
 }
 
 func (b *referencesBatcher) References(ctx context.Context,
-	refs objects.BatchReferences) []error {
+	refs objects.BatchReferences,
+) []error {
 	b.init(refs)
 	b.storeInObjectStore(ctx)
 	b.flushWALs(ctx)
@@ -65,7 +67,8 @@ func (b *referencesBatcher) init(refs objects.BatchReferences) {
 }
 
 func (b *referencesBatcher) storeInObjectStore(
-	ctx context.Context) {
+	ctx context.Context,
+) {
 	errs := b.storeSingleBatchInLSM(ctx, b.refs)
 	for i, err := range errs {
 		if err != nil {
@@ -78,7 +81,8 @@ func (b *referencesBatcher) storeInObjectStore(
 }
 
 func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
-	batch objects.BatchReferences) []error {
+	batch objects.BatchReferences,
+) []error {
 	errs := make([]error, len(batch))
 	errLock := &sync.Mutex{}
 
@@ -148,7 +152,8 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 
 func (b *referencesBatcher) analyzeInverted(
 	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
-	ref objects.BatchReference) error {
+	ref objects.BatchReference,
+) error {
 	prevProps, err := b.analyzeRef(mergeResult.previous, ref)
 	if err != nil {
 		return err
@@ -183,7 +188,8 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 }
 
 func (b *referencesBatcher) writeInvertedDeletions(
-	in []inverted.MergeProperty) error {
+	in []inverted.MergeProperty,
+) error {
 	// in the references batcher we can only ever write ref count entires which
 	// are guaranteed to be not have a frequency, meaning they will use the
 	// "Set" strategy in the lsmkv store
@@ -213,7 +219,8 @@ func (b *referencesBatcher) writeInvertedDeletions(
 }
 
 func (b *referencesBatcher) writeInvertedAdditions(
-	in []inverted.MergeProperty) error {
+	in []inverted.MergeProperty,
+) error {
 	// in the references batcher we can only ever write ref count entires which
 	// are guaranteed to be not have a frequency, meaning they will use the
 	// "Set" strategy in the lsmkv store
@@ -241,7 +248,8 @@ func (b *referencesBatcher) writeInvertedAdditions(
 }
 
 func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
-	ref objects.BatchReference) ([]inverted.Property, error) {
+	ref objects.BatchReference,
+) ([]inverted.Property, error) {
 	props := obj.Properties()
 	if props == nil {
 		return nil, nil

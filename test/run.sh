@@ -3,15 +3,19 @@
 set -eou pipefail
 
 function main() {
-  # This script runs all tests if no CMD switch is given and the respective tests otherwise.
+  # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true
   run_acceptance_tests=false
+  run_module_tests=false
   run_unit_and_integration_tests=false
+  run_benchmark=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
-          --acceptance_tests) run_all_tests=false; run_acceptance_tests=true; echo $run_acceptance_tests ;;
-          --unit_and_integration_tests) run_all_tests=false; run_unit_and_integration_tests=true; echo $run_all_tests;;
+          --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
+          --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --benchmark-only) run_all_tests=false; run_benchmark=true;;
+          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift
@@ -24,7 +28,7 @@ function main() {
   echo "      Then it will print the output of the failed command."
 
   echo_green "Prepare workspace..."
-   
+
   # Remove data directory in case of previous runs
   rm -rf data
   echo "Done!"
@@ -39,11 +43,11 @@ function main() {
     echo_green "Integration tests successful"
   fi 
 
-  if $run_acceptance_tests || $run_all_tests
+  if $run_acceptance_tests || $run_all_tests || $run_benchmark
   then
-    echo "In Acceptance test suite"
+    echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
-    surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
+    surpress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
 
     echo_green "Start up weaviate and backing dbs in docker-compose..."
     echo "This could take some time..."
@@ -55,11 +59,22 @@ function main() {
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
     # surpress_on_success import_test_fixtures
 
-    echo_green "Run performance tracker..."
-    ./test/benchmark/run_performance_tracker.sh
+    if $run_benchmark
+    then
+      echo_green "Run performance tracker..."
+      ./test/benchmark/run_performance_tracker.sh
+    fi
 
-    echo_green "Run acceptance tests..."
-    run_acceptance_tests "$@"
+    if $run_acceptance_tests || $run_all_tests
+    then
+      echo_green "Run acceptance tests..."
+      run_acceptance_tests "$@"
+    fi
+  fi
+
+  if $run_module_tests; then
+    echo_green "Running module acceptance tests..."
+    run_module_tests "$@"
   fi
   
   echo "Done!"
@@ -70,7 +85,7 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
@@ -85,11 +100,21 @@ function run_integration_tests() {
 function run_acceptance_tests() {
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
     for pkg in $(go list ./... | grep 'test/acceptance'); do
-          if ! go test -count 1 -race "$pkg"; then
-            echo "Test for $pkg failed" >&2
-            return 1
-          fi
-      done
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+}
+
+function run_module_tests() {
+  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
+    for pkg in $(go list ./... | grep 'test/modules'); do
+      if ! go test -v -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
 }
 
 surpress_on_success() {
@@ -104,9 +129,9 @@ function echo_green() {
 }
 
 function echo_red() {
-  green='\033[0;31m'
+  red='\033[0;31m'
   nc='\033[0m' 
-  echo -e "${green}${*}${nc}"
+  echo -e "${red}${*}${nc}"
 }
 
 main "$@"

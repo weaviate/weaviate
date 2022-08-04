@@ -23,7 +23,8 @@ import (
 )
 
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
-	className string, updated *models.Class) error {
+	className string, updated *models.Class,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -86,7 +87,8 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
-	updated *models.Class) error {
+	updated *models.Class,
+) error {
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
@@ -149,7 +151,8 @@ type immutableText struct {
 }
 
 func (m *Manager) validateImmutableTextField(u immutableText,
-	previous, next *models.Class) error {
+	previous, next *models.Class,
+) error {
 	oldField := u.accessor(previous)
 	newField := u.accessor(next)
 	if oldField != newField {
@@ -161,7 +164,8 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 }
 
 func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
-	className, shardName, targetStatus string) error {
+	className, shardName, targetStatus string,
+) error {
 	err := m.authorizer.Authorize(principal, "update",
 		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
 	if err != nil {
@@ -175,7 +179,8 @@ func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Princ
 
 // UpdateObject which exists
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
-	name string, class *models.Class) error {
+	name string, class *models.Class,
+) error {
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
@@ -186,7 +191,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClass(ctx context.Context, className string,
-	class *models.Class) error {
+	class *models.Class,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -235,7 +241,8 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 }
 
 func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principal,
-	className string, snapshot *models.Snapshot) (*models.Snapshot, error) {
+	className string, snapshot *models.Snapshot,
+) (*models.Snapshot, error) {
 	err := m.authorizer.Authorize(principal, "add",
 		fmt.Sprintf("schema/%s/snapshots", className))
 	if err != nil {
@@ -247,7 +254,8 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 }
 
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
-	className, id string) error {
+	className, id string,
+) error {
 	err := m.authorizer.Authorize(principal, "restore",
 		fmt.Sprintf("schema/%s/snapshots/%s/restore", className, id))
 	if err != nil {
