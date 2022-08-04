@@ -15,17 +15,208 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"path"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSnapshot_IndexLevel(t *testing.T) {
+	t.Run("successful snapshot creation", func(t *testing.T) {
+		t.Run("setup env", func(t *testing.T) {
+			var spec struct {
+				Info struct {
+					Version string `json:"version"`
+				} `json:"info"`
+			}
+
+			contents, err := ioutil.ReadFile("../../../openapi-specs/schema.json")
+			require.Nil(t, err)
+
+			require.Nil(t, json.Unmarshal(contents, &spec))
+			// this is normally set on server start up, so
+			// it needs to be manually set for this test
+			config.ServerVersion = spec.Info.Version
+		})
+
+		ctx := testCtx()
+		className := "IndexLevelSnapshotClass"
+		snapshotID := "index-level-snapshot-test"
+		now := time.Now().UnixNano()
+
+		shard, index := testShard(ctx, className, withVectorIndexing(true))
+		// let the index age for a second so that
+		// the commitlogger filenames, which are
+		// based on current timestamp, can differ
+		time.Sleep(time.Second)
+
+		t.Run("insert data", func(t *testing.T) {
+			require.Nil(t, index.putObject(ctx, &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					Class:              className,
+					CreationTimeUnix:   now,
+					ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
+					LastUpdateTimeUnix: now,
+					Vector:             []float32{1, 2, 3},
+					VectorWeights:      nil,
+				},
+				Vector: []float32{1, 2, 3},
+			}))
+		})
+
+		t.Run("create snapshot", func(t *testing.T) {
+			snap, err := index.CreateSnapshot(ctx, snapshotID)
+			assert.Nil(t, err)
+
+			t.Run("assert snapshot file contents", func(t *testing.T) {
+				// should have 7 files:
+				//     - 6 files from lsm store:
+				//         - objects/segment-123.wal
+				//         - objects/segment-123.db
+				//         - hash_property__id/segment-123.wal
+				//         - hash_property__id/segment-123.db
+				//         - property__id/segment-123.wal
+				//         - property__id/segment-123.db
+				//     - 1 file from vector index commitlogger
+				assert.Len(t, snap.Files, 7)
+			})
+
+			t.Run("assert shard metadata contents", func(t *testing.T) {
+				assert.NotNil(t, snap.ShardMetadata)
+				assert.Len(t, snap.ShardMetadata, 1)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].DocIDCounter)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].PropLengthTracker)
+				assert.NotEmpty(t, snap.ShardMetadata[shard.name].ShardVersion)
+			})
+
+			t.Run("assert schema state", func(t *testing.T) {
+				assert.NotEmpty(t, snap.ShardingState)
+				assert.NotEmpty(t, snap.Schema)
+			})
+
+			t.Run("assert server version", func(t *testing.T) {
+				assert.NotEmpty(t, snap.ServerVersion)
+				assert.Equal(t, config.ServerVersion, snap.ServerVersion)
+			})
+
+			t.Run("assert snapshot disk contents", func(t *testing.T) {
+				snapPath := path.Join(snap.BasePath, "snapshots", snap.ID) + ".json"
+
+				contents, err := ioutil.ReadFile(snapPath)
+				require.Nil(t, err)
+
+				expected, err := json.Marshal(snap)
+				require.Nil(t, err)
+
+				assert.Equal(t, expected, contents)
+			})
+		})
+
+		t.Run("release snapshot", func(t *testing.T) {
+			err := index.ReleaseSnapshot(ctx, snapshotID)
+			assert.Nil(t, err)
+
+			assert.False(t, index.snapshotState.InProgress)
+
+			t.Run("assert snapshot disk contents", func(t *testing.T) {
+				snap, err := snapshots.ReadFromDisk(snapshotID, index.Config.RootPath)
+				require.Nil(t, err)
+
+				assert.NotEmpty(t, snap.CompletedAt)
+				assert.Equal(t, snapshots.StatusReleased, snap.Status)
+			})
+		})
+
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
+	})
+
+	t.Run("failed snapshot creation from expired context", func(t *testing.T) {
+		ctx := testCtx()
+
+		className := "IndexLevelSnapshotClass"
+		snapshotID := "index-level-snapshot-test"
+
+		_, index := testShard(ctx, className, withVectorIndexing(true))
+
+		timeout, cancel := context.WithTimeout(context.Background(), 0)
+		defer cancel()
+
+		snap, err := index.CreateSnapshot(timeout, snapshotID)
+		assert.Nil(t, snap)
+
+		// due to concurrently running cycle shutdowns,
+		// we cannot always know which will error first
+		// amongst the affected cycles (i.e. compaction,
+		// tombstone cleanup, etc)
+		expected1 := "create snapshot: long-running"
+		expected2 := "context deadline exceeded"
+		assert.Contains(t, err.Error(), expected1)
+		assert.Contains(t, err.Error(), expected2)
+
+		// snapshot state is reset on failure, so that
+		// subsequent calls to create a snapshot are
+		// not blocked
+		assert.False(t, index.snapshotState.InProgress)
+		assert.Empty(t, index.snapshotState.SnapshotID)
+
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
+	})
+
+	t.Run("failed snapshot creation from existing unreleased snapshot", func(t *testing.T) {
+		ctx := testCtx()
+		className := "IndexLevelSnapshotClass"
+		inProgressSnapshotID := "index-level-snapshot-test"
+
+		_, index := testShard(ctx, className, withVectorIndexing(true))
+
+		index.snapshotState = snapshots.State{
+			SnapshotID: inProgressSnapshotID,
+			InProgress: true,
+		}
+
+		snap, err := index.CreateSnapshot(ctx, "some-new-snapshot")
+		assert.Nil(t, snap)
+
+		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+
+			"is not yet released, this means its contents have not yet been fully copied "+
+			"to its destination, try again later", inProgressSnapshotID)
+		assert.EqualError(t, expectedErr, err.Error())
+
+		t.Run("cleanup", func(t *testing.T) {
+			err := index.Shutdown(ctx)
+			require.Nil(t, err)
+
+			err = os.RemoveAll(index.Config.RootPath)
+			require.Nil(t, err)
+		})
+	})
+}
 
 func TestSnapshot_BucketLevel(t *testing.T) {
 	ctx := testCtx()
@@ -99,7 +290,8 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("shutdown shard", func(t *testing.T) {
+	t.Run("cleanup", func(t *testing.T) {
 		require.Nil(t, shard.shutdown(ctx))
+		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
 	})
 }

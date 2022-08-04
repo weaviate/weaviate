@@ -59,7 +59,7 @@ func New(config Config, logger logrus.FieldLogger) (modulecapabilities.SnapshotS
 	return &s3{client, config, logger}, nil
 }
 
-func (s *s3) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
+func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	// create bucket
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)

@@ -75,6 +75,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
 func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
@@ -160,4 +161,5 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }

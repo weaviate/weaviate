@@ -18,7 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-// VectorIndex is anything that indexes vectors effieciently. For an example
+// VectorIndex is anything that indexes vectors efficiently. For an example
 // look at ./vector/hsnw/index.go
 type VectorIndex interface {
 	Add(id uint64, vector []float32) error
@@ -30,4 +30,7 @@ type VectorIndex interface {
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
+	PauseMaintenance(ctx context.Context) error
+	SwitchCommitLogs(ctx context.Context) error
+	ListFiles(ctx context.Context) ([]string, error)
 }
