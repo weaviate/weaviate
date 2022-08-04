@@ -14,12 +14,13 @@ package docid
 import (
 	"encoding/binary"
 
+	"github.com/semi-technologies/weaviate/entities/storobj"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 // ObjectScanFn is called once per object, if false or an error is returned,
@@ -30,8 +31,8 @@ type ObjectScanFn func(prop *models.PropertySchema, docID uint64) (bool, error)
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn) error {
-	return newObjectScannerLSM(store, pointers, scan).Do()
+func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string) error {
+	return newObjectScannerLSM(store, pointers, scan, properties).Do()
 }
 
 type objectScannerLSM struct {
@@ -39,15 +40,17 @@ type objectScannerLSM struct {
 	pointers      []uint64
 	scanFn        ObjectScanFn
 	objectsBucket *lsmkv.Bucket
+	properties    []string
 }
 
 func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
-	scan ObjectScanFn,
+	scan ObjectScanFn, properties []string,
 ) *objectScannerLSM {
 	return &objectScannerLSM{
-		store:    store,
-		pointers: pointers,
-		scanFn:   scan,
+		store:      store,
+		pointers:   pointers,
+		scanFn:     scan,
+		properties: properties,
 	}
 }
 
@@ -85,10 +88,12 @@ func (os *objectScannerLSM) scan() error {
 		if res == nil {
 			continue
 		}
-		var properties models.PropertySchema
-		err = storobj.UnmarshalPropertiesFromObject(res, &properties)
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object")
+		var properties models.PropertySchema = nil
+		if len(os.properties) > 0 {
+			err = storobj.UnmarshalPropertiesFromObject(res, &properties)
+			if err != nil {
+				return errors.Wrapf(err, "unmarshal data object")
+			}
 		}
 
 		continueScan, err := os.scanFn(&properties, id)

@@ -77,7 +77,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	if err := docid.ScanObjectsLSM(g.store, ids,
 		func(prop *models.PropertySchema, docID uint64) (bool, error) {
 			return true, g.addElementById(prop, docID)
-		}); err != nil {
+		}, []string{g.params.GroupBy.Property.String()}); err != nil {
 		return nil, err
 	}
 

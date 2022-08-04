@@ -94,8 +94,12 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		}
 		return true, nil
 	}
+	propertyNames := make([]string, 0, len(propAggs))
+	for k := range propAggs {
+		propertyNames = append(propertyNames, k)
+	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan)
+	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames)
 	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
