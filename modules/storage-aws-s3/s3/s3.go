@@ -112,9 +112,18 @@ func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
 }
 
 func (s *s3) RestoreSnapshot(ctx context.Context, snapshotId string) error {
-	objectName := s.makeObjectName(snapshotId, "snapshot.json")
+	bucketName := s.config.BucketName()
+	bucketExists, err := s.client.BucketExists(ctx, bucketName)
+	if !bucketExists {
+		return errors.Wrap(err, "backup bucket does not exist")
+	}
+	if err != nil {
+		return errors.Wrap(err, "can't connect to bucket")
+	}
 
-	// Load the metadata into a snapshot struct
+	objectName := fmt.Sprintf("%s/%s", snapshotId, "snapshot.json")
+
+	// Load the metadata from the backup into a snapshot struct
 	var snapshot snapshots.Snapshot
 	val, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
 	if err != nil {
@@ -128,18 +137,21 @@ func (s *s3) RestoreSnapshot(ctx context.Context, snapshotId string) error {
 	if err != nil {
 		return errors.Wrapf(err, "unmarshal meta")
 	}
+
 	// Restore the files
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted")
 		}
 
-		// Get srcRelPath from the bucket
+		// Get the correct paths for the backup file and the active file
 		objectName := s.makeObjectName(snapshotId, srcRelPath)
 		filePath := s.makeFilePath(s.dataPath, srcRelPath)
-		_, err := s.client.FPutObject(ctx, s.config.BucketName(), objectName, filePath, minio.PutObjectOptions{})
+
+		// Download the backup file from the bucket
+		err := s.client.FGetObject(ctx, s.config.BucketName(), objectName, filePath, minio.GetObjectOptions{})
 		if err != nil {
-			return errors.Wrapf(err, "get file %s", objectName)
+			return errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
 		}
 	}
 	return nil
