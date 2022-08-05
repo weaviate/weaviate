@@ -88,7 +88,7 @@ func (os *objectScannerLSM) scan() error {
 		if res == nil {
 			continue
 		}
-		var properties models.PropertySchema = nil
+		var properties models.PropertySchema
 		if len(os.properties) > 0 {
 			err = storobj.UnmarshalPropertiesFromObject(res, &properties)
 			if err != nil {

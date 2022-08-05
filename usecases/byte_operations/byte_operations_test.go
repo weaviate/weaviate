@@ -1,4 +1,4 @@
-package byteOperations
+package byte_operations
 
 import (
 	"math/rand"

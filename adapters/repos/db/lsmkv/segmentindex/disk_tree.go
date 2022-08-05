@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/semi-technologies/weaviate/usecases/byteOperations"
+	"github.com/semi-technologies/weaviate/usecases/byte_operations"
 
 	"github.com/pkg/errors"
 )
@@ -94,7 +94,7 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 		return out, 0, io.EOF
 	}
 
-	byteOps := byteOperations.ByteOperations{Buffer: in}
+	byteOps := byte_operations.ByteOperations{Buffer: in}
 
 	keyLen := byteOps.ReadUint32()
 	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen)

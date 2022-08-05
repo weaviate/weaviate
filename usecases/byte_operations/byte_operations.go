@@ -1,5 +1,5 @@
-// Package byteOperations provides helper functions to (un-) marshal objects from or into a buffer
-package byteOperations
+// Package byte_operations provides helper functions to (un-) marshal objects from or into a buffer
+package byte_operations
 
 import (
 	"encoding/binary"
@@ -69,4 +69,9 @@ func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 
 func (bo *ByteOperations) MoveBufferPositionForward(length uint32) {
 	bo.Position += length
+}
+
+func (bo *ByteOperations) WriteByte(b byte) {
+	bo.Buffer[bo.Position] = b
+	bo.Position += 1
 }
