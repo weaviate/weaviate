@@ -50,7 +50,7 @@ type ClientService interface {
 }
 
 /*
-  GenesisPeersLeave Leave the weaviate network
+GenesisPeersLeave Leave the weaviate network
 */
 func (a *Client) GenesisPeersLeave(params *GenesisPeersLeaveParams) (*GenesisPeersLeaveNoContent, error) {
 	// TODO: Validate the params before sending
@@ -84,7 +84,7 @@ func (a *Client) GenesisPeersLeave(params *GenesisPeersLeaveParams) (*GenesisPee
 }
 
 /*
-  GenesisPeersList List the registered peers
+GenesisPeersList List the registered peers
 */
 func (a *Client) GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeersListOK, error) {
 	// TODO: Validate the params before sending
@@ -118,7 +118,7 @@ func (a *Client) GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeers
 }
 
 /*
-  GenesisPeersPing Ping the Genesis server, to make mark the peer as alive and udpate schema info
+GenesisPeersPing Ping the Genesis server, to make mark the peer as alive and udpate schema info
 */
 func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeersPingOK, error) {
 	// TODO: Validate the params before sending
@@ -152,7 +152,7 @@ func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeers
 }
 
 /*
-  GenesisPeersRegister Register a new Weaviate peer in the network
+GenesisPeersRegister Register a new Weaviate peer in the network
 */
 func (a *Client) GenesisPeersRegister(params *GenesisPeersRegisterParams) (*GenesisPeersRegisterOK, error) {
 	// TODO: Validate the params before sending

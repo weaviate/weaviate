@@ -27,7 +27,8 @@ import (
 // SchemaObjectsShardsGetOKCode is the HTTP code returned for type SchemaObjectsShardsGetOK
 const SchemaObjectsShardsGetOKCode int = 200
 
-/*SchemaObjectsShardsGetOK Found the status of the shards, returned as body
+/*
+SchemaObjectsShardsGetOK Found the status of the shards, returned as body
 
 swagger:response schemaObjectsShardsGetOK
 */
@@ -74,7 +75,8 @@ func (o *SchemaObjectsShardsGetOK) WriteResponse(rw http.ResponseWriter, produce
 // SchemaObjectsShardsGetUnauthorizedCode is the HTTP code returned for type SchemaObjectsShardsGetUnauthorized
 const SchemaObjectsShardsGetUnauthorizedCode int = 401
 
-/*SchemaObjectsShardsGetUnauthorized Unauthorized or invalid credentials.
+/*
+SchemaObjectsShardsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsShardsGetUnauthorized
 */
@@ -98,7 +100,8 @@ func (o *SchemaObjectsShardsGetUnauthorized) WriteResponse(rw http.ResponseWrite
 // SchemaObjectsShardsGetForbiddenCode is the HTTP code returned for type SchemaObjectsShardsGetForbidden
 const SchemaObjectsShardsGetForbiddenCode int = 403
 
-/*SchemaObjectsShardsGetForbidden Forbidden
+/*
+SchemaObjectsShardsGetForbidden Forbidden
 
 swagger:response schemaObjectsShardsGetForbidden
 */
@@ -142,7 +145,8 @@ func (o *SchemaObjectsShardsGetForbidden) WriteResponse(rw http.ResponseWriter, 
 // SchemaObjectsShardsGetNotFoundCode is the HTTP code returned for type SchemaObjectsShardsGetNotFound
 const SchemaObjectsShardsGetNotFoundCode int = 404
 
-/*SchemaObjectsShardsGetNotFound This class does not exist
+/*
+SchemaObjectsShardsGetNotFound This class does not exist
 
 swagger:response schemaObjectsShardsGetNotFound
 */
@@ -186,7 +190,8 @@ func (o *SchemaObjectsShardsGetNotFound) WriteResponse(rw http.ResponseWriter, p
 // SchemaObjectsShardsGetInternalServerErrorCode is the HTTP code returned for type SchemaObjectsShardsGetInternalServerError
 const SchemaObjectsShardsGetInternalServerErrorCode int = 500
 
-/*SchemaObjectsShardsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+SchemaObjectsShardsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsShardsGetInternalServerError
 */

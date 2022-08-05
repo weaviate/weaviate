@@ -27,7 +27,8 @@ import (
 // ObjectsGetOKCode is the HTTP code returned for type ObjectsGetOK
 const ObjectsGetOKCode int = 200
 
-/*ObjectsGetOK Successful response.
+/*
+ObjectsGetOK Successful response.
 
 swagger:response objectsGetOK
 */
@@ -71,7 +72,8 @@ func (o *ObjectsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pr
 // ObjectsGetBadRequestCode is the HTTP code returned for type ObjectsGetBadRequest
 const ObjectsGetBadRequestCode int = 400
 
-/*ObjectsGetBadRequest Malformed request.
+/*
+ObjectsGetBadRequest Malformed request.
 
 swagger:response objectsGetBadRequest
 */
@@ -115,7 +117,8 @@ func (o *ObjectsGetBadRequest) WriteResponse(rw http.ResponseWriter, producer ru
 // ObjectsGetUnauthorizedCode is the HTTP code returned for type ObjectsGetUnauthorized
 const ObjectsGetUnauthorizedCode int = 401
 
-/*ObjectsGetUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsGetUnauthorized
 */
@@ -139,7 +142,8 @@ func (o *ObjectsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsGetForbiddenCode is the HTTP code returned for type ObjectsGetForbidden
 const ObjectsGetForbiddenCode int = 403
 
-/*ObjectsGetForbidden Forbidden
+/*
+ObjectsGetForbidden Forbidden
 
 swagger:response objectsGetForbidden
 */
@@ -183,7 +187,8 @@ func (o *ObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, producer run
 // ObjectsGetNotFoundCode is the HTTP code returned for type ObjectsGetNotFound
 const ObjectsGetNotFoundCode int = 404
 
-/*ObjectsGetNotFound Successful query result but no resource was found.
+/*
+ObjectsGetNotFound Successful query result but no resource was found.
 
 swagger:response objectsGetNotFound
 */
@@ -207,7 +212,8 @@ func (o *ObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runt
 // ObjectsGetInternalServerErrorCode is the HTTP code returned for type ObjectsGetInternalServerError
 const ObjectsGetInternalServerErrorCode int = 500
 
-/*ObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsGetInternalServerError
 */

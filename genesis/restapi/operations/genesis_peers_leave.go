@@ -40,10 +40,10 @@ func NewGenesisPeersLeave(ctx *middleware.Context, handler GenesisPeersLeaveHand
 	return &GenesisPeersLeave{Context: ctx, Handler: handler}
 }
 
-/*GenesisPeersLeave swagger:route DELETE /peers/{peerId} genesisPeersLeave
+/*
+GenesisPeersLeave swagger:route DELETE /peers/{peerId} genesisPeersLeave
 
 Leave the weaviate network
-
 */
 type GenesisPeersLeave struct {
 	Context *middleware.Context

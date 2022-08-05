@@ -68,7 +68,8 @@ func NewObjectsReferencesUpdateParamsWithHTTPClient(client *http.Client) *Object
 	}
 }
 
-/*ObjectsReferencesUpdateParams contains all the parameters to send to the API endpoint
+/*
+ObjectsReferencesUpdateParams contains all the parameters to send to the API endpoint
 for the objects references update operation typically these are written to a http.Request
 */
 type ObjectsReferencesUpdateParams struct {

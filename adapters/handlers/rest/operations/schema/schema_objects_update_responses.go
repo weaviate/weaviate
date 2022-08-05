@@ -27,7 +27,8 @@ import (
 // SchemaObjectsUpdateOKCode is the HTTP code returned for type SchemaObjectsUpdateOK
 const SchemaObjectsUpdateOKCode int = 200
 
-/*SchemaObjectsUpdateOK Class was updated successfully
+/*
+SchemaObjectsUpdateOK Class was updated successfully
 
 swagger:response schemaObjectsUpdateOK
 */
@@ -71,7 +72,8 @@ func (o *SchemaObjectsUpdateOK) WriteResponse(rw http.ResponseWriter, producer r
 // SchemaObjectsUpdateUnauthorizedCode is the HTTP code returned for type SchemaObjectsUpdateUnauthorized
 const SchemaObjectsUpdateUnauthorizedCode int = 401
 
-/*SchemaObjectsUpdateUnauthorized Unauthorized or invalid credentials.
+/*
+SchemaObjectsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsUpdateUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *SchemaObjectsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // SchemaObjectsUpdateForbiddenCode is the HTTP code returned for type SchemaObjectsUpdateForbidden
 const SchemaObjectsUpdateForbiddenCode int = 403
 
-/*SchemaObjectsUpdateForbidden Forbidden
+/*
+SchemaObjectsUpdateForbidden Forbidden
 
 swagger:response schemaObjectsUpdateForbidden
 */
@@ -139,7 +142,8 @@ func (o *SchemaObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, pro
 // SchemaObjectsUpdateNotFoundCode is the HTTP code returned for type SchemaObjectsUpdateNotFound
 const SchemaObjectsUpdateNotFoundCode int = 404
 
-/*SchemaObjectsUpdateNotFound Class to be updated does not exist
+/*
+SchemaObjectsUpdateNotFound Class to be updated does not exist
 
 swagger:response schemaObjectsUpdateNotFound
 */
@@ -183,7 +187,8 @@ func (o *SchemaObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, prod
 // SchemaObjectsUpdateUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsUpdateUnprocessableEntity
 const SchemaObjectsUpdateUnprocessableEntityCode int = 422
 
-/*SchemaObjectsUpdateUnprocessableEntity Invalid update attempt
+/*
+SchemaObjectsUpdateUnprocessableEntity Invalid update attempt
 
 swagger:response schemaObjectsUpdateUnprocessableEntity
 */
@@ -227,7 +232,8 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseW
 // SchemaObjectsUpdateInternalServerErrorCode is the HTTP code returned for type SchemaObjectsUpdateInternalServerError
 const SchemaObjectsUpdateInternalServerErrorCode int = 500
 
-/*SchemaObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+SchemaObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsUpdateInternalServerError
 */

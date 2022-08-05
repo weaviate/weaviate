@@ -75,7 +75,8 @@ func NewSchemaObjectsPropertiesAddOK() *SchemaObjectsPropertiesAddOK {
 	return &SchemaObjectsPropertiesAddOK{}
 }
 
-/*SchemaObjectsPropertiesAddOK handles this case with default header values.
+/*
+SchemaObjectsPropertiesAddOK handles this case with default header values.
 
 Added the property.
 */
@@ -108,7 +109,8 @@ func NewSchemaObjectsPropertiesAddUnauthorized() *SchemaObjectsPropertiesAddUnau
 	return &SchemaObjectsPropertiesAddUnauthorized{}
 }
 
-/*SchemaObjectsPropertiesAddUnauthorized handles this case with default header values.
+/*
+SchemaObjectsPropertiesAddUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewSchemaObjectsPropertiesAddForbidden() *SchemaObjectsPropertiesAddForbidd
 	return &SchemaObjectsPropertiesAddForbidden{}
 }
 
-/*SchemaObjectsPropertiesAddForbidden handles this case with default header values.
+/*
+SchemaObjectsPropertiesAddForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewSchemaObjectsPropertiesAddUnprocessableEntity() *SchemaObjectsProperties
 	return &SchemaObjectsPropertiesAddUnprocessableEntity{}
 }
 
-/*SchemaObjectsPropertiesAddUnprocessableEntity handles this case with default header values.
+/*
+SchemaObjectsPropertiesAddUnprocessableEntity handles this case with default header values.
 
 Invalid property.
 */
@@ -195,7 +199,8 @@ func NewSchemaObjectsPropertiesAddInternalServerError() *SchemaObjectsProperties
 	return &SchemaObjectsPropertiesAddInternalServerError{}
 }
 
-/*SchemaObjectsPropertiesAddInternalServerError handles this case with default header values.
+/*
+SchemaObjectsPropertiesAddInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
