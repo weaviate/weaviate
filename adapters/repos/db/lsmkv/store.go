@@ -202,7 +202,8 @@ func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 // Additionally, a rollbackFunc may be provided which will be run on the target
 // bucket in the event of an unsuccessful job.
 func (s *Store) runJobOnBuckets(ctx context.Context, jobFunc jobFunc,
-	rollbackFunc rollbackFunc) ([]interface{}, error) {
+	rollbackFunc rollbackFunc,
+) ([]interface{}, error) {
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
