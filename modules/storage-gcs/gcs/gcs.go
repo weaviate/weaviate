@@ -66,7 +66,7 @@ func New(ctx context.Context, config Config) (*gcs, error) {
 	return &gcs{client, config, projectID}, nil
 }
 
-func (g *gcs) StoreSnapshot(ctx context.Context, snapshot snapshots.Snapshot) error {
+func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	bucketName := g.config.BucketName()
 	projectID := g.projectID
 	// create bucket
