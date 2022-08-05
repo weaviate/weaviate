@@ -1,6 +1,7 @@
 module github.com/semi-technologies/weaviate
 
 require (
+	cloud.google.com/go/storage v1.24.0
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/buger/jsonparser v1.1.1
 	github.com/coreos/go-oidc v2.1.0+incompatible
@@ -33,18 +34,22 @@ require (
 	github.com/testcontainers/testcontainers-go v0.13.0
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
-	go.mongodb.org/mongo-driver v1.10.1 // indirect
-	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
+	golang.org/x/net v0.0.0-20220617184016-355a448f1bc9
+	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
+	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
+	golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c
 	gonum.org/v1/gonum v0.9.1
-	google.golang.org/grpc v1.33.2
+	google.golang.org/api v0.85.0
+	google.golang.org/grpc v1.47.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require golang.org/x/text v0.3.7
 
 require (
+	cloud.google.com/go v0.102.1 // indirect
+	cloud.google.com/go/compute v1.7.0 // indirect
+	cloud.google.com/go/iam v0.3.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.4.17 // indirect
 	github.com/Microsoft/hcsshim v0.8.23 // indirect
@@ -68,6 +73,9 @@ require (
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/btree v1.0.0 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.1.0 // indirect
+	github.com/googleapis/gax-go/v2 v2.4.0 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-msgpack v0.5.3 // indirect
@@ -105,12 +113,13 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/stretchr/objx v0.4.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
-	go.opencensus.io v0.22.3 // indirect
+	go.mongodb.org/mongo-driver v1.10.0 // indirect
+	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
-	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
-	google.golang.org/appengine v1.6.5 // indirect
-	google.golang.org/genproto v0.0.0-20201110150050-8816d57aaa9a // indirect
-	google.golang.org/protobuf v1.27.1 // indirect
+	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect
+	google.golang.org/appengine v1.6.7 // indirect
+	google.golang.org/genproto v0.0.0-20220617124728-180714bec0ad // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
