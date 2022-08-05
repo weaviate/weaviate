@@ -42,7 +42,6 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		s3Config := s3.NewConfig(endpoint, "bucket", false)
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
-
 		require.Nil(t, err)
 
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
@@ -55,9 +54,8 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		endpoint := os.Getenv(minioEndpoint)
 		s3Config := s3.NewConfig(endpoint, "bucket", false)
 		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, "dummyString")
 		path, _ := os.Getwd()
-		s3.SetDataPath(path)
+		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
 		// List all files in testDir
@@ -72,7 +70,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		// Use the previous test snapshot to test the restore function
 		s3.RestoreSnapshot(ctxSnapshot, "snapshot_id")
 
-		assert.DirExists(t, s3.GetDataPath())
+		assert.DirExists(t, path)
 
 		// Check that every file in the snapshot exists in testDir
 		for _, filePath := range files {
