@@ -478,6 +478,17 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 			require.Subset(t, res, controlRemainingResultAfterCleanup)
 		})
 
+		t.Run("run complete cleanup", func(t *testing.T) {
+			require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+		})
+
+		t.Run("search remaining elements after complete cleanup", func(t *testing.T) {
+			res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
+			require.Nil(t, err)
+			require.Subset(t, controlRemainingResult, res)
+			require.Subset(t, res, controlRemainingResultAfterCleanup)
+		})
+
 		t.Run("destroy the index", func(t *testing.T) {
 			require.Nil(t, index.Drop(context.Background()))
 		})
