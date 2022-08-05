@@ -27,7 +27,8 @@ import (
 // ObjectsDeleteNoContentCode is the HTTP code returned for type ObjectsDeleteNoContent
 const ObjectsDeleteNoContentCode int = 204
 
-/*ObjectsDeleteNoContent Successfully deleted.
+/*
+ObjectsDeleteNoContent Successfully deleted.
 
 swagger:response objectsDeleteNoContent
 */
@@ -51,7 +52,8 @@ func (o *ObjectsDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsDeleteUnauthorizedCode is the HTTP code returned for type ObjectsDeleteUnauthorized
 const ObjectsDeleteUnauthorizedCode int = 401
 
-/*ObjectsDeleteUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsDeleteUnauthorized
 */
@@ -75,7 +77,8 @@ func (o *ObjectsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsDeleteForbiddenCode is the HTTP code returned for type ObjectsDeleteForbidden
 const ObjectsDeleteForbiddenCode int = 403
 
-/*ObjectsDeleteForbidden Forbidden
+/*
+ObjectsDeleteForbidden Forbidden
 
 swagger:response objectsDeleteForbidden
 */
@@ -119,7 +122,8 @@ func (o *ObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsDeleteNotFoundCode is the HTTP code returned for type ObjectsDeleteNotFound
 const ObjectsDeleteNotFoundCode int = 404
 
-/*ObjectsDeleteNotFound Successful query result but no resource was found.
+/*
+ObjectsDeleteNotFound Successful query result but no resource was found.
 
 swagger:response objectsDeleteNotFound
 */
@@ -143,7 +147,8 @@ func (o *ObjectsDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer r
 // ObjectsDeleteInternalServerErrorCode is the HTTP code returned for type ObjectsDeleteInternalServerError
 const ObjectsDeleteInternalServerErrorCode int = 500
 
-/*ObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsDeleteInternalServerError
 */

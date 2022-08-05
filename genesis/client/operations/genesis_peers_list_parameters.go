@@ -62,7 +62,8 @@ func NewGenesisPeersListParamsWithHTTPClient(client *http.Client) *GenesisPeersL
 	}
 }
 
-/*GenesisPeersListParams contains all the parameters to send to the API endpoint
+/*
+GenesisPeersListParams contains all the parameters to send to the API endpoint
 for the genesis peers list operation typically these are written to a http.Request
 */
 type GenesisPeersListParams struct {

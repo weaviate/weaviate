@@ -62,7 +62,7 @@ type ClientService interface {
 }
 
 /*
-  SchemaDump dumps the current the database schema
+SchemaDump dumps the current the database schema
 */
 func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
@@ -97,7 +97,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-  SchemaObjectsCreate creates a new object class in the schema
+SchemaObjectsCreate creates a new object class in the schema
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -132,7 +132,7 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 }
 
 /*
-  SchemaObjectsDelete removes an object class and all data in the instances from the schema
+SchemaObjectsDelete removes an object class and all data in the instances from the schema
 */
 func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -167,7 +167,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 }
 
 /*
-  SchemaObjectsGet gets a single class from the schema
+SchemaObjectsGet gets a single class from the schema
 */
 func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -202,7 +202,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 }
 
 /*
-  SchemaObjectsPropertiesAdd adds a property to an object class
+SchemaObjectsPropertiesAdd adds a property to an object class
 */
 func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -237,7 +237,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 }
 
 /*
-  SchemaObjectsShardsGet gets the shards status of an object class
+SchemaObjectsShardsGet gets the shards status of an object class
 */
 func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -272,7 +272,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 }
 
 /*
-  SchemaObjectsShardsUpdate Update shard status of an Object Class
+SchemaObjectsShardsUpdate Update shard status of an Object Class
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -307,7 +307,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 }
 
 /*
-  SchemaObjectsSnapshotsCreate Starts a process to create a snapshot for a class
+SchemaObjectsSnapshotsCreate Starts a process to create a snapshot for a class
 */
 func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -342,7 +342,7 @@ func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCrea
 }
 
 /*
-  SchemaObjectsSnapshotsRestore Starts a process of restoring a snapshot for a class
+SchemaObjectsSnapshotsRestore Starts a process of restoring a snapshot for a class
 */
 func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreOK, error) {
 	// TODO: Validate the params before sending
@@ -377,9 +377,9 @@ func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRes
 }
 
 /*
-  SchemaObjectsUpdate updates settings of an existing schema class
+SchemaObjectsUpdate updates settings of an existing schema class
 
-  Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
+Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
 */
 func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending

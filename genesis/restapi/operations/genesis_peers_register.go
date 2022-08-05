@@ -40,10 +40,10 @@ func NewGenesisPeersRegister(ctx *middleware.Context, handler GenesisPeersRegist
 	return &GenesisPeersRegister{Context: ctx, Handler: handler}
 }
 
-/*GenesisPeersRegister swagger:route POST /peers/register genesisPeersRegister
+/*
+GenesisPeersRegister swagger:route POST /peers/register genesisPeersRegister
 
 Register a new Weaviate peer in the network
-
 */
 type GenesisPeersRegister struct {
 	Context *middleware.Context

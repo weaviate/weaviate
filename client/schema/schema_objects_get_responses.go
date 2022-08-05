@@ -75,7 +75,8 @@ func NewSchemaObjectsGetOK() *SchemaObjectsGetOK {
 	return &SchemaObjectsGetOK{}
 }
 
-/*SchemaObjectsGetOK handles this case with default header values.
+/*
+SchemaObjectsGetOK handles this case with default header values.
 
 Found the Class, returned as body
 */
@@ -108,7 +109,8 @@ func NewSchemaObjectsGetUnauthorized() *SchemaObjectsGetUnauthorized {
 	return &SchemaObjectsGetUnauthorized{}
 }
 
-/*SchemaObjectsGetUnauthorized handles this case with default header values.
+/*
+SchemaObjectsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewSchemaObjectsGetForbidden() *SchemaObjectsGetForbidden {
 	return &SchemaObjectsGetForbidden{}
 }
 
-/*SchemaObjectsGetForbidden handles this case with default header values.
+/*
+SchemaObjectsGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewSchemaObjectsGetNotFound() *SchemaObjectsGetNotFound {
 	return &SchemaObjectsGetNotFound{}
 }
 
-/*SchemaObjectsGetNotFound handles this case with default header values.
+/*
+SchemaObjectsGetNotFound handles this case with default header values.
 
 This class does not exist
 */
@@ -183,7 +187,8 @@ func NewSchemaObjectsGetInternalServerError() *SchemaObjectsGetInternalServerErr
 	return &SchemaObjectsGetInternalServerError{}
 }
 
-/*SchemaObjectsGetInternalServerError handles this case with default header values.
+/*
+SchemaObjectsGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
