@@ -250,6 +250,9 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		})
+		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
+		index.randFunc = func() float64 { return 0.1 }
+
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -366,6 +369,9 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		VectorCacheMaxObjects: 100000,
 	})
 	require.Nil(t, err)
+
+	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
+	index.randFunc = func() float64 { return 0.1 }
 
 	// to speed up test execution, size of nodes array is decreased
 	// from default 25k to little over number of vectors
