@@ -66,7 +66,8 @@ func NewGenesisPeersPingOK() *GenesisPeersPingOK {
 	return &GenesisPeersPingOK{}
 }
 
-/*GenesisPeersPingOK handles this case with default header values.
+/*
+GenesisPeersPingOK handles this case with default header values.
 
 Ping received
 */
@@ -86,7 +87,8 @@ func NewGenesisPeersPingUnauthorized() *GenesisPeersPingUnauthorized {
 	return &GenesisPeersPingUnauthorized{}
 }
 
-/*GenesisPeersPingUnauthorized handles this case with default header values.
+/*
+GenesisPeersPingUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -106,7 +108,8 @@ func NewGenesisPeersPingForbidden() *GenesisPeersPingForbidden {
 	return &GenesisPeersPingForbidden{}
 }
 
-/*GenesisPeersPingForbidden handles this case with default header values.
+/*
+GenesisPeersPingForbidden handles this case with default header values.
 
 The used API-key has insufficient permissions.
 */
@@ -126,7 +129,8 @@ func NewGenesisPeersPingNotFound() *GenesisPeersPingNotFound {
 	return &GenesisPeersPingNotFound{}
 }
 
-/*GenesisPeersPingNotFound handles this case with default header values.
+/*
+GenesisPeersPingNotFound handles this case with default header values.
 
 Successful query result but no such peer was found.
 */

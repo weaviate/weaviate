@@ -66,7 +66,8 @@ func NewObjectsClassHeadParamsWithHTTPClient(client *http.Client) *ObjectsClassH
 	}
 }
 
-/*ObjectsClassHeadParams contains all the parameters to send to the API endpoint
+/*
+ObjectsClassHeadParams contains all the parameters to send to the API endpoint
 for the objects class head operation typically these are written to a http.Request
 */
 type ObjectsClassHeadParams struct {

@@ -42,10 +42,10 @@ func NewSchemaObjectsSnapshotsCreate(ctx *middleware.Context, handler SchemaObje
 	return &SchemaObjectsSnapshotsCreate{Context: ctx, Handler: handler}
 }
 
-/*SchemaObjectsSnapshotsCreate swagger:route POST /schema/{className}/snapshots schema schemaObjectsSnapshotsCreate
+/*
+SchemaObjectsSnapshotsCreate swagger:route POST /schema/{className}/snapshots schema schemaObjectsSnapshotsCreate
 
 Starts a process to create a snapshot for a class
-
 */
 type SchemaObjectsSnapshotsCreate struct {
 	Context *middleware.Context

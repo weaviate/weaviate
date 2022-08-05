@@ -81,7 +81,8 @@ func NewObjectsClassReferencesCreateOK() *ObjectsClassReferencesCreateOK {
 	return &ObjectsClassReferencesCreateOK{}
 }
 
-/*ObjectsClassReferencesCreateOK handles this case with default header values.
+/*
+ObjectsClassReferencesCreateOK handles this case with default header values.
 
 Successfully added the reference.
 */
@@ -102,7 +103,8 @@ func NewObjectsClassReferencesCreateUnauthorized() *ObjectsClassReferencesCreate
 	return &ObjectsClassReferencesCreateUnauthorized{}
 }
 
-/*ObjectsClassReferencesCreateUnauthorized handles this case with default header values.
+/*
+ObjectsClassReferencesCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -123,7 +125,8 @@ func NewObjectsClassReferencesCreateForbidden() *ObjectsClassReferencesCreateFor
 	return &ObjectsClassReferencesCreateForbidden{}
 }
 
-/*ObjectsClassReferencesCreateForbidden handles this case with default header values.
+/*
+ObjectsClassReferencesCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -156,7 +159,8 @@ func NewObjectsClassReferencesCreateNotFound() *ObjectsClassReferencesCreateNotF
 	return &ObjectsClassReferencesCreateNotFound{}
 }
 
-/*ObjectsClassReferencesCreateNotFound handles this case with default header values.
+/*
+ObjectsClassReferencesCreateNotFound handles this case with default header values.
 
 Source object doesn't exist.
 */
@@ -177,7 +181,8 @@ func NewObjectsClassReferencesCreateUnprocessableEntity() *ObjectsClassReference
 	return &ObjectsClassReferencesCreateUnprocessableEntity{}
 }
 
-/*ObjectsClassReferencesCreateUnprocessableEntity handles this case with default header values.
+/*
+ObjectsClassReferencesCreateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -210,7 +215,8 @@ func NewObjectsClassReferencesCreateInternalServerError() *ObjectsClassReference
 	return &ObjectsClassReferencesCreateInternalServerError{}
 }
 
-/*ObjectsClassReferencesCreateInternalServerError handles this case with default header values.
+/*
+ObjectsClassReferencesCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

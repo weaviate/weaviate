@@ -27,7 +27,8 @@ import (
 // GenesisPeersRegisterOKCode is the HTTP code returned for type GenesisPeersRegisterOK
 const GenesisPeersRegisterOKCode int = 200
 
-/*GenesisPeersRegisterOK Successfully registred the peer to the network.
+/*
+GenesisPeersRegisterOK Successfully registred the peer to the network.
 
 swagger:response genesisPeersRegisterOK
 */
@@ -69,7 +70,8 @@ func (o *GenesisPeersRegisterOK) WriteResponse(rw http.ResponseWriter, producer 
 // GenesisPeersRegisterBadRequestCode is the HTTP code returned for type GenesisPeersRegisterBadRequest
 const GenesisPeersRegisterBadRequestCode int = 400
 
-/*GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensis service.
+/*
+GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensis service.
 
 swagger:response genesisPeersRegisterBadRequest
 */
@@ -91,7 +93,8 @@ func (o *GenesisPeersRegisterBadRequest) WriteResponse(rw http.ResponseWriter, p
 // GenesisPeersRegisterForbiddenCode is the HTTP code returned for type GenesisPeersRegisterForbidden
 const GenesisPeersRegisterForbiddenCode int = 403
 
-/*GenesisPeersRegisterForbidden You are not allowed on the network.
+/*
+GenesisPeersRegisterForbidden You are not allowed on the network.
 
 swagger:response genesisPeersRegisterForbidden
 */

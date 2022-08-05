@@ -40,10 +40,10 @@ func NewGenesisPeersPing(ctx *middleware.Context, handler GenesisPeersPingHandle
 	return &GenesisPeersPing{Context: ctx, Handler: handler}
 }
 
-/*GenesisPeersPing swagger:route POST /peers/{peerId}/ping genesisPeersPing
+/*
+GenesisPeersPing swagger:route POST /peers/{peerId}/ping genesisPeersPing
 
 Ping the Genesis server, to make mark the peer as alive and udpate schema info
-
 */
 type GenesisPeersPing struct {
 	Context *middleware.Context

@@ -13,19 +13,19 @@
 
 // Package restapi Weaviate Genesis Server
 //
-//  The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances
-//  Schemes:
-//    https
-//  Host: localhost
-//  BasePath: /
-//  Version: 0.1.0
-//  Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
+//	The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances
+//	Schemes:
+//	  https
+//	Host: localhost
+//	BasePath: /
+//	Version: 0.1.0
+//	Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 //
-//  Consumes:
-//    - application/json
+//	Consumes:
+//	  - application/json
 //
-//  Produces:
-//    - application/json
+//	Produces:
+//	  - application/json
 //
 // swagger:meta
 package restapi

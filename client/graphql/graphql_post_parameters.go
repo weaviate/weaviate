@@ -68,7 +68,8 @@ func NewGraphqlPostParamsWithHTTPClient(client *http.Client) *GraphqlPostParams 
 	}
 }
 
-/*GraphqlPostParams contains all the parameters to send to the API endpoint
+/*
+GraphqlPostParams contains all the parameters to send to the API endpoint
 for the graphql post operation typically these are written to a http.Request
 */
 type GraphqlPostParams struct {

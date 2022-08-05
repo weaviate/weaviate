@@ -87,7 +87,8 @@ func NewObjectsPatchNoContent() *ObjectsPatchNoContent {
 	return &ObjectsPatchNoContent{}
 }
 
-/*ObjectsPatchNoContent handles this case with default header values.
+/*
+ObjectsPatchNoContent handles this case with default header values.
 
 Successfully applied. No content provided.
 */
@@ -108,7 +109,8 @@ func NewObjectsPatchBadRequest() *ObjectsPatchBadRequest {
 	return &ObjectsPatchBadRequest{}
 }
 
-/*ObjectsPatchBadRequest handles this case with default header values.
+/*
+ObjectsPatchBadRequest handles this case with default header values.
 
 The patch-JSON is malformed.
 */
@@ -129,7 +131,8 @@ func NewObjectsPatchUnauthorized() *ObjectsPatchUnauthorized {
 	return &ObjectsPatchUnauthorized{}
 }
 
-/*ObjectsPatchUnauthorized handles this case with default header values.
+/*
+ObjectsPatchUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -150,7 +153,8 @@ func NewObjectsPatchForbidden() *ObjectsPatchForbidden {
 	return &ObjectsPatchForbidden{}
 }
 
-/*ObjectsPatchForbidden handles this case with default header values.
+/*
+ObjectsPatchForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -183,7 +187,8 @@ func NewObjectsPatchNotFound() *ObjectsPatchNotFound {
 	return &ObjectsPatchNotFound{}
 }
 
-/*ObjectsPatchNotFound handles this case with default header values.
+/*
+ObjectsPatchNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -204,7 +209,8 @@ func NewObjectsPatchUnprocessableEntity() *ObjectsPatchUnprocessableEntity {
 	return &ObjectsPatchUnprocessableEntity{}
 }
 
-/*ObjectsPatchUnprocessableEntity handles this case with default header values.
+/*
+ObjectsPatchUnprocessableEntity handles this case with default header values.
 
 The patch-JSON is valid but unprocessable.
 */
@@ -237,7 +243,8 @@ func NewObjectsPatchInternalServerError() *ObjectsPatchInternalServerError {
 	return &ObjectsPatchInternalServerError{}
 }
 
-/*ObjectsPatchInternalServerError handles this case with default header values.
+/*
+ObjectsPatchInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
