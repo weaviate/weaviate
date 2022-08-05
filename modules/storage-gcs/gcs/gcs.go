@@ -36,9 +36,10 @@ type gcs struct {
 	client    *storage.Client
 	config    Config
 	projectID string
+	dataPath  string
 }
 
-func New(ctx context.Context, config Config) (*gcs, error) {
+func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
 	options := []option.ClientOption{}
 	if len(os.Getenv(GOOGLE_APPLICATION_CREDENTIALS)) > 0 {
 		scopes := []string{
@@ -63,7 +64,7 @@ func New(ctx context.Context, config Config) (*gcs, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &gcs{client, config, projectID}, nil
+	return &gcs{client, config, projectID, dataPath}, nil
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
@@ -99,7 +100,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 			return errors.Wrapf(err, "store snapshot aborted")
 		}
 		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", snapshot.BasePath, srcRelPath)
+		filePath := fmt.Sprintf("%s/%s", g.dataPath, srcRelPath)
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return errors.Wrapf(err, "read file: %v", filePath)

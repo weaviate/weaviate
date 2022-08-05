@@ -16,7 +16,6 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"golang.org/x/sync/errgroup"
 )
@@ -62,7 +61,7 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 	return nil
 }
 
-func (s *Shard) releaseSnapshot(ctx context.Context) error {
+func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -74,20 +73,15 @@ func (s *Shard) releaseSnapshot(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		err = s.rollbackSnapshotRelease(ctx, err)
-		return errors.Wrapf(err, "failed to release snapshot for shard '%s'", s.name)
+		return errors.Wrapf(err,
+			"failed to resume maintenance cycles for shard '%s'", s.name)
 	}
 
 	return nil
 }
 
-func (s *Shard) rollbackSnapshotRelease(ctx context.Context, err error) error {
-	var (
-		errs = &errorcompounder.ErrorCompounder{}
-		g    errgroup.Group
-	)
-
-	errs.Add(err)
+func (s *Shard) pauseMaintenanceCycles(ctx context.Context) error {
+	var g errgroup.Group
 
 	g.Go(func() error {
 		return s.store.PauseCompaction(ctx)
@@ -97,8 +91,12 @@ func (s *Shard) rollbackSnapshotRelease(ctx context.Context, err error) error {
 		return s.vectorIndex.PauseMaintenance(ctx)
 	})
 
-	errs.AddWrap(g.Wait(), "pause compaction and maintenance")
-	return errs.ToError()
+	if err := g.Wait(); err != nil {
+		return errors.Wrapf(err,
+			"failed to pause maintenance cycles for shard '%s'", s.name)
+	}
+
+	return nil
 }
 
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {

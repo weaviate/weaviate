@@ -36,7 +36,9 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
 
 		gcsConfig := gcs.NewConfig("")
-		gcs, err := gcs.New(context.Background(), gcsConfig)
+		path, _ := os.Getwd()
+
+		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
 		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
