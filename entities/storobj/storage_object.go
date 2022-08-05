@@ -377,39 +377,39 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	byteBuffer[0] = ko.MarshallerVersion
 	binary.LittleEndian.PutUint64(byteBuffer[1:9], ko.docID)
 	byteBuffer[9] = kindByte
+	byteOps := byteOperations.ByteOperations{Position: 10, Buffer: byteBuffer}
 
-	bufPos := uint32(10)
-	byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, idBytes)
+	byteOps.CopyBytesToBuffer(idBytes)
 
-	byteOperations.WriteUint64(byteBuffer, &bufPos, uint64(ko.CreationTimeUnix()))
-	byteOperations.WriteUint64(byteBuffer, &bufPos, uint64(ko.LastUpdateTimeUnix()))
-	byteOperations.WriteUint16(byteBuffer, &bufPos, uint16(vectorLength))
+	byteOps.WriteUint64(uint64(ko.CreationTimeUnix()))
+	byteOps.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+	byteOps.WriteUint16(uint16(vectorLength))
 
 	for j := uint32(0); j < vectorLength; j++ {
-		start := bufPos + j*4
+		start := byteOps.Position + j*4
 		binary.LittleEndian.PutUint32(byteBuffer[start:start+4], math.Float32bits(ko.Vector[j]))
 	}
-	bufPos += vectorLength * 4
+	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
-	byteOperations.WriteUint16(byteBuffer, &bufPos, uint16(classNameLength))
-	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, className)
+	byteOps.WriteUint16(uint16(classNameLength))
+	err = byteOps.CopyBytesToBuffer(className)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy className")
 	}
 
-	byteOperations.WriteUint32(byteBuffer, &bufPos, schemaLength)
-	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, schema)
+	byteOps.WriteUint32(schemaLength)
+	err = byteOps.CopyBytesToBuffer(schema)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy schema")
 	}
 
-	byteOperations.WriteUint32(byteBuffer, &bufPos, metaLength)
-	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, meta)
+	byteOps.WriteUint32(metaLength)
+	err = byteOps.CopyBytesToBuffer(meta)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy meta")
 	}
-	byteOperations.WriteUint32(byteBuffer, &bufPos, vectorWeightsLength)
-	err = byteOperations.CopyBytesToBuffer(byteBuffer, &bufPos, vectorWeights)
+	byteOps.WriteUint32(vectorWeightsLength)
+	err = byteOps.CopyBytesToBuffer(vectorWeights)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
 	}
@@ -425,19 +425,19 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
-	bufPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-
+	startPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+	byteOps := byteOperations.ByteOperations{Position: startPos, Buffer: data}
 	// get the length of the vector, each element is a float32 (4 bytes)
-	vectorLength := byteOperations.ReadUint16(data, &bufPos)
-	bufPos += uint32(vectorLength) * 4
+	vectorLength := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint32(vectorLength) * 4)
 
 	// length of class name
-	classnameLength := byteOperations.ReadUint16(data, &bufPos)
-	bufPos += uint32(classnameLength)
+	classnameLength := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint32(classnameLength))
 
 	// property schema length
-	propertyLength := byteOperations.ReadUint32(data, &bufPos)
-	if err := json.Unmarshal(data[bufPos:bufPos+propertyLength], properties); err != nil {
+	propertyLength := byteOps.ReadUint32()
+	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
 		return err
 	}
 
@@ -453,47 +453,47 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	bufPos := uint32(1)
-	ko.docID = byteOperations.ReadUint64(data, &bufPos)
-	bufPos += 1 // kind-byte
+	byteOps := byteOperations.ByteOperations{Position: 1, Buffer: data}
+	ko.docID = byteOps.ReadUint64()
+	byteOps.MoveBufferPositionForward(1) // kind-byte
 
-	uuidParsed, err := uuid.FromBytes(data[bufPos : bufPos+16])
+	uuidParsed, err := uuid.FromBytes(data[byteOps.Position : byteOps.Position+16])
 	if err != nil {
 		return err
 	}
-	bufPos += 16
+	byteOps.MoveBufferPositionForward(16)
 
-	createTime := int64(byteOperations.ReadUint64(data, &bufPos))
-	updateTime := int64(byteOperations.ReadUint64(data, &bufPos))
+	createTime := int64(byteOps.ReadUint64())
+	updateTime := int64(byteOps.ReadUint64())
 
-	vectorLength := byteOperations.ReadUint16(data, &bufPos)
+	vectorLength := byteOps.ReadUint16()
 	ko.Vector = make([]float32, vectorLength)
 	for j := uint32(0); j < uint32(vectorLength); j++ {
-		start := bufPos + j*4
+		start := byteOps.Position + j*4
 		ko.Vector[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[start : start+4]))
 	}
-	bufPos += uint32(vectorLength * 4)
+	byteOps.MoveBufferPositionForward(uint32(vectorLength * 4))
 
-	classNameLength := uint32(byteOperations.ReadUint16(data, &bufPos))
-	className, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, classNameLength)
+	classNameLength := uint32(byteOps.ReadUint16())
+	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy class name")
 	}
 
-	schemaLength := byteOperations.ReadUint32(data, &bufPos)
-	schema, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, schemaLength)
+	schemaLength := byteOps.ReadUint32()
+	schema, err := byteOps.CopyBytesFromBuffer(schemaLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy schema")
 	}
 
-	metaLength := byteOperations.ReadUint32(data, &bufPos)
-	meta, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, metaLength)
+	metaLength := byteOps.ReadUint32()
+	meta, err := byteOps.CopyBytesFromBuffer(metaLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy meta")
 	}
 
-	vectorWeightsLength := byteOperations.ReadUint32(data, &bufPos)
-	vectorWeights, err := byteOperations.CopyBytesFromBuffer(data, &bufPos, vectorWeightsLength)
+	vectorWeightsLength := byteOps.ReadUint32()
+	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}

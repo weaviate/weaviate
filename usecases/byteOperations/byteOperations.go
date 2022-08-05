@@ -12,52 +12,61 @@ const (
 	uint16Len = 2
 )
 
-func ReadUint64(buffer []byte, position *uint32) uint64 {
-	*position += uint64Len
-	return binary.LittleEndian.Uint64(buffer[*position-uint64Len : *position])
+type ByteOperations struct {
+	Position uint32
+	Buffer   []byte
 }
 
-func ReadUint16(buffer []byte, position *uint32) uint16 {
-	*position += uint16Len
-	return binary.LittleEndian.Uint16(buffer[*position-uint16Len : *position])
+func (bo *ByteOperations) ReadUint64() uint64 {
+	bo.Position += uint64Len
+	return binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
 }
 
-func ReadUint32(buffer []byte, position *uint32) uint32 {
-	*position += uint32Len
-	return binary.LittleEndian.Uint32(buffer[*position-uint32Len : *position])
+func (bo *ByteOperations) ReadUint16() uint16 {
+	bo.Position += uint16Len
+	return binary.LittleEndian.Uint16(bo.Buffer[bo.Position-uint16Len : bo.Position])
 }
 
-func CopyBytesFromBuffer(in []byte, position *uint32, length uint32) ([]byte, error) {
+func (bo *ByteOperations) ReadUint32() uint32 {
+	bo.Position += uint32Len
+	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
+}
+
+func (bo *ByteOperations) CopyBytesFromBuffer(length uint32) ([]byte, error) {
 	out := make([]byte, length)
-	numCopiedBytes := copy(out, in[*position:*position+length])
+	bo.Position += length
+	numCopiedBytes := copy(out, bo.Buffer[bo.Position-length:bo.Position])
 	if numCopiedBytes != int(length) {
 		return nil, errors.New("could not copy data from buffer")
 	}
-	*position += length
 	return out, nil
 }
 
-func WriteUint64(buffer []byte, position *uint32, value uint64) {
-	binary.LittleEndian.PutUint64(buffer[*position:*position+uint64Len], value)
-	*position += uint64Len
+func (bo *ByteOperations) WriteUint64(value uint64) {
+	bo.Position += uint64Len
+	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], value)
 }
 
-func WriteUint32(buffer []byte, position *uint32, value uint32) {
-	binary.LittleEndian.PutUint32(buffer[*position:*position+uint32Len], value)
-	*position += uint32Len
+func (bo *ByteOperations) WriteUint32(value uint32) {
+	bo.Position += uint32Len
+	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], value)
 }
 
-func WriteUint16(buffer []byte, position *uint32, value uint16) {
-	binary.LittleEndian.PutUint16(buffer[*position:*position+uint16Len], value)
-	*position += uint16Len
+func (bo *ByteOperations) WriteUint16(value uint16) {
+	bo.Position += uint16Len
+	binary.LittleEndian.PutUint16(bo.Buffer[bo.Position-uint16Len:bo.Position], value)
 }
 
-func CopyBytesToBuffer(buf []byte, position *uint32, copyBytes []byte) error {
+func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 	lenCopyBytes := uint32(len(copyBytes))
-	numCopiedBytes := copy(buf[*position:*position+lenCopyBytes], copyBytes)
+	bo.Position += lenCopyBytes
+	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
 	if numCopiedBytes != int(lenCopyBytes) {
 		return errors.New("could not copy data into buffer")
 	}
-	*position += lenCopyBytes
 	return nil
+}
+
+func (bo *ByteOperations) MoveBufferPositionForward(length uint32) {
+	bo.Position += length
 }

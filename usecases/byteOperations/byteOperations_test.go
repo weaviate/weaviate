@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,25 +16,25 @@ func TestReadAnWrite(t *testing.T) {
 	rand.Read(valuesByteArray)
 
 	writeBuffer := make([]byte, 2*uint64Len+2*uint32Len+2*uint16Len+len(valuesByteArray))
-	bufPosWrite := uint32(0)
+	byteOpsWrite := ByteOperations{Buffer: writeBuffer}
 
-	WriteUint64(writeBuffer, &bufPosWrite, valuesNumbers[0])
-	WriteUint32(writeBuffer, &bufPosWrite, uint32(valuesNumbers[1]))
-	WriteUint32(writeBuffer, &bufPosWrite, uint32(valuesNumbers[2]))
-	assert.Equal(t, CopyBytesToBuffer(writeBuffer, &bufPosWrite, valuesByteArray), nil)
-	WriteUint16(writeBuffer, &bufPosWrite, uint16(valuesNumbers[3]))
-	WriteUint64(writeBuffer, &bufPosWrite, valuesNumbers[4])
-	WriteUint16(writeBuffer, &bufPosWrite, uint16(valuesNumbers[5]))
+	byteOpsWrite.WriteUint64(valuesNumbers[0])
+	byteOpsWrite.WriteUint32(uint32(valuesNumbers[1]))
+	byteOpsWrite.WriteUint32(uint32(valuesNumbers[2]))
+	assert.Equal(t, byteOpsWrite.CopyBytesToBuffer(valuesByteArray), nil)
+	byteOpsWrite.WriteUint16(uint16(valuesNumbers[3]))
+	byteOpsWrite.WriteUint64(valuesNumbers[4])
+	byteOpsWrite.WriteUint16(uint16(valuesNumbers[5]))
 
-	bufPosRead := uint32(0)
+	byteOpsRead := ByteOperations{Buffer: writeBuffer}
 
-	require.Equal(t, ReadUint64(writeBuffer, &bufPosRead), valuesNumbers[0])
-	require.Equal(t, ReadUint32(writeBuffer, &bufPosRead), uint32(valuesNumbers[1]))
-	require.Equal(t, ReadUint32(writeBuffer, &bufPosRead), uint32(valuesNumbers[2]))
-	returnBuf, err := CopyBytesFromBuffer(writeBuffer, &bufPosRead, uint32(len(valuesByteArray)))
+	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[0])
+	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[1]))
+	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[2]))
+	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint32(len(valuesByteArray)))
 	assert.Equal(t, returnBuf, valuesByteArray)
 	assert.Equal(t, err, nil)
-	require.Equal(t, ReadUint16(writeBuffer, &bufPosRead), uint16(valuesNumbers[3]))
-	require.Equal(t, ReadUint64(writeBuffer, &bufPosRead), valuesNumbers[4])
-	require.Equal(t, ReadUint16(writeBuffer, &bufPosRead), uint16(valuesNumbers[5]))
+	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[3]))
+	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[4])
+	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[5]))
 }
