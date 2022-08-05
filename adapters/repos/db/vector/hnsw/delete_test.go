@@ -250,6 +250,9 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		})
+		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
+		index.randFunc = func() float64 { return 0.1 }
+
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -367,6 +370,9 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 	})
 	require.Nil(t, err)
 
+	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
+	index.randFunc = func() float64 { return 0.1 }
+
 	// to speed up test execution, size of nodes array is decreased
 	// from default 25k to little over number of vectors
 	index.nodes = make([]*vertex, int(1.2*float64(len(vectors))))
@@ -466,6 +472,17 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 		})
 
 		t.Run("search remaining elements after partial cleanup", func(t *testing.T) {
+			res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
+			require.Nil(t, err)
+			require.Subset(t, controlRemainingResult, res)
+			require.Subset(t, res, controlRemainingResultAfterCleanup)
+		})
+
+		t.Run("run complete cleanup", func(t *testing.T) {
+			require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+		})
+
+		t.Run("search remaining elements after complete cleanup", func(t *testing.T) {
 			res, _, err := index.SearchByVector([]float32{0.1, 0.1, 0.1}, len(vectors), nil)
 			require.Nil(t, err)
 			require.Subset(t, controlRemainingResult, res)
