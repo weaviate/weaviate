@@ -58,8 +58,8 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
-	err := ScanAllLSM(g.store, func(obj *storobj.Object) (bool, error) {
-		return true, g.addElement(obj)
+	err := ScanAllLSM(g.store, func(prop *models.PropertySchema, docID uint64) (bool, error) {
+		return true, g.addElementById(prop, docID)
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "group all (unfiltered)")
@@ -75,9 +75,9 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	}
 
 	if err := docid.ScanObjectsLSM(g.store, ids,
-		func(obj *storobj.Object) (bool, error) {
-			return true, g.addElement(obj)
-		}); err != nil {
+		func(prop *models.PropertySchema, docID uint64) (bool, error) {
+			return true, g.addElementById(prop, docID)
+		}, []string{g.params.GroupBy.Property.String()}); err != nil {
 		return nil, err
 	}
 
@@ -112,13 +112,12 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	return
 }
 
-func (g *grouper) addElement(obj *storobj.Object) error {
-	s := obj.Properties()
+func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 	if s == nil {
 		return nil
 	}
 
-	item, ok := s.(map[string]interface{})[g.params.GroupBy.Property.String()]
+	item, ok := (*s).(map[string]interface{})[g.params.GroupBy.Property.String()]
 	if !ok {
 		return nil
 	}
@@ -126,22 +125,22 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 	switch val := item.(type) {
 	case []string:
 		for i := range val {
-			g.addItem(val[i], obj.DocID())
+			g.addItem(val[i], docID)
 		}
 	case []float64:
 		for i := range val {
-			g.addItem(val[i], obj.DocID())
+			g.addItem(val[i], docID)
 		}
 	case []bool:
 		for i := range val {
-			g.addItem(val[i], obj.DocID())
+			g.addItem(val[i], docID)
 		}
 	case models.MultipleRef:
 		for i := range val {
-			g.addItem(val[i].Beacon, obj.DocID())
+			g.addItem(val[i].Beacon, docID)
 		}
 	default:
-		g.addItem(val, obj.DocID())
+		g.addItem(val, docID)
 	}
 
 	return nil
@@ -218,7 +217,8 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 		}
 
 		// scanAll has no abort, so we can ignore the first arg
-		_, err = scan(elem)
+		properties := elem.Properties()
+		_, err = scan(&properties, elem.DocID())
 		return err
 	})
 
@@ -242,7 +242,8 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 		}
 
 		// scanAll has no abort, so we can ignore the first arg
-		_, err = scan(elem)
+		properties := elem.Properties()
+		_, err = scan(&properties, elem.DocID())
 		if err != nil {
 			return err
 		}

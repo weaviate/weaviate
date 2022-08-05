@@ -76,23 +76,19 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 		return nil, NotFound
 	}
 
+	// byte         meaning
+	// 0         is tombstone
+	// 1-8       data length as Little Endian uint64
+	// 9-length  data
+
 	// check the tombstone byte
 	if in[0] == 0x01 {
 		return nil, Deleted
 	}
 
-	r := bytes.NewReader(in[1:])
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return nil, errors.Wrap(err, "read value length encoding")
-	}
+	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
-	data := make([]byte, valueLength)
-	if _, err := r.Read(data); err != nil {
-		return nil, errors.Wrap(err, "read value")
-	}
-
-	return data, nil
+	return in[9 : 9+valueLength], nil
 }
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {

@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/byte_operations"
 )
 
 type Object struct {
@@ -351,9 +352,9 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	vectorLength := uint16(len(ko.Vector))
+	vectorLength := uint32(len(ko.Vector))
 	className := []byte(ko.Class())
-	classNameLength := uint16(len(className))
+	classNameLength := uint32(len(className))
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
@@ -370,96 +371,126 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	ec := &errorcompounder.ErrorCompounder{}
-	buf := bytes.NewBuffer(nil)
-	le := binary.LittleEndian
-	ec.Add(binary.Write(buf, le, &ko.MarshallerVersion))
-	ec.Add(binary.Write(buf, le, &ko.docID))
-	ec.Add(binary.Write(buf, le, kindByte))
-	_, err = buf.Write(idBytes)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, ko.CreationTimeUnix()))
-	ec.Add(binary.Write(buf, le, ko.LastUpdateTimeUnix()))
-	ec.Add(binary.Write(buf, le, vectorLength))
-	ec.Add(binary.Write(buf, le, ko.Vector))
-	ec.Add(binary.Write(buf, le, classNameLength))
-	_, err = buf.Write(className)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, schemaLength))
-	_, err = buf.Write(schema)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, metaLength))
-	_, err = buf.Write(meta)
-	ec.Add(err)
-	ec.Add(binary.Write(buf, le, vectorWeightsLength))
-	_, err = buf.Write(vectorWeights)
-	ec.Add(err)
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
+	byteBuffer := make([]byte, totalBufferLength)
+	byteOps := byte_operations.ByteOperations{Buffer: byteBuffer}
+	byteOps.WriteByte(ko.MarshallerVersion)
+	byteOps.WriteUint64(ko.docID)
+	byteOps.WriteByte(kindByte)
 
-	return buf.Bytes(), ec.ToError()
+	byteOps.CopyBytesToBuffer(idBytes)
+
+	byteOps.WriteUint64(uint64(ko.CreationTimeUnix()))
+	byteOps.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+	byteOps.WriteUint16(uint16(vectorLength))
+
+	for j := uint32(0); j < vectorLength; j++ {
+		byteOps.WriteUint32(math.Float32bits(ko.Vector[j]))
+	}
+
+	byteOps.WriteUint16(uint16(classNameLength))
+	err = byteOps.CopyBytesToBuffer(className)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	}
+
+	byteOps.WriteUint32(schemaLength)
+	err = byteOps.CopyBytesToBuffer(schema)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy schema")
+	}
+
+	byteOps.WriteUint32(metaLength)
+	err = byteOps.CopyBytesToBuffer(meta)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy meta")
+	}
+	byteOps.WriteUint32(vectorWeightsLength)
+	err = byteOps.CopyBytesToBuffer(vectorWeights)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	return byteBuffer, nil
+}
+
+// UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
+//
+// Check MarshalBinary for the order of elements in the input array
+func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchema) error {
+	if data[0] != uint8(1) {
+		return errors.Errorf("unsupported binary marshaller version %d", data[0])
+	}
+
+	startPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
+	// get the length of the vector, each element is a float32 (4 bytes)
+	vectorLength := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint32(vectorLength) * 4)
+
+	// length of class name
+	classnameLength := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint32(classnameLength))
+
+	// property schema length
+	propertyLength := byteOps.ReadUint32()
+	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
 func (ko *Object) UnmarshalBinary(data []byte) error {
-	var version uint8
-	r := bytes.NewReader(data)
-	le := binary.LittleEndian
-	if err := binary.Read(r, le, &version); err != nil {
-		return err
-	}
-
+	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
-
 	ko.MarshallerVersion = version
 
-	var (
-		kindByte            uint8
-		uuidBytes           = make([]byte, 16)
-		createTime          int64
-		updateTime          int64
-		vectorLength        uint16
-		classNameLength     uint16
-		schemaLength        uint32
-		metaLength          uint32
-		vectorWeightsLength uint32
-	)
+	byteOps := byte_operations.ByteOperations{Position: 1, Buffer: data}
+	ko.docID = byteOps.ReadUint64()
+	byteOps.MoveBufferPositionForward(1) // kind-byte
 
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.Add(binary.Read(r, le, &ko.docID))
-	ec.Add(binary.Read(r, le, &kindByte))
-	_, err := r.Read(uuidBytes)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &createTime))
-	ec.Add(binary.Read(r, le, &updateTime))
-	ec.Add(binary.Read(r, le, &vectorLength))
-	ko.Vector = make([]float32, vectorLength)
-	ec.Add(binary.Read(r, le, &ko.Vector))
-	ec.Add(binary.Read(r, le, &classNameLength))
-	className := make([]byte, classNameLength)
-	_, err = r.Read(className)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &schemaLength))
-	schema := make([]byte, schemaLength)
-	_, err = r.Read(schema)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &metaLength))
-	meta := make([]byte, metaLength)
-	_, err = r.Read(meta)
-	ec.Add(err)
-	ec.Add(binary.Read(r, le, &vectorWeightsLength))
-	vectorWeights := make([]byte, vectorWeightsLength)
-	_, err = r.Read(vectorWeights)
-	ec.Add(err)
-
-	if err := ec.ToError(); err != nil {
-		return err
-	}
-
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
+	uuidParsed, err := uuid.FromBytes(data[byteOps.Position : byteOps.Position+16])
 	if err != nil {
 		return err
+	}
+	byteOps.MoveBufferPositionForward(16)
+
+	createTime := int64(byteOps.ReadUint64())
+	updateTime := int64(byteOps.ReadUint64())
+
+	vectorLength := byteOps.ReadUint16()
+	ko.Vector = make([]float32, vectorLength)
+	for j := 0; j < int(vectorLength); j++ {
+		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())
+	}
+
+	classNameLength := uint32(byteOps.ReadUint16())
+	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy class name")
+	}
+
+	schemaLength := byteOps.ReadUint32()
+	schema, err := byteOps.CopyBytesFromBuffer(schemaLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy schema")
+	}
+
+	metaLength := byteOps.ReadUint32()
+	meta, err := byteOps.CopyBytesFromBuffer(metaLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy meta")
+	}
+
+	vectorWeightsLength := byteOps.ReadUint32()
+	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength)
+	if err != nil {
+		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
 	return ko.parseObject(
