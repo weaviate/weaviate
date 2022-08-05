@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
@@ -135,13 +135,13 @@ func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
 }
 
 func (s *Shard) readIndexCounter() ([]byte, error) {
-	return ioutil.ReadFile(s.counter.FileName())
+	return os.ReadFile(s.counter.FileName())
 }
 
 func (s *Shard) readPropLengthTracker() ([]byte, error) {
-	return ioutil.ReadFile(s.propLengths.FileName())
+	return os.ReadFile(s.propLengths.FileName())
 }
 
 func (s *Shard) readShardVersion() ([]byte, error) {
-	return ioutil.ReadFile(s.versioner.path)
+	return os.ReadFile(s.versioner.path)
 }
