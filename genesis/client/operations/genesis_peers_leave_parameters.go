@@ -66,7 +66,8 @@ func NewGenesisPeersLeaveParamsWithHTTPClient(client *http.Client) *GenesisPeers
 	}
 }
 
-/*GenesisPeersLeaveParams contains all the parameters to send to the API endpoint
+/*
+GenesisPeersLeaveParams contains all the parameters to send to the API endpoint
 for the genesis peers leave operation typically these are written to a http.Request
 */
 type GenesisPeersLeaveParams struct {

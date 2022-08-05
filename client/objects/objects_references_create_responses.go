@@ -75,7 +75,8 @@ func NewObjectsReferencesCreateOK() *ObjectsReferencesCreateOK {
 	return &ObjectsReferencesCreateOK{}
 }
 
-/*ObjectsReferencesCreateOK handles this case with default header values.
+/*
+ObjectsReferencesCreateOK handles this case with default header values.
 
 Successfully added the reference.
 */
@@ -96,7 +97,8 @@ func NewObjectsReferencesCreateUnauthorized() *ObjectsReferencesCreateUnauthoriz
 	return &ObjectsReferencesCreateUnauthorized{}
 }
 
-/*ObjectsReferencesCreateUnauthorized handles this case with default header values.
+/*
+ObjectsReferencesCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -117,7 +119,8 @@ func NewObjectsReferencesCreateForbidden() *ObjectsReferencesCreateForbidden {
 	return &ObjectsReferencesCreateForbidden{}
 }
 
-/*ObjectsReferencesCreateForbidden handles this case with default header values.
+/*
+ObjectsReferencesCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -150,7 +153,8 @@ func NewObjectsReferencesCreateUnprocessableEntity() *ObjectsReferencesCreateUnp
 	return &ObjectsReferencesCreateUnprocessableEntity{}
 }
 
-/*ObjectsReferencesCreateUnprocessableEntity handles this case with default header values.
+/*
+ObjectsReferencesCreateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -183,7 +187,8 @@ func NewObjectsReferencesCreateInternalServerError() *ObjectsReferencesCreateInt
 	return &ObjectsReferencesCreateInternalServerError{}
 }
 
-/*ObjectsReferencesCreateInternalServerError handles this case with default header values.
+/*
+ObjectsReferencesCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

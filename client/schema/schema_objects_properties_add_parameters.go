@@ -68,7 +68,8 @@ func NewSchemaObjectsPropertiesAddParamsWithHTTPClient(client *http.Client) *Sch
 	}
 }
 
-/*SchemaObjectsPropertiesAddParams contains all the parameters to send to the API endpoint
+/*
+SchemaObjectsPropertiesAddParams contains all the parameters to send to the API endpoint
 for the schema objects properties add operation typically these are written to a http.Request
 */
 type SchemaObjectsPropertiesAddParams struct {

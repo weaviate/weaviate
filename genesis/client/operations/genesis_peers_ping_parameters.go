@@ -68,7 +68,8 @@ func NewGenesisPeersPingParamsWithHTTPClient(client *http.Client) *GenesisPeersP
 	}
 }
 
-/*GenesisPeersPingParams contains all the parameters to send to the API endpoint
+/*
+GenesisPeersPingParams contains all the parameters to send to the API endpoint
 for the genesis peers ping operation typically these are written to a http.Request
 */
 type GenesisPeersPingParams struct {

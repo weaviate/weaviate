@@ -27,7 +27,8 @@ import (
 // ObjectsCreateOKCode is the HTTP code returned for type ObjectsCreateOK
 const ObjectsCreateOKCode int = 200
 
-/*ObjectsCreateOK Object created.
+/*
+ObjectsCreateOK Object created.
 
 swagger:response objectsCreateOK
 */
@@ -71,7 +72,8 @@ func (o *ObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime
 // ObjectsCreateUnauthorizedCode is the HTTP code returned for type ObjectsCreateUnauthorized
 const ObjectsCreateUnauthorizedCode int = 401
 
-/*ObjectsCreateUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsCreateUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *ObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsCreateForbiddenCode is the HTTP code returned for type ObjectsCreateForbidden
 const ObjectsCreateForbiddenCode int = 403
 
-/*ObjectsCreateForbidden Forbidden
+/*
+ObjectsCreateForbidden Forbidden
 
 swagger:response objectsCreateForbidden
 */
@@ -139,7 +142,8 @@ func (o *ObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsCreateUnprocessableEntityCode is the HTTP code returned for type ObjectsCreateUnprocessableEntity
 const ObjectsCreateUnprocessableEntityCode int = 422
 
-/*ObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*
+ObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response objectsCreateUnprocessableEntity
 */
@@ -183,7 +187,8 @@ func (o *ObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 // ObjectsCreateInternalServerErrorCode is the HTTP code returned for type ObjectsCreateInternalServerError
 const ObjectsCreateInternalServerErrorCode int = 500
 
-/*ObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsCreateInternalServerError
 */

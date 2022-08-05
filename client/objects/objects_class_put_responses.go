@@ -81,7 +81,8 @@ func NewObjectsClassPutOK() *ObjectsClassPutOK {
 	return &ObjectsClassPutOK{}
 }
 
-/*ObjectsClassPutOK handles this case with default header values.
+/*
+ObjectsClassPutOK handles this case with default header values.
 
 Successfully received.
 */
@@ -114,7 +115,8 @@ func NewObjectsClassPutUnauthorized() *ObjectsClassPutUnauthorized {
 	return &ObjectsClassPutUnauthorized{}
 }
 
-/*ObjectsClassPutUnauthorized handles this case with default header values.
+/*
+ObjectsClassPutUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -135,7 +137,8 @@ func NewObjectsClassPutForbidden() *ObjectsClassPutForbidden {
 	return &ObjectsClassPutForbidden{}
 }
 
-/*ObjectsClassPutForbidden handles this case with default header values.
+/*
+ObjectsClassPutForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -168,7 +171,8 @@ func NewObjectsClassPutNotFound() *ObjectsClassPutNotFound {
 	return &ObjectsClassPutNotFound{}
 }
 
-/*ObjectsClassPutNotFound handles this case with default header values.
+/*
+ObjectsClassPutNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -189,7 +193,8 @@ func NewObjectsClassPutUnprocessableEntity() *ObjectsClassPutUnprocessableEntity
 	return &ObjectsClassPutUnprocessableEntity{}
 }
 
-/*ObjectsClassPutUnprocessableEntity handles this case with default header values.
+/*
+ObjectsClassPutUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -222,7 +227,8 @@ func NewObjectsClassPutInternalServerError() *ObjectsClassPutInternalServerError
 	return &ObjectsClassPutInternalServerError{}
 }
 
-/*ObjectsClassPutInternalServerError handles this case with default header values.
+/*
+ObjectsClassPutInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -75,7 +75,8 @@ func NewObjectsReferencesDeleteNoContent() *ObjectsReferencesDeleteNoContent {
 	return &ObjectsReferencesDeleteNoContent{}
 }
 
-/*ObjectsReferencesDeleteNoContent handles this case with default header values.
+/*
+ObjectsReferencesDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
@@ -96,7 +97,8 @@ func NewObjectsReferencesDeleteUnauthorized() *ObjectsReferencesDeleteUnauthoriz
 	return &ObjectsReferencesDeleteUnauthorized{}
 }
 
-/*ObjectsReferencesDeleteUnauthorized handles this case with default header values.
+/*
+ObjectsReferencesDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -117,7 +119,8 @@ func NewObjectsReferencesDeleteForbidden() *ObjectsReferencesDeleteForbidden {
 	return &ObjectsReferencesDeleteForbidden{}
 }
 
-/*ObjectsReferencesDeleteForbidden handles this case with default header values.
+/*
+ObjectsReferencesDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -150,7 +153,8 @@ func NewObjectsReferencesDeleteNotFound() *ObjectsReferencesDeleteNotFound {
 	return &ObjectsReferencesDeleteNotFound{}
 }
 
-/*ObjectsReferencesDeleteNotFound handles this case with default header values.
+/*
+ObjectsReferencesDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -183,7 +187,8 @@ func NewObjectsReferencesDeleteInternalServerError() *ObjectsReferencesDeleteInt
 	return &ObjectsReferencesDeleteInternalServerError{}
 }
 
-/*ObjectsReferencesDeleteInternalServerError handles this case with default header values.
+/*
+ObjectsReferencesDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
