@@ -68,7 +68,8 @@ func NewSchemaObjectsSnapshotsCreateParamsWithHTTPClient(client *http.Client) *S
 	}
 }
 
-/*SchemaObjectsSnapshotsCreateParams contains all the parameters to send to the API endpoint
+/*
+SchemaObjectsSnapshotsCreateParams contains all the parameters to send to the API endpoint
 for the schema objects snapshots create operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsCreateParams struct {

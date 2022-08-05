@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -75,16 +76,18 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		assert.Nil(t, err) // dir exists
 	})
 
-	t.Run("copies snapshot data", func(t *testing.T) {
-		testDir := makeTestDir(t, testdataMainDir)
-		defer removeDir(t, testdataMainDir)
-		defer removeDir(t, snapshotsMainDir)
+	testDir := makeTestDir(t, testdataMainDir)
+	defer removeDir(t, testdataMainDir)
+	defer removeDir(t, snapshotsMainDir)
 
+	t.Run("copies snapshot data", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
 		ctxSnapshot := context.Background()
 
 		module := New()
 		module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
+		module.logger, _ = test.NewNullLogger()
+		module.dataPath, _ = os.Getwd()
 		err := module.StoreSnapshot(ctxSnapshot, snapshot)
 
 		assert.Nil(t, err)
@@ -104,6 +107,34 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		info, err = os.Stat(expectedFilePath)
 		assert.Nil(t, err) // file exists
 		assert.Greater(t, info.Size(), int64(0))
+	})
+
+	t.Run("restores snapshot data", func(t *testing.T) {
+		ctxSnapshot := context.Background()
+		module := New()
+		module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
+		module.logger, _ = test.NewNullLogger()
+		module.dataPath, _ = os.Getwd()
+
+		// List all files in testDir
+		files, _ := os.ReadDir(testDir)
+
+		// Remove the files, ready for restore
+		for _, f := range files {
+			os.Remove(filepath.Join(testDir, f.Name()))
+			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
+		}
+
+		// Use the previous test snapshot to test the restore function
+		module.RestoreSnapshot(ctxSnapshot, "snapshot_id")
+
+		assert.DirExists(t, module.dataPath)
+
+		// Check that every file in the snapshot exists in testDir
+		for _, filePath := range files {
+			expectedFilePath := filepath.Join(testDir, filePath.Name())
+			assert.FileExists(t, expectedFilePath)
+		}
 	})
 }
 
@@ -128,11 +159,15 @@ func removeDir(t *testing.T, dirPath string) {
 
 func createSnapshotInstance(t *testing.T, dirPath string) *snapshots.Snapshot {
 	startedAt := time.Now()
-	basePath, _ := os.Getwd()
-	snap := snapshots.New("snapshot_id", startedAt, basePath)
-	snap.Files = createTestFiles(t, dirPath)
 
-	return snap
+	filePaths := createTestFiles(t, dirPath)
+
+	return &snapshots.Snapshot{
+		ID:          "snapshot_id",
+		StartedAt:   startedAt,
+		CompletedAt: time.Now(),
+		Files:       filePaths,
+	}
 }
 
 func createTestFiles(t *testing.T, dirPath string) []string {

@@ -27,7 +27,8 @@ import (
 // BatchObjectsCreateOKCode is the HTTP code returned for type BatchObjectsCreateOK
 const BatchObjectsCreateOKCode int = 200
 
-/*BatchObjectsCreateOK Request succeeded, see response body to get detailed information about each batched item.
+/*
+BatchObjectsCreateOK Request succeeded, see response body to get detailed information about each batched item.
 
 swagger:response batchObjectsCreateOK
 */
@@ -74,7 +75,8 @@ func (o *BatchObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer ru
 // BatchObjectsCreateUnauthorizedCode is the HTTP code returned for type BatchObjectsCreateUnauthorized
 const BatchObjectsCreateUnauthorizedCode int = 401
 
-/*BatchObjectsCreateUnauthorized Unauthorized or invalid credentials.
+/*
+BatchObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchObjectsCreateUnauthorized
 */
@@ -98,7 +100,8 @@ func (o *BatchObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, p
 // BatchObjectsCreateForbiddenCode is the HTTP code returned for type BatchObjectsCreateForbidden
 const BatchObjectsCreateForbiddenCode int = 403
 
-/*BatchObjectsCreateForbidden Forbidden
+/*
+BatchObjectsCreateForbidden Forbidden
 
 swagger:response batchObjectsCreateForbidden
 */
@@ -142,7 +145,8 @@ func (o *BatchObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, prod
 // BatchObjectsCreateUnprocessableEntityCode is the HTTP code returned for type BatchObjectsCreateUnprocessableEntity
 const BatchObjectsCreateUnprocessableEntityCode int = 422
 
-/*BatchObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*
+BatchObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response batchObjectsCreateUnprocessableEntity
 */
@@ -186,7 +190,8 @@ func (o *BatchObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWr
 // BatchObjectsCreateInternalServerErrorCode is the HTTP code returned for type BatchObjectsCreateInternalServerError
 const BatchObjectsCreateInternalServerErrorCode int = 500
 
-/*BatchObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+BatchObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response batchObjectsCreateInternalServerError
 */

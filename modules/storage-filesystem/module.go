@@ -29,6 +29,7 @@ const (
 
 type StorageFileSystemModule struct {
 	logger        logrus.FieldLogger
+	dataPath      string
 	snapshotsPath string
 }
 
@@ -48,7 +49,7 @@ func (m *StorageFileSystemModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-
+	m.dataPath = params.GetStorageProvider().DataPath()
 	snapshotsPath := os.Getenv(snapshotsPathName)
 	if err := m.initSnapshotStorage(ctx, snapshotsPath); err != nil {
 		return errors.Wrap(err, "init snapshot storage")

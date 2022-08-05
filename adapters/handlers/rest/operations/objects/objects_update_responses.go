@@ -27,7 +27,8 @@ import (
 // ObjectsUpdateOKCode is the HTTP code returned for type ObjectsUpdateOK
 const ObjectsUpdateOKCode int = 200
 
-/*ObjectsUpdateOK Successfully received.
+/*
+ObjectsUpdateOK Successfully received.
 
 swagger:response objectsUpdateOK
 */
@@ -71,7 +72,8 @@ func (o *ObjectsUpdateOK) WriteResponse(rw http.ResponseWriter, producer runtime
 // ObjectsUpdateUnauthorizedCode is the HTTP code returned for type ObjectsUpdateUnauthorized
 const ObjectsUpdateUnauthorizedCode int = 401
 
-/*ObjectsUpdateUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsUpdateUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *ObjectsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsUpdateForbiddenCode is the HTTP code returned for type ObjectsUpdateForbidden
 const ObjectsUpdateForbiddenCode int = 403
 
-/*ObjectsUpdateForbidden Forbidden
+/*
+ObjectsUpdateForbidden Forbidden
 
 swagger:response objectsUpdateForbidden
 */
@@ -139,7 +142,8 @@ func (o *ObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsUpdateNotFoundCode is the HTTP code returned for type ObjectsUpdateNotFound
 const ObjectsUpdateNotFoundCode int = 404
 
-/*ObjectsUpdateNotFound Successful query result but no resource was found.
+/*
+ObjectsUpdateNotFound Successful query result but no resource was found.
 
 swagger:response objectsUpdateNotFound
 */
@@ -163,7 +167,8 @@ func (o *ObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer r
 // ObjectsUpdateUnprocessableEntityCode is the HTTP code returned for type ObjectsUpdateUnprocessableEntity
 const ObjectsUpdateUnprocessableEntityCode int = 422
 
-/*ObjectsUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*
+ObjectsUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response objectsUpdateUnprocessableEntity
 */
@@ -207,7 +212,8 @@ func (o *ObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 // ObjectsUpdateInternalServerErrorCode is the HTTP code returned for type ObjectsUpdateInternalServerError
 const ObjectsUpdateInternalServerErrorCode int = 500
 
-/*ObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsUpdateInternalServerError
 */

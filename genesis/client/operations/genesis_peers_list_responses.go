@@ -57,7 +57,8 @@ func NewGenesisPeersListOK() *GenesisPeersListOK {
 	return &GenesisPeersListOK{}
 }
 
-/*GenesisPeersListOK handles this case with default header values.
+/*
+GenesisPeersListOK handles this case with default header values.
 
 The list of registered peers
 */
@@ -87,7 +88,8 @@ func NewGenesisPeersListInternalServerError() *GenesisPeersListInternalServerErr
 	return &GenesisPeersListInternalServerError{}
 }
 
-/*GenesisPeersListInternalServerError handles this case with default header values.
+/*
+GenesisPeersListInternalServerError handles this case with default header values.
 
 Internal error
 */

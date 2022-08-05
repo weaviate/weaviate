@@ -40,10 +40,10 @@ func NewGenesisPeersList(ctx *middleware.Context, handler GenesisPeersListHandle
 	return &GenesisPeersList{Context: ctx, Handler: handler}
 }
 
-/*GenesisPeersList swagger:route GET /peers genesisPeersList
+/*
+GenesisPeersList swagger:route GET /peers genesisPeersList
 
 List the registered peers
-
 */
 type GenesisPeersList struct {
 	Context *middleware.Context

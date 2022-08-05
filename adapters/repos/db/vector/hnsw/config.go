@@ -72,6 +72,7 @@ const (
 	DistanceDot       = "dot"
 	DistanceL2Squared = "l2-squared"
 	DistanceManhattan = "manhattan"
+	DistanceHamming   = "hamming"
 )
 
 const (

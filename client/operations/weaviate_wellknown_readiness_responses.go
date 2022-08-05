@@ -54,7 +54,8 @@ func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
 	return &WeaviateWellknownReadinessOK{}
 }
 
-/*WeaviateWellknownReadinessOK handles this case with default header values.
+/*
+WeaviateWellknownReadinessOK handles this case with default header values.
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
@@ -75,7 +76,8 @@ func NewWeaviateWellknownReadinessServiceUnavailable() *WeaviateWellknownReadine
 	return &WeaviateWellknownReadinessServiceUnavailable{}
 }
 
-/*WeaviateWellknownReadinessServiceUnavailable handles this case with default header values.
+/*
+WeaviateWellknownReadinessServiceUnavailable handles this case with default header values.
 
 The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */

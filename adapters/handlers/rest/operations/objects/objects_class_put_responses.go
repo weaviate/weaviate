@@ -27,7 +27,8 @@ import (
 // ObjectsClassPutOKCode is the HTTP code returned for type ObjectsClassPutOK
 const ObjectsClassPutOKCode int = 200
 
-/*ObjectsClassPutOK Successfully received.
+/*
+ObjectsClassPutOK Successfully received.
 
 swagger:response objectsClassPutOK
 */
@@ -71,7 +72,8 @@ func (o *ObjectsClassPutOK) WriteResponse(rw http.ResponseWriter, producer runti
 // ObjectsClassPutUnauthorizedCode is the HTTP code returned for type ObjectsClassPutUnauthorized
 const ObjectsClassPutUnauthorizedCode int = 401
 
-/*ObjectsClassPutUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsClassPutUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassPutUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *ObjectsClassPutUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 // ObjectsClassPutForbiddenCode is the HTTP code returned for type ObjectsClassPutForbidden
 const ObjectsClassPutForbiddenCode int = 403
 
-/*ObjectsClassPutForbidden Forbidden
+/*
+ObjectsClassPutForbidden Forbidden
 
 swagger:response objectsClassPutForbidden
 */
@@ -139,7 +142,8 @@ func (o *ObjectsClassPutForbidden) WriteResponse(rw http.ResponseWriter, produce
 // ObjectsClassPutNotFoundCode is the HTTP code returned for type ObjectsClassPutNotFound
 const ObjectsClassPutNotFoundCode int = 404
 
-/*ObjectsClassPutNotFound Successful query result but no resource was found.
+/*
+ObjectsClassPutNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassPutNotFound
 */
@@ -163,7 +167,8 @@ func (o *ObjectsClassPutNotFound) WriteResponse(rw http.ResponseWriter, producer
 // ObjectsClassPutUnprocessableEntityCode is the HTTP code returned for type ObjectsClassPutUnprocessableEntity
 const ObjectsClassPutUnprocessableEntityCode int = 422
 
-/*ObjectsClassPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*
+ObjectsClassPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response objectsClassPutUnprocessableEntity
 */
@@ -207,7 +212,8 @@ func (o *ObjectsClassPutUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 // ObjectsClassPutInternalServerErrorCode is the HTTP code returned for type ObjectsClassPutInternalServerError
 const ObjectsClassPutInternalServerErrorCode int = 500
 
-/*ObjectsClassPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsClassPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassPutInternalServerError
 */

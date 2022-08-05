@@ -75,7 +75,8 @@ func NewSchemaObjectsSnapshotsCreateOK() *SchemaObjectsSnapshotsCreateOK {
 	return &SchemaObjectsSnapshotsCreateOK{}
 }
 
-/*SchemaObjectsSnapshotsCreateOK handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateOK handles this case with default header values.
 
 Snapshot process successfully started.
 */
@@ -108,7 +109,8 @@ func NewSchemaObjectsSnapshotsCreateUnauthorized() *SchemaObjectsSnapshotsCreate
 	return &SchemaObjectsSnapshotsCreateUnauthorized{}
 }
 
-/*SchemaObjectsSnapshotsCreateUnauthorized handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewSchemaObjectsSnapshotsCreateForbidden() *SchemaObjectsSnapshotsCreateFor
 	return &SchemaObjectsSnapshotsCreateForbidden{}
 }
 
-/*SchemaObjectsSnapshotsCreateForbidden handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewSchemaObjectsSnapshotsCreateUnprocessableEntity() *SchemaObjectsSnapshot
 	return &SchemaObjectsSnapshotsCreateUnprocessableEntity{}
 }
 
-/*SchemaObjectsSnapshotsCreateUnprocessableEntity handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateUnprocessableEntity handles this case with default header values.
 
 Invalid create snapshot attempt.
 */
@@ -195,7 +199,8 @@ func NewSchemaObjectsSnapshotsCreateInternalServerError() *SchemaObjectsSnapshot
 	return &SchemaObjectsSnapshotsCreateInternalServerError{}
 }
 
-/*SchemaObjectsSnapshotsCreateInternalServerError handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -21,7 +21,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/sirupsen/logrus"
 )
@@ -34,12 +33,13 @@ const (
 )
 
 type s3 struct {
-	client *minio.Client
-	config Config
-	logger logrus.FieldLogger
+	client   *minio.Client
+	config   Config
+	logger   logrus.FieldLogger
+	dataPath string
 }
 
-func New(config Config, logger logrus.FieldLogger) (modulecapabilities.SnapshotStorage, error) {
+func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error) {
 	region := os.Getenv(AWS_REGION)
 	if len(region) == 0 {
 		region = os.Getenv(AWS_DEFAULT_REGION)
@@ -56,7 +56,7 @@ func New(config Config, logger logrus.FieldLogger) (modulecapabilities.SnapshotS
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &s3{client, config, logger}, nil
+	return &s3{client, config, logger, dataPath}, nil
 }
 
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
@@ -81,7 +81,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 		}
 
 		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", snapshot.BasePath, srcRelPath)
+		filePath := fmt.Sprintf("%s/%s", s.dataPath, srcRelPath)
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
 		if err != nil {

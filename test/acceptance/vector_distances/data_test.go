@@ -75,4 +75,18 @@ func addTestSchemaOther(t *testing.T) {
 			"distance": "manhattan",
 		},
 	})
+
+	createObjectClass(t, &models.Class{
+		Class:      "Hamming_Class",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"distance": "hamming",
+		},
+	})
 }

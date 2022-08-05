@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -117,6 +118,8 @@ type hnsw struct {
 
 	metrics       *Metrics
 	insertMetrics *insertMetrics
+
+	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
 }
 
 type CommitLogger interface {
@@ -212,6 +215,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		efFactor: int64(uc.DynamicEFFactor),
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+
+		randFunc: rand.Float64,
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)

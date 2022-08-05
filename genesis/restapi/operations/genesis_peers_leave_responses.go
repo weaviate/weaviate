@@ -25,7 +25,8 @@ import (
 // GenesisPeersLeaveNoContentCode is the HTTP code returned for type GenesisPeersLeaveNoContent
 const GenesisPeersLeaveNoContentCode int = 204
 
-/*GenesisPeersLeaveNoContent Successful left the network.
+/*
+GenesisPeersLeaveNoContent Successful left the network.
 
 swagger:response genesisPeersLeaveNoContent
 */
@@ -47,7 +48,8 @@ func (o *GenesisPeersLeaveNoContent) WriteResponse(rw http.ResponseWriter, produ
 // GenesisPeersLeaveUnauthorizedCode is the HTTP code returned for type GenesisPeersLeaveUnauthorized
 const GenesisPeersLeaveUnauthorizedCode int = 401
 
-/*GenesisPeersLeaveUnauthorized Unauthorized or invalid credentials.
+/*
+GenesisPeersLeaveUnauthorized Unauthorized or invalid credentials.
 
 swagger:response genesisPeersLeaveUnauthorized
 */
@@ -69,7 +71,8 @@ func (o *GenesisPeersLeaveUnauthorized) WriteResponse(rw http.ResponseWriter, pr
 // GenesisPeersLeaveForbiddenCode is the HTTP code returned for type GenesisPeersLeaveForbidden
 const GenesisPeersLeaveForbiddenCode int = 403
 
-/*GenesisPeersLeaveForbidden The used API-key has insufficient permissions.
+/*
+GenesisPeersLeaveForbidden The used API-key has insufficient permissions.
 
 swagger:response genesisPeersLeaveForbidden
 */
@@ -91,7 +94,8 @@ func (o *GenesisPeersLeaveForbidden) WriteResponse(rw http.ResponseWriter, produ
 // GenesisPeersLeaveNotFoundCode is the HTTP code returned for type GenesisPeersLeaveNotFound
 const GenesisPeersLeaveNotFoundCode int = 404
 
-/*GenesisPeersLeaveNotFound Successful query result but no such peer was found.
+/*
+GenesisPeersLeaveNotFound Successful query result but no such peer was found.
 
 swagger:response genesisPeersLeaveNotFound
 */
