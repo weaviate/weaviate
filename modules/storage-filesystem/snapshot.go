@@ -84,7 +84,7 @@ func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, 
 
 func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
 	// TODO implement
-	return "", nil
+	return "", fmt.Errorf("file does not exist")
 }
 
 func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {

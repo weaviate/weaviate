@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -241,27 +242,60 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 }
 
 func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principal,
-	className string, snapshot *models.Snapshot,
-) (*models.Snapshot, error) {
-	err := m.authorizer.Authorize(principal, "add",
-		fmt.Sprintf("schema/%s/snapshots", className))
-	if err != nil {
+	className, storageName, ID string,
+) (*models.SnapshotMeta, error) {
+	path := fmt.Sprintf("schema/%s/snapshots/%s/%s", className, storageName, ID)
+	if err := m.authorizer.Authorize(principal, "add", path); err != nil {
 		return nil, err
 	}
 
-	// TODO: implement
-	return snapshot, nil
+	if err := validateSnapshotID(ID); err != nil {
+		return nil, err
+	}
+
+	if meta, err := m.backups.CreateBackup(ctx, className, storageName, ID); err != nil {
+		return nil, err
+	} else {
+		status := string(meta.Status)
+		return &models.SnapshotMeta{
+			ID:          ID,
+			StorageName: storageName,
+			Status:      &status,
+			Path:        meta.Path,
+		}, nil
+	}
 }
 
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
-	className, id string,
-) error {
-	err := m.authorizer.Authorize(principal, "restore",
-		fmt.Sprintf("schema/%s/snapshots/%s/restore", className, id))
-	if err != nil {
-		return err
+	className, storageName, ID string,
+) (*models.SnapshotRestoreMeta, error) {
+	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
+	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
+		return nil, err
 	}
 
-	// TODO: implement
+	if meta, err := m.backups.RestoreBackup(ctx, className, storageName, ID); err != nil {
+		return nil, err
+	} else {
+		status := string(meta.Status)
+		return &models.SnapshotRestoreMeta{
+			ID:          ID,
+			StorageName: storageName,
+			Status:      &status,
+			Path:        meta.Path,
+		}, nil
+	}
+}
+
+func validateSnapshotID(snapshotID string) error {
+	if snapshotID == "" {
+		return fmt.Errorf("missing snapshotID value")
+	}
+
+	exp := regexp.MustCompile("^[a-z0-9_-]+$")
+	if !exp.MatchString(snapshotID) {
+		return fmt.Errorf("invalid characters for snapshotID. Allowed are lowercase, numbers, underscore, minus")
+	}
+
 	return nil
 }

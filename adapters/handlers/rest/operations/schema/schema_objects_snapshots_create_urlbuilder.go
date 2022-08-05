@@ -25,7 +25,9 @@ import (
 
 // SchemaObjectsSnapshotsCreateURL generates an URL for the schema objects snapshots create operation
 type SchemaObjectsSnapshotsCreateURL struct {
-	ClassName string
+	ClassName   string
+	ID          string
+	StorageName string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -51,13 +53,27 @@ func (o *SchemaObjectsSnapshotsCreateURL) SetBasePath(bp string) {
 func (o *SchemaObjectsSnapshotsCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/snapshots"
+	var _path = "/schema/{className}/snapshots/{storageName}/{id}"
 
 	className := o.ClassName
 	if className != "" {
 		_path = strings.Replace(_path, "{className}", className, -1)
 	} else {
 		return nil, errors.New("className is required on SchemaObjectsSnapshotsCreateURL")
+	}
+
+	id := o.ID
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
+	} else {
+		return nil, errors.New("id is required on SchemaObjectsSnapshotsCreateURL")
+	}
+
+	storageName := o.StorageName
+	if storageName != "" {
+		_path = strings.Replace(_path, "{storageName}", storageName, -1)
+	} else {
+		return nil, errors.New("storageName is required on SchemaObjectsSnapshotsCreateURL")
 	}
 
 	_basePath := o._basePath

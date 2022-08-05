@@ -52,6 +52,7 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -181,6 +182,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	// SchemaManager is not set at that point, so it is passed as a callback
+	shardingStateFunc := func(className string) *sharding.State {
+		return appState.SchemaManager.ShardingState(className)
+	}
+	backupManager := backups.NewBackupManager(repo, appState.Modules, shardingStateFunc)
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
@@ -192,7 +199,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
-		schemaTxClient)
+		schemaTxClient, backupManager)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).

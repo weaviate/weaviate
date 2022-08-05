@@ -25,8 +25,9 @@ import (
 
 // SchemaObjectsSnapshotsRestoreURL generates an URL for the schema objects snapshots restore operation
 type SchemaObjectsSnapshotsRestoreURL struct {
-	ClassName string
-	ID        string
+	ClassName   string
+	ID          string
+	StorageName string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,7 +53,7 @@ func (o *SchemaObjectsSnapshotsRestoreURL) SetBasePath(bp string) {
 func (o *SchemaObjectsSnapshotsRestoreURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/snapshots/{id}/restore"
+	var _path = "/schema/{className}/snapshots/{storageName}/{id}/restore"
 
 	className := o.ClassName
 	if className != "" {
@@ -66,6 +67,13 @@ func (o *SchemaObjectsSnapshotsRestoreURL) Build() (*url.URL, error) {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
 		return nil, errors.New("id is required on SchemaObjectsSnapshotsRestoreURL")
+	}
+
+	storageName := o.StorageName
+	if storageName != "" {
+		_path = strings.Replace(_path, "{storageName}", storageName, -1)
+	} else {
+		return nil, errors.New("storageName is required on SchemaObjectsSnapshotsRestoreURL")
 	}
 
 	_basePath := o._basePath

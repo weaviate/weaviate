@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -473,7 +474,7 @@ func newSchemaManager() *Manager {
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{},
+		&fakeTxClient{}, &fakeBackupManager{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -521,7 +522,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{},
+		&fakeTxClient{}, &fakeBackupManager{},
 	)
 	require.Nil(t, err)
 
@@ -529,4 +530,18 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	assert.Equal(t, fakeVectorConfig{
 		raw: "parse me, i should be in some sort of an object",
 	}, classes[0].VectorIndexConfig)
+}
+
+type fakeBackupManager struct{}
+
+func (f *fakeBackupManager) CreateBackup(ctx context.Context,
+	className, storageName, snapshotID string,
+) (*backups.CreateMeta, error) {
+	return nil, nil
+}
+
+func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
+	className, storageName, snapshotID string,
+) (*backups.RestoreMeta, error) {
+	return nil, nil
 }

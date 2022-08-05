@@ -98,15 +98,15 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "CreateSnapshot",
-			additionalArgs:   []interface{}{"className", &models.Snapshot{}},
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "add",
-			expectedResource: "schema/className/snapshots",
+			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
 			methodName:       "RestoreSnapshot",
-			additionalArgs:   []interface{}{"className", "id"},
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "restore",
-			expectedResource: "schema/className/snapshots/id/restore",
+			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
 	}
 
@@ -142,7 +142,7 @@ func Test_Schema_Authorization(t *testing.T) {
 					logger, authorizer, config.Config{},
 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 					dummyValidateInvertedConfig, &fakeModuleConfig{},
-					&fakeClusterState{}, &fakeTxClient{})
+					&fakeClusterState{}, &fakeTxClient{}, &fakeBackupManager{})
 				require.Nil(t, err)
 
 				var args []interface{}
