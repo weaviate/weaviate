@@ -642,16 +642,57 @@
         }
       }
     },
-    "Snapshot": {
-      "description": "The definition of a snapshot",
+    "SnapshotMeta": {
+      "description": "The definition of a snapshot metadata",
       "properties": {
         "id": {
           "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "storageProvider": {
-          "description": "Snapshot provider name e.g. filesystem, gcs, s3.",
+        "storageName": {
+          "description": "Storage name e.g. filesystem, gcs, s3.",
           "type": "string"
+        },
+        "path": {
+          "description": "destination path of snapshot files proper to selected storage",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of snapshot creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+        }
+      }
+    },
+    "SnapshotRestoreMeta": {
+      "description": "The definition of a snapshot metadata",
+      "properties": {
+        "id": {
+          "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "storageName": {
+          "description": "Storage name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of snapshot files proper to selected storage",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of snapshot restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
         }
       }
     },
@@ -3198,9 +3239,9 @@
         }
       }
     },
-    "/schema/{className}/snapshots": {
+    "/schema/{className}/snapshots/{storageName}/{id}": {
       "post": {
-        "description": "Starts a process to create a snapshot for a class",
+        "description": "Starts a process of creation a snapshot for a class",
         "operationId": "schema.objects.snapshots.create",
         "x-serviceIds": ["weaviate.local.add.snapshot"],
         "tags": ["schema"],
@@ -3213,19 +3254,25 @@
             "description": "The name of the class"
           },
           {
-            "in": "body",
-            "name": "body",
+            "name": "storageName",
+            "in": "path",
             "required": true,
-            "schema": {
-              "$ref": "#/definitions/Snapshot"
-            }
+            "type": "string",
+            "description": "Storage name e.g. filesystem, gcs, s3."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
           }
         ],
         "responses": {
           "200": {
             "description": "Snapshot process successfully started.",
             "schema": {
-              "$ref": "#/definitions/Snapshot"
+              "$ref": "#/definitions/SnapshotMeta"
             }
           },
           "401": {
@@ -3250,9 +3297,64 @@
             }
           }
         }
+      },
+      "get": {
+        "description": "Returns status of creation attempt of a snapshot for a class",
+        "operationId": "schema.objects.snapshots.create.status",
+        "x-serviceIds": ["weaviate.local.add.snapshot.status"],
+        "tags": ["schema"],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The name of the class"
+          },
+          {
+            "name": "storageName",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Storage name e.g. filesystem, gcs, s3."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot creation status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/SnapshotMeta"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Snapshot does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
-    "/schema/{className}/snapshots/{id}/restore": {
+    "/schema/{className}/snapshots/{storageName}/{id}/restore": {
       "post": {
         "description": "Starts a process of restoring a snapshot for a class",
         "operationId": "schema.objects.snapshots.restore",
@@ -3267,16 +3369,26 @@
             "description": "The name of the class"
           },
           {
+            "name": "storageName",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Storage name e.g. filesystem, gcs, s3."
+          },
+          {
             "name": "id",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The Id of the snapshot"
+            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
           }
         ],
         "responses": {
           "200": {
-            "description": "Snapshot restoring process successfully started."
+            "description": "Snapshot restoring process successfully started.",
+            "schema": {
+              "$ref": "#/definitions/SnapshotRestoreMeta"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3288,10 +3400,71 @@
             }
           },
           "404": {
-            "description": "Not Found - Snapshot does not exist"
+            "description": "Not Found - Snapshot does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid restore snapshot attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "description": "Returns status of restoration attempt of a snapshot for a class",
+        "operationId": "schema.objects.snapshots.restore.status",
+        "x-serviceIds": ["weaviate.local.restore.snapshot.status"],
+        "tags": ["schema"],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The name of the class"
+          },
+          {
+            "name": "storageName",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "Storage name e.g. filesystem, gcs, s3."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot restoration status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/SnapshotRestoreMeta"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Snapshot does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

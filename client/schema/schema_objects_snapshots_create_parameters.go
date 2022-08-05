@@ -25,8 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewSchemaObjectsSnapshotsCreateParams creates a new SchemaObjectsSnapshotsCreateParams object
@@ -74,13 +72,21 @@ for the schema objects snapshots create operation typically these are written to
 */
 type SchemaObjectsSnapshotsCreateParams struct {
 
-	/*Body*/
-	Body *models.Snapshot
 	/*ClassName
 	  The name of the class
 
 	*/
 	ClassName string
+	/*ID
+	  The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+
+	*/
+	ID string
+	/*StorageName
+	  Storage name e.g. filesystem, gcs, s3.
+
+	*/
+	StorageName string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -120,17 +126,6 @@ func (o *SchemaObjectsSnapshotsCreateParams) SetHTTPClient(client *http.Client) 
 	o.HTTPClient = client
 }
 
-// WithBody adds the body to the schema objects snapshots create params
-func (o *SchemaObjectsSnapshotsCreateParams) WithBody(body *models.Snapshot) *SchemaObjectsSnapshotsCreateParams {
-	o.SetBody(body)
-	return o
-}
-
-// SetBody adds the body to the schema objects snapshots create params
-func (o *SchemaObjectsSnapshotsCreateParams) SetBody(body *models.Snapshot) {
-	o.Body = body
-}
-
 // WithClassName adds the className to the schema objects snapshots create params
 func (o *SchemaObjectsSnapshotsCreateParams) WithClassName(className string) *SchemaObjectsSnapshotsCreateParams {
 	o.SetClassName(className)
@@ -142,6 +137,28 @@ func (o *SchemaObjectsSnapshotsCreateParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithID adds the id to the schema objects snapshots create params
+func (o *SchemaObjectsSnapshotsCreateParams) WithID(id string) *SchemaObjectsSnapshotsCreateParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the schema objects snapshots create params
+func (o *SchemaObjectsSnapshotsCreateParams) SetID(id string) {
+	o.ID = id
+}
+
+// WithStorageName adds the storageName to the schema objects snapshots create params
+func (o *SchemaObjectsSnapshotsCreateParams) WithStorageName(storageName string) *SchemaObjectsSnapshotsCreateParams {
+	o.SetStorageName(storageName)
+	return o
+}
+
+// SetStorageName adds the storageName to the schema objects snapshots create params
+func (o *SchemaObjectsSnapshotsCreateParams) SetStorageName(storageName string) {
+	o.StorageName = storageName
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsSnapshotsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -150,14 +167,18 @@ func (o *SchemaObjectsSnapshotsCreateParams) WriteToRequest(r runtime.ClientRequ
 	}
 	var res []error
 
-	if o.Body != nil {
-		if err := r.SetBodyParam(o.Body); err != nil {
-			return err
-		}
-	}
-
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
+		return err
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID); err != nil {
+		return err
+	}
+
+	// path param storageName
+	if err := r.SetPathParam("storageName", o.StorageName); err != nil {
 		return err
 	}
 

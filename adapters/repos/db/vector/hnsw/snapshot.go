@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -89,7 +88,7 @@ func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 // cannot be guaranteed with maintenance going on in the background.
 func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 	var (
-		logRoot = path.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
+		logRoot = filepath.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
 		found   = make(map[string]struct{})
 		files   []string
 	)
@@ -97,6 +96,10 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 	err := filepath.WalkDir(logRoot, func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
+		}
+		path, err2 := filepath.Rel(h.commitLog.RootPath(), path)
+		if err2 != nil {
+			return err2
 		}
 		found[path] = struct{}{}
 		return nil
@@ -112,7 +115,11 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 
 	// remove active log from list, as
 	// it is not part of the snapshot
-	delete(found, path.Join(logRoot, curr))
+	path, err := filepath.Rel(h.commitLog.RootPath(), filepath.Join(logRoot, curr))
+	if err != nil {
+		return nil, errors.Wrap(err, "delete active log")
+	}
+	delete(found, path)
 
 	files, i := make([]string, len(found)), 0
 	for file := range found {

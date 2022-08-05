@@ -204,7 +204,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
-	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)
+	store, err := lsmkv.New(s.DBPathLSM(), s.index.Config.RootPath, annotatedLogger, metrics)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}

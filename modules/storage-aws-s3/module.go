@@ -24,6 +24,8 @@ import (
 
 const (
 	Name       = "storage-aws-s3"
+	AltName1   = "aws-s3"
+	AltName2   = "s3"
 	s3Endpoint = "STORAGE_S3_ENDPOINT"
 	s3Bucket   = "STORAGE_S3_BUCKET"
 	s3UseSSL   = "STORAGE_S3_USE_SSL"
@@ -42,6 +44,10 @@ func New() *StorageS3Module {
 
 func (m *StorageS3Module) Name() string {
 	return Name
+}
+
+func (m *StorageS3Module) AltNames() []string {
+	return []string{AltName1, AltName2}
 }
 
 func (m *StorageS3Module) Type() modulecapabilities.ModuleType {

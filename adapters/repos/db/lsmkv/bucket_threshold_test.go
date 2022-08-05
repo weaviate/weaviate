@@ -49,7 +49,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	walThreshold := uint64(4096)
 	tolerance := 0.5
 
-	bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
 		WithWalThreshold(walThreshold))
@@ -148,7 +148,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	memtableThreshold := uint64(4096)
 	tolerance := float64(0.5)
 
-	bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(memtableThreshold))
 	require.Nil(t, err)
@@ -213,7 +213,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			}
 		}()
 
-		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -254,7 +254,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			}
 		}()
 
-		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
@@ -299,7 +299,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 			}
 		}()
 
-		bucket, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test

@@ -43,7 +43,7 @@ func NewSchemaObjectsSnapshotsRestore(ctx *middleware.Context, handler SchemaObj
 }
 
 /*
-SchemaObjectsSnapshotsRestore swagger:route POST /schema/{className}/snapshots/{id}/restore schema schemaObjectsSnapshotsRestore
+SchemaObjectsSnapshotsRestore swagger:route POST /schema/{className}/snapshots/{storageName}/{id}/restore schema schemaObjectsSnapshotsRestore
 
 Starts a process of restoring a snapshot for a class
 */

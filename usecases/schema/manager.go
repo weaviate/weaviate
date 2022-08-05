@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -42,6 +43,7 @@ type Manager struct {
 	clusterState            clusterState
 	hnswConfigParser        VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
+	backups                 backups.BackupManager
 	sync.Mutex
 }
 
@@ -90,7 +92,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client,
+	txClient cluster.Client, backupManager backups.BackupManager,
 ) (*Manager, error) {
 	m := &Manager{
 		config:                  config,
@@ -105,6 +107,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		moduleConfig:            moduleConfig,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
+		backups:                 backupManager,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
