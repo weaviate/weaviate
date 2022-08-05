@@ -27,7 +27,6 @@ env:
   - WEAVIATESCHEMAFILE=openapi-specs/schema.json
   # how to autobump semver style
   - SEMVERBUMPTYPE=patch
-  - EXTERNAL_PR=true
   # secure values
   - secure: QH/qM6TuOZtNnNY8aKZPYB8uya3IYNVchvfyX28Tq5Kwwfj9CZX/m9Hac7lP1xOZyKdKMT4PAwVxUEhtQENJfymckQCFHVtoAU4vbVrUe8riAEBaWKNGM1rmPpU6gpdQ3oKDfBgSp5Sb4V+WhgCcN5u9xKC0ybURBVWUNhRyib8qEEe0w+CpJGaVdvtVFxDh2DuvJqZq+k416YIGY+83KhldQ/FKG0wRu9lGooOtcCIcSdJl+V8AaRByxsLa9JsSLoXsTHULdJfnP3g/tf4o36fA/4zbK+e8MLMGhfVmRQd5ow06E//H8Zct2OazTO8R+7f+01X5OcQAviXkyVTLcZ/xekoM/g+h9JWzF63uqAE1fq00hEs2tV4iT82xpyhevUTXGzs1460u+ESbHQJK0SjbpAQTRllKDrACgYQDKjE32EhT2TkEE5u+DZ/u19FHPsA6txjqFh0SXHKtpSk2hVdnpg7AawSY/QUc+sGp3enc6HAT/87cKaH9gSCxgI/KzUaXfEEfLp9hScckNpy9roaSvLmotGLxdpBnFpdmWaG56M/ohxTPhu5/FjIygIu+q2rDl2DwkPzeyFbsMjTAX++zBmpxW/D1GqVr+z5BxoTBJaJKO1K4vSay2q8GFdQeJXv3hIGFjt6qRhMWY83N9DZy4dOGTdE12nrQYA6oHqM=
   - secure: BOTUCkJrvKXMnCAfZN6x+gKgCI+TGnUEy5H0DxJ+NrxWsFwFXUiPAGR5kRMnRnh1uQ72xURwid/3lMd0ARaX7ZiG2ThoaEceHF0BVDRcD5sXBYtFOJP7OTHkbklxy/RyUny/GTmgfZDF4bKJGSDrUNbXlE8yeDF4kDWlThDuEaAYAefTmnFTaSJNYqyDyJaWfD04dgZ/6tNINHvTZjGBtIt0WnBp+LC9D0YGNuqSfHhkxmsVcPI+6lWynnWG2yU0L1Euw+OgqFV6qv8K3UHftnEoClVRmcKUry+FR0wW6Ah7WLxnH3Bkqwg4kqbxi8NdGdxM2TtRwkEn4vt1sxH02uaLZasdbRsRIcuOJ9Zq42c61GB9o3riNp7gTtA7nqjqHGDJVyYkDaNMKK+91FHefagtgdU/htrLPX5CemPH21AmIU51OfVTd2mAEan343a62gk3zVOKv6gHgfqtoxMWWquQUqXHyMdyPQ5EJFLsnTSpdSV0SkSZO9Um+sQ+BRC3t7D5QaP3NLN2X4nEOqAOdfI4JzwZX7sREUugI87zbrRAAXi+KoO+mfmcywL7hegKquctxv2TBt3U+pmT1ieZacArjnK4iTKK7NXPIUXXu9Fy3pnO3DSwtWu/RhA96UmuJZyca1eI1bo0zwPGt4bfLJGFd25/O1ttM54Z7MvBvG8=
@@ -51,7 +50,6 @@ before_script:
     # of the pipeline
     if [ -n "$DOCKER_PASSWORD" ]; then
       echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-      EXTERNAL_PR=false
     else
       echo "Cannot login to Dockerhub, as this is an external PR. There is a risk that the build will fail due to rate limiting"
     fi
@@ -92,12 +90,12 @@ jobs:
       fi
   - name: "Acceptance tests (requiring docker to run)"
     stage: test
-    if: type != pull_request || EXTERNAL_PR == true
+    if: type != pull_request OR fork = true
     script: 
     - ./test/run.sh --acceptance-only || travis_terminate 1
   - name: "Acceptance tests for modules"
     stage: test
-    if: type != pull_request || EXTERNAL_PR == true
+    if: type != pull_request OR fork = true
     script:
     - ./test/run.sh --acceptance-module-tests-only || travis_terminate 1
   - name: "Push docker container"
