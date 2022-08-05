@@ -80,25 +80,6 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) pauseMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
-
-	g.Go(func() error {
-		return s.store.PauseCompaction(ctx)
-	})
-
-	g.Go(func() error {
-		return s.vectorIndex.PauseMaintenance(ctx)
-	})
-
-	if err := g.Wait(); err != nil {
-		return errors.Wrapf(err,
-			"failed to pause maintenance cycles for shard '%s'", s.name)
-	}
-
-	return nil
-}
-
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
 	var g errgroup.Group
 
