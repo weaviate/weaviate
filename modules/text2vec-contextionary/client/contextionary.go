@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -37,7 +38,9 @@ type Client struct {
 
 // NewClient from gRPC discovery url to connect to a remote contextionary service
 func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
-	conn, err := grpc.Dial(uri, grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
+	conn, err := grpc.Dial(uri,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
 	}
