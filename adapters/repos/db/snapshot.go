@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"golang.org/x/sync/errgroup"
@@ -36,12 +37,12 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	}
 
 	var (
-		snap = snapshots.New(id, time.Now(), i.Config.RootPath)
+		snap = snapshots.New(id, time.Now())
 		g    errgroup.Group
 	)
 
 	// preliminary write to persist a snapshot status of "started"
-	if err := snap.WriteToDisk(); err != nil {
+	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
@@ -56,31 +57,19 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	}
 
 	if err := g.Wait(); err != nil {
-		// TODO: restart all paused cycles here
-		//       once ReleaseSnapshot is impl,
-		//		 and store-level cycle-resume
-		//       methods are available
-		defer i.resetSnapshotState()
+		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
 		return nil, err
 	}
 
 	shardingState, err := i.marshalShardingState()
 	if err != nil {
-		// TODO: restart all paused cycles here
-		//       once ReleaseSnapshot is impl,
-		//		 and store-level cycle-resume
-		//       methods are available
-		defer i.resetSnapshotState()
+		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
 	schema, err := i.marshalSchema()
 	if err != nil {
-		// TODO: restart all paused cycles here
-		//       once ReleaseSnapshot is impl,
-		//		 and store-level cycle-resume
-		//       methods are available
-		defer i.resetSnapshotState()
+		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
@@ -90,12 +79,8 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	snap.Status = snapshots.StatusCreated
 	snap.CompletedAt = time.Now()
 
-	if err := snap.WriteToDisk(); err != nil {
-		// TODO: restart all paused cycles here
-		//       once ReleaseSnapshot is impl,
-		//		 and store-level cycle-resume
-		//       methods are available
-		defer i.resetSnapshotState()
+	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
+		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
 		return nil, err
 	}
 
@@ -106,17 +91,8 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 // async background and maintenance processes. It errors if the snapshot does not exist
 // or is already inactive.
 func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
-	var g errgroup.Group
-
-	for _, shard := range i.Shards {
-		s := shard
-		g.Go(func() error {
-			return s.releaseSnapshot(ctx)
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return errors.Wrap(err, "release snapshot")
+	if err := i.resumeMaintenanceCycles(ctx); err != nil {
+		return err
 	}
 
 	snap, err := snapshots.ReadFromDisk(id, i.Config.RootPath)
@@ -125,7 +101,7 @@ func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
 	}
 
 	snap.Status = snapshots.StatusReleased
-	if err := snap.WriteToDisk(); err != nil {
+	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
 		return errors.Wrap(err, "release snapshot")
 	}
 
@@ -152,10 +128,37 @@ func (i *Index) initSnapshot(id string) error {
 	return nil
 }
 
+func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, snap *snapshots.Snapshot, err error) error {
+	defer i.resetSnapshotState()
+
+	ec := errorcompounder.ErrorCompounder{}
+	ec.Add(err)
+	ec.Add(i.resumeMaintenanceCycles(ctx))
+	ec.Add(snap.RemoveFromDisk(i.Config.RootPath))
+	return ec.ToError()
+}
+
 func (i *Index) resetSnapshotState() {
 	i.snapshotStateLock.Lock()
 	defer i.snapshotStateLock.Unlock()
 	i.snapshotState = snapshots.State{InProgress: false}
+}
+
+func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {
+	var g errgroup.Group
+
+	for _, shard := range i.Shards {
+		s := shard
+		g.Go(func() error {
+			return s.resumeMaintenanceCycles(ctx)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return errors.Wrap(err, "resume maintenance cycles")
+	}
+
+	return nil
 }
 
 func (i *Index) marshalShardingState() ([]byte, error) {
