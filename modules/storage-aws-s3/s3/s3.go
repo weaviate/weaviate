@@ -39,14 +39,6 @@ type s3 struct {
 	dataPath string
 }
 
-func (s *s3) SetDataPath(dataPath string) {
-	s.dataPath = dataPath
-}
-
-func (s *s3) GetDataPath() string {
-	return s.dataPath
-}
-
 func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error) {
 	region := os.Getenv(AWS_REGION)
 	if len(region) == 0 {
