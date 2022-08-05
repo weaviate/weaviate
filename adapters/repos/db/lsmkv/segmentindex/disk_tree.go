@@ -94,20 +94,20 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 		return out, 0, io.EOF
 	}
 
-	bufferPos := uint32(0)
+	byteOps := byteOperations.ByteOperations{Buffer: in}
 
-	keyLen := byteOperations.ReadUint32(in, &bufferPos)
-	copiedBytes, err := byteOperations.CopyBytesFromBuffer(in, &bufferPos, keyLen)
+	keyLen := byteOps.ReadUint32()
+	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen)
 	if err != nil {
-		return out, int(bufferPos), errors.Wrap(err, "Could not copy node key")
+		return out, int(byteOps.Position), errors.Wrap(err, "Could not copy node key")
 	}
 	out.key = copiedBytes
 
-	out.startPos = byteOperations.ReadUint64(in, &bufferPos)
-	out.endPos = byteOperations.ReadUint64(in, &bufferPos)
-	out.leftChild = int64(byteOperations.ReadUint64(in, &bufferPos))
-	out.rightChild = int64(byteOperations.ReadUint64(in, &bufferPos))
-	return out, int(bufferPos), nil
+	out.startPos = byteOps.ReadUint64()
+	out.endPos = byteOps.ReadUint64()
+	out.leftChild = int64(byteOps.ReadUint64())
+	out.rightChild = int64(byteOps.ReadUint64())
+	return out, int(byteOps.Position), nil
 }
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {
