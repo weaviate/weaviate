@@ -34,6 +34,7 @@ type Compose struct {
 	enableModules           []string
 	defaultVectorizerModule string
 	withMinIO               bool
+	withGCS                 bool
 	withTransformers        bool
 	withContextionary       bool
 	withQnATransformers     bool
@@ -46,6 +47,11 @@ func New() *Compose {
 
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
+	return d
+}
+
+func (d *Compose) WithGCS() *Compose {
+	d.withGCS = true
 	return d
 }
 
@@ -91,6 +97,13 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startMinIO(ctx, networkName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
+		}
+		containers = append(containers, container)
+	}
+	if d.withGCS {
+		container, err := startGCS(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", GCS)
 		}
 		containers = append(containers, container)
 	}
