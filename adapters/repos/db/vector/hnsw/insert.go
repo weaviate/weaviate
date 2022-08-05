@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/pkg/errors"
@@ -97,7 +96,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
+	targetLevel := int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
