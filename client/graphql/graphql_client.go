@@ -46,9 +46,9 @@ type ClientService interface {
 }
 
 /*
-  GraphqlBatch gets a response based on graph q l
+GraphqlBatch gets a response based on graph q l
 
-  Perform a batched GraphQL query
+Perform a batched GraphQL query
 */
 func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
@@ -83,9 +83,9 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 }
 
 /*
-  GraphqlPost gets a response based on graph q l
+GraphqlPost gets a response based on graph q l
 
-  Get an object based on GraphQL
+Get an object based on GraphQL
 */
 func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending

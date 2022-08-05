@@ -66,7 +66,8 @@ func NewSchemaObjectsDeleteParamsWithHTTPClient(client *http.Client) *SchemaObje
 	}
 }
 
-/*SchemaObjectsDeleteParams contains all the parameters to send to the API endpoint
+/*
+SchemaObjectsDeleteParams contains all the parameters to send to the API endpoint
 for the schema objects delete operation typically these are written to a http.Request
 */
 type SchemaObjectsDeleteParams struct {

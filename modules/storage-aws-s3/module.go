@@ -33,6 +33,7 @@ type StorageS3Module struct {
 	logger          logrus.FieldLogger
 	storageProvider modulecapabilities.SnapshotStorage
 	config          s3.Config
+	dataPath        string
 }
 
 func New() *StorageS3Module {
@@ -51,6 +52,7 @@ func (m *StorageS3Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
+	m.dataPath = params.GetStorageProvider().DataPath()
 
 	if err := m.initSnapshotStorage(ctx); err != nil {
 		return errors.Wrap(err, "init snapshot storage")

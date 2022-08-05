@@ -75,7 +75,8 @@ func NewClassificationsPostCreated() *ClassificationsPostCreated {
 	return &ClassificationsPostCreated{}
 }
 
-/*ClassificationsPostCreated handles this case with default header values.
+/*
+ClassificationsPostCreated handles this case with default header values.
 
 Successfully started classification.
 */
@@ -108,7 +109,8 @@ func NewClassificationsPostBadRequest() *ClassificationsPostBadRequest {
 	return &ClassificationsPostBadRequest{}
 }
 
-/*ClassificationsPostBadRequest handles this case with default header values.
+/*
+ClassificationsPostBadRequest handles this case with default header values.
 
 Incorrect request
 */
@@ -141,7 +143,8 @@ func NewClassificationsPostUnauthorized() *ClassificationsPostUnauthorized {
 	return &ClassificationsPostUnauthorized{}
 }
 
-/*ClassificationsPostUnauthorized handles this case with default header values.
+/*
+ClassificationsPostUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -162,7 +165,8 @@ func NewClassificationsPostForbidden() *ClassificationsPostForbidden {
 	return &ClassificationsPostForbidden{}
 }
 
-/*ClassificationsPostForbidden handles this case with default header values.
+/*
+ClassificationsPostForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -195,7 +199,8 @@ func NewClassificationsPostInternalServerError() *ClassificationsPostInternalSer
 	return &ClassificationsPostInternalServerError{}
 }
 
-/*ClassificationsPostInternalServerError handles this case with default header values.
+/*
+ClassificationsPostInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -27,7 +27,8 @@ import (
 // SchemaObjectsGetOKCode is the HTTP code returned for type SchemaObjectsGetOK
 const SchemaObjectsGetOKCode int = 200
 
-/*SchemaObjectsGetOK Found the Class, returned as body
+/*
+SchemaObjectsGetOK Found the Class, returned as body
 
 swagger:response schemaObjectsGetOK
 */
@@ -71,7 +72,8 @@ func (o *SchemaObjectsGetOK) WriteResponse(rw http.ResponseWriter, producer runt
 // SchemaObjectsGetUnauthorizedCode is the HTTP code returned for type SchemaObjectsGetUnauthorized
 const SchemaObjectsGetUnauthorizedCode int = 401
 
-/*SchemaObjectsGetUnauthorized Unauthorized or invalid credentials.
+/*
+SchemaObjectsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsGetUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *SchemaObjectsGetUnauthorized) WriteResponse(rw http.ResponseWriter, pro
 // SchemaObjectsGetForbiddenCode is the HTTP code returned for type SchemaObjectsGetForbidden
 const SchemaObjectsGetForbiddenCode int = 403
 
-/*SchemaObjectsGetForbidden Forbidden
+/*
+SchemaObjectsGetForbidden Forbidden
 
 swagger:response schemaObjectsGetForbidden
 */
@@ -139,7 +142,8 @@ func (o *SchemaObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, produc
 // SchemaObjectsGetNotFoundCode is the HTTP code returned for type SchemaObjectsGetNotFound
 const SchemaObjectsGetNotFoundCode int = 404
 
-/*SchemaObjectsGetNotFound This class does not exist
+/*
+SchemaObjectsGetNotFound This class does not exist
 
 swagger:response schemaObjectsGetNotFound
 */
@@ -163,7 +167,8 @@ func (o *SchemaObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, produce
 // SchemaObjectsGetInternalServerErrorCode is the HTTP code returned for type SchemaObjectsGetInternalServerError
 const SchemaObjectsGetInternalServerErrorCode int = 500
 
-/*SchemaObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+SchemaObjectsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsGetInternalServerError
 */

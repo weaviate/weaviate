@@ -63,7 +63,8 @@ func NewGenesisPeersRegisterOK() *GenesisPeersRegisterOK {
 	return &GenesisPeersRegisterOK{}
 }
 
-/*GenesisPeersRegisterOK handles this case with default header values.
+/*
+GenesisPeersRegisterOK handles this case with default header values.
 
 Successfully registred the peer to the network.
 */
@@ -95,7 +96,8 @@ func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
 	return &GenesisPeersRegisterBadRequest{}
 }
 
-/*GenesisPeersRegisterBadRequest handles this case with default header values.
+/*
+GenesisPeersRegisterBadRequest handles this case with default header values.
 
 The weaviate peer is not reachable from the Gensis service.
 */
@@ -115,7 +117,8 @@ func NewGenesisPeersRegisterForbidden() *GenesisPeersRegisterForbidden {
 	return &GenesisPeersRegisterForbidden{}
 }
 
-/*GenesisPeersRegisterForbidden handles this case with default header values.
+/*
+GenesisPeersRegisterForbidden handles this case with default header values.
 
 You are not allowed on the network.
 */

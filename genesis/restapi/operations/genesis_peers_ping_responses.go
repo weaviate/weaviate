@@ -25,7 +25,8 @@ import (
 // GenesisPeersPingOKCode is the HTTP code returned for type GenesisPeersPingOK
 const GenesisPeersPingOKCode int = 200
 
-/*GenesisPeersPingOK Ping received
+/*
+GenesisPeersPingOK Ping received
 
 swagger:response genesisPeersPingOK
 */
@@ -47,7 +48,8 @@ func (o *GenesisPeersPingOK) WriteResponse(rw http.ResponseWriter, producer runt
 // GenesisPeersPingUnauthorizedCode is the HTTP code returned for type GenesisPeersPingUnauthorized
 const GenesisPeersPingUnauthorizedCode int = 401
 
-/*GenesisPeersPingUnauthorized Unauthorized or invalid credentials.
+/*
+GenesisPeersPingUnauthorized Unauthorized or invalid credentials.
 
 swagger:response genesisPeersPingUnauthorized
 */
@@ -69,7 +71,8 @@ func (o *GenesisPeersPingUnauthorized) WriteResponse(rw http.ResponseWriter, pro
 // GenesisPeersPingForbiddenCode is the HTTP code returned for type GenesisPeersPingForbidden
 const GenesisPeersPingForbiddenCode int = 403
 
-/*GenesisPeersPingForbidden The used API-key has insufficient permissions.
+/*
+GenesisPeersPingForbidden The used API-key has insufficient permissions.
 
 swagger:response genesisPeersPingForbidden
 */
@@ -91,7 +94,8 @@ func (o *GenesisPeersPingForbidden) WriteResponse(rw http.ResponseWriter, produc
 // GenesisPeersPingNotFoundCode is the HTTP code returned for type GenesisPeersPingNotFound
 const GenesisPeersPingNotFoundCode int = 404
 
-/*GenesisPeersPingNotFound Successful query result but no such peer was found.
+/*
+GenesisPeersPingNotFound Successful query result but no such peer was found.
 
 swagger:response genesisPeersPingNotFound
 */

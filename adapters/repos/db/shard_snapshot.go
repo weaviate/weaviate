@@ -1,8 +1,19 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package db
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
@@ -175,13 +186,13 @@ func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
 }
 
 func (s *Shard) readIndexCounter() ([]byte, error) {
-	return ioutil.ReadFile(s.counter.FileName())
+	return os.ReadFile(s.counter.FileName())
 }
 
 func (s *Shard) readPropLengthTracker() ([]byte, error) {
-	return ioutil.ReadFile(s.propLengths.FileName())
+	return os.ReadFile(s.propLengths.FileName())
 }
 
 func (s *Shard) readShardVersion() ([]byte, error) {
-	return ioutil.ReadFile(s.versioner.path)
+	return os.ReadFile(s.versioner.path)
 }
