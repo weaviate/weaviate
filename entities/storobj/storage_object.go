@@ -18,8 +18,6 @@ import (
 	"io"
 	"math"
 
-	"github.com/semi-technologies/weaviate/usecases/byteOperations"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -28,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/byte_operations"
 )
 
 type Object struct {
@@ -374,10 +373,10 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
 	byteBuffer := make([]byte, totalBufferLength)
-	byteBuffer[0] = ko.MarshallerVersion
-	binary.LittleEndian.PutUint64(byteBuffer[1:9], ko.docID)
-	byteBuffer[9] = kindByte
-	byteOps := byteOperations.ByteOperations{Position: 10, Buffer: byteBuffer}
+	byteOps := byte_operations.ByteOperations{Buffer: byteBuffer}
+	byteOps.WriteByte(ko.MarshallerVersion)
+	byteOps.WriteUint64(ko.docID)
+	byteOps.WriteByte(kindByte)
 
 	byteOps.CopyBytesToBuffer(idBytes)
 
@@ -386,10 +385,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	byteOps.WriteUint16(uint16(vectorLength))
 
 	for j := uint32(0); j < vectorLength; j++ {
-		start := byteOps.Position + j*4
-		binary.LittleEndian.PutUint32(byteBuffer[start:start+4], math.Float32bits(ko.Vector[j]))
+		byteOps.WriteUint32(math.Float32bits(ko.Vector[j]))
 	}
-	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
 	byteOps.WriteUint16(uint16(classNameLength))
 	err = byteOps.CopyBytesToBuffer(className)
@@ -426,7 +423,7 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 	}
 
 	startPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	byteOps := byteOperations.ByteOperations{Position: startPos, Buffer: data}
+	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := byteOps.ReadUint16()
 	byteOps.MoveBufferPositionForward(uint32(vectorLength) * 4)
@@ -453,7 +450,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	byteOps := byteOperations.ByteOperations{Position: 1, Buffer: data}
+	byteOps := byte_operations.ByteOperations{Position: 1, Buffer: data}
 	ko.docID = byteOps.ReadUint64()
 	byteOps.MoveBufferPositionForward(1) // kind-byte
 
@@ -468,11 +465,9 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 	vectorLength := byteOps.ReadUint16()
 	ko.Vector = make([]float32, vectorLength)
-	for j := uint32(0); j < uint32(vectorLength); j++ {
-		start := byteOps.Position + j*4
-		ko.Vector[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[start : start+4]))
+	for j := 0; j < int(vectorLength); j++ {
+		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())
 	}
-	byteOps.MoveBufferPositionForward(uint32(vectorLength * 4))
 
 	classNameLength := uint32(byteOps.ReadUint16())
 	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
