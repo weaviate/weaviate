@@ -13,7 +13,6 @@ package snapshots
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -81,7 +80,7 @@ func New(id string, startedAt time.Time, basePath string) *Snapshot {
 func ReadFromDisk(id, basePath string) (*Snapshot, error) {
 	snapPath := path.Join(basePath, "snapshots", id) + ".json"
 
-	contents, err := ioutil.ReadFile(snapPath)
+	contents, err := os.ReadFile(snapPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read snapshot from disk")
 	}
