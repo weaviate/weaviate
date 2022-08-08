@@ -14,6 +14,7 @@ package test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
@@ -23,11 +24,9 @@ import (
 
 func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	testdataMainDir := "./testData"
-
+	testDir := makeTestDir(t, testdataMainDir)
+	defer removeDir(t, testdataMainDir)
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		testDir := makeTestDir(t, testdataMainDir)
-		defer removeDir(t, testdataMainDir)
-
 		snapshot := createSnapshotInstance(t, testDir)
 		ctxSnapshot := context.Background()
 
@@ -44,4 +43,67 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
 		assert.Nil(t, err)
 	})
+
+	t.Run("restore snapshot in gcs", func(t *testing.T) {
+		ctxSnapshot := context.Background()
+
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+		os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
+		os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
+
+		gcsConfig := gcs.NewConfig("")
+		gcs, err := gcs.New(context.Background(), gcsConfig)
+		require.Nil(t, err)
+
+		// List all files in testDir
+		files, _ := os.ReadDir(testDir)
+
+		// Remove the files, ready for restore
+		for _, f := range files {
+			os.Remove(filepath.Join(testDir, f.Name()))
+			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
+		}
+
+		err = gcs.RestoreSnapshot(ctxSnapshot, "snapshot_id")
+		assert.Nil(t, err)
+
+		// Check that every file in the snapshot exists in testDir
+		for _, filePath := range files {
+			expectedFilePath := filepath.Join(testDir, filePath.Name())
+			assert.FileExists(t, expectedFilePath)
+		}
+	})
 }
+
+/*
+t.Run("restores snapshot data from S3", func(t *testing.T) {
+	ctxSnapshot := context.Background()
+
+	endpoint := os.Getenv(minioEndpoint)
+	s3Config := s3.NewConfig(endpoint, "bucket", false)
+	logger, _ := test.NewNullLogger()
+	path, _ := os.Getwd()
+	s3, err := s3.New(s3Config, logger, path)
+	require.Nil(t, err)
+
+	// List all files in testDir
+	files, _ := os.ReadDir(testDir)
+
+	// Remove the files, ready for restore
+	for _, f := range files {
+		os.Remove(filepath.Join(testDir, f.Name()))
+		assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
+	}
+
+	// Use the previous test snapshot to test the restore function
+	s3.RestoreSnapshot(ctxSnapshot, "snapshot_id")
+
+	assert.DirExists(t, path)
+
+	// Check that every file in the snapshot exists in testDir
+	for _, filePath := range files {
+		expectedFilePath := filepath.Join(testDir, filePath.Name())
+		assert.FileExists(t, expectedFilePath)
+	}
+})
+*/
