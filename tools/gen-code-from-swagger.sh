@@ -10,8 +10,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
 
 if [ ! -f $SWAGGER ]; then
-  GOARCH=$(go env GOARCH)
-  curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_$GOARCH
+  curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_amd64
   chmod +x $SWAGGER
 fi
 
@@ -29,7 +28,7 @@ fi
 (cd $DIR/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
-(cd $DIR/..; GO111MODULE=on go generate ./deprecations)
+(cd $DIR/..; go mod vendor; GO111MODULE=on go generate ./deprecations)
 
 echo Now add the header to the generated code too.
 (cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)
