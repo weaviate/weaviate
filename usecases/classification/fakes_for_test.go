@@ -160,7 +160,7 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 	class string, properties []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
-	panic("not implemented")
+	return []search.Result{}, nil
 }
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,

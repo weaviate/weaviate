@@ -204,24 +204,31 @@ func (c *Classifier) extractFilters(params models.Classification) (Filters, erro
 
 func (c *Classifier) validateFilters(params *models.Classification, filters *classificationFilters) (err error) {
 	if params.Type == TypeKNN {
-		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Source()); err != nil {
+		if err = c.validateFilter(filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %s", err)
 		}
-		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.TrainingSet()); err != nil {
+		if err = c.validateFilter(filters.TrainingSet()); err != nil {
 			return fmt.Errorf("invalid trainingSetWhere: %s", err)
 		}
 	}
 
-	if params.Type == TypeContextual {
-		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Source()); err != nil {
+	if params.Type == TypeContextual || params.Type == TypeZeroShot {
+		if err = c.validateFilter(filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %s", err)
 		}
-		if err = libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filters.Target()); err != nil {
+		if err = c.validateFilter(filters.Target()); err != nil {
 			return fmt.Errorf("invalid targetWhere: %s", err)
 		}
 	}
 
 	return
+}
+
+func (c *Classifier) validateFilter(filter *libfilters.LocalFilter) error {
+	if filter == nil {
+		return nil
+	}
+	return libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filter)
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

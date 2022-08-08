@@ -23,6 +23,7 @@ import (
 const (
 	TypeKNN        = "knn"
 	TypeContextual = "text2vec-contextionary-contextual"
+	TypeZeroShot   = "zeroshot"
 )
 
 type Validator struct {

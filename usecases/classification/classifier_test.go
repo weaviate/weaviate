@@ -519,6 +519,82 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 			assert.Error(t, err)
 			assert.True(t, strings.Contains(err.Error(), "invalid trainingSetWhere"))
 		})
+
+		t.Run("with only one of the where filters being set", func(t *testing.T) {
+			whereFilter := &models.WhereFilter{
+				Path:        []string{"id"},
+				Operator:    "Like",
+				ValueString: ptString("*"),
+			}
+			testData := []struct {
+				name                  string
+				classificationType    string
+				classificationFilters *models.ClassificationFilters
+			}{
+				{
+					name:               "Contextual only source where filter set",
+					classificationType: TypeContextual,
+					classificationFilters: &models.ClassificationFilters{
+						SourceWhere: whereFilter,
+					},
+				},
+				{
+					name:               "Contextual only target where filter set",
+					classificationType: TypeContextual,
+					classificationFilters: &models.ClassificationFilters{
+						TargetWhere: whereFilter,
+					},
+				},
+				{
+					name:               "ZeroShot only source where filter set",
+					classificationType: TypeZeroShot,
+					classificationFilters: &models.ClassificationFilters{
+						SourceWhere: whereFilter,
+					},
+				},
+				{
+					name:               "ZeroShot only target where filter set",
+					classificationType: TypeZeroShot,
+					classificationFilters: &models.ClassificationFilters{
+						TargetWhere: whereFilter,
+					},
+				},
+				{
+					name:               "KNN only source where filter set",
+					classificationType: TypeKNN,
+					classificationFilters: &models.ClassificationFilters{
+						SourceWhere: whereFilter,
+					},
+				},
+				{
+					name:               "KNN only training set where filter set",
+					classificationType: TypeKNN,
+					classificationFilters: &models.ClassificationFilters{
+						TrainingSetWhere: whereFilter,
+					},
+				},
+			}
+			for _, td := range testData {
+				t.Run(td.name, func(t *testing.T) {
+					params := models.Classification{
+						Class:              "Article",
+						BasedOnProperties:  []string{"description"},
+						ClassifyProperties: []string{"exactCategory", "mainCategory"},
+						Settings: map[string]interface{}{
+							"k": json.Number("1"),
+						},
+						Type:    td.classificationType,
+						Filters: td.classificationFilters,
+					}
+					class, err := classifier.Schedule(context.Background(), nil, params)
+					assert.Nil(t, err)
+					assert.NotNil(t, class)
+
+					assert.Len(t, class.ID, 36, "an id was assigned")
+					waitForStatusToNoLongerBeRunning(t, classifier, class.ID)
+				})
+			}
+		})
 	})
 }
 
