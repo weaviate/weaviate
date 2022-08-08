@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 
 	"cloud.google.com/go/storage"
@@ -79,7 +78,7 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
 	// Read file contents
-	content, err := ioutil.ReadAll(reader)
+	content, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
@@ -96,7 +95,7 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	}
 
 	// Write it to disk
-	if err := ioutil.WriteFile(targetPath, content, 0o644); err != nil {
+	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
 		return errors.Wrapf(err, "write file: %v", targetPath)
 	}
 	return nil
