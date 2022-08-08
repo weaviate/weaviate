@@ -15,6 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
 
 	"cloud.google.com/go/storage"
@@ -65,6 +67,98 @@ func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
 		return nil, errors.Wrap(err, "create client")
 	}
 	return &gcs{client, config, projectID, dataPath}, nil
+}
+
+func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
+	snapshotID, objectName string,
+) ([]byte, error) {
+	// Create bucket reader
+	obj := bucket.Object(objectName)
+	reader, err := obj.NewReader(ctx)
+	if err != nil {
+		return nil, errors.Wrapf(err, "new reader: %v", objectName)
+	}
+	// Read file contents
+	content, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read object: %v", objectName)
+	}
+	return content, nil
+}
+
+func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
+	snapshotID, objectName, targetPath string,
+) error {
+	// Get the file from the bucket
+	content, err := g.getObject(ctx, bucket, snapshotID, objectName)
+	if err != nil {
+		return errors.Wrapf(err, "get object: %v", objectName)
+	}
+
+	// Write it to disk
+	if err := ioutil.WriteFile(targetPath, content, 0o644); err != nil {
+		return errors.Wrapf(err, "write file: %v", targetPath)
+	}
+	return nil
+}
+
+func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+	bucketName := g.config.BucketName()
+	projectID := g.projectID
+	// Find bucket
+	bucketExists := false
+	it := g.client.Buckets(ctx, projectID)
+	for {
+		bucketAttrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return errors.Wrap(err, "list buckets")
+		}
+		if bucketAttrs.Name == bucketName {
+			bucketExists = true
+			break
+		}
+	}
+
+	// Bucket must exist to restore from it
+	if !bucketExists {
+		errors.New("snapshot bucket does not exist")
+	}
+	bucketHandle := g.client.Bucket(bucketName)
+
+	// Download metadata for snapshot
+	objectName := fmt.Sprintf("%s/snapshot.json", snapshotID)
+	reader, err := bucketHandle.Object(objectName).NewReader(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "new reader: %v", objectName)
+	}
+
+	// Fetch content
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return errors.Wrapf(err, "read object: %v", objectName)
+	}
+
+	// Unmarshal content into snapshot struct
+	var snapshot snapshots.Snapshot
+	if err := json.Unmarshal(content, &snapshot); err != nil {
+		return errors.Wrapf(err, "unmarshal snapshot: %v", objectName)
+	}
+
+	// download files listed in snapshot
+	for _, srcRelPath := range snapshot.Files {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrapf(err, "store snapshot aborted")
+		}
+		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
+		filePath := fmt.Sprintf("%s/%s", snapshot.BasePath, srcRelPath)
+		if err := g.saveFile(ctx, bucketHandle, snapshotID, objectName, filePath); err != nil {
+			return errors.Wrap(err, "put file")
+		}
+	}
+	return nil
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
@@ -137,8 +231,4 @@ func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
 	return nil
-}
-
-func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotId string) error {
-	panic("not implemented")
 }
