@@ -30,7 +30,7 @@ func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, snapshotId strin
 
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
 	config := gcs.NewConfig(os.Getenv(gcsBucket))
-	storageProvider, err := gcs.New(ctx, config)
+	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")
 	}

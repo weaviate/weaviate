@@ -196,6 +196,8 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 
 		err = idx.ResumeMaintenance(ctx)
 		assert.Nil(t, err)
+		assert.True(t, idx.tombstoneCleanupCycle.Running())
+		assert.True(t, idx.commitLog.MaintenanceInProgress())
 	})
 
 	err = idx.Shutdown(ctx)

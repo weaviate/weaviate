@@ -61,6 +61,25 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 	return nil
 }
 
+func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
+	var g errgroup.Group
+
+	g.Go(func() error {
+		return s.store.ResumeCompaction(ctx)
+	})
+
+	g.Go(func() error {
+		return s.vectorIndex.ResumeMaintenance(ctx)
+	})
+
+	if err := g.Wait(); err != nil {
+		return errors.Wrapf(err,
+			"failed to resume maintenance cycles for shard '%s'", s.name)
+	}
+
+	return nil
+}
+
 func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
 	var g errgroup.Group
 

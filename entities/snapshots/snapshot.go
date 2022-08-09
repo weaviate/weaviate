@@ -29,6 +29,17 @@ const (
 	StatusReleased Status = "released"
 )
 
+type State struct {
+	SnapshotID string
+	InProgress bool
+}
+
+type ShardMetadata struct {
+	DocIDCounter      []byte `json:"docIdCounter"`
+	PropLengthTracker []byte `json:"propLengthTracker"`
+	ShardVersion      []byte `json:"shardVersion"`
+}
+
 type Snapshot struct {
 	StartedAt   time.Time `json:"startedAt"`
 	CompletedAt time.Time `json:"completedAt"`
@@ -36,7 +47,6 @@ type Snapshot struct {
 	ID            string                    `json:"id"`
 	Status        Status                    `json:"status"`
 	Files         []string                  `json:"files"`
-	BasePath      string                    `json:"basePath"`
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
 	Schema        []byte                    `json:"schema"`
@@ -46,19 +56,27 @@ type Snapshot struct {
 	sync.Mutex `json:"-"`
 }
 
-func (snap *Snapshot) WriteToDisk() error {
+func New(id string, startedAt time.Time) *Snapshot {
+	return &Snapshot{
+		ID:            id,
+		Status:        StatusStarted,
+		StartedAt:     startedAt,
+		ShardMetadata: make(map[string]*ShardMetadata),
+	}
+}
+
+func (snap *Snapshot) WriteToDisk(basePath string) error {
 	b, err := json.Marshal(snap)
 	if err != nil {
 		return errors.Wrap(err, "write snapshot to disk")
 	}
 
-	snapPath := path.Join(snap.BasePath, "snapshots")
+	snapPath := BuildSnapshotPath(snap.ID, basePath)
 
-	if err := os.MkdirAll(snapPath, os.ModePerm); err != nil {
+	// ensure that the snapshot directory exists
+	if err := os.MkdirAll(path.Dir(snapPath), os.ModePerm); err != nil {
 		return errors.Wrap(err, "write snapshot to disk")
 	}
-
-	snapPath = path.Join(snapPath, snap.ID) + ".json"
 
 	if err := os.WriteFile(snapPath, b, os.ModePerm); err != nil {
 		return errors.Wrap(err, "write snapshot to disk")
@@ -67,18 +85,19 @@ func (snap *Snapshot) WriteToDisk() error {
 	return nil
 }
 
-func New(id string, startedAt time.Time, basePath string) *Snapshot {
-	return &Snapshot{
-		ID:            id,
-		Status:        StatusStarted,
-		StartedAt:     startedAt,
-		BasePath:      basePath,
-		ShardMetadata: make(map[string]*ShardMetadata),
+func (snap *Snapshot) RemoveFromDisk(basePath string) error {
+	snapPath := BuildSnapshotPath(snap.ID, basePath)
+
+	if err := os.Remove(snapPath); err != nil {
+		return errors.Wrapf(err,
+			"failed to remove snapshot from disk, at %s", snapPath)
 	}
+
+	return nil
 }
 
 func ReadFromDisk(id, basePath string) (*Snapshot, error) {
-	snapPath := path.Join(basePath, "snapshots", id) + ".json"
+	snapPath := BuildSnapshotPath(id, basePath)
 
 	contents, err := os.ReadFile(snapPath)
 	if err != nil {
@@ -87,28 +106,13 @@ func ReadFromDisk(id, basePath string) (*Snapshot, error) {
 
 	var snap Snapshot
 	if err := json.Unmarshal(contents, &snap); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal snapshot disk contents")
+		return nil, errors.Wrap(err,
+			"failed to unmarshal snapshot disk contents")
 	}
 
 	return &snap, nil
 }
 
-type ShardMetadata struct {
-	DocIDCounter      []byte `json:"docIdCounter"`
-	PropLengthTracker []byte `json:"propLengthTracker"`
-	ShardVersion      []byte `json:"shardVersion"`
+func BuildSnapshotPath(id, basePath string) string {
+	return path.Join(basePath, "snapshots", id) + ".json"
 }
-
-type State struct {
-	SnapshotID string
-	InProgress bool
-}
-
-// type Backup struct {
-// 	Events []BackupEvent
-// }
-
-// type BackupEvent struct {
-// 	Time time.Time
-// 	Msg  string
-// }

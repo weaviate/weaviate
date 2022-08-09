@@ -18,11 +18,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -114,7 +116,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			})
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snapPath := path.Join(snap.BasePath, "snapshots", snap.ID) + ".json"
+				snapPath := snapshots.BuildSnapshotPath(snap.ID, index.Config.RootPath)
 
 				contents, err := ioutil.ReadFile(snapPath)
 				require.Nil(t, err)
@@ -178,6 +180,11 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		// not blocked
 		assert.False(t, index.snapshotState.InProgress)
 		assert.Empty(t, index.snapshotState.SnapshotID)
+
+		snapPath := snapshots.BuildSnapshotPath(snapshotID, index.Config.RootPath)
+		_, err = os.Stat(snapPath)
+		expectedErr := &fs.PathError{Op: "stat", Path: snapPath, Err: syscall.ENOENT}
+		assert.Equal(t, err, expectedErr)
 
 		t.Run("cleanup", func(t *testing.T) {
 			err := index.Shutdown(ctx)

@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"encoding/json"
 	"fmt"
 
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -29,27 +28,14 @@ type schemaManager interface {
 	GetSchemaSkipAuth() schema.Schema
 }
 
-type swaggerJSON struct {
-	Info struct {
-		Version string `json:"version"`
-	} `json:"info"`
-}
-
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
 	schemaManager schemaManager, modulesProvider ModulesProvider,
 ) {
-	var swj swaggerJSON
-	err := json.Unmarshal(SwaggerJSON, &swj)
-	if err != nil {
-		panic(err)
-	}
-
-	// this is a good time for us to set ServerVersion,
-	// so that the spec only needs to be parsed once.
-	config.ServerVersion = swj.Info.Version
-
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
-		metaInfos := map[string]interface{}{}
+		var (
+			metaInfos = map[string]interface{}{}
+			err       error
+		)
 
 		if modulesProvider != nil {
 			metaInfos, err = modulesProvider.GetMeta()
@@ -60,7 +46,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 
 		res := &models.Meta{
 			Hostname: serverConfig.GetHostAddress(),
-			Version:  swj.Info.Version,
+			Version:  config.ServerVersion,
 			Modules:  metaInfos,
 		}
 		return meta.NewMetaGetOK().WithPayload(res)

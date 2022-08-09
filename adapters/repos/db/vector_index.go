@@ -33,4 +33,5 @@ type VectorIndex interface {
 	PauseMaintenance(ctx context.Context) error
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context) ([]string, error)
+	ResumeMaintenance(ctx context.Context) error
 }
