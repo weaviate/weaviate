@@ -30,6 +30,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 	os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
 	os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
+	path, _ := os.Getwd()
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
@@ -49,7 +50,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		ctxSnapshot := context.Background()
 
 		gcsConfig := gcs.NewConfig("")
-		gcs, err := gcs.New(context.Background(), gcsConfig)
+		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
 		// List all files in testDir
