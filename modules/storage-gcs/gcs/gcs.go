@@ -152,7 +152,7 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
 			return errors.Wrapf(err, "store snapshot aborted")
 		}
 		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
+		filePath := fmt.Sprintf("%s/%s", g.dataPath, srcRelPath)
 		if err := g.saveFile(ctx, bucketHandle, snapshotID, objectName, filePath); err != nil {
 			return errors.Wrap(err, "put file")
 		}
@@ -198,6 +198,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		if err != nil {
 			return errors.Wrapf(err, "read file: %v", filePath)
 		}
+
 		if err := g.putFile(ctx, bucketHandle, snapshotID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
