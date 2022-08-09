@@ -26,13 +26,14 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	testdataMainDir := "./testData"
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
+
+	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
+	os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
+
 	t.Run("store snapshot in gcs", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
 		ctxSnapshot := context.Background()
-
-		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-		os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
-		os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
 
 		gcsConfig := gcs.NewConfig("")
 		path, _ := os.Getwd()
@@ -46,10 +47,6 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 
 	t.Run("restore snapshot in gcs", func(t *testing.T) {
 		ctxSnapshot := context.Background()
-
-		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-		os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
-		os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
 
 		gcsConfig := gcs.NewConfig("")
 		gcs, err := gcs.New(context.Background(), gcsConfig)
