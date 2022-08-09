@@ -28,15 +28,15 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
+	os.Setenv("AWS_REGION", "eu-west-1")
+	os.Setenv("AWS_ACCESS_KEY", "aws_access_key")
+	os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
+
 	t.Run("store snapshot in s3", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
 		ctxSnapshot := context.Background()
 
 		logger, _ := test.NewNullLogger()
-
-		os.Setenv("AWS_REGION", "eu-west-1")
-		os.Setenv("AWS_ACCESS_KEY", "aws_access_key")
-		os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
 
 		endpoint := os.Getenv(minioEndpoint)
 		s3Config := s3.NewConfig(endpoint, "bucket", false)
