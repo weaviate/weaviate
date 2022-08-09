@@ -198,6 +198,11 @@ func TestSnapshot_ResumeCompaction(t *testing.T) {
 
 		err = b.ResumeCompaction(ctx)
 		assert.Nil(t, err)
+
+		t.Run("assert cycle restarts", func(t *testing.T) {
+			assert.True(t, b.flushCycle.Running())
+			assert.True(t, b.disk.compactionCycle.Running())
+		})
 	})
 
 	err = b.Shutdown(context.Background())

@@ -568,3 +568,7 @@ func (l *hnswCommitLogger) Flush() error {
 
 	return l.commitLogger.Flush()
 }
+
+func (l *hnswCommitLogger) MaintenanceInProgress() bool {
+	return l.condenseCycle.Running() && l.switchLogCycle.Running()
+}

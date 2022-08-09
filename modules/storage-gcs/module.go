@@ -31,6 +31,7 @@ type StorageGCSModule struct {
 	logger          logrus.FieldLogger
 	storageProvider modulecapabilities.SnapshotStorage
 	config          gcs.Config
+	dataPath        string
 }
 
 func New() *StorageGCSModule {
@@ -49,6 +50,7 @@ func (m *StorageGCSModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
+	m.dataPath = params.GetStorageProvider().DataPath()
 
 	if err := m.initSnapshotStorage(ctx); err != nil {
 		return errors.Wrap(err, "init snapshot storage")

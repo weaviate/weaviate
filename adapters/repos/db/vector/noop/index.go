@@ -71,3 +71,7 @@ func (i *Index) SwitchCommitLogs(context.Context) error {
 func (i *Index) ListFiles(context.Context) ([]string, error) {
 	return nil, nil
 }
+
+func (i *Index) ResumeMaintenance(context.Context) error {
+	return nil
+}

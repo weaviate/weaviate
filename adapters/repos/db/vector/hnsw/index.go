@@ -140,6 +140,7 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
+	MaintenanceInProgress() bool
 }
 
 type BufferedLinksLogger interface {
