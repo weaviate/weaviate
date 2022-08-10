@@ -27,10 +27,12 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-	os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id")
-	os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint))
-	path, _ := os.Getwd()
+	require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
+	require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
+	require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint)))
+
+	path, err := os.Getwd()
+	require.Nil(t, err)
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
@@ -70,5 +72,47 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 			expectedFilePath := filepath.Join(testDir, filePath.Name())
 			assert.FileExists(t, expectedFilePath)
 		}
+	})
+}
+
+func Test_GCSStorage_MetaStatus(t *testing.T) {
+	testdataMainDir := "./testData"
+	testDir := makeTestDir(t, testdataMainDir)
+	defer removeDir(t, testdataMainDir)
+
+	require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
+	require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
+	require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint)))
+
+	gcsConfig := gcs.NewConfig("")
+	path, err := os.Getwd()
+	require.Nil(t, err)
+
+	t.Run("store snapshot in gcs", func(t *testing.T) {
+		snapshot := createSnapshotInstance(t, testDir)
+		ctxSnapshot := context.Background()
+
+		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		require.Nil(t, err)
+
+		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
+		assert.Nil(t, err)
+	})
+
+	t.Run("set snapshot status", func(t *testing.T) {
+		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		require.Nil(t, err)
+
+		err = gcs.SetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id", "STARTED")
+		assert.Nil(t, err)
+	})
+
+	t.Run("get snapshot status", func(t *testing.T) {
+		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		require.Nil(t, err)
+
+		status, err := gcs.GetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id")
+		assert.Nil(t, err)
+		assert.Equal(t, "STARTED", status)
 	})
 }

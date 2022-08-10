@@ -28,9 +28,9 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	os.Setenv("AWS_REGION", "eu-west-1")
-	os.Setenv("AWS_ACCESS_KEY", "aws_access_key")
-	os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
+	require.Nil(t, os.Setenv("AWS_REGION", "eu-west-1"))
+	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
+	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
@@ -78,5 +78,48 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 			expectedFilePath := filepath.Join(testDir, filePath.Name())
 			assert.FileExists(t, expectedFilePath)
 		}
+	})
+}
+
+func Test_S3Storage_MetaStatus(t *testing.T) {
+	testdataMainDir := "./testData"
+	testDir := makeTestDir(t, testdataMainDir)
+	defer removeDir(t, testdataMainDir)
+
+	require.Nil(t, os.Setenv("AWS_REGION", "eu-west-1"))
+	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
+	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
+
+	endpoint := os.Getenv(minioEndpoint)
+	s3Config := s3.NewConfig(endpoint, "bucket", false)
+	logger, _ := test.NewNullLogger()
+	path, _ := os.Getwd()
+
+	t.Run("store snapshot in gcs", func(t *testing.T) {
+		snapshot := createSnapshotInstance(t, testDir)
+		ctxSnapshot := context.Background()
+
+		s3, err := s3.New(s3Config, logger, path)
+		require.Nil(t, err)
+
+		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
+		assert.Nil(t, err)
+	})
+
+	t.Run("set snapshot status", func(t *testing.T) {
+		s3, err := s3.New(s3Config, logger, path)
+		require.Nil(t, err)
+
+		err = s3.SetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id", "STARTED")
+		assert.Nil(t, err)
+	})
+
+	t.Run("get snapshot status", func(t *testing.T) {
+		s3, err := s3.New(s3Config, logger, path)
+		require.Nil(t, err)
+
+		status, err := s3.GetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id")
+		assert.Nil(t, err)
+		assert.Equal(t, "STARTED", status)
 	})
 }

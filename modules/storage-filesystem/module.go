@@ -69,6 +69,14 @@ func (m *StorageFileSystemModule) MetaInfo() (map[string]interface{}, error) {
 	return metaInfo, nil
 }
 
+func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	return nil
+}
+
+func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	return "", nil
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())

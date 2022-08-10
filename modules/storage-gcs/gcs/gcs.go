@@ -101,7 +101,7 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil || bucket == nil {
 		return errors.Wrap(err, "snapshot bucket does not exist")
@@ -133,7 +133,7 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
 		}
 		objectName := makeObjectName(className, snapshotID, srcRelPath)
 		filePath := makeFilePath(g.dataPath, srcRelPath)
-		if err := g.saveFile(ctx, bucketHandle, snapshotID, objectName, filePath); err != nil {
+		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
 			return errors.Wrap(err, "put file")
 		}
 	}
@@ -165,7 +165,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 			return errors.Wrapf(err, "read file: %v", filePath)
 		}
 
-		if err := g.putFile(ctx, bucket, snapshotID, objectName, content); err != nil {
+		if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
 	}
@@ -175,25 +175,58 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		return errors.Wrapf(err, "marshal meta")
 	}
 	objectName := makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
-	if err := g.putFile(ctx, bucketHandle, snapshot.ID, objectName, content); err != nil {
+	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
 		return errors.Wrap(err, "put file")
 	}
 	return nil
 }
 
+func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, "get snapshot status")
+	}
+
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
+	if err != nil {
+		return "", errors.Wrap(err, "get snapshot status")
+	}
+
+	var snapshot snapshots.Snapshot
+	err = json.Unmarshal(contents, &snapshot)
+	if err != nil {
+		return "", errors.Wrap(err, "get snapshot status")
+	}
+
+	return string(snapshot.Status), nil
+}
+
 func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "set snapshot status for snapshot '%s'",
-			path.Join(className, snapshotID))
+		return errors.Wrap(err, "set snapshot status")
 	}
 
-	contents, err := g.getObject(ctx, bucket, snapshotID, object)
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
 	if err != nil {
-		return errors.Wrapf(err, "set snapshot status for snapshot '%s'",
-			path.Join(className, snapshotID))
+		return errors.Wrap(err, "set snapshot status")
 	}
-	return nil
+
+	var snapshot snapshots.Snapshot
+	err = json.Unmarshal(contents, &snapshot)
+	if err != nil {
+		return errors.Wrap(err, "set snapshot status")
+	}
+
+	snapshot.Status = snapshots.Status(status)
+	b, err := json.Marshal(&snapshot)
+	if err != nil {
+		return errors.Wrap(err, "set snapshot status")
+	}
+
+	return g.putFile(ctx, bucket, snapshotID, objectName, b)
 }
 
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
