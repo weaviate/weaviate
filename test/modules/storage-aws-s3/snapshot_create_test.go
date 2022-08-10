@@ -68,7 +68,8 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		}
 
 		// Use the previous test snapshot to test the restore function
-		s3.RestoreSnapshot(ctxSnapshot, "snapshot_id")
+		// TODO adjust for className
+		s3.RestoreSnapshot(ctxSnapshot, "className", "snapshot_id")
 
 		assert.DirExists(t, path)
 
