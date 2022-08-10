@@ -101,35 +101,15 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
-	bucketName := g.config.BucketName()
-	projectID := g.projectID
-	// Find bucket
-	bucketExists := false
-	it := g.client.Buckets(ctx, projectID)
-	for {
-		bucketAttrs, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return errors.Wrap(err, "list buckets")
-		}
-		if bucketAttrs.Name == bucketName {
-			bucketExists = true
-			break
-		}
+func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+	bucket, err := g.findBucket(ctx)
+	if err != nil || bucket == nil {
+		return errors.Wrap(err, "snapshot bucket does not exist")
 	}
-
-	// Bucket must exist to restore from it
-	if !bucketExists {
-		return errors.New("snapshot bucket does not exist")
-	}
-	bucketHandle := g.client.Bucket(bucketName)
 
 	// Download metadata for snapshot
 	objectName := makeObjectName(className, snapshotID, "snapshot.json")
-	reader, err := bucketHandle.Object(objectName).NewReader(ctx)
+	reader, err := bucket.Object(objectName).NewReader(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "new reader: %v", objectName)
 	}
@@ -161,31 +141,18 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
-	bucketName := g.config.BucketName()
-	projectID := g.projectID
-	// create bucket
-	bucketExists := false
-	it := g.client.Buckets(ctx, projectID)
-	for {
-		bucketAttrs, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return err
+	}
+
+	if bucket == nil {
+		bucket, err = g.createBucket(ctx)
 		if err != nil {
-			return errors.Wrap(err, "list buckets")
-		}
-		if bucketAttrs.Name == bucketName {
-			bucketExists = true
-			break
+			return err
 		}
 	}
-	if !bucketExists {
-		err := g.client.Bucket(bucketName).Create(ctx, projectID, nil)
-		if err != nil {
-			return errors.Wrap(err, "create bucket")
-		}
-	}
-	bucketHandle := g.client.Bucket(bucketName)
+
 	// save files
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
@@ -198,7 +165,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 			return errors.Wrapf(err, "read file: %v", filePath)
 		}
 
-		if err := g.putFile(ctx, bucketHandle, snapshot.ID, objectName, content); err != nil {
+		if err := g.putFile(ctx, bucket, snapshotID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
 	}
@@ -210,6 +177,21 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	objectName := makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
 	if err := g.putFile(ctx, bucketHandle, snapshot.ID, objectName, content); err != nil {
 		return errors.Wrap(err, "put file")
+	}
+	return nil
+}
+
+func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "set snapshot status for snapshot '%s'",
+			path.Join(className, snapshotID))
+	}
+
+	contents, err := g.getObject(ctx, bucket, snapshotID, object)
+	if err != nil {
+		return errors.Wrapf(err, "set snapshot status for snapshot '%s'",
+			path.Join(className, snapshotID))
 	}
 	return nil
 }
@@ -230,6 +212,42 @@ func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
 	return nil
+}
+
+func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
+	var (
+		bucketName   = g.config.BucketName()
+		projectID    = g.projectID
+		bucketExists bool
+	)
+
+	for it := g.client.Buckets(ctx, projectID); ; {
+		bucketAttrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "find bucket")
+		}
+		if bucketAttrs.Name == bucketName {
+			bucketExists = true
+			break
+		}
+	}
+
+	if !bucketExists {
+		return nil, nil
+	}
+
+	return g.client.Bucket(bucketName), nil
+}
+
+func (g *gcs) createBucket(ctx context.Context) (*storage.BucketHandle, error) {
+	err := g.client.Bucket(g.config.BucketName()).Create(ctx, g.projectID, nil)
+	if err != nil {
+		return nil, errors.Wrap(err, "create bucket")
+	}
+	return g.client.Bucket(g.config.BucketName()), nil
 }
 
 func makeObjectName(parts ...string) string {

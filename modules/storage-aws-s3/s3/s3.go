@@ -148,6 +148,10 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 	return nil
 }
 
+func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	return nil
+}
+
 func makeObjectName(parts ...string) string {
 	return path.Join(parts...)
 }
