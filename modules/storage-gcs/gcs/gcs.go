@@ -14,9 +14,9 @@ package gcs
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
+	"path"
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
@@ -101,7 +101,7 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	bucketName := g.config.BucketName()
 	projectID := g.projectID
 	// Find bucket
@@ -123,12 +123,12 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
 
 	// Bucket must exist to restore from it
 	if !bucketExists {
-		errors.New("snapshot bucket does not exist")
+		return errors.New("snapshot bucket does not exist")
 	}
 	bucketHandle := g.client.Bucket(bucketName)
 
 	// Download metadata for snapshot
-	objectName := fmt.Sprintf("%s/snapshot.json", snapshotID)
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
 	reader, err := bucketHandle.Object(objectName).NewReader(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "new reader: %v", objectName)
@@ -151,8 +151,8 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
 		if err := ctx.Err(); err != nil {
 			return errors.Wrapf(err, "store snapshot aborted")
 		}
-		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", g.dataPath, srcRelPath)
+		objectName := makeObjectName(className, snapshotID, srcRelPath)
+		filePath := makeFilePath(g.dataPath, srcRelPath)
 		if err := g.saveFile(ctx, bucketHandle, snapshotID, objectName, filePath); err != nil {
 			return errors.Wrap(err, "put file")
 		}
@@ -182,24 +182,23 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	if !bucketExists {
 		err := g.client.Bucket(bucketName).Create(ctx, projectID, nil)
 		if err != nil {
-			errors.Wrap(err, "create bucket")
+			return errors.Wrap(err, "create bucket")
 		}
 	}
 	bucketHandle := g.client.Bucket(bucketName)
 	// save files
-	snapshotID := snapshot.ID
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "store snapshot aborted")
+			return errors.Wrap(err, "store snapshot aborted")
 		}
-		objectName := fmt.Sprintf("%s/%s", snapshotID, srcRelPath)
-		filePath := fmt.Sprintf("%s/%s", g.dataPath, srcRelPath)
+		objectName := makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
+		filePath := makeFilePath(g.dataPath, srcRelPath)
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return errors.Wrapf(err, "read file: %v", filePath)
 		}
 
-		if err := g.putFile(ctx, bucketHandle, snapshotID, objectName, content); err != nil {
+		if err := g.putFile(ctx, bucketHandle, snapshot.ID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
 	}
@@ -208,8 +207,8 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	if err != nil {
 		return errors.Wrapf(err, "marshal meta")
 	}
-	objectName := fmt.Sprintf("%s/snapshot.json", snapshotID)
-	if err := g.putFile(ctx, bucketHandle, snapshotID, objectName, content); err != nil {
+	objectName := makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
+	if err := g.putFile(ctx, bucketHandle, snapshot.ID, objectName, content); err != nil {
 		return errors.Wrap(err, "put file")
 	}
 	return nil
@@ -231,4 +230,12 @@ func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
 	return nil
+}
+
+func makeObjectName(parts ...string) string {
+	return path.Join(parts...)
+}
+
+func makeFilePath(parts ...string) string {
+	return path.Join(parts...)
 }

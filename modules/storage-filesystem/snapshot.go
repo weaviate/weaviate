@@ -49,12 +49,12 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, snapshotId string) error {
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "restore snapshot aborted, invalid context")
 	}
 
-	metaPath := m.makeMetaFilePath(snapshotId)
+	metaPath := m.makeMetaFilePath(snapshotID)
 
 	metaData, err := os.ReadFile(metaPath)
 	if err != nil {
@@ -69,7 +69,7 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, snapshotI
 		if err := ctx.Err(); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state")
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(snapshotId), srcRelPath); err != nil {
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(snapshotID), srcRelPath); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}

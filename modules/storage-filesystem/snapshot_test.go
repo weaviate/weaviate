@@ -126,7 +126,8 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		}
 
 		// Use the previous test snapshot to test the restore function
-		module.RestoreSnapshot(ctxSnapshot, "snapshot_id")
+		err := module.RestoreSnapshot(ctxSnapshot, "temp", "snapshot_id")
+		assert.Nil(t, err)
 
 		assert.DirExists(t, module.dataPath)
 
