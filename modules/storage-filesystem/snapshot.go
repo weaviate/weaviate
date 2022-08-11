@@ -49,12 +49,13 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, snapshotId string) error {
+// TODO handle className
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "restore snapshot aborted, invalid context")
 	}
 
-	metaPath := m.makeMetaFilePath(snapshotId)
+	metaPath := m.makeMetaFilePath(snapshotID)
 
 	metaData, err := os.ReadFile(metaPath)
 	if err != nil {
@@ -69,11 +70,26 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, snapshotI
 		if err := ctx.Err(); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state")
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(snapshotId), srcRelPath); err != nil {
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(snapshotID), srcRelPath); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}
 	return nil
+}
+
+func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
 }
 
 func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {

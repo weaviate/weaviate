@@ -25,8 +25,20 @@ func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *snapshots
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, snapshotId string) error {
-	return m.storageProvider.RestoreSnapshot(ctx, snapshotId)
+func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
+}
+
+func (m *StorageS3Module) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
+}
+
+func (m *StorageS3Module) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+}
+
+func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
+	return m.storageProvider.DestinationPath(className, snapshotID)
 }
 
 func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
