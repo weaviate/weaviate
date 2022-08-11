@@ -112,21 +112,10 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		return errors.Wrap(err, "can't connect to bucket")
 	}
 
-	objectName := makeObjectName(className, snapshotID, "snapshot.json")
-
 	// Load the metadata from the backup into a snapshot struct
-	var snapshot snapshots.Snapshot
-	val, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
+	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
 	if err != nil {
-		return errors.Wrapf(err, "get file %s", objectName)
-	}
-	data, err := io.ReadAll(val)
-	if err != nil {
-		return errors.Wrapf(err, "read file %s", objectName)
-	}
-	err = json.Unmarshal(data, &snapshot)
-	if err != nil {
-		return errors.Wrapf(err, "unmarshal meta")
+		return errors.Wrap(err, "restore snapshot")
 	}
 
 	// Restore the files
@@ -148,25 +137,69 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 	return nil
 }
 
+func (s *s3) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
+	if err != nil {
+		return "", errors.Wrap(err, "get snapshot status")
+	}
+
+	return string(snapshot.Status), nil
+}
+
+func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
+	if err != nil {
+		return errors.Wrap(err, "set snapshot status")
+	}
+
+	snapshot.Status = snapshots.Status(status)
+	contents, err := json.Marshal(&snapshot)
+	if err != nil {
+		return errors.Wrapf(err, "save meta")
+	}
+
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	reader := bytes.NewReader(contents)
+	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+
+	_, err = s.client.PutObject(ctx, s.config.BucketName(), objectName, reader, reader.Size(), putOptions)
+	if err != nil {
+		return errors.Wrapf(err, "put file %s", objectName)
+	}
+
+	return nil
+}
+
+func (s *s3) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
+}
+
+func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	obj, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, errors.Wrapf(err, "get file %s", objectName)
+	}
+
+	data, err := io.ReadAll(obj)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read file %s", objectName)
+	}
+
+	var snapshot snapshots.Snapshot
+	err = json.Unmarshal(data, &snapshot)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unmarshal meta")
+	}
+
+	return &snapshot, nil
+}
+
 func makeObjectName(parts ...string) string {
 	return path.Join(parts...)
 }
 
 func makeFilePath(parts ...string) string {
 	return path.Join(parts...)
-}
-
-func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	// TODO implement
-	return nil
-}
-
-func (s *s3) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	// TODO implement
-	return "", nil
-}
-
-func (s *s3) DestinationPath(className, snapshotID string) string {
-	// TODO implement
-	return ""
 }
