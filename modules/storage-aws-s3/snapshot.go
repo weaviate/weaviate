@@ -37,6 +37,10 @@ func (m *StorageS3Module) GetMetaStatus(ctx context.Context, className, snapshot
 	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
 }
 
+func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
+	return m.storageProvider.DestinationPath(className, snapshotID)
+}
+
 func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
 	endpoint := os.Getenv(s3Endpoint)
 	bucketName := os.Getenv(s3Bucket)

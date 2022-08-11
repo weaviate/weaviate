@@ -49,6 +49,7 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
+// TODO handle className
 func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "restore snapshot aborted, invalid context")
@@ -74,6 +75,21 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 		}
 	}
 	return nil
+}
+
+func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
 }
 
 func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {

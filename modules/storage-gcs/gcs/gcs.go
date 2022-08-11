@@ -229,6 +229,11 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 	return g.putFile(ctx, bucket, snapshotID, objectName, b)
 }
 
+func (g *gcs) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
+}
+
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 	snapshotID, objectName string, content []byte,
 ) error {
