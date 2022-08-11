@@ -62,8 +62,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
 		}
 
-		// TODO adjust for className
-		err = gcs.RestoreSnapshot(ctxSnapshot, "className", "snapshot_id")
+		err = gcs.RestoreSnapshot(ctxSnapshot, "SnapshotClass", "snapshot_id")
 		assert.Nil(t, err)
 
 		// Check that every file in the snapshot exists in testDir

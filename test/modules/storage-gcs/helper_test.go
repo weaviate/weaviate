@@ -48,6 +48,7 @@ func createSnapshotInstance(t *testing.T, dirPath string) *snapshots.Snapshot {
 
 	return &snapshots.Snapshot{
 		ID:          "snapshot_id",
+		ClassName:   "SnapshotClass",
 		StartedAt:   startedAt,
 		CompletedAt: time.Now(),
 		Files:       filePaths,

@@ -45,6 +45,7 @@ type Snapshot struct {
 	CompletedAt time.Time `json:"completedAt"`
 
 	ID            string                    `json:"id"`
+	ClassName     string                    `json:"className"`
 	Status        Status                    `json:"status"`
 	Files         []string                  `json:"files"`
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
