@@ -187,6 +187,11 @@ func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (
 		return "", errors.Wrap(err, "get snapshot status")
 	}
 
+	if bucket == nil {
+		return "", errors.Wrap(errors.New("bucket not found"),
+			"get snapshot status")
+	}
+
 	objectName := makeObjectName(className, snapshotID, "snapshot.json")
 	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
 	if err != nil {
@@ -206,6 +211,11 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return errors.Wrap(err, "set snapshot status")
+	}
+
+	if bucket == nil {
+		return errors.Wrap(errors.New("bucket not found"),
+			"set snapshot status")
 	}
 
 	objectName := makeObjectName(className, snapshotID, "snapshot.json")
