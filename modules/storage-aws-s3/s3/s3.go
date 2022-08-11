@@ -15,9 +15,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
+	"path"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -74,19 +74,18 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 		}
 	}
 	// save files
-	snapshotID := snapshot.ID
 	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return errors.Wrapf(err, "store snapshot aborted")
 		}
 
-		objectName := s.makeObjectName(snapshotID, srcRelPath)
-		filePath := s.makeFilePath(s.dataPath, srcRelPath)
+		objectName := makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
+		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
 		if err != nil {
-			errors.Wrapf(err, "put file %s", objectName)
+			return errors.Wrapf(err, "put file %s", objectName)
 		}
 	}
 	// save meta
@@ -94,25 +93,16 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	if err != nil {
 		return errors.Wrapf(err, "save meta")
 	}
-	objectName := s.makeObjectName(snapshotID, "snapshot.json")
+	objectName := makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
 	reader := bytes.NewReader(content)
 	_, err = s.client.PutObject(ctx, bucketName, objectName, reader, reader.Size(), putOptions)
 	if err != nil {
-		errors.Wrapf(err, "put file %s", objectName)
+		return errors.Wrapf(err, "put file %s", objectName)
 	}
 	return nil
 }
 
-func (s *s3) makeFilePath(dataPath, relPath string) string {
-	return fmt.Sprintf("%s/%s", dataPath, relPath)
-}
-
-func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
-	return fmt.Sprintf("%s/%s", snapshotId, srcRelPath)
-}
-
-// TODO handle className
-func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
+func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if !bucketExists {
@@ -122,7 +112,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) 
 		return errors.Wrap(err, "can't connect to bucket")
 	}
 
-	objectName := fmt.Sprintf("%s/%s", snapshotId, "snapshot.json")
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
 
 	// Load the metadata from the backup into a snapshot struct
 	var snapshot snapshots.Snapshot
@@ -146,8 +136,8 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) 
 		}
 
 		// Get the correct paths for the backup file and the active file
-		objectName := s.makeObjectName(snapshotId, srcRelPath)
-		filePath := s.makeFilePath(s.dataPath, srcRelPath)
+		objectName := makeObjectName(className, snapshotID, srcRelPath)
+		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		// Download the backup file from the bucket
 		err := s.client.FGetObject(ctx, s.config.BucketName(), objectName, filePath, minio.GetObjectOptions{})
@@ -156,6 +146,14 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) 
 		}
 	}
 	return nil
+}
+
+func makeObjectName(parts ...string) string {
+	return path.Join(parts...)
+}
+
+func makeFilePath(parts ...string) string {
+	return path.Join(parts...)
 }
 
 func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
