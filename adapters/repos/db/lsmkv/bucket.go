@@ -29,6 +29,7 @@ import (
 
 type Bucket struct {
 	dir      string
+	rootDir  string
 	active   *Memtable
 	flushing *Memtable
 	disk     *SegmentGroup
@@ -60,7 +61,7 @@ type Bucket struct {
 	monitorCount bool
 }
 
-func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
+func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
@@ -75,6 +76,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 
 	b := &Bucket{
 		dir:               dir,
+		rootDir:           rootDir,
 		memTableThreshold: defaultMemTableThreshold,
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,

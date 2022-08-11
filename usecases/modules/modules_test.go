@@ -13,12 +13,16 @@ package modules
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -296,6 +300,39 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod4]")
 	})
+
+	t.Run("should register module with alt names", func(t *testing.T) {
+		module := &dummyStorageModuleWithAltNames{}
+		modulesProvider := NewProvider()
+		modulesProvider.Register(module)
+
+		modByName := modulesProvider.GetByName("SomeStorage")
+		modByAltName1 := modulesProvider.GetByName("AltStorageName")
+		modByAltName2 := modulesProvider.GetByName("YetAnotherStorageName")
+		modMissing := modulesProvider.GetByName("DoesNotExist")
+
+		assert.NotNil(t, modByName)
+		assert.NotNil(t, modByAltName1)
+		assert.NotNil(t, modByAltName2)
+		assert.Nil(t, modMissing)
+	})
+
+	t.Run("should provide backup storage", func(t *testing.T) {
+		module := &dummyStorageModuleWithAltNames{}
+		modulesProvider := NewProvider()
+		modulesProvider.Register(module)
+
+		provider, ok := interface{}(modulesProvider).(backups.BackupStorageProvider)
+		assert.True(t, ok)
+
+		storageByName, err1 := provider.BackupStorage("SomeStorage")
+		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
+
+		assert.NotNil(t, storageByName)
+		assert.Nil(t, err1)
+		assert.NotNil(t, storageByAltName)
+		assert.Nil(t, err2)
+	})
 }
 
 func fakeExtractFn(param map[string]interface{}) interface{} {
@@ -428,4 +465,46 @@ func getFakeSchemaGetter() schemaGetter {
 		},
 	}
 	return &fakeSchemaGetter{schema: sch}
+}
+
+type dummyStorageModuleWithAltNames struct{}
+
+func (m *dummyStorageModuleWithAltNames) Name() string {
+	return "SomeStorage"
+}
+
+func (m *dummyStorageModuleWithAltNames) AltNames() []string {
+	return []string{"AltStorageName", "YetAnotherStorageName"}
+}
+
+func (m *dummyStorageModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) RootHandler() http.Handler {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Storage
+}
+
+func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	return "", nil
+}
+
+func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {
+	return ""
 }

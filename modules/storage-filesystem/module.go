@@ -24,6 +24,7 @@ import (
 
 const (
 	Name              = "storage-filesystem"
+	AltName1          = "filesystem"
 	snapshotsPathName = "STORAGE_FS_SNAPSHOTS_PATH"
 )
 
@@ -39,6 +40,10 @@ func New() *StorageFileSystemModule {
 
 func (m *StorageFileSystemModule) Name() string {
 	return Name
+}
+
+func (m *StorageFileSystemModule) AltNames() []string {
+	return []string{AltName1}
 }
 
 func (m *StorageFileSystemModule) Type() modulecapabilities.ModuleType {

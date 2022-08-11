@@ -26,6 +26,7 @@ import (
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
+	dir           string
 	rootDir       string
 	bucketsByName map[string]*Bucket
 	logger        logrus.FieldLogger
@@ -36,10 +37,11 @@ type Store struct {
 	bucketAccessLock sync.RWMutex
 }
 
-func New(rootDir string, logger logrus.FieldLogger,
+func New(dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics,
 ) (*Store, error) {
 	s := &Store{
+		dir:           dir,
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
 		logger:        logger,
@@ -73,13 +75,13 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
 
 	if targetStatus == storagestate.StatusReadOnly {
 		s.logger.WithField("action", "lsm_compaction").
-			WithField("path", s.rootDir).
+			WithField("path", s.dir).
 			Warn("compaction halted due to shard READONLY status")
 	}
 }
 
 func (s *Store) init() error {
-	if err := os.MkdirAll(s.rootDir, 0o700); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
 
@@ -87,7 +89,7 @@ func (s *Store) init() error {
 }
 
 func (s *Store) bucketDir(bucketName string) string {
-	return path.Join(s.rootDir, bucketName)
+	return path.Join(s.dir, bucketName)
 }
 
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
@@ -97,7 +99,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, s.metrics, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, opts...)
 	if err != nil {
 		return err
 	}

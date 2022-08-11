@@ -24,6 +24,7 @@ import (
 
 const (
 	Name      = "storage-gcs"
+	AltName1  = "gcs"
 	gcsBucket = "STORAGE_GCS_BUCKET"
 )
 
@@ -40,6 +41,10 @@ func New() *StorageGCSModule {
 
 func (m *StorageGCSModule) Name() string {
 	return Name
+}
+
+func (m *StorageGCSModule) AltNames() []string {
+	return []string{AltName1}
 }
 
 func (m *StorageGCSModule) Type() modulecapabilities.ModuleType {

@@ -37,7 +37,7 @@ type SchemaObjectsSnapshotsCreateOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Snapshot `json:"body,omitempty"`
+	Payload *models.SnapshotMeta `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsSnapshotsCreateOK creates SchemaObjectsSnapshotsCreateOK with default headers values
@@ -47,13 +47,13 @@ func NewSchemaObjectsSnapshotsCreateOK() *SchemaObjectsSnapshotsCreateOK {
 }
 
 // WithPayload adds the payload to the schema objects snapshots create o k response
-func (o *SchemaObjectsSnapshotsCreateOK) WithPayload(payload *models.Snapshot) *SchemaObjectsSnapshotsCreateOK {
+func (o *SchemaObjectsSnapshotsCreateOK) WithPayload(payload *models.SnapshotMeta) *SchemaObjectsSnapshotsCreateOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects snapshots create o k response
-func (o *SchemaObjectsSnapshotsCreateOK) SetPayload(payload *models.Snapshot) {
+func (o *SchemaObjectsSnapshotsCreateOK) SetPayload(payload *models.SnapshotMeta) {
 	o.Payload = payload
 }
 

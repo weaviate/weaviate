@@ -86,6 +86,10 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
+		path, err2 := filepath.Rel(b.rootDir, path)
+		if err2 != nil {
+			return err2
+		}
 		files = append(files, path)
 		return nil
 	})

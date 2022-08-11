@@ -62,7 +62,7 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 		fmt.Println(err)
 	}()
 
-	bucket, err := NewBucket(testCtxB(), dirName, nullLoggerB(), nil,
+	bucket, err := NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))
 	require.Nil(b, err)
