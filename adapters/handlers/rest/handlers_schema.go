@@ -17,6 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
+	"github.com/semi-technologies/weaviate/usecases/backups"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 
@@ -181,44 +182,62 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	snapshot, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.Body)
+	meta, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case backups.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(snapshot)
+	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(meta)
+}
+
+func (s *schemaHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
+	principal *models.Principal,
+) middleware.Responder {
+	// TODO implement
+	return nil
 }
 
 func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.ID)
+	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrNotFound:
+			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrUnprocessable:
+			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			switch err {
-			case schemaUC.ErrNotFound:
-				return schema.NewSchemaObjectsSnapshotsRestoreNotFound()
-			default:
-				return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
+			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaObjectsSnapshotsRestoreOK()
+	return schema.NewSchemaObjectsSnapshotsRestoreOK().WithPayload(meta)
+}
+
+func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
+	principal *models.Principal,
+) middleware.Responder {
+	// TODO implement
+	return nil
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
@@ -246,6 +265,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 
 	api.SchemaSchemaObjectsSnapshotsCreateHandler = schema.
 		SchemaObjectsSnapshotsCreateHandlerFunc(h.createSnapshot)
+	api.SchemaSchemaObjectsSnapshotsCreateStatusHandler = schema.
+		SchemaObjectsSnapshotsCreateStatusHandlerFunc(h.createSnapshotStatus)
 	api.SchemaSchemaObjectsSnapshotsRestoreHandler = schema.
 		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreSnapshot)
+	api.SchemaSchemaObjectsSnapshotsRestoreStatusHandler = schema.
+		SchemaObjectsSnapshotsRestoreStatusHandlerFunc(h.restoreSnapshotStatus)
 }

@@ -33,6 +33,7 @@ var (
 
 type Provider struct {
 	registered             map[string]modulecapabilities.Module
+	altNames               map[string]string
 	schemaGetter           schemaGetter
 	hasMultipleVectorizers bool
 }
@@ -44,15 +45,27 @@ type schemaGetter interface {
 func NewProvider() *Provider {
 	return &Provider{
 		registered: map[string]modulecapabilities.Module{},
+		altNames:   map[string]string{},
 	}
 }
 
 func (m *Provider) Register(mod modulecapabilities.Module) {
 	m.registered[mod.Name()] = mod
+	if modHasAltNames, ok := mod.(modulecapabilities.ModuleHasAltNames); ok {
+		for _, altName := range modHasAltNames.AltNames() {
+			m.altNames[altName] = mod.Name()
+		}
+	}
 }
 
 func (m *Provider) GetByName(name string) modulecapabilities.Module {
-	return m.registered[name]
+	if mod, ok := m.registered[name]; ok {
+		return mod
+	}
+	if origName, ok := m.altNames[name]; ok {
+		return m.registered[origName]
+	}
+	return nil
 }
 
 func (m *Provider) GetAll() []modulecapabilities.Module {
@@ -687,13 +700,13 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorageProvider(providerID string) (modulecapabilities.SnapshotStorage, error) {
-	if module := m.GetByName(providerID); module != nil {
+func (m *Provider) BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error) {
+	if module := m.GetByName(storageName); module != nil {
 		if module.Type() == modulecapabilities.Storage {
-			if storageProvider, ok := module.(modulecapabilities.SnapshotStorage); ok {
-				return storageProvider, nil
+			if storage, ok := module.(modulecapabilities.SnapshotStorage); ok {
+				return storage, nil
 			}
 		}
 	}
-	return nil, errors.Errorf("storage provider: %s not found", providerID)
+	return nil, errors.Errorf("storage: %s not found", storageName)
 }

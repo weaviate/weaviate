@@ -17,15 +17,11 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewSchemaObjectsSnapshotsCreateParams creates a new SchemaObjectsSnapshotsCreateParams object
@@ -44,16 +40,21 @@ type SchemaObjectsSnapshotsCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*
-	  Required: true
-	  In: body
-	*/
-	Body *models.Snapshot
 	/*The name of the class
 	  Required: true
 	  In: path
 	*/
 	ClassName string
+	/*The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	  Required: true
+	  In: path
+	*/
+	ID string
+	/*Storage name e.g. filesystem, gcs, s3.
+	  Required: true
+	  In: path
+	*/
+	StorageName string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -65,30 +66,18 @@ func (o *SchemaObjectsSnapshotsCreateParams) BindRequest(r *http.Request, route 
 
 	o.HTTPRequest = r
 
-	if runtime.HasBody(r) {
-		defer r.Body.Close()
-		var body models.Snapshot
-		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body", ""))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
-		} else {
-			// validate body object
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
-			}
-
-			if len(res) == 0 {
-				o.Body = &body
-			}
-		}
-	} else {
-		res = append(res, errors.Required("body", "body", ""))
-	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	rStorageName, rhkStorageName, _ := route.Params.GetOK("storageName")
+	if err := o.bindStorageName(rStorageName, rhkStorageName, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -109,6 +98,36 @@ func (o *SchemaObjectsSnapshotsCreateParams) bindClassName(rawData []string, has
 	// Parameter is provided by construction from the route
 
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindID binds and validates parameter ID from path.
+func (o *SchemaObjectsSnapshotsCreateParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	o.ID = raw
+
+	return nil
+}
+
+// bindStorageName binds and validates parameter StorageName from path.
+func (o *SchemaObjectsSnapshotsCreateParams) bindStorageName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	o.StorageName = raw
 
 	return nil
 }

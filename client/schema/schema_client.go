@@ -54,7 +54,11 @@ type ClientService interface {
 
 	SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateOK, error)
 
+	SchemaObjectsSnapshotsCreateStatus(params *SchemaObjectsSnapshotsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateStatusOK, error)
+
 	SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreOK, error)
+
+	SchemaObjectsSnapshotsRestoreStatus(params *SchemaObjectsSnapshotsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreStatusOK, error)
 
 	SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsUpdateOK, error)
 
@@ -307,7 +311,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 }
 
 /*
-SchemaObjectsSnapshotsCreate Starts a process to create a snapshot for a class
+SchemaObjectsSnapshotsCreate Starts a process of creation a snapshot for a class
 */
 func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -318,7 +322,7 @@ func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCrea
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "schema.objects.snapshots.create",
 		Method:             "POST",
-		PathPattern:        "/schema/{className}/snapshots",
+		PathPattern:        "/schema/{className}/snapshots/{storageName}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -342,6 +346,41 @@ func (a *Client) SchemaObjectsSnapshotsCreate(params *SchemaObjectsSnapshotsCrea
 }
 
 /*
+SchemaObjectsSnapshotsCreateStatus Returns status of creation attempt of a snapshot for a class
+*/
+func (a *Client) SchemaObjectsSnapshotsCreateStatus(params *SchemaObjectsSnapshotsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsCreateStatusOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsSnapshotsCreateStatusParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.snapshots.create.status",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}/snapshots/{storageName}/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsSnapshotsCreateStatusReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsSnapshotsCreateStatusOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.snapshots.create.status: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 SchemaObjectsSnapshotsRestore Starts a process of restoring a snapshot for a class
 */
 func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreOK, error) {
@@ -353,7 +392,7 @@ func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRes
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "schema.objects.snapshots.restore",
 		Method:             "POST",
-		PathPattern:        "/schema/{className}/snapshots/{id}/restore",
+		PathPattern:        "/schema/{className}/snapshots/{storageName}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -373,6 +412,41 @@ func (a *Client) SchemaObjectsSnapshotsRestore(params *SchemaObjectsSnapshotsRes
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.snapshots.restore: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsSnapshotsRestoreStatus Returns status of restoration attempt of a snapshot for a class
+*/
+func (a *Client) SchemaObjectsSnapshotsRestoreStatus(params *SchemaObjectsSnapshotsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsSnapshotsRestoreStatusOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsSnapshotsRestoreStatusParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "schema.objects.snapshots.restore.status",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}/snapshots/{storageName}/{id}/restore",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsSnapshotsRestoreStatusReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsSnapshotsRestoreStatusOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.snapshots.restore.status: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -33,6 +33,11 @@ SchemaObjectsSnapshotsRestoreOK Snapshot restoring process successfully started.
 swagger:response schemaObjectsSnapshotsRestoreOK
 */
 type SchemaObjectsSnapshotsRestoreOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.SnapshotRestoreMeta `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsSnapshotsRestoreOK creates SchemaObjectsSnapshotsRestoreOK with default headers values
@@ -41,12 +46,27 @@ func NewSchemaObjectsSnapshotsRestoreOK() *SchemaObjectsSnapshotsRestoreOK {
 	return &SchemaObjectsSnapshotsRestoreOK{}
 }
 
+// WithPayload adds the payload to the schema objects snapshots restore o k response
+func (o *SchemaObjectsSnapshotsRestoreOK) WithPayload(payload *models.SnapshotRestoreMeta) *SchemaObjectsSnapshotsRestoreOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects snapshots restore o k response
+func (o *SchemaObjectsSnapshotsRestoreOK) SetPayload(payload *models.SnapshotRestoreMeta) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsRestoreOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SchemaObjectsSnapshotsRestoreUnauthorizedCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreUnauthorized
@@ -128,6 +148,11 @@ SchemaObjectsSnapshotsRestoreNotFound Not Found - Snapshot does not exist
 swagger:response schemaObjectsSnapshotsRestoreNotFound
 */
 type SchemaObjectsSnapshotsRestoreNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsSnapshotsRestoreNotFound creates SchemaObjectsSnapshotsRestoreNotFound with default headers values
@@ -136,12 +161,27 @@ func NewSchemaObjectsSnapshotsRestoreNotFound() *SchemaObjectsSnapshotsRestoreNo
 	return &SchemaObjectsSnapshotsRestoreNotFound{}
 }
 
+// WithPayload adds the payload to the schema objects snapshots restore not found response
+func (o *SchemaObjectsSnapshotsRestoreNotFound) WithPayload(payload *models.ErrorResponse) *SchemaObjectsSnapshotsRestoreNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects snapshots restore not found response
+func (o *SchemaObjectsSnapshotsRestoreNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SchemaObjectsSnapshotsRestoreUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreUnprocessableEntity

@@ -141,7 +141,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -359,7 +359,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
@@ -481,7 +481,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -581,7 +581,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -851,7 +851,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -977,7 +977,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -1330,7 +1330,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -1464,7 +1464,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -1593,7 +1593,7 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	}()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -1675,7 +1675,7 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 			}()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 					WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 				require.Nil(t, err)
 
@@ -1763,7 +1763,7 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			}()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 					WithStrategy(StrategySetCollection))
 				require.Nil(t, err)
 
@@ -1864,7 +1864,7 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			}()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 					WithStrategy(StrategyMapCollection))
 				require.Nil(t, err)
 

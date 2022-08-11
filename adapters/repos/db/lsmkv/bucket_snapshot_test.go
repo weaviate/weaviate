@@ -33,7 +33,7 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
@@ -53,7 +53,7 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -81,7 +81,7 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		ctx, cancel := context.WithTimeout(ctx, time.Nanosecond)
@@ -101,7 +101,7 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		t.Run("insert contents into bucket", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 		dirName := makeTestDir(t)
 		defer removeTestDir(t, dirName)
 
-		b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		b.UpdateStatus(storagestate.StatusReadOnly)
@@ -152,7 +152,7 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
 
-	b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 
 	t.Run("insert contents into bucket", func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestSnapshot_ResumeCompaction(t *testing.T) {
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
 
-	b, err := NewBucket(ctx, dirName, logrus.New(), nil, WithStrategy(StrategyReplace))
+	b, err := NewBucket(ctx, dirName, "", logrus.New(), nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 
 	t.Run("insert contents into bucket", func(t *testing.T) {

@@ -51,3 +51,7 @@ type Dependency interface {
 	GraphQLArgument() GraphQLArgument
 	VectorSearch() VectorForParams
 }
+
+type ModuleHasAltNames interface {
+	AltNames() []string
+}

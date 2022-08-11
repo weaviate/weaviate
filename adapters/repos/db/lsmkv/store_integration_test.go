@@ -36,7 +36,7 @@ func TestStoreLifecycle(t *testing.T) {
 	}()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName, nullLogger(), nil)
+		store, err := New(dirName, "", nullLogger(), nil)
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
@@ -62,7 +62,7 @@ func TestStoreLifecycle(t *testing.T) {
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName, nullLogger(), nil)
+		store, err := New(dirName, "", nullLogger(), nil)
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))

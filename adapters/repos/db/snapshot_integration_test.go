@@ -265,10 +265,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			parent, child := path.Split(shard.index.Config.RootPath)
-			re := fmt.Sprintf("%s\\/%s", path.Clean(parent), child)
-			re = fmt.Sprintf("%s\\/bucketlevelsnapshot_%s_lsm\\/objects\\/.*\\.(wal|db)", re, shard.name)
-			re = path.Clean(re)
+			re := path.Clean(fmt.Sprintf("^bucketlevelsnapshot_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
 
 			// we expect to see only two files inside the bucket at this point:
 			//   1. a *.db file
