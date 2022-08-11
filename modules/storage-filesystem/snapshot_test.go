@@ -95,15 +95,16 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		var expectedFilePath string
 		var info os.FileInfo
 		for _, filePath := range snapshot.Files {
-			expectedFilePath = filepath.Join(snapshotsAbsolutePath, snapshot.ID, filePath)
+			expectedFilePath = module.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, filePath)
 			info, err = os.Stat(expectedFilePath)
-			orgInfo, _ := os.Stat(filePath)
-
 			assert.Nil(t, err) // file exists
+			orgInfo, err := os.Stat(filePath)
+			assert.Nil(t, err) // file exists
+
 			assert.Equal(t, orgInfo.Size(), info.Size())
 		}
 
-		expectedFilePath = filepath.Join(snapshotsAbsolutePath, snapshot.ID, "snapshot.json")
+		expectedFilePath = module.makeMetaFilePath(snapshot.ClassName, snapshot.ID)
 		info, err = os.Stat(expectedFilePath)
 		assert.Nil(t, err) // file exists
 		assert.Greater(t, info.Size(), int64(0))
@@ -126,8 +127,8 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		}
 
 		// Use the previous test snapshot to test the restore function
-		// TODO adjust for className
-		err := module.RestoreSnapshot(ctxSnapshot, "className", "snapshot_id")
+
+		err := module.RestoreSnapshot(ctxSnapshot, "classname", "snapshot_id")
 		assert.Nil(t, err)
 
 		assert.DirExists(t, module.dataPath)
@@ -166,6 +167,7 @@ func createSnapshotInstance(t *testing.T, dirPath string) *snapshots.Snapshot {
 
 	return &snapshots.Snapshot{
 		ID:          "snapshot_id",
+		ClassName:   "classname",
 		StartedAt:   startedAt,
 		CompletedAt: time.Now(),
 		Files:       filePaths,
