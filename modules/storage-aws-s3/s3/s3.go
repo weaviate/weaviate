@@ -155,3 +155,18 @@ func makeObjectName(parts ...string) string {
 func makeFilePath(parts ...string) string {
 	return path.Join(parts...)
 }
+
+func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (s *s3) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (s *s3) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
+}

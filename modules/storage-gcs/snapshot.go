@@ -28,6 +28,18 @@ func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snaps
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
+func (m *StorageGCSModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
+}
+
+func (m *StorageGCSModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+}
+
+func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string {
+	return m.storageProvider.DestinationPath(className, snapshotID)
+}
+
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
 	config := gcs.NewConfig(os.Getenv(gcsBucket))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
