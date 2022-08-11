@@ -214,6 +214,21 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	return nil
 }
 
+func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (g *gcs) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
+}
+
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 	snapshotID, objectName string, content []byte,
 ) error {
