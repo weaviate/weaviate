@@ -111,7 +111,8 @@ func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
 	return fmt.Sprintf("%s/%s", snapshotId, srcRelPath)
 }
 
-func (s *s3) RestoreSnapshot(ctx context.Context, snapshotId string) error {
+// TODO handle className
+func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if !bucketExists {
@@ -155,4 +156,19 @@ func (s *s3) RestoreSnapshot(ctx context.Context, snapshotId string) error {
 		}
 	}
 	return nil
+}
+
+func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (s *s3) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (s *s3) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
 }

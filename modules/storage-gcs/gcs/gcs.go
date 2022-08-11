@@ -101,7 +101,8 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, snapshotID string) error {
+// TODO handle className
+func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	bucketName := g.config.BucketName()
 	projectID := g.projectID
 	// Find bucket
@@ -213,6 +214,21 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		return errors.Wrap(err, "put file")
 	}
 	return nil
+}
+
+func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	// TODO implement
+	return nil
+}
+
+func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
+	// TODO implement
+	return "", nil
+}
+
+func (g *gcs) DestinationPath(className, snapshotID string) string {
+	// TODO implement
+	return ""
 }
 
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
