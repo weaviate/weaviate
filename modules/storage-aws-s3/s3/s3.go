@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -60,6 +61,10 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 	return &s3{client, config, logger, dataPath}, nil
 }
 
+func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
+	return "" // TODO: Implement
+}
+
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	// create bucket
 	bucketName := s.config.BucketName()
@@ -102,7 +107,15 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	return nil
 }
 
-func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+func (s *s3) makeFilePath(dataPath, relPath string) string {
+	return fmt.Sprintf("%s/%s", dataPath, relPath)
+}
+
+func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
+	return fmt.Sprintf("%s/%s", snapshotId, srcRelPath)
+}
+
+func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if !bucketExists {
@@ -113,7 +126,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 	}
 
 	// Load the metadata from the backup into a snapshot struct
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
+	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotId)
 	if err != nil {
 		return errors.Wrap(err, "restore snapshot")
 	}
@@ -125,7 +138,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		}
 
 		// Get the correct paths for the backup file and the active file
-		objectName := makeObjectName(className, snapshotID, srcRelPath)
+		objectName := makeObjectName(className, snapshotId, srcRelPath)
 		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		// Download the backup file from the bucket

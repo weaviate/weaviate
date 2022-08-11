@@ -26,11 +26,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var (
+	testdataMainDir  = "./testData"
+	snapshotsMainDir = "./snapshots"
+)
+
 func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
-	testdataMainDir := "./testData"
-	snapshotsMainDir := "./snapshots"
 	snapshotsRelativePath := filepath.Join(snapshotsMainDir, "some", "nested", "dir") // ./snapshots/some/nested/dir
 	snapshotsAbsolutePath, _ := filepath.Abs(snapshotsRelativePath)
+	testDir := makeTestDir(t, testdataMainDir)
+	defer removeDir(t, testdataMainDir)
+	defer removeDir(t, snapshotsMainDir)
 
 	ctx := context.Background()
 	removeDir(t, snapshotsMainDir) // just in case
@@ -75,10 +81,6 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		_, err = os.Stat(snapshotsAbsolutePath)
 		assert.Nil(t, err) // dir exists
 	})
-
-	testDir := makeTestDir(t, testdataMainDir)
-	defer removeDir(t, testdataMainDir)
-	defer removeDir(t, snapshotsMainDir)
 
 	t.Run("copies snapshot data", func(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir)
@@ -138,6 +140,47 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 			expectedFilePath := filepath.Join(testDir, filePath.Name())
 			assert.FileExists(t, expectedFilePath)
 		}
+	})
+}
+
+func Test_FileStorage_MetaStatus(t *testing.T) {
+	var testClass string
+	var testId string
+	testDir := makeTestDir(t, testdataMainDir)
+	snapshotsRelativePath := filepath.Join(snapshotsMainDir, "some", "nested", "dir") // ./snapshots/some/nested/dir
+	snapshotsAbsolutePath, _ := filepath.Abs(snapshotsRelativePath)
+	defer removeDir(t, testdataMainDir)
+	defer removeDir(t, snapshotsMainDir)
+
+	t.Run("store snapshot", func(t *testing.T) {
+		snapshot := createSnapshotInstance(t, testDir)
+		testClass = snapshot.ClassName
+		testId = snapshot.ID
+		ctxSnapshot := context.Background()
+
+		module := New()
+		module.initSnapshotStorage(context.Background(), snapshotsAbsolutePath)
+		module.logger, _ = test.NewNullLogger()
+		module.dataPath, _ = os.Getwd()
+		err := module.StoreSnapshot(ctxSnapshot, snapshot)
+		assert.Nil(t, err)
+	})
+
+	t.Run("set snapshot status", func(t *testing.T) {
+		module := New()
+		module.snapshotsPath = snapshotsAbsolutePath
+
+		err := module.SetMetaStatus(context.Background(), testClass, testId, string(snapshots.StatusStarted))
+		assert.Nil(t, err)
+	})
+
+	t.Run("get snapshot status", func(t *testing.T) {
+		module := New()
+		module.snapshotsPath = snapshotsAbsolutePath
+
+		status, err := module.GetMetaStatus(context.Background(), testClass, testId)
+		assert.Nil(t, err)
+		assert.Equal(t, string(snapshots.StatusStarted), status)
 	})
 }
 

@@ -35,10 +35,6 @@ type StorageFileSystemModule struct {
 	snapshotsPath string // complete(?) path to the the directory that holds all the snapshots
 }
 
-func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
-	return m.makeSnapshotDirPath(className, snapshotID)
-}
-
 func New() *StorageFileSystemModule {
 	return &StorageFileSystemModule{}
 }
@@ -68,6 +64,10 @@ func (m *StorageFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
+func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
+	return m.makeSnapshotDirPath(className, snapshotID)
+}
+
 func (m *StorageFileSystemModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
@@ -84,7 +84,7 @@ func (m *StorageFileSystemModule) makeSnapshotDirPath(className, id string) stri
 }
 
 func (m *StorageFileSystemModule) makeSnapshotFilePath(className, id, relPath string) string {
-	return filepath.Join(m.snapshotsPath, className, id, relPath)
+	return filepath.Join(m.makeSnapshotDirPath(className, id), relPath)
 }
 
 func (m *StorageFileSystemModule) makeMetaFilePath(className, id string) string {
