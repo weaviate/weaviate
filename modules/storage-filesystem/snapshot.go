@@ -50,9 +50,9 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 }
 
 func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
-	snapshot, err := m.loadSnapShotMeta(ctx, className, snapshotId)
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotId)
 	if err != nil {
-		return errors.Wrapf(err, "load snapshot meta")
+		return errors.Wrap(err, "load snapshot meta")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
@@ -66,9 +66,9 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 	return nil
 }
 
-func (m *StorageFileSystemModule) loadSnapShotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, errors.Wrapf(err, "restore snapshot aborted, invalid context")
+		return nil, errors.Wrap(err, "restore snapshot aborted, invalid context")
 	}
 
 	metaPath := m.makeMetaFilePath(className, snapshotID)
@@ -86,24 +86,24 @@ func (m *StorageFileSystemModule) loadSnapShotMeta(ctx context.Context, classNam
 }
 
 func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	snapshot, err := m.loadSnapShotMeta(ctx, className, snapshotID)
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return "", errors.Wrapf(err, "load snapshot meta")
+		return "", errors.Wrap(err, "load snapshot meta")
 	}
 
 	return string(snapshot.Status), nil
 }
 
 func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	snapshot, err := m.loadSnapShotMeta(ctx, className, snapshotID)
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return errors.Wrapf(err, "load snapshot meta")
+		return errors.Wrap(err, "load snapshot meta")
 	}
 
 	snapshot.Status = snapshots.Status(status)
 
 	if err := m.saveMeta(snapshot); err != nil {
-		return err
+		return errors.Wrap(err, "save snapshot meta")
 	}
 
 	return nil
