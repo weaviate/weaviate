@@ -470,25 +470,25 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 
 	classNameLength := uint64(byteOps.ReadUint16())
-	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
+	className, err := byteOps.CopyBytesFromBuffer(classNameLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy class name")
 	}
 
 	schemaLength := uint64(byteOps.ReadUint32())
-	schema, err := byteOps.CopyBytesFromBuffer(schemaLength)
+	schema, err := byteOps.CopyBytesFromBuffer(schemaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy schema")
 	}
 
 	metaLength := uint64(byteOps.ReadUint32())
-	meta, err := byteOps.CopyBytesFromBuffer(metaLength)
+	meta, err := byteOps.CopyBytesFromBuffer(metaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy meta")
 	}
 
 	vectorWeightsLength := uint64(byteOps.ReadUint32())
-	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength)
+	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
