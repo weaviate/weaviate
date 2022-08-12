@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -58,6 +59,14 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 		return nil, errors.Wrap(err, "create client")
 	}
 	return &s3{client, config, logger, dataPath}, nil
+}
+
+func makeObjectName(parts ...string) string {
+	return path.Join(parts...)
+}
+
+func makeFilePath(parts ...string) string {
+	return path.Join(parts...)
 }
 
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
