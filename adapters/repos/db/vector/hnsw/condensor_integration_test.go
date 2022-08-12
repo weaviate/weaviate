@@ -450,7 +450,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})

@@ -371,7 +371,7 @@ type vertex struct {
 	id uint64
 	sync.Mutex
 	level       int
-	connections map[int][]uint64 // map[level][]connectedId
+	connections [][]uint64
 	maintenance bool
 }
 
@@ -404,7 +404,8 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.Lock()
 	defer v.Unlock()
 
-	v.connections[level] = connections
+	v.connections[level] = v.connections[level][:len(connections)]
+	copy(v.connections[level], connections)
 }
 
 // func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
