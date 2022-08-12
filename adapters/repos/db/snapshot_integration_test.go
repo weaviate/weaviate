@@ -116,7 +116,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			})
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, snap.ClassName, snap.ID) // FIXME: Check if this is the correct classname
+				snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, snap.ClassName, snap.ID)
 
 				contents, err := ioutil.ReadFile(snapPath)
 				require.Nil(t, err)
@@ -135,7 +135,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.False(t, index.snapshotState.InProgress)
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, snap.ClassName, snapshotID) // FIXME: Check if this is the correct classname
+				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, className, snapshotID) 
 				require.Nil(t, err)
 
 				assert.NotEmpty(t, snap.CompletedAt)

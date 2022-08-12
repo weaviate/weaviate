@@ -57,8 +57,9 @@ type Snapshot struct {
 	sync.Mutex `json:"-"`
 }
 
-func New(id string, startedAt time.Time) *Snapshot {
+func New(className, id string, startedAt time.Time) *Snapshot {
 	return &Snapshot{
+		ClassName:     className,
 		ID:            id,
 		Status:        StatusStarted,
 		StartedAt:     startedAt,
