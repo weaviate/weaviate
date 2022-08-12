@@ -208,13 +208,10 @@ func createSnapshotInstance(t *testing.T, dirPath string) *snapshots.Snapshot {
 
 	filePaths := createTestFiles(t, dirPath)
 
-	return &snapshots.Snapshot{
-		ID:          "snapshot_id",
-		ClassName:   "classname",
-		StartedAt:   startedAt,
-		CompletedAt: time.Now(),
-		Files:       filePaths,
-	}
+	snap := snapshots.New("classname", "snapshot_id", startedAt)
+	snap.Files = filePaths
+	snap.CompletedAt = time.Now()
+	return snap
 }
 
 func createTestFiles(t *testing.T, dirPath string) []string {
