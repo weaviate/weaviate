@@ -95,7 +95,7 @@ func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
 		return err
 	}
 
-	snap, err := snapshots.ReadFromDisk(id, i.Config.RootPath)
+	snap, err := snapshots.ReadFromDisk(i.Config.RootPath, i.Config.ClassName.String(), id) // FIXME: check if this is the right classname?
 	if err != nil {
 		return errors.Wrap(err, "release snapshot")
 	}

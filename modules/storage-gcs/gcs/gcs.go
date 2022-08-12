@@ -68,14 +68,6 @@ func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
 	return &gcs{client, config, projectID, dataPath}, nil
 }
 
-func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return "", nil // TODO: Implement
-}
-
-func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	return nil // TODO: Implement
-}
-
 func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	snapshotID, objectName string,
 ) ([]byte, error) {

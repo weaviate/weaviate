@@ -61,10 +61,6 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 	return &s3{client, config, logger, dataPath}, nil
 }
 
-func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
-	return "" // TODO: Implement
-}
-
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	// create bucket
 	bucketName := s.config.BucketName()
