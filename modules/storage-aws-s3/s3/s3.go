@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -203,12 +202,4 @@ func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID st
 	}
 
 	return &snapshot, nil
-}
-
-func makeObjectName(parts ...string) string {
-	return path.Join(parts...)
-}
-
-func makeFilePath(parts ...string) string {
-	return path.Join(parts...)
 }
