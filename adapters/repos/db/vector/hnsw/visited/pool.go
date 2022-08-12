@@ -43,7 +43,7 @@ func (p *Pool) Borrow() ListSet {
 
 	if n := len(p.listSets); n > 0 {
 		l := p.listSets[n-1]
-		p.listSets[n-1].Free() // prevent memory leak
+		p.listSets[n-1].free() // prevent memory leak
 		p.listSets = p.listSets[:n-1]
 		return l
 	}
@@ -70,7 +70,7 @@ func (p *Pool) Destroy() {
 	p.Lock()
 	defer p.Unlock()
 	for i := range p.listSets {
-		p.listSets[i].Free()
+		p.listSets[i].free()
 	}
 
 	p.listSets = nil

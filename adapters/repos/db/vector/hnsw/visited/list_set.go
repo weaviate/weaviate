@@ -27,8 +27,8 @@ type ListSet struct {
 // Len returns the number of elements in the list.
 func (l ListSet) Len() int { return len(l.set) - 1 }
 
-// Free allocated slice. This list should not be reusable after this call.
-func (l *ListSet) Free() { l.set = nil }
+// free allocated slice. This list should not be reusable after this call.
+func (l *ListSet) free() { l.set = nil }
 
 // NewList creates a new list. It allocates memory for elements and marker
 func NewList(size int) ListSet {
@@ -63,25 +63,27 @@ func (l *ListSet) Reset() {
 	}
 }
 
-// barrier let us double the size if the old size is below it
-const barrier = 4096
+// threshold let us double the size if the old size is below it
+const threshold = 2048
 
 // growth calculates the amount a list should grow in a smooth way.
 //
-// Insipired by the go standar implementation
+// Insipired by the go standard implementation
 func growth(oldsize, size int) int {
 	doublesize := oldsize << 1
 	if size > doublesize {
 		return size
 	}
-	if oldsize < barrier {
-		return doublesize
+	if oldsize < threshold {
+		return doublesize // grow by 2x for small slices
 	}
 	// detect overflow newsize > 0
 	// and prevent an infinite loop.
 	newsize := oldsize
 	for newsize > 0 && newsize < size {
-		newsize += newsize >> 2
+		// grow by 1.25x for large slices
+		// This formula allows for smothly growing
+		newsize += (newsize + threshold) / 4
 	}
 	// return requested size in case of overflow
 	if newsize <= 0 {

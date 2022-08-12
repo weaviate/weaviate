@@ -110,7 +110,7 @@ func TestListSetResize(t *testing.T) {
 	l.Visit(3)
 	assert.Equal(t, []uint8{2, 0, 2, 0, 2}, l.set[0:5])
 	assert.Equal(t, (2 + 1024), l.Len())
-	l.Free()
+	l.free()
 	assert.Equal(t, []uint8(nil), l.set)
 }
 
@@ -124,8 +124,10 @@ func TestGrowth(t *testing.T) {
 		{512, 1000, 1024},
 		{1024, 1048, 2048},
 		{2000, 3500, 4000},
-		{barrier, barrier + 32, barrier + barrier/4},
-		{barrier, MaxInt, MaxInt},
+		{3500, 4500, 4887},
+		{threshold, threshold + 32, threshold + threshold/2},
+		{2097152, 4194304, 5122952},
+		{threshold, MaxInt, MaxInt},
 		{MaxInt / 2, MaxInt - 1, MaxInt - 1},
 	}
 	for _, tc := range tests {
