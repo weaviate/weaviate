@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path"
@@ -109,14 +108,6 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 		return errors.Wrapf(err, "put file %s", objectName)
 	}
 	return nil
-}
-
-func (s *s3) makeFilePath(dataPath, relPath string) string {
-	return fmt.Sprintf("%s/%s", dataPath, relPath)
-}
-
-func (s *s3) makeObjectName(snapshotId, srcRelPath string) string {
-	return fmt.Sprintf("%s/%s", snapshotId, srcRelPath)
 }
 
 func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
