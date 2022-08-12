@@ -43,8 +43,10 @@ func (bo *ByteOperations) ReadUint32() uint32 {
 	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
 }
 
-func (bo *ByteOperations) CopyBytesFromBuffer(length uint64) ([]byte, error) {
-	out := make([]byte, length)
+func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
+	if out == nil {
+		out = make([]byte, length)
+	}
 	bo.Position += length
 	numCopiedBytes := copy(out, bo.Buffer[bo.Position-length:bo.Position])
 	if numCopiedBytes != int(length) {

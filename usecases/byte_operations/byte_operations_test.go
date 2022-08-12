@@ -44,7 +44,7 @@ func TestReadAnWrite(t *testing.T) {
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[0])
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[1]))
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[2]))
-	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint64(len(valuesByteArray)))
+	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint64(len(valuesByteArray)), nil)
 	assert.Equal(t, returnBuf, valuesByteArray)
 	assert.Equal(t, err, nil)
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[3]))
