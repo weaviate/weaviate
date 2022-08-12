@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -58,8 +60,22 @@ type Shard struct {
 	versioner        *shardVersioner
 	diskScanState    *diskScanState
 
+	numActiveBatches    int
+	activeBatchesLock   sync.Mutex
+	jobQueueCh          chan job
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+
 	status     storagestate.Status
 	statusLock sync.Mutex
+}
+
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -84,9 +100,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cancel:        make(chan struct{}, 1),
-		randomSource:  rand,
-		diskScanState: newDiskScanState(),
+		cancel:              make(chan struct{}, 1),
+		randomSource:        rand,
+		diskScanState:       newDiskScanState(),
+		jobQueueCh:          make(chan job, 100000),
+		maxNumberGoroutines: 2 * runtime.GOMAXPROCS(0),
 	}
 	defer s.metrics.ShardStartup(before)
 
