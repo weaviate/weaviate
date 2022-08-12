@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,11 +35,15 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	path, err := os.Getwd()
 	require.Nil(t, err)
 
+	className := "SnapshotClass"
+	snapshotID := "snapshot_id"
+	bucketName := "bucket"
+
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir)
+		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
-		gcsConfig := gcs.NewConfig("")
+		gcsConfig := gcs.NewConfig(bucketName)
 		path, _ := os.Getwd()
 
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
@@ -46,12 +51,16 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 
 		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
 		assert.Nil(t, err)
+
+		dest := gcs.DestinationPath(className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		assert.Equal(t, expected, dest)
 	})
 
 	t.Run("restore snapshot in gcs", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
-		gcsConfig := gcs.NewConfig("")
+		gcsConfig := gcs.NewConfig(bucketName)
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
@@ -60,7 +69,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 
 		// Remove the files, ready for restore
 		for _, f := range files {
-			os.Remove(filepath.Join(testDir, f.Name()))
+			require.Nil(t, os.Remove(filepath.Join(testDir, f.Name())))
 			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
 		}
 
@@ -72,6 +81,10 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 			expectedFilePath := filepath.Join(testDir, filePath.Name())
 			assert.FileExists(t, expectedFilePath)
 		}
+
+		dest := gcs.DestinationPath(className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		assert.Equal(t, expected, dest)
 	})
 }
 
@@ -84,12 +97,16 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 	require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
 	require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint)))
 
-	gcsConfig := gcs.NewConfig("")
+	className := "SnapshotClass"
+	snapshotID := "snapshot_id"
+	bucketName := "bucket"
+
+	gcsConfig := gcs.NewConfig(bucketName)
 	path, err := os.Getwd()
 	require.Nil(t, err)
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir)
+		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)

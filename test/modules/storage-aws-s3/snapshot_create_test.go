@@ -13,11 +13,12 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	s3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
+	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,20 +33,28 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
 	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
 
+	className := "SnapshotClass"
+	snapshotID := "snapshot_id"
+	bucketName := "bucket"
+
 	t.Run("store snapshot in s3", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir)
+		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		logger, _ := test.NewNullLogger()
 
 		endpoint := os.Getenv(minioEndpoint)
-		s3Config := s3.NewConfig(endpoint, "bucket", false)
+		s3Config := s3.NewConfig(endpoint, bucketName, false)
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
 		assert.Nil(t, err)
+
+		dest := s3.DestinationPath(className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		assert.Equal(t, expected, dest)
 	})
 
 	t.Run("restores snapshot data from S3", func(t *testing.T) {
@@ -63,12 +72,12 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 
 		// Remove the files, ready for restore
 		for _, f := range files {
-			os.Remove(filepath.Join(testDir, f.Name()))
+			require.Nil(t, os.Remove(filepath.Join(testDir, f.Name())))
 			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
 		}
 
 		// Use the previous test snapshot to test the restore function
-		err = s3.RestoreSnapshot(ctxSnapshot, "SnapshotClass", "snapshot_id")
+		err = s3.RestoreSnapshot(ctxSnapshot, className, snapshotID)
 		require.Nil(t, err)
 
 		assert.DirExists(t, path)
@@ -78,6 +87,10 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 			expectedFilePath := filepath.Join(testDir, filePath.Name())
 			assert.FileExists(t, expectedFilePath)
 		}
+
+		dest := s3.DestinationPath(className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		assert.Equal(t, expected, dest)
 	})
 }
 
@@ -90,13 +103,17 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
 	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
 
+	className := "SnapshotClass"
+	snapshotID := "snapshot_id"
+	bucketName := "bucket"
+
 	endpoint := os.Getenv(minioEndpoint)
-	s3Config := s3.NewConfig(endpoint, "bucket", false)
+	s3Config := s3.NewConfig(endpoint, bucketName, false)
 	logger, _ := test.NewNullLogger()
 	path, _ := os.Getwd()
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir)
+		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		s3, err := s3.New(s3Config, logger, path)
@@ -110,7 +127,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		err = s3.SetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id", "STARTED")
+		err = s3.SetMetaStatus(context.Background(), className, snapshotID, "STARTED")
 		assert.Nil(t, err)
 	})
 
@@ -118,7 +135,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		status, err := s3.GetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id")
+		status, err := s3.GetMetaStatus(context.Background(), className, snapshotID)
 		assert.Nil(t, err)
 		assert.Equal(t, "STARTED", status)
 	})
