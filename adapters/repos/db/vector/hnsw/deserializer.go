@@ -155,6 +155,11 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	if res.Nodes[id] == nil {
 		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
 	} else {
+		if int(level) >= len(res.Nodes[id].connections) {
+			newConns := make([][]uint64, level+1)
+			copy(newConns, res.Nodes[id].connections)
+			res.Nodes[id].connections = newConns
+		}
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -307,6 +312,14 @@ func (c *Deserializer) ReadAddLinks(r io.Reader,
 	if res.Nodes[int(source)] == nil {
 		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
 	}
+
+	if len(res.Nodes[int(source)].connections) <= int(level) {
+		// we need to grow the connections slice
+		newConns := make([][]uint64, level+1)
+		copy(newConns, res.Nodes[int(source)].connections)
+		res.Nodes[int(source)].connections = newConns
+	}
+
 	res.Nodes[int(source)].connections[int(level)] = append(
 		res.Nodes[int(source)].connections[int(level)], targets...)
 
