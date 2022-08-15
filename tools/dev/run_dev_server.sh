@@ -110,6 +110,20 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+  local-sum)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      SUM_INFERENCE_API="http://localhost:8006" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,sum-transformers" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   local-image)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
