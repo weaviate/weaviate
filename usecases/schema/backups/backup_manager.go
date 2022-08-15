@@ -11,7 +11,11 @@
 
 package backups
 
-import "context"
+import (
+	"context"
+
+	"github.com/semi-technologies/weaviate/entities/models"
+)
 
 const (
 	CS_STARTED      CreateStatus = "STARTED"
@@ -47,4 +51,5 @@ type RestoreMeta struct {
 type BackupManager interface {
 	CreateBackup(ctx context.Context, className, storageName, snapshotID string) (*CreateMeta, error)
 	RestoreBackup(ctx context.Context, className, storageName, snapshotID string) (*RestoreMeta, error)
+	CreateBackupStatus(ctx context.Context, className, storageName, snapshotID string) (*models.SnapshotMeta, error)
 }

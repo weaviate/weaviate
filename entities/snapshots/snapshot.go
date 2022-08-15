@@ -61,7 +61,6 @@ func New(className, id string, startedAt time.Time) *Snapshot {
 	return &Snapshot{
 		ClassName:     className,
 		ID:            id,
-		Status:        StatusStarted,
 		StartedAt:     startedAt,
 		ShardMetadata: make(map[string]*ShardMetadata),
 	}

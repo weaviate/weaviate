@@ -244,6 +244,11 @@ func (g *gcs) DestinationPath(className, snapshotID string) string {
 		makeObjectName(className, snapshotID, "snapshot.json"))
 }
 
+func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	// TODO: implement
+	return nil, nil
+}
+
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 	snapshotID, objectName string, content []byte,
 ) error {
