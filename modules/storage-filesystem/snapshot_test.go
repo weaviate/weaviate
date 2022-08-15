@@ -143,7 +143,7 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 	})
 }
 
-func Test_FileStorage_MetaStatus(t *testing.T) {
+func TestSnapshotStorage_MetaStatus(t *testing.T) {
 	var testClass string
 	var testId string
 	testDir := makeTestDir(t, testdataMainDir)
