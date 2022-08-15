@@ -368,3 +368,11 @@ func (f *fakeNearParamsSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
 		Vector: []float32{1.0, 1.0, 1.0},
 	}, nil
 }
+
+func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
+	return &search.Result{
+		Vector: []float32{1.0, 1.0, 1.0},
+	}, nil
+}

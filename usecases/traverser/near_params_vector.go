@@ -31,6 +31,8 @@ type nearParamsVector struct {
 }
 
 type nearParamsSearcher interface {
+	Object(ctx context.Context, className string, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
 }
@@ -59,7 +61,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		vector, err := v.vectorFromNearObjectParams(ctx, nearObject)
+		vector, err := v.vectorFromNearObjectParams(ctx, className, nearObject)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
@@ -153,20 +155,33 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func (v *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := v.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+func (v *nearParamsVector) findVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
+	res, err := v.findObject(ctx, className, id)
 	if err != nil {
 		return nil, err
 	}
 	if res == nil {
 		return nil, errors.New("vector not found")
 	}
-
 	return res.Vector, nil
 }
 
-func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
+func (v *nearParamsVector) findObject(ctx context.Context, className string, id strfmt.UUID) (*search.Result, error) {
+	if len(className) == 0 {
+		// This is left for Explore cross class searches where we don't have the classes context
+		return v.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+	}
+	return v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{})
+}
+
+func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
+) ([]float32, error) {
+	return v.vectorFromNearObjectParams(ctx, "", params)
+}
+
+func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
+	className string, params *searchparams.NearObject,
 ) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
@@ -183,7 +198,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		id = ref.TargetID
 	}
 
-	return v.findVector(ctx, id)
+	return v.findVector(ctx, className, id)
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,

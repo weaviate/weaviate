@@ -34,14 +34,16 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 }
 
 func (s *Searcher) vectorForAskParam(ctx context.Context, params interface{},
+	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromAskParam(ctx, params.(*AskParams), findVectorFn, cfg)
+	return s.vectorFromAskParam(ctx, params.(*AskParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromAskParam(ctx context.Context,
-	params *AskParams, findVectorFn modulecapabilities.FindVectorFn,
+	params *AskParams, className string,
+	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	arg := s.nearTextDep.GraphQLArgument()
@@ -52,5 +54,5 @@ func (s *Searcher) vectorFromAskParam(ctx context.Context,
 	nearTextParam := arg.ExtractFunction(rawNearTextParam)
 	vectorSearchFn := s.nearTextDep.VectorSearch()
 
-	return vectorSearchFn(ctx, nearTextParam, findVectorFn, cfg)
+	return vectorSearchFn(ctx, nearTextParam, className, findVectorFn, cfg)
 }

@@ -35,6 +35,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
+	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 
 	// get tests
 	t.Run("getting objects", gettingObjects)
@@ -46,6 +47,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with near fields with multi shard setup", gettingObjectsWithNearFieldsMultiShard)
 	t.Run("getting objects with sort", gettingObjectsWithSort)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
+	t.Run("running near object against shadowed objects", runningNearObjectWithShadowedObjects)
 
 	// aggregate tests
 	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
@@ -73,6 +75,8 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "RansomNote")
 	deleteObjectClass(t, "MultiShard")
 	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, "NearObjectSearch")
+	deleteObjectClass(t, "NearObjectSearchShadow")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -954,6 +958,60 @@ func addTestDataMultiShard(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, multiShardID3)
+}
+
+func addTestDataNearObjectSearch(t *testing.T) {
+	classNames := []string{"NearObjectSearch", "NearObjectSearchShadow"}
+	ids := []strfmt.UUID{
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300001",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300002",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300003",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300004",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300005",
+	}
+	names := []string{
+		"Mount Everest",
+		"Amsterdam is a cool city",
+		"Football is a game where people run after ball",
+		"Berlin is Germany's capital city",
+		"London is a cool city",
+	}
+
+	for _, className := range classNames {
+		createObjectClass(t, &models.Class{
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "name",
+					DataType: []string{"string"},
+				},
+			},
+		})
+	}
+
+	for i, id := range ids {
+		createObject(t, &models.Object{
+			Class: classNames[0],
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": names[i],
+			},
+		})
+		assertGetObjectEventually(t, id)
+		createObject(t, &models.Object{
+			Class: classNames[1],
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": "name",
+			},
+		})
+		assertGetObjectEventually(t, id)
+	}
 }
 
 func addDateFieldClass(t *testing.T) {
