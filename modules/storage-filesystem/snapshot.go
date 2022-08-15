@@ -49,17 +49,17 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
-	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotId)
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return errors.Wrap(err, "load snapshot meta")
+		return errors.Wrap(err, "restore snapshot")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state")
+			return errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotId), srcRelPath); err != nil {
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}
@@ -68,7 +68,7 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 
 func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, errors.Wrap(err, "restore snapshot aborted, invalid context")
+		return nil, errors.Wrap(err, "load snapshot meta")
 	}
 
 	metaPath := m.makeMetaFilePath(className, snapshotID)
@@ -79,7 +79,7 @@ func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, classNam
 	}
 	var snapshot snapshots.Snapshot
 	if err := json.Unmarshal(metaData, &snapshot); err != nil {
-		return nil, errors.Wrapf(err, "Could not unmarshal snapshot meta file %v", metaPath)
+		return nil, errors.Wrap(err, "load snapshot meta")
 	}
 
 	return &snapshot, nil
