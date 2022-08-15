@@ -25,17 +25,17 @@ import (
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "store snapshot aborted")
+		return errors.Wrap(err, "store snapshot aborted")
 	}
 
 	dstSnapshotPath, err := m.createSnapshotDir(snapshot)
 	if err != nil {
-		return errors.Wrapf(err, "could not create snapshot dir")
+		return errors.Wrap(err, "could not create snapshot dir")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "store snapshot aborted")
+			return errors.Wrap(err, "store snapshot aborted")
 		}
 		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
 			return err
@@ -118,7 +118,7 @@ func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snaps
 		return fmt.Errorf("relative snapshots path provided")
 	}
 	if err := m.createSnapshotsDir(snapshotsPath); err != nil {
-		return errors.Wrapf(err, "invalid snapshots path provided")
+		return errors.Wrap(err, "invalid snapshots path provided")
 	}
 	m.snapshotsPath = snapshotsPath
 
@@ -130,7 +130,7 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").
 			WithError(err).
-			Errorf("failed creating snapshots directory")
+			Errorf("failed creat```````ing snapshots directory")
 		return err
 	}
 	return nil
