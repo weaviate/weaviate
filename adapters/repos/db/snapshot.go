@@ -37,7 +37,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	}
 
 	var (
-		snap = snapshots.New(id, time.Now())
+		snap = snapshots.New(i.Config.ClassName.String(), id, time.Now())
 		g    errgroup.Group
 	)
 
@@ -95,7 +95,7 @@ func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
 		return err
 	}
 
-	snap, err := snapshots.ReadFromDisk(id, i.Config.RootPath)
+	snap, err := snapshots.ReadFromDisk(i.Config.RootPath, i.Config.ClassName.String(), id)
 	if err != nil {
 		return errors.Wrap(err, "release snapshot")
 	}

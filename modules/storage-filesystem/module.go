@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -30,8 +31,8 @@ const (
 
 type StorageFileSystemModule struct {
 	logger        logrus.FieldLogger
-	dataPath      string
-	snapshotsPath string
+	dataPath      string // path to the current (operational) data
+	snapshotsPath string // complete(?) path to the the directory that holds all the snapshots
 }
 
 func New() *StorageFileSystemModule {
@@ -63,6 +64,10 @@ func (m *StorageFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
+func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
+	return m.makeSnapshotDirPath(className, snapshotID)
+}
+
 func (m *StorageFileSystemModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
@@ -72,6 +77,18 @@ func (m *StorageFileSystemModule) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["snapshotsPath"] = m.snapshotsPath
 	return metaInfo, nil
+}
+
+func (m *StorageFileSystemModule) makeSnapshotDirPath(className, id string) string {
+	return filepath.Join(m.snapshotsPath, className, id)
+}
+
+func (m *StorageFileSystemModule) makeSnapshotFilePath(className, id, relPath string) string {
+	return filepath.Join(m.makeSnapshotDirPath(className, id), relPath)
+}
+
+func (m *StorageFileSystemModule) makeMetaFilePath(className, id string) string {
+	return filepath.Join(m.makeSnapshotDirPath(className, id), "snapshot.json")
 }
 
 // verify we implement the modules.Module interface

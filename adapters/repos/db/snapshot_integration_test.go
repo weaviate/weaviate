@@ -116,7 +116,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			})
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snapPath := snapshots.BuildSnapshotPath(snap.ID, index.Config.RootPath)
+				snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, snap.ClassName, snap.ID)
 
 				contents, err := ioutil.ReadFile(snapPath)
 				require.Nil(t, err)
@@ -135,7 +135,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.False(t, index.snapshotState.InProgress)
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snap, err := snapshots.ReadFromDisk(snapshotID, index.Config.RootPath)
+				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, className, snapshotID)
 				require.Nil(t, err)
 
 				assert.NotEmpty(t, snap.CompletedAt)
@@ -181,7 +181,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		assert.False(t, index.snapshotState.InProgress)
 		assert.Empty(t, index.snapshotState.SnapshotID)
 
-		snapPath := snapshots.BuildSnapshotPath(snapshotID, index.Config.RootPath)
+		snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, className, snapshotID)
 		_, err = os.Stat(snapPath)
 		expectedErr := &fs.PathError{Op: "stat", Path: snapPath, Err: syscall.ENOENT}
 		assert.Equal(t, err, expectedErr)
