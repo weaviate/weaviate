@@ -110,7 +110,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	return nil
 }
 
-func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) error {
+func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if !bucketExists {
@@ -121,7 +121,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) 
 	}
 
 	// Load the metadata from the backup into a snapshot struct
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotId)
+	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
 	if err != nil {
 		return errors.Wrap(err, "restore snapshot")
 	}
@@ -133,7 +133,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotId string) 
 		}
 
 		// Get the correct paths for the backup file and the active file
-		objectName := makeObjectName(className, snapshotId, srcRelPath)
+		objectName := makeObjectName(className, snapshotID, srcRelPath)
 		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		// Download the backup file from the bucket
