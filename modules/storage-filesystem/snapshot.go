@@ -130,7 +130,7 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").
 			WithError(err).
-			Errorf("failed creating snapshots directory")
+			Errorf("failed creating snapshots directory %v", snapshotsPath)
 		return err
 	}
 	return nil
@@ -138,16 +138,7 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 
 func (m *StorageFileSystemModule) createSnapshotDir(snapshot *snapshots.Snapshot) (snapshotPath string, err error) {
 	snapshotPath = m.makeSnapshotDirPath(snapshot.ClassName, snapshot.ID)
-	if err = os.MkdirAll(snapshotPath, os.ModePerm); err != nil {
-		m.logger.WithField("module", m.Name()).
-			WithField("action", "create_snapshot_dir").
-			WithField("snapshot_classname", snapshot.ClassName).
-			WithField("snapshot_id", snapshot.ID).
-			WithError(err).
-			Errorf("failed creating snapshots directory")
-		return "", err
-	}
-	return snapshotPath, nil
+	return snapshotPath, m.createSnapshotsDir(snapshotPath)
 }
 
 func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelPath string) error {
