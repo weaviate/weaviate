@@ -135,7 +135,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.False(t, index.snapshotState.InProgress)
 
 			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, className, snapshotID) 
+				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, className, snapshotID)
 				require.Nil(t, err)
 
 				assert.NotEmpty(t, snap.CompletedAt)
