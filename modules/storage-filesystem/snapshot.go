@@ -130,7 +130,7 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").
 			WithError(err).
-			Errorf("failed creat```````ing snapshots directory")
+			Errorf("failed creating snapshots directory")
 		return err
 	}
 	return nil
