@@ -240,8 +240,8 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 }
 
 func (g *gcs) DestinationPath(className, snapshotID string) string {
-	// TODO implement
-	return ""
+	return "gs://" + path.Join(g.config.BucketName(),
+		makeObjectName(className, snapshotID, "snapshot.json"))
 }
 
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
