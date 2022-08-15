@@ -44,10 +44,10 @@ type Snapshot struct {
 	StartedAt   time.Time `json:"startedAt"`
 	CompletedAt time.Time `json:"completedAt"`
 
-	ID            string                    `json:"id"`
-	ClassName     string                    `json:"className"`
-	Status        Status                    `json:"status"`
-	Files         []string                  `json:"files"`
+	ID            string                    `json:"id"`        // User created snapshot id
+	ClassName     string                    `json:"className"` // DB class name, also selected by user
+	Status        Status                    `json:"status"`    // "STARTED|RUNNING|FINISHED|FAILED"
+	Files         []string                  `json:"files"`     // Relative paths to files in the snapshot
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
 	Schema        []byte                    `json:"schema"`
@@ -57,8 +57,9 @@ type Snapshot struct {
 	sync.Mutex `json:"-"`
 }
 
-func New(id string, startedAt time.Time) *Snapshot {
+func New(className, id string, startedAt time.Time) *Snapshot {
 	return &Snapshot{
+		ClassName:     className,
 		ID:            id,
 		Status:        StatusStarted,
 		StartedAt:     startedAt,
@@ -72,7 +73,7 @@ func (snap *Snapshot) WriteToDisk(basePath string) error {
 		return errors.Wrap(err, "write snapshot to disk")
 	}
 
-	snapPath := BuildSnapshotPath(snap.ID, basePath)
+	snapPath := BuildSnapshotPath(basePath, snap.ClassName, snap.ID)
 
 	// ensure that the snapshot directory exists
 	if err := os.MkdirAll(path.Dir(snapPath), os.ModePerm); err != nil {
@@ -87,7 +88,7 @@ func (snap *Snapshot) WriteToDisk(basePath string) error {
 }
 
 func (snap *Snapshot) RemoveFromDisk(basePath string) error {
-	snapPath := BuildSnapshotPath(snap.ID, basePath)
+	snapPath := BuildSnapshotPath(basePath, snap.ClassName, snap.ID)
 
 	if err := os.Remove(snapPath); err != nil {
 		return errors.Wrapf(err,
@@ -97,8 +98,8 @@ func (snap *Snapshot) RemoveFromDisk(basePath string) error {
 	return nil
 }
 
-func ReadFromDisk(id, basePath string) (*Snapshot, error) {
-	snapPath := BuildSnapshotPath(id, basePath)
+func ReadFromDisk(basePath, className, id string) (*Snapshot, error) {
+	snapPath := BuildSnapshotPath(basePath, className, id)
 
 	contents, err := os.ReadFile(snapPath)
 	if err != nil {
@@ -114,6 +115,6 @@ func ReadFromDisk(id, basePath string) (*Snapshot, error) {
 	return &snap, nil
 }
 
-func BuildSnapshotPath(id, basePath string) string {
-	return path.Join(basePath, "snapshots", id) + ".json"
+func BuildSnapshotPath(basePath, className, id string) string {
+	return path.Join(basePath, "snapshots", className, id) + ".json"
 }
