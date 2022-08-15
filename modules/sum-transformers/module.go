@@ -45,6 +45,10 @@ func (m *SUMModule) Name() string {
 	return "sum-transformers"
 }
 
+func (m *SUMModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Text
+}
+
 func (m *SUMModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
