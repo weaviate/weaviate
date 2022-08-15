@@ -114,6 +114,14 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
+func (f *fakeVectorSearcher) Object(ctx context.Context,
+	className string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
+	args := f.Called(className, id)
+	return args.Get(0).(*search.Result), args.Error(1)
+}
+
 func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 ) (*search.Result, error) {
@@ -132,6 +140,12 @@ type fakeVectorRepo struct {
 }
 
 func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 ) (*search.Result, error) {
 	return nil, nil
@@ -786,7 +800,7 @@ func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForP
 }
 
 func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
+	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, nil)
 	if err != nil {
