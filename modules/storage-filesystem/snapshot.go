@@ -25,71 +25,88 @@ import (
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "store snapshot aborted")
+		return errors.Wrap(err, "store snapshot aborted")
 	}
 
 	dstSnapshotPath, err := m.createSnapshotDir(snapshot)
 	if err != nil {
-		return errors.Wrapf(err, "could not create snapshot dir")
+		return errors.Wrap(err, "could not create snapshot dir")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "store snapshot aborted")
+			return errors.Wrap(err, "store snapshot aborted")
 		}
 		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
 			return err
 		}
 	}
 
-	if err := m.saveMeta(dstSnapshotPath, snapshot); err != nil {
+	if err := m.saveMeta(snapshot); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// TODO handle className
 func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
-	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "restore snapshot aborted, invalid context")
-	}
-
-	metaPath := m.makeMetaFilePath(snapshotID)
-
-	metaData, err := os.ReadFile(metaPath)
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return errors.Wrapf(err, "Could not read snapshot meta file %v", metaPath)
-	}
-	var snapshot snapshots.Snapshot
-	if err := json.Unmarshal(metaData, &snapshot); err != nil {
-		return errors.Wrapf(err, "Could not unmarshal snapshot meta file %v", metaPath)
+		return errors.Wrap(err, "restore snapshot")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state")
+			return errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(snapshotID), srcRelPath); err != nil {
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
 			return errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}
 	return nil
 }
 
-func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	// TODO implement
-	return nil
+func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Wrap(err, "load snapshot meta")
+	}
+
+	metaPath := m.makeMetaFilePath(className, snapshotID)
+
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Could not read snapshot meta file %v", metaPath)
+	}
+	var snapshot snapshots.Snapshot
+	if err := json.Unmarshal(metaData, &snapshot); err != nil {
+		return nil, errors.Wrap(err, "load snapshot meta")
+	}
+
+	return &snapshot, nil
 }
 
 func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	// TODO implement
-	return "", fmt.Errorf("file does not exist")
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
+	if err != nil {
+		return "", errors.Wrap(err, "load snapshot meta")
+	}
+
+	return string(snapshot.Status), nil
 }
 
-func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
-	// TODO implement
-	return ""
+func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
+	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
+	if err != nil {
+		return errors.Wrap(err, "load snapshot meta")
+	}
+
+	snapshot.Status = snapshots.Status(status)
+
+	if err := m.saveMeta(snapshot); err != nil {
+		return errors.Wrap(err, "save snapshot meta")
+	}
+
+	return nil
 }
 
 func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {
@@ -101,7 +118,7 @@ func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snaps
 		return fmt.Errorf("relative snapshots path provided")
 	}
 	if err := m.createSnapshotsDir(snapshotsPath); err != nil {
-		return errors.Wrapf(err, "invalid snapshots path provided")
+		return errors.Wrap(err, "invalid snapshots path provided")
 	}
 	m.snapshotsPath = snapshotsPath
 
@@ -113,31 +130,15 @@ func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").
 			WithError(err).
-			Errorf("failed creating snapshots directory")
+			Errorf("failed creating snapshots directory %v", snapshotsPath)
 		return err
 	}
 	return nil
 }
 
-func (m *StorageFileSystemModule) makeSnapshotDirPath(id string) string {
-	return filepath.Join(m.snapshotsPath, id)
-}
-
-func (m *StorageFileSystemModule) makeMetaFilePath(id string) string {
-	return filepath.Join(m.makeSnapshotDirPath(id), "snapshot.json")
-}
-
 func (m *StorageFileSystemModule) createSnapshotDir(snapshot *snapshots.Snapshot) (snapshotPath string, err error) {
-	snapshotPath = m.makeSnapshotDirPath(snapshot.ID)
-	if err = os.Mkdir(snapshotPath, os.ModePerm); err != nil {
-		m.logger.WithField("module", m.Name()).
-			WithField("action", "create_snapshot_dir").
-			WithField("snapshot_id", snapshot.ID).
-			WithError(err).
-			Errorf("failed creating snapshots directory")
-		return "", err
-	}
-	return snapshotPath, nil
+	snapshotPath = m.makeSnapshotDirPath(snapshot.ClassName, snapshot.ID)
+	return snapshotPath, m.createSnapshotsDir(snapshotPath)
 }
 
 func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelPath string) error {
@@ -183,21 +184,23 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 	return nil
 }
 
-func (m *StorageFileSystemModule) saveMeta(dstSnapshotPath string, snapshot *snapshots.Snapshot) error {
+func (m *StorageFileSystemModule) saveMeta(snapshot *snapshots.Snapshot) error {
 	content, err := json.Marshal(snapshot)
 	if err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "save_meta").
+			WithField("snapshot_classname", snapshot.ClassName).
 			WithField("snapshot_id", snapshot.ID).
 			WithError(err).
 			Errorf("failed creating meta file")
 		return errors.Wrapf(err, "Could not create meta file for snapshot %v", snapshot.ID)
 	}
 
-	metaFile := m.makeMetaFilePath(snapshot.ID)
+	metaFile := m.makeMetaFilePath(snapshot.ClassName, snapshot.ID)
 	if err := os.WriteFile(metaFile, content, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "save_meta").
+			WithField("snapshot_classname", snapshot.ClassName).
 			WithField("snapshot_id", snapshot.ID).
 			WithError(err).
 			Errorf("failed creating meta file")
