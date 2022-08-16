@@ -19,6 +19,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -65,7 +66,7 @@ func int32FromBytes(bytes []byte) int {
 }
 
 func readSiftFloat(file string, maxObjects int) []*models.Object {
-	objects := []*models.Object{}
+	var objects []*models.Object
 
 	f, err := os.Open("sift/" + file)
 	if err != nil {
@@ -102,15 +103,15 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 		if int32FromBytes(vectorBytes[0:bytesPerF]) != vectorLengthFloat {
 			panic("Each vector must have 128 entries.")
 		}
-		vectorFloat := []float32{}
+		var vectorFloat []float32
 		for j := 0; j < vectorLengthFloat; j++ {
 			start := (j + 1) * bytesPerF // first bytesPerF are length of vector
 			vectorFloat = append(vectorFloat, float32FromBytes(vectorBytes[start:start+bytesPerF]))
 		}
-		uuid := uuid.New()
+		ObjectUuid := uuid.New()
 		object := &models.Object{
 			Class:  class,
-			ID:     strfmt.UUID(uuid.String()),
+			ID:     strfmt.UUID(ObjectUuid.String()),
 			Vector: models.C11yVector(vectorFloat),
 			Properties: map[string]interface{}{
 				"counter": i,
@@ -129,7 +130,7 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 	return objects
 }
 
-func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64, error) {
+func benchmarkSift(c *http.Client, url string, maxObjects, numBatches int) (map[string]int64, error) {
 	clearExistingObjects(c, url)
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
 	queries := readSiftFloat("sift_query.fvecs", maxObjects/100)
@@ -147,13 +148,37 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 	}
 
 	// Batch-add
-	requestAdd := createRequest(url+"batch/objects", "POST", batch{objects})
-	responseAddCode, _, timeBatchAdd, err := performRequest(c, requestAdd)
-	passedTime["BatchAdd"] = timeBatchAdd
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not add batch, error: ")
-	} else if responseAddCode != 200 {
-		return nil, errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
+	passedTime["BatchAdd"] = 0
+	wg := sync.WaitGroup{}
+	batchSize := len(objects) / numBatches
+	errorChan := make(chan error, numBatches)
+	timeChan := make(chan int64, numBatches)
+
+	for i := 0; i < numBatches; i++ {
+		wg.Add(1)
+		go func(batchId int, errChan chan<- error) {
+			batchObjects := objects[batchId*batchSize : (batchId+1)*batchSize]
+			requestAdd := createRequest(url+"batch/objects", "POST", batch{batchObjects})
+			responseAddCode, _, timeBatchAdd, err := performRequest(c, requestAdd)
+
+			timeChan <- timeBatchAdd
+			if err != nil {
+				errChan <- errors.Wrap(err, "Could not add batch, error: ")
+			} else if responseAddCode != 200 {
+				errChan <- errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
+			}
+			wg.Done()
+		}(i, errorChan)
+
+	}
+	wg.Wait()
+	close(errorChan)
+	close(timeChan)
+	for err := range errorChan {
+		return nil, err
+	}
+	for timing := range timeChan {
+		passedTime["BatchAdd"] += timing
 	}
 
 	// Read entries
@@ -174,9 +199,9 @@ func benchmarkSift(c *http.Client, url string, maxObjects int) (map[string]int64
 		return nil, errors.Wrap(err, "Could not unmarshal read response")
 	}
 	if int(result["totalResults"].(float64)) != nrSearchResultsUse {
-		err_string := "Found " + fmt.Sprint(int(result["totalResults"].(float64))) +
+		errString := "Found " + fmt.Sprint(int(result["totalResults"].(float64))) +
 			" results. Expected " + fmt.Sprint(nrSearchResultsUse) + "."
-		return nil, errors.New(err_string)
+		return nil, errors.New(errString)
 	}
 
 	// Use sample queries
