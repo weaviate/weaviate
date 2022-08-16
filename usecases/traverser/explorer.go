@@ -62,8 +62,8 @@ type vectorClassSearch interface {
 		filters *filters.LocalFilter) ([]search.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo

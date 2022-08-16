@@ -53,8 +53,8 @@ type VectorSearcher interface {
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 type explorer interface {

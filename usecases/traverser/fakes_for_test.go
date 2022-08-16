@@ -122,11 +122,11 @@ func (f *fakeVectorSearcher) Object(ctx context.Context,
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-) (*search.Result, error) {
+) (search.Results, error) {
 	args := f.Called(id)
-	return args.Get(0).(*search.Result), args.Error(1)
+	return args.Get(0).(search.Results), args.Error(1)
 }
 
 type fakeAuthorizer struct{}
@@ -139,9 +139,9 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-) (*search.Result, error) {
+) (search.Results, error) {
 	return nil, nil
 }
 

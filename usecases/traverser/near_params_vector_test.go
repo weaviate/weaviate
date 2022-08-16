@@ -361,11 +361,11 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 
 type fakeNearParamsSearcher struct{}
 
-func (f *fakeNearParamsSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeNearParamsSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
-) (*search.Result, error) {
-	return &search.Result{
-		Vector: []float32{1.0, 1.0, 1.0},
+) (search.Results, error) {
+	return search.Results{
+		{Vector: []float32{1.0, 1.0, 1.0}},
 	}, nil
 }
 
