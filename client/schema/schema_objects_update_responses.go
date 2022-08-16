@@ -81,8 +81,7 @@ func NewSchemaObjectsUpdateOK() *SchemaObjectsUpdateOK {
 	return &SchemaObjectsUpdateOK{}
 }
 
-/*
-SchemaObjectsUpdateOK handles this case with default header values.
+/*SchemaObjectsUpdateOK handles this case with default header values.
 
 Class was updated successfully
 */
@@ -115,8 +114,7 @@ func NewSchemaObjectsUpdateUnauthorized() *SchemaObjectsUpdateUnauthorized {
 	return &SchemaObjectsUpdateUnauthorized{}
 }
 
-/*
-SchemaObjectsUpdateUnauthorized handles this case with default header values.
+/*SchemaObjectsUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -137,8 +135,7 @@ func NewSchemaObjectsUpdateForbidden() *SchemaObjectsUpdateForbidden {
 	return &SchemaObjectsUpdateForbidden{}
 }
 
-/*
-SchemaObjectsUpdateForbidden handles this case with default header values.
+/*SchemaObjectsUpdateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -171,8 +168,7 @@ func NewSchemaObjectsUpdateNotFound() *SchemaObjectsUpdateNotFound {
 	return &SchemaObjectsUpdateNotFound{}
 }
 
-/*
-SchemaObjectsUpdateNotFound handles this case with default header values.
+/*SchemaObjectsUpdateNotFound handles this case with default header values.
 
 Class to be updated does not exist
 */
@@ -205,8 +201,7 @@ func NewSchemaObjectsUpdateUnprocessableEntity() *SchemaObjectsUpdateUnprocessab
 	return &SchemaObjectsUpdateUnprocessableEntity{}
 }
 
-/*
-SchemaObjectsUpdateUnprocessableEntity handles this case with default header values.
+/*SchemaObjectsUpdateUnprocessableEntity handles this case with default header values.
 
 Invalid update attempt
 */
@@ -239,8 +234,7 @@ func NewSchemaObjectsUpdateInternalServerError() *SchemaObjectsUpdateInternalSer
 	return &SchemaObjectsUpdateInternalServerError{}
 }
 
-/*
-SchemaObjectsUpdateInternalServerError handles this case with default header values.
+/*SchemaObjectsUpdateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

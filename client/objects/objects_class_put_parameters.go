@@ -68,8 +68,7 @@ func NewObjectsClassPutParamsWithHTTPClient(client *http.Client) *ObjectsClassPu
 	}
 }
 
-/*
-ObjectsClassPutParams contains all the parameters to send to the API endpoint
+/*ObjectsClassPutParams contains all the parameters to send to the API endpoint
 for the objects class put operation typically these are written to a http.Request
 */
 type ObjectsClassPutParams struct {

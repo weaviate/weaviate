@@ -27,8 +27,7 @@ import (
 // ClassificationsPostCreatedCode is the HTTP code returned for type ClassificationsPostCreated
 const ClassificationsPostCreatedCode int = 201
 
-/*
-ClassificationsPostCreated Successfully started classification.
+/*ClassificationsPostCreated Successfully started classification.
 
 swagger:response classificationsPostCreated
 */
@@ -72,8 +71,7 @@ func (o *ClassificationsPostCreated) WriteResponse(rw http.ResponseWriter, produ
 // ClassificationsPostBadRequestCode is the HTTP code returned for type ClassificationsPostBadRequest
 const ClassificationsPostBadRequestCode int = 400
 
-/*
-ClassificationsPostBadRequest Incorrect request
+/*ClassificationsPostBadRequest Incorrect request
 
 swagger:response classificationsPostBadRequest
 */
@@ -117,8 +115,7 @@ func (o *ClassificationsPostBadRequest) WriteResponse(rw http.ResponseWriter, pr
 // ClassificationsPostUnauthorizedCode is the HTTP code returned for type ClassificationsPostUnauthorized
 const ClassificationsPostUnauthorizedCode int = 401
 
-/*
-ClassificationsPostUnauthorized Unauthorized or invalid credentials.
+/*ClassificationsPostUnauthorized Unauthorized or invalid credentials.
 
 swagger:response classificationsPostUnauthorized
 */
@@ -142,8 +139,7 @@ func (o *ClassificationsPostUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // ClassificationsPostForbiddenCode is the HTTP code returned for type ClassificationsPostForbidden
 const ClassificationsPostForbiddenCode int = 403
 
-/*
-ClassificationsPostForbidden Forbidden
+/*ClassificationsPostForbidden Forbidden
 
 swagger:response classificationsPostForbidden
 */
@@ -187,8 +183,7 @@ func (o *ClassificationsPostForbidden) WriteResponse(rw http.ResponseWriter, pro
 // ClassificationsPostInternalServerErrorCode is the HTTP code returned for type ClassificationsPostInternalServerError
 const ClassificationsPostInternalServerErrorCode int = 500
 
-/*
-ClassificationsPostInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ClassificationsPostInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response classificationsPostInternalServerError
 */

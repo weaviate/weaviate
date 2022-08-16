@@ -48,9 +48,9 @@ type ClientService interface {
 }
 
 /*
-BatchObjectsCreate creates new objects based on a object template as a batch
+  BatchObjectsCreate creates new objects based on a object template as a batch
 
-Register new Objects in bulk. Provided meta-data and schema values are validated.
+  Register new Objects in bulk. Provided meta-data and schema values are validated.
 */
 func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -85,9 +85,9 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 }
 
 /*
-BatchObjectsDelete deletes objects based on a match filter as a batch
+  BatchObjectsDelete deletes objects based on a match filter as a batch
 
-Delete Objects in bulk that match a certain filter.
+  Delete Objects in bulk that match a certain filter.
 */
 func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -122,9 +122,9 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 }
 
 /*
-BatchReferencesCreate creates new cross references between arbitrary classes in bulk
+  BatchReferencesCreate creates new cross references between arbitrary classes in bulk
 
-Register cross-references between any class items (objects or objects) in bulk.
+  Register cross-references between any class items (objects or objects) in bulk.
 */
 func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchReferencesCreateOK, error) {
 	// TODO: Validate the params before sending

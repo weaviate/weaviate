@@ -207,7 +207,17 @@ func (s *schemaHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapsho
 	status, err := s.manager.CreateSnapshotStatus(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
-		// TODO: error handling
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrNotFound:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 	}
 	return schema.NewSchemaObjectsSnapshotsCreateStatusOK().WithPayload(status)
 }

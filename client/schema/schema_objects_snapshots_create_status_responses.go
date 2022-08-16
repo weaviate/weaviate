@@ -75,8 +75,7 @@ func NewSchemaObjectsSnapshotsCreateStatusOK() *SchemaObjectsSnapshotsCreateStat
 	return &SchemaObjectsSnapshotsCreateStatusOK{}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusOK handles this case with default header values.
+/*SchemaObjectsSnapshotsCreateStatusOK handles this case with default header values.
 
 Snapshot creation status successfully returned
 */
@@ -109,8 +108,7 @@ func NewSchemaObjectsSnapshotsCreateStatusUnauthorized() *SchemaObjectsSnapshots
 	return &SchemaObjectsSnapshotsCreateStatusUnauthorized{}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusUnauthorized handles this case with default header values.
+/*SchemaObjectsSnapshotsCreateStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -131,8 +129,7 @@ func NewSchemaObjectsSnapshotsCreateStatusForbidden() *SchemaObjectsSnapshotsCre
 	return &SchemaObjectsSnapshotsCreateStatusForbidden{}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusForbidden handles this case with default header values.
+/*SchemaObjectsSnapshotsCreateStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -165,19 +162,30 @@ func NewSchemaObjectsSnapshotsCreateStatusNotFound() *SchemaObjectsSnapshotsCrea
 	return &SchemaObjectsSnapshotsCreateStatusNotFound{}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusNotFound handles this case with default header values.
+/*SchemaObjectsSnapshotsCreateStatusNotFound handles this case with default header values.
 
 Not Found - Snapshot does not exist
 */
 type SchemaObjectsSnapshotsCreateStatusNotFound struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateStatusNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateStatusNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsSnapshotsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -187,8 +195,7 @@ func NewSchemaObjectsSnapshotsCreateStatusInternalServerError() *SchemaObjectsSn
 	return &SchemaObjectsSnapshotsCreateStatusInternalServerError{}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusInternalServerError handles this case with default header values.
+/*SchemaObjectsSnapshotsCreateStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

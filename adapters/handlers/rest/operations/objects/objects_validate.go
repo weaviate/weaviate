@@ -42,12 +42,12 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 	return &ObjectsValidate{Context: ctx, Handler: handler}
 }
 
-/*
-ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
+/*ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
 
 Validate an Object based on a schema.
 
 Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
+
 */
 type ObjectsValidate struct {
 	Context *middleware.Context
