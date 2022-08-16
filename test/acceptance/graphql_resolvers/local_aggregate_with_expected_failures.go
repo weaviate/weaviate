@@ -293,7 +293,9 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 		require.Len(t, result, 1)
 		assert.True(t, strings.Contains(result[0].Message, "objectLimit can only be used with a near<Media> filter"))
 	})
+}
 
+func exploreWithExpectedFailures(t *testing.T) {
 	t.Run("Explore called when classes have different distance configs", func(t *testing.T) {
 		className := "L2DistanceClass"
 		defer deleteObjectClass(t, className)
