@@ -13,7 +13,7 @@ package db
 
 import (
 	"context"
-	
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/snapshots"

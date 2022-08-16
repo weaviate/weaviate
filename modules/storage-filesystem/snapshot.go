@@ -23,9 +23,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 )
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
