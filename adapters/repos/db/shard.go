@@ -14,9 +14,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -89,7 +91,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	invertedIndexConfig := index.getInvertedIndexConfig()
-
+	val, ok := os.LookupEnv("MaxNumberGoroutinesFactor")
+	var MaxNumberGoroutinesFactor float64
+	if !ok {
+		MaxNumberGoroutinesFactor = 2
+	} else {
+		MaxNumberGoroutinesFactor, _ = strconv.ParseFloat(val, 32)
+	}
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -104,7 +112,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		randomSource:        rand,
 		diskScanState:       newDiskScanState(),
 		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: 2 * runtime.GOMAXPROCS(0),
+		maxNumberGoroutines: int(math.Round(MaxNumberGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
 	defer s.metrics.ShardStartup(before)
 
