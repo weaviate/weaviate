@@ -204,8 +204,22 @@ func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCrea
 func (s *schemaHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO implement
-	return nil
+	status, err := s.manager.CreateSnapshotStatus(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.StorageName, params.ID)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrNotFound:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsCreateStatusInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+	return schema.NewSchemaObjectsSnapshotsCreateStatusOK().WithPayload(status)
 }
 
 func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,

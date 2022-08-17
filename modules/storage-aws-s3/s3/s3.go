@@ -178,6 +178,11 @@ func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status st
 	return nil
 }
 
+func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	// TODO: implement
+	return nil, nil
+}
+
 func (s *s3) DestinationPath(className, snapshotID string) string {
 	return "s3://" + path.Join(s.config.BucketName(),
 		makeObjectName(className, snapshotID, "snapshot.json"))

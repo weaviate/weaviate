@@ -75,8 +75,7 @@ func NewObjectsHeadNoContent() *ObjectsHeadNoContent {
 	return &ObjectsHeadNoContent{}
 }
 
-/*
-ObjectsHeadNoContent handles this case with default header values.
+/*ObjectsHeadNoContent handles this case with default header values.
 
 Object exists.
 */
@@ -97,8 +96,7 @@ func NewObjectsHeadUnauthorized() *ObjectsHeadUnauthorized {
 	return &ObjectsHeadUnauthorized{}
 }
 
-/*
-ObjectsHeadUnauthorized handles this case with default header values.
+/*ObjectsHeadUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -119,8 +117,7 @@ func NewObjectsHeadForbidden() *ObjectsHeadForbidden {
 	return &ObjectsHeadForbidden{}
 }
 
-/*
-ObjectsHeadForbidden handles this case with default header values.
+/*ObjectsHeadForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -153,8 +150,7 @@ func NewObjectsHeadNotFound() *ObjectsHeadNotFound {
 	return &ObjectsHeadNotFound{}
 }
 
-/*
-ObjectsHeadNotFound handles this case with default header values.
+/*ObjectsHeadNotFound handles this case with default header values.
 
 Object doesn't exist.
 */
@@ -175,8 +171,7 @@ func NewObjectsHeadInternalServerError() *ObjectsHeadInternalServerError {
 	return &ObjectsHeadInternalServerError{}
 }
 
-/*
-ObjectsHeadInternalServerError handles this case with default header values.
+/*ObjectsHeadInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

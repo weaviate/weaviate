@@ -508,3 +508,7 @@ func (m *dummyStorageModuleWithAltNames) GetMetaStatus(ctx context.Context, clas
 func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {
 	return ""
 }
+
+func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
+}

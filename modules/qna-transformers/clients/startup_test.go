@@ -38,7 +38,7 @@ func TestWaitForStartup(t *testing.T) {
 		c := New("http://nothing-running-at-this-url", nullLogger())
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		err := c.WaitForStartup(ctx, 50*time.Millisecond)
+		err := c.WaitForStartup(ctx, 150*time.Millisecond)
 
 		require.NotNil(t, err, nullLogger())
 		assert.Contains(t, err.Error(), "expired before remote was ready")

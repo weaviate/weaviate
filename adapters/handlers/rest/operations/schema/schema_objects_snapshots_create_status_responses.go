@@ -27,8 +27,7 @@ import (
 // SchemaObjectsSnapshotsCreateStatusOKCode is the HTTP code returned for type SchemaObjectsSnapshotsCreateStatusOK
 const SchemaObjectsSnapshotsCreateStatusOKCode int = 200
 
-/*
-SchemaObjectsSnapshotsCreateStatusOK Snapshot creation status successfully returned
+/*SchemaObjectsSnapshotsCreateStatusOK Snapshot creation status successfully returned
 
 swagger:response schemaObjectsSnapshotsCreateStatusOK
 */
@@ -72,8 +71,7 @@ func (o *SchemaObjectsSnapshotsCreateStatusOK) WriteResponse(rw http.ResponseWri
 // SchemaObjectsSnapshotsCreateStatusUnauthorizedCode is the HTTP code returned for type SchemaObjectsSnapshotsCreateStatusUnauthorized
 const SchemaObjectsSnapshotsCreateStatusUnauthorizedCode int = 401
 
-/*
-SchemaObjectsSnapshotsCreateStatusUnauthorized Unauthorized or invalid credentials.
+/*SchemaObjectsSnapshotsCreateStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsSnapshotsCreateStatusUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *SchemaObjectsSnapshotsCreateStatusUnauthorized) WriteResponse(rw http.R
 // SchemaObjectsSnapshotsCreateStatusForbiddenCode is the HTTP code returned for type SchemaObjectsSnapshotsCreateStatusForbidden
 const SchemaObjectsSnapshotsCreateStatusForbiddenCode int = 403
 
-/*
-SchemaObjectsSnapshotsCreateStatusForbidden Forbidden
+/*SchemaObjectsSnapshotsCreateStatusForbidden Forbidden
 
 swagger:response schemaObjectsSnapshotsCreateStatusForbidden
 */
@@ -142,12 +139,16 @@ func (o *SchemaObjectsSnapshotsCreateStatusForbidden) WriteResponse(rw http.Resp
 // SchemaObjectsSnapshotsCreateStatusNotFoundCode is the HTTP code returned for type SchemaObjectsSnapshotsCreateStatusNotFound
 const SchemaObjectsSnapshotsCreateStatusNotFoundCode int = 404
 
-/*
-SchemaObjectsSnapshotsCreateStatusNotFound Not Found - Snapshot does not exist
+/*SchemaObjectsSnapshotsCreateStatusNotFound Not Found - Snapshot does not exist
 
 swagger:response schemaObjectsSnapshotsCreateStatusNotFound
 */
 type SchemaObjectsSnapshotsCreateStatusNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsSnapshotsCreateStatusNotFound creates SchemaObjectsSnapshotsCreateStatusNotFound with default headers values
@@ -156,19 +157,33 @@ func NewSchemaObjectsSnapshotsCreateStatusNotFound() *SchemaObjectsSnapshotsCrea
 	return &SchemaObjectsSnapshotsCreateStatusNotFound{}
 }
 
+// WithPayload adds the payload to the schema objects snapshots create status not found response
+func (o *SchemaObjectsSnapshotsCreateStatusNotFound) WithPayload(payload *models.ErrorResponse) *SchemaObjectsSnapshotsCreateStatusNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects snapshots create status not found response
+func (o *SchemaObjectsSnapshotsCreateStatusNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SchemaObjectsSnapshotsCreateStatusInternalServerErrorCode is the HTTP code returned for type SchemaObjectsSnapshotsCreateStatusInternalServerError
 const SchemaObjectsSnapshotsCreateStatusInternalServerErrorCode int = 500
 
-/*
-SchemaObjectsSnapshotsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*SchemaObjectsSnapshotsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsSnapshotsCreateStatusInternalServerError
 */

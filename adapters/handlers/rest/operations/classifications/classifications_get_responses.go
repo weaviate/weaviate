@@ -27,8 +27,7 @@ import (
 // ClassificationsGetOKCode is the HTTP code returned for type ClassificationsGetOK
 const ClassificationsGetOKCode int = 200
 
-/*
-ClassificationsGetOK Found the classification, returned as body
+/*ClassificationsGetOK Found the classification, returned as body
 
 swagger:response classificationsGetOK
 */
@@ -72,8 +71,7 @@ func (o *ClassificationsGetOK) WriteResponse(rw http.ResponseWriter, producer ru
 // ClassificationsGetUnauthorizedCode is the HTTP code returned for type ClassificationsGetUnauthorized
 const ClassificationsGetUnauthorizedCode int = 401
 
-/*
-ClassificationsGetUnauthorized Unauthorized or invalid credentials.
+/*ClassificationsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response classificationsGetUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *ClassificationsGetUnauthorized) WriteResponse(rw http.ResponseWriter, p
 // ClassificationsGetForbiddenCode is the HTTP code returned for type ClassificationsGetForbidden
 const ClassificationsGetForbiddenCode int = 403
 
-/*
-ClassificationsGetForbidden Forbidden
+/*ClassificationsGetForbidden Forbidden
 
 swagger:response classificationsGetForbidden
 */
@@ -142,8 +139,7 @@ func (o *ClassificationsGetForbidden) WriteResponse(rw http.ResponseWriter, prod
 // ClassificationsGetNotFoundCode is the HTTP code returned for type ClassificationsGetNotFound
 const ClassificationsGetNotFoundCode int = 404
 
-/*
-ClassificationsGetNotFound Not Found - Classification does not exist
+/*ClassificationsGetNotFound Not Found - Classification does not exist
 
 swagger:response classificationsGetNotFound
 */
@@ -167,8 +163,7 @@ func (o *ClassificationsGetNotFound) WriteResponse(rw http.ResponseWriter, produ
 // ClassificationsGetInternalServerErrorCode is the HTTP code returned for type ClassificationsGetInternalServerError
 const ClassificationsGetInternalServerErrorCode int = 500
 
-/*
-ClassificationsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ClassificationsGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response classificationsGetInternalServerError
 */

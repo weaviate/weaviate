@@ -42,10 +42,10 @@ func NewSchemaObjectsSnapshotsCreateStatus(ctx *middleware.Context, handler Sche
 	return &SchemaObjectsSnapshotsCreateStatus{Context: ctx, Handler: handler}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatus swagger:route GET /schema/{className}/snapshots/{storageName}/{id} schema schemaObjectsSnapshotsCreateStatus
+/*SchemaObjectsSnapshotsCreateStatus swagger:route GET /schema/{className}/snapshots/{storageName}/{id} schema schemaObjectsSnapshotsCreateStatus
 
 Returns status of creation attempt of a snapshot for a class
+
 */
 type SchemaObjectsSnapshotsCreateStatus struct {
 	Context *middleware.Context

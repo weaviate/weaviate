@@ -56,8 +56,7 @@ func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
 	return &GetWellKnownOpenidConfigurationOK{}
 }
 
-/*
-GetWellKnownOpenidConfigurationOK handles this case with default header values.
+/*GetWellKnownOpenidConfigurationOK handles this case with default header values.
 
 Successful response, inspect body
 */
@@ -90,8 +89,7 @@ func NewGetWellKnownOpenidConfigurationNotFound() *GetWellKnownOpenidConfigurati
 	return &GetWellKnownOpenidConfigurationNotFound{}
 }
 
-/*
-GetWellKnownOpenidConfigurationNotFound handles this case with default header values.
+/*GetWellKnownOpenidConfigurationNotFound handles this case with default header values.
 
 Not found, no oidc provider present
 */
@@ -107,8 +105,7 @@ func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.
 	return nil
 }
 
-/*
-GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
+/*GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
 swagger:model GetWellKnownOpenidConfigurationOKBody
 */
 type GetWellKnownOpenidConfigurationOKBody struct {

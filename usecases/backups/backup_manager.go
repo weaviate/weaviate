@@ -14,11 +14,13 @@ package backups
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -69,8 +71,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 
 	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
 	if _, err := storage.GetMetaStatus(ctx, className, snapshotID); err != nil {
-		// TODO improve check, according to implementation of GetMetaStatus
-		if err.Error() != "file does not exist" {
+		if err.Error() != os.ErrNotExist.Error() {
 			return nil, NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 		}
 	} else {
@@ -83,20 +84,49 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	}
 
 	provider := newSnapshotProvider(idx, storage, className, snapshotID)
-	path, err := provider.start(ctx)
+	snapshot, err := provider.start(ctx)
 	if err != nil {
 		bm.setCreateInProgress(className, false)
 		return nil, NewErrUnprocessable(errors.Wrapf(err, "snapshot start"))
 	}
 
 	go func(ctx context.Context, provider *snapshotProvider) {
-		provider.backup(ctx)
+		provider.backup(ctx, snapshot)
 		bm.setCreateInProgress(className, false)
 	}(ctx, provider)
 
 	return &backups.CreateMeta{
-		Path:   path,
+		Path:   provider.storage.DestinationPath(className, snapshotID),
 		Status: backups.CS_STARTED,
+	}, nil
+}
+
+func (bm *backupManager) CreateBackupStatus(ctx context.Context,
+	className, storageName, snapshotID string,
+) (*models.SnapshotMeta, error) {
+	idx := bm.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, NewErrUnprocessable(
+			fmt.Errorf("can't fetch snapshot creation status of "+
+				"non-existing index for %s", className))
+	}
+
+	storage, err := bm.storages.BackupStorage(storageName)
+	if err != nil {
+		return nil, NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
+	}
+
+	status, err := storage.GetMetaStatus(ctx, className, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: populate Error field if snapshot failed
+	return &models.SnapshotMeta{
+		ID:          snapshotID,
+		Path:        storage.DestinationPath(className, snapshotID),
+		Status:      &status,
+		StorageName: storageName,
 	}, nil
 }
 

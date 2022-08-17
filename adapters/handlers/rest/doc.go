@@ -13,20 +13,20 @@
 
 // Package rest Weaviate
 //
-//	Cloud-native, modular vector search engine
-//	Schemes:
-//	  https
-//	Host: localhost
-//	BasePath: /v1
-//	Version: 1.14.1
-//	Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
+//  Cloud-native, modular vector search engine
+//  Schemes:
+//    https
+//  Host: localhost
+//  BasePath: /v1
+//  Version: 1.14.1
+//  Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 //
-//	Consumes:
-//	  - application/json
-//	  - application/yaml
+//  Consumes:
+//    - application/json
+//    - application/yaml
 //
-//	Produces:
-//	  - application/json
+//  Produces:
+//    - application/json
 //
 // swagger:meta
 package rest
