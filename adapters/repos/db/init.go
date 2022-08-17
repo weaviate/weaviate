@@ -64,6 +64,7 @@ func (d *DB) init(ctx context.Context) error {
 			}
 
 			d.indices[idx.ID()] = idx
+			idx.notifyReady()
 		}
 	}
 

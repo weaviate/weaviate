@@ -80,6 +80,9 @@ type RemoteIndexClient interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
+	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
+		targetStatus string) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -292,4 +295,32 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, docIDs, dryRun)
+}
+
+func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return "", errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return "", errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
+}
+
+func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
 }
