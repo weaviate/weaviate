@@ -27,7 +27,8 @@ import (
 // BatchObjectsDeleteOKCode is the HTTP code returned for type BatchObjectsDeleteOK
 const BatchObjectsDeleteOKCode int = 200
 
-/*BatchObjectsDeleteOK Request succeeded, see response body to get detailed information about each batched item.
+/*
+BatchObjectsDeleteOK Request succeeded, see response body to get detailed information about each batched item.
 
 swagger:response batchObjectsDeleteOK
 */
@@ -71,7 +72,8 @@ func (o *BatchObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer ru
 // BatchObjectsDeleteUnauthorizedCode is the HTTP code returned for type BatchObjectsDeleteUnauthorized
 const BatchObjectsDeleteUnauthorizedCode int = 401
 
-/*BatchObjectsDeleteUnauthorized Unauthorized or invalid credentials.
+/*
+BatchObjectsDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchObjectsDeleteUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *BatchObjectsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, p
 // BatchObjectsDeleteForbiddenCode is the HTTP code returned for type BatchObjectsDeleteForbidden
 const BatchObjectsDeleteForbiddenCode int = 403
 
-/*BatchObjectsDeleteForbidden Forbidden
+/*
+BatchObjectsDeleteForbidden Forbidden
 
 swagger:response batchObjectsDeleteForbidden
 */
@@ -139,7 +142,8 @@ func (o *BatchObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, prod
 // BatchObjectsDeleteUnprocessableEntityCode is the HTTP code returned for type BatchObjectsDeleteUnprocessableEntity
 const BatchObjectsDeleteUnprocessableEntityCode int = 422
 
-/*BatchObjectsDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*
+BatchObjectsDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response batchObjectsDeleteUnprocessableEntity
 */
@@ -183,7 +187,8 @@ func (o *BatchObjectsDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWr
 // BatchObjectsDeleteInternalServerErrorCode is the HTTP code returned for type BatchObjectsDeleteInternalServerError
 const BatchObjectsDeleteInternalServerErrorCode int = 500
 
-/*BatchObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+BatchObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response batchObjectsDeleteInternalServerError
 */

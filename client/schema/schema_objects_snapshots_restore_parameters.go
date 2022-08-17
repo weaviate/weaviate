@@ -66,7 +66,8 @@ func NewSchemaObjectsSnapshotsRestoreParamsWithHTTPClient(client *http.Client) *
 	}
 }
 
-/*SchemaObjectsSnapshotsRestoreParams contains all the parameters to send to the API endpoint
+/*
+SchemaObjectsSnapshotsRestoreParams contains all the parameters to send to the API endpoint
 for the schema objects snapshots restore operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsRestoreParams struct {

@@ -42,12 +42,12 @@ func NewObjectsClassDelete(ctx *middleware.Context, handler ObjectsClassDeleteHa
 	return &ObjectsClassDelete{Context: ctx, Handler: handler}
 }
 
-/*ObjectsClassDelete swagger:route DELETE /objects/{className}/{id} objects objectsClassDelete
+/*
+ObjectsClassDelete swagger:route DELETE /objects/{className}/{id} objects objectsClassDelete
 
 Delete object based on its class and UUID.
 
 Delete a single data object.
-
 */
 type ObjectsClassDelete struct {
 	Context *middleware.Context

@@ -81,7 +81,8 @@ func NewSchemaObjectsSnapshotsRestoreOK() *SchemaObjectsSnapshotsRestoreOK {
 	return &SchemaObjectsSnapshotsRestoreOK{}
 }
 
-/*SchemaObjectsSnapshotsRestoreOK handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreOK handles this case with default header values.
 
 Snapshot restoring process successfully started.
 */
@@ -114,7 +115,8 @@ func NewSchemaObjectsSnapshotsRestoreUnauthorized() *SchemaObjectsSnapshotsResto
 	return &SchemaObjectsSnapshotsRestoreUnauthorized{}
 }
 
-/*SchemaObjectsSnapshotsRestoreUnauthorized handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -135,7 +137,8 @@ func NewSchemaObjectsSnapshotsRestoreForbidden() *SchemaObjectsSnapshotsRestoreF
 	return &SchemaObjectsSnapshotsRestoreForbidden{}
 }
 
-/*SchemaObjectsSnapshotsRestoreForbidden handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -168,7 +171,8 @@ func NewSchemaObjectsSnapshotsRestoreNotFound() *SchemaObjectsSnapshotsRestoreNo
 	return &SchemaObjectsSnapshotsRestoreNotFound{}
 }
 
-/*SchemaObjectsSnapshotsRestoreNotFound handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreNotFound handles this case with default header values.
 
 Not Found - Snapshot does not exist
 */
@@ -201,7 +205,8 @@ func NewSchemaObjectsSnapshotsRestoreUnprocessableEntity() *SchemaObjectsSnapsho
 	return &SchemaObjectsSnapshotsRestoreUnprocessableEntity{}
 }
 
-/*SchemaObjectsSnapshotsRestoreUnprocessableEntity handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreUnprocessableEntity handles this case with default header values.
 
 Invalid restore snapshot attempt.
 */
@@ -234,7 +239,8 @@ func NewSchemaObjectsSnapshotsRestoreInternalServerError() *SchemaObjectsSnapsho
 	return &SchemaObjectsSnapshotsRestoreInternalServerError{}
 }
 
-/*SchemaObjectsSnapshotsRestoreInternalServerError handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

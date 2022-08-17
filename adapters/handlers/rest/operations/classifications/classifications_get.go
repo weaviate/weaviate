@@ -42,12 +42,12 @@ func NewClassificationsGet(ctx *middleware.Context, handler ClassificationsGetHa
 	return &ClassificationsGet{Context: ctx, Handler: handler}
 }
 
-/*ClassificationsGet swagger:route GET /classifications/{id} classifications classificationsGet
+/*
+ClassificationsGet swagger:route GET /classifications/{id} classifications classificationsGet
 
-View previously created classification
+# View previously created classification
 
 Get status, results and metadata of a previously created classification
-
 */
 type ClassificationsGet struct {
 	Context *middleware.Context

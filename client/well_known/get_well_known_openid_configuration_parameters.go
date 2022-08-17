@@ -66,7 +66,8 @@ func NewGetWellKnownOpenidConfigurationParamsWithHTTPClient(client *http.Client)
 	}
 }
 
-/*GetWellKnownOpenidConfigurationParams contains all the parameters to send to the API endpoint
+/*
+GetWellKnownOpenidConfigurationParams contains all the parameters to send to the API endpoint
 for the get well known openid configuration operation typically these are written to a http.Request
 */
 type GetWellKnownOpenidConfigurationParams struct {

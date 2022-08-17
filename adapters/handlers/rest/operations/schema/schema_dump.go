@@ -42,10 +42,10 @@ func NewSchemaDump(ctx *middleware.Context, handler SchemaDumpHandler) *SchemaDu
 	return &SchemaDump{Context: ctx, Handler: handler}
 }
 
-/*SchemaDump swagger:route GET /schema schema schemaDump
+/*
+SchemaDump swagger:route GET /schema schema schemaDump
 
 Dump the current the database schema.
-
 */
 type SchemaDump struct {
 	Context *middleware.Context
