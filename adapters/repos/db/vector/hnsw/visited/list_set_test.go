@@ -137,3 +137,16 @@ func TestGrowth(t *testing.T) {
 		}
 	}
 }
+
+func insertItems() {
+	list := NewList(1024)
+	for i := uint64(1); i < 8000000; i++ {
+		list.Visit(i)
+	}
+}
+
+func BenchmarkListInsert(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		insertItems()
+	}
+}
