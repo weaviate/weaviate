@@ -16,16 +16,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
+	"github.com/semi-technologies/weaviate/usecases/backups"
+	schemabackups "github.com/semi-technologies/weaviate/usecases/schema/backups"
 )
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
@@ -91,11 +90,17 @@ func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, classNam
 	return &snapshot, nil
 }
 
-func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	if err := m.checkMetaExists(className, snapshotID); err != nil {
-		return "", err
+func (m *StorageFileSystemModule) FindMeta(ctx context.Context, className, snapshotID string) error {
+	if _, err := os.Stat(m.makeMetaFilePath(className, snapshotID)); errors.Is(err, os.ErrNotExist) {
+		return backups.ErrNotFound{}
+	} else if err != nil {
+		return errors.Wrap(err, "find meta")
+	} else {
+		return nil
 	}
+}
 
+func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
 		return "", errors.Wrap(err, "load snapshot meta")
@@ -104,31 +109,9 @@ func (m *StorageFileSystemModule) GetMetaStatus(ctx context.Context, className, 
 	return string(snapshot.Status), nil
 }
 
-func (m *StorageFileSystemModule) checkMetaExists(className, snapshotID string) error {
-	if _, err := os.Stat(m.makeMetaFilePath(className, snapshotID)); errors.Is(err, os.ErrNotExist) {
-		return os.ErrNotExist
-	} else if err != nil {
-		return errors.Wrap(err, "get meta status")
-	} else {
-		return nil
-	}
-}
-
 func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	metaPath := m.makeMetaFilePath(className, snapshotID)
-	_, err := os.Stat(metaPath)
-	if err == nil {
-		return nil, fmt.Errorf("snapshot already exists: %s", metaPath)
-	}
-
-	if statErr, ok := err.(*fs.PathError); ok && statErr.Err == syscall.ENOENT {
-		// this is good, meta file can be created
-	} else if err != nil {
-		return nil, errors.Wrap(err, "init meta status")
-	}
-
 	snapshot := snapshots.New(className, snapshotID, time.Now())
-	snapshot.Status = snapshots.Status(backups.CS_STARTED)
+	snapshot.Status = snapshots.Status(schemabackups.CS_STARTED)
 
 	if err := m.saveMeta(snapshot); err != nil {
 		return nil, errors.Wrap(err, "init snapshot meta")

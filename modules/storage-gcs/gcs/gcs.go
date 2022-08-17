@@ -17,10 +17,13 @@ import (
 	"io"
 	"os"
 	"path"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/backups"
+	schemabackups "github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -181,6 +184,24 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	return nil
 }
 
+func (g *gcs) FindMeta(ctx context.Context, className, snapshotID string) error {
+	bucket, err := g.findBucket(ctx)
+	if bucket == nil {
+		return backups.ErrNotFound{}
+	}
+	if err != nil {
+		return errors.Wrap(err, "find meta")
+	}
+
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	_, err = g.getObject(ctx, bucket, snapshotID, objectName)
+	if err != nil {
+		return backups.ErrNotFound{}
+	}
+
+	return nil
+}
+
 func (g *gcs) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
@@ -245,8 +266,32 @@ func (g *gcs) DestinationPath(className, snapshotID string) string {
 }
 
 func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	// TODO: implement
-	return nil, nil
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "init snapshot")
+	}
+
+	if bucket == nil {
+		bucket, err = g.createBucket(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "init snapshot")
+		}
+	}
+
+	snapshot := snapshots.New(className, snapshotID, time.Now())
+	snapshot.Status = snapshots.Status(schemabackups.CS_STARTED)
+	b, err := json.Marshal(&snapshot)
+	if err != nil {
+		return nil, errors.Wrap(err, "init snapshot")
+	}
+
+	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+
+	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, b); err != nil {
+		return nil, errors.Wrap(err, "init snapshot")
+	}
+
+	return snapshot, nil
 }
 
 func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,

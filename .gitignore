@@ -88,6 +88,7 @@ data-node2/
 /snapshots-fs/
 /snapshots-node2/
 /snapshots-s3/
+/snapshots-gcs/
 docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out

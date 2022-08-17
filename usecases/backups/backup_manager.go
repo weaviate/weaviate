@@ -70,12 +70,12 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	}
 
 	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
-	if _, err := storage.GetMetaStatus(ctx, className, snapshotID); err != nil {
-		if err.Error() != os.ErrNotExist.Error() {
-			return nil, NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
-		}
-	} else {
+	err = storage.FindMeta(ctx, className, snapshotID)
+	if err == nil {
 		return nil, NewErrUnprocessable(fmt.Errorf("snapshot %s of index for %s already exists on storage %s", snapshotID, className, storageName))
+	}
+	if _, ok := err.(ErrNotFound); err != nil && !ok {
+		return nil, NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 	}
 
 	// no snapshot in progress for the class
@@ -106,7 +106,7 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 ) (*models.SnapshotMeta, error) {
 	idx := bm.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, NewErrUnprocessable(
+		return nil, NewErrNotFound(
 			fmt.Errorf("can't fetch snapshot creation status of "+
 				"non-existing index for %s", className))
 	}
@@ -117,7 +117,12 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}
 
 	status, err := storage.GetMetaStatus(ctx, className, snapshotID)
-	if err != nil {
+
+	if err != nil && err == os.ErrNotExist {
+		return nil, NewErrNotFound(
+			fmt.Errorf("can't fetch snapshot creation status of "+
+				"non-existing snapshot id %s", snapshotID))
+	} else if err != nil {
 		return nil, err
 	}
 

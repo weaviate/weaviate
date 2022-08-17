@@ -89,3 +89,9 @@ services:
       MINIO_ROOT_USER: aws_access_key
       MINIO_ROOT_PASSWORD: aws_secret_key
     command: server /data
+  storage-gcs:
+    image: oittaa/gcp-storage-emulator
+    ports:
+      - "9090:8080"
+    volumes:
+      - ./snapshots-gcs:/data

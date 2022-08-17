@@ -29,6 +29,10 @@ func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapsh
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
+func (m *StorageS3Module) FindMeta(ctx context.Context, className, snapshotID string) error {
+	return m.storageProvider.FindMeta(ctx, className, snapshotID)
+}
+
 func (m *StorageS3Module) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
