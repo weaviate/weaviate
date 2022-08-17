@@ -21,12 +21,14 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -162,4 +164,55 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// tests adding multiple larger batches in parallel using different settings of the goroutine factor.
+// In all cases all objects should be added
+func TestShard_ParallelBatches(t *testing.T) {
+	var parallelTests = []struct {
+		name            string
+		goroutineFactor []string
+	}{
+		{"Valid factor", []string{"1"}},
+		{"Low factor", []string{"0.5"}},
+		{"High factor", []string{"5"}},
+		{"invalid factor", []string{"-1"}},
+		{"not given", []string{}},
+		{"not parsable", []string{"I'm not a number"}},
+	}
+
+	batches := make([][]*storobj.Object, 4)
+	wgAdd := sync.WaitGroup{}
+	wgAdd.Add(len(batches))
+	for i := range batches {
+		go func() {
+			batches[i] = createRandomObjects("TestClass", 1000)
+			wgAdd.Done()
+		}()
+	}
+	wgAdd.Wait()
+	totalObjects := 1000 * len(batches)
+	for _, tt := range parallelTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.goroutineFactor) == 1 {
+				os.Setenv("MaxImportGoroutinesFactor", tt.goroutineFactor[0])
+			}
+
+			ctx := testCtx()
+			shd, _ := testShard(context.Background(), "TestClass")
+
+			// add batches in parallel
+			wg := sync.WaitGroup{}
+			wg.Add(len(batches))
+			for _, batch := range batches {
+				go func() {
+					shd.putObjectBatch(ctx, batch)
+					wg.Done()
+				}()
+			}
+			wg.Wait()
+
+			require.Equal(t, totalObjects, int(shd.counter.Get()))
+		})
+	}
 }

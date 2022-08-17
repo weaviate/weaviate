@@ -258,3 +258,20 @@ func testObject(className string) *storobj.Object {
 		Vector: []float32{1, 2, 3},
 	}
 }
+
+func createRandomObjects(className string, numObj int) []*storobj.Object {
+	obj := make([]*storobj.Object, numObj)
+
+	for i := 0; i < numObj; i++ {
+		obj[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+			},
+			Vector: []float32{rand.Float32(), rand.Float32(), rand.Float32(), rand.Float32()},
+		}
+	}
+	return obj
+
+}
