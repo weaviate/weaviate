@@ -85,6 +85,7 @@ graphqlapi/prototype/node_modules/
 data/
 data-node2/
 /snapshots/
+/snapshots-fs/
 /snapshots-node2/
 /snapshots-s3/
 docker-compose/runtime-stable/data

@@ -40,6 +40,10 @@ func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string 
 	return m.storageProvider.DestinationPath(className, snapshotID)
 }
 
+func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
+}
+
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
 	config := gcs.NewConfig(os.Getenv(gcsBucket))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)

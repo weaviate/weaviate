@@ -44,12 +44,12 @@ func NewGetWellKnownOpenidConfiguration(ctx *middleware.Context, handler GetWell
 	return &GetWellKnownOpenidConfiguration{Context: ctx, Handler: handler}
 }
 
-/*
-GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
+/*GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
 
-# OIDC discovery information if OIDC auth is enabled
+OIDC discovery information if OIDC auth is enabled
 
 OIDC Discovery page, redirects to the token issuer if one is configured
+
 */
 type GetWellKnownOpenidConfiguration struct {
 	Context *middleware.Context

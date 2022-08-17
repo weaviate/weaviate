@@ -545,3 +545,9 @@ func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
 ) (*backups.RestoreMeta, error) {
 	return nil, nil
 }
+
+func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
+	className, storageName, snapshotID string,
+) (*models.SnapshotMeta, error) {
+	return nil, nil
+}

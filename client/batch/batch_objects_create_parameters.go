@@ -66,8 +66,7 @@ func NewBatchObjectsCreateParamsWithHTTPClient(client *http.Client) *BatchObject
 	}
 }
 
-/*
-BatchObjectsCreateParams contains all the parameters to send to the API endpoint
+/*BatchObjectsCreateParams contains all the parameters to send to the API endpoint
 for the batch objects create operation typically these are written to a http.Request
 */
 type BatchObjectsCreateParams struct {

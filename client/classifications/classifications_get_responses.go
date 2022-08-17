@@ -75,8 +75,7 @@ func NewClassificationsGetOK() *ClassificationsGetOK {
 	return &ClassificationsGetOK{}
 }
 
-/*
-ClassificationsGetOK handles this case with default header values.
+/*ClassificationsGetOK handles this case with default header values.
 
 Found the classification, returned as body
 */
@@ -109,8 +108,7 @@ func NewClassificationsGetUnauthorized() *ClassificationsGetUnauthorized {
 	return &ClassificationsGetUnauthorized{}
 }
 
-/*
-ClassificationsGetUnauthorized handles this case with default header values.
+/*ClassificationsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -131,8 +129,7 @@ func NewClassificationsGetForbidden() *ClassificationsGetForbidden {
 	return &ClassificationsGetForbidden{}
 }
 
-/*
-ClassificationsGetForbidden handles this case with default header values.
+/*ClassificationsGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -165,8 +162,7 @@ func NewClassificationsGetNotFound() *ClassificationsGetNotFound {
 	return &ClassificationsGetNotFound{}
 }
 
-/*
-ClassificationsGetNotFound handles this case with default header values.
+/*ClassificationsGetNotFound handles this case with default header values.
 
 Not Found - Classification does not exist
 */
@@ -187,8 +183,7 @@ func NewClassificationsGetInternalServerError() *ClassificationsGetInternalServe
 	return &ClassificationsGetInternalServerError{}
 }
 
-/*
-ClassificationsGetInternalServerError handles this case with default header values.
+/*ClassificationsGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

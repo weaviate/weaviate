@@ -66,8 +66,7 @@ func NewSchemaObjectsSnapshotsCreateStatusParamsWithHTTPClient(client *http.Clie
 	}
 }
 
-/*
-SchemaObjectsSnapshotsCreateStatusParams contains all the parameters to send to the API endpoint
+/*SchemaObjectsSnapshotsCreateStatusParams contains all the parameters to send to the API endpoint
 for the schema objects snapshots create status operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsCreateStatusParams struct {

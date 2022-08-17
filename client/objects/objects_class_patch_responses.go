@@ -87,8 +87,7 @@ func NewObjectsClassPatchNoContent() *ObjectsClassPatchNoContent {
 	return &ObjectsClassPatchNoContent{}
 }
 
-/*
-ObjectsClassPatchNoContent handles this case with default header values.
+/*ObjectsClassPatchNoContent handles this case with default header values.
 
 Successfully applied. No content provided.
 */
@@ -109,8 +108,7 @@ func NewObjectsClassPatchBadRequest() *ObjectsClassPatchBadRequest {
 	return &ObjectsClassPatchBadRequest{}
 }
 
-/*
-ObjectsClassPatchBadRequest handles this case with default header values.
+/*ObjectsClassPatchBadRequest handles this case with default header values.
 
 The patch-JSON is malformed.
 */
@@ -131,8 +129,7 @@ func NewObjectsClassPatchUnauthorized() *ObjectsClassPatchUnauthorized {
 	return &ObjectsClassPatchUnauthorized{}
 }
 
-/*
-ObjectsClassPatchUnauthorized handles this case with default header values.
+/*ObjectsClassPatchUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -153,8 +150,7 @@ func NewObjectsClassPatchForbidden() *ObjectsClassPatchForbidden {
 	return &ObjectsClassPatchForbidden{}
 }
 
-/*
-ObjectsClassPatchForbidden handles this case with default header values.
+/*ObjectsClassPatchForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -187,8 +183,7 @@ func NewObjectsClassPatchNotFound() *ObjectsClassPatchNotFound {
 	return &ObjectsClassPatchNotFound{}
 }
 
-/*
-ObjectsClassPatchNotFound handles this case with default header values.
+/*ObjectsClassPatchNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -209,8 +204,7 @@ func NewObjectsClassPatchUnprocessableEntity() *ObjectsClassPatchUnprocessableEn
 	return &ObjectsClassPatchUnprocessableEntity{}
 }
 
-/*
-ObjectsClassPatchUnprocessableEntity handles this case with default header values.
+/*ObjectsClassPatchUnprocessableEntity handles this case with default header values.
 
 The patch-JSON is valid but unprocessable.
 */
@@ -243,8 +237,7 @@ func NewObjectsClassPatchInternalServerError() *ObjectsClassPatchInternalServerE
 	return &ObjectsClassPatchInternalServerError{}
 }
 
-/*
-ObjectsClassPatchInternalServerError handles this case with default header values.
+/*ObjectsClassPatchInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

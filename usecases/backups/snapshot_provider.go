@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 )
 
@@ -42,20 +43,21 @@ func newSnapshotProvider(snapshotter Snapshotter, storage modulecapabilities.Sna
 	return &snapshotProvider{snapshotter, storage, className, snapshotID}
 }
 
-func (sp *snapshotProvider) start(ctx context.Context) (string, error) {
-	if err := sp.setMetaStatus(backups.CS_STARTED); err != nil {
-		return "", err
+func (sp *snapshotProvider) start(ctx context.Context) (*snapshots.Snapshot, error) {
+	snapshot, err := sp.initSnapshot()
+	if err != nil {
+		return nil, err
 	}
-	return sp.storage.DestinationPath(sp.className, sp.snapshotID), nil
+	return snapshot, nil
 }
 
-func (sp *snapshotProvider) backup(ctx context.Context) error {
+func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	var ctxCreate, ctxStore, ctxRelease context.Context
 	var cancelCreate, cancelStore, cancelRelease context.CancelFunc
 
 	ctxCreate, cancelCreate = context.WithTimeout(context.Background(), createTimeout)
 	defer cancelCreate()
-	snapshot, err := sp.snapshotter.CreateSnapshot(ctxCreate, sp.snapshotID)
+	snapshot, err := sp.snapshotter.CreateSnapshot(ctxCreate, snapshot)
 	if err != nil {
 		return sp.setMetaFailed(errors.Wrap(err, "create snapshot"))
 	}
@@ -109,4 +111,15 @@ func (sp *snapshotProvider) setMetaStatus(status backups.CreateStatus) error {
 		return errors.Wrapf(err, "update snapshot meta to %s", status)
 	}
 	return nil
+}
+
+func (sp *snapshotProvider) initSnapshot() (*snapshots.Snapshot, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
+	defer cancel()
+
+	snapshot, err := sp.storage.InitSnapshot(ctx, sp.className, sp.snapshotID)
+	if err != nil {
+		return nil, errors.Wrap(err, "init snapshot meta")
+	}
+	return snapshot, nil
 }

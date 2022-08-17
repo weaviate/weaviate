@@ -81,8 +81,7 @@ func NewObjectsClassGetOK() *ObjectsClassGetOK {
 	return &ObjectsClassGetOK{}
 }
 
-/*
-ObjectsClassGetOK handles this case with default header values.
+/*ObjectsClassGetOK handles this case with default header values.
 
 Successful response.
 */
@@ -115,8 +114,7 @@ func NewObjectsClassGetBadRequest() *ObjectsClassGetBadRequest {
 	return &ObjectsClassGetBadRequest{}
 }
 
-/*
-ObjectsClassGetBadRequest handles this case with default header values.
+/*ObjectsClassGetBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -149,8 +147,7 @@ func NewObjectsClassGetUnauthorized() *ObjectsClassGetUnauthorized {
 	return &ObjectsClassGetUnauthorized{}
 }
 
-/*
-ObjectsClassGetUnauthorized handles this case with default header values.
+/*ObjectsClassGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -171,8 +168,7 @@ func NewObjectsClassGetForbidden() *ObjectsClassGetForbidden {
 	return &ObjectsClassGetForbidden{}
 }
 
-/*
-ObjectsClassGetForbidden handles this case with default header values.
+/*ObjectsClassGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -205,8 +201,7 @@ func NewObjectsClassGetNotFound() *ObjectsClassGetNotFound {
 	return &ObjectsClassGetNotFound{}
 }
 
-/*
-ObjectsClassGetNotFound handles this case with default header values.
+/*ObjectsClassGetNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -227,8 +222,7 @@ func NewObjectsClassGetInternalServerError() *ObjectsClassGetInternalServerError
 	return &ObjectsClassGetInternalServerError{}
 }
 
-/*
-ObjectsClassGetInternalServerError handles this case with default header values.
+/*ObjectsClassGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

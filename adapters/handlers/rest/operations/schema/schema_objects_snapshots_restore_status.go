@@ -42,10 +42,10 @@ func NewSchemaObjectsSnapshotsRestoreStatus(ctx *middleware.Context, handler Sch
 	return &SchemaObjectsSnapshotsRestoreStatus{Context: ctx, Handler: handler}
 }
 
-/*
-SchemaObjectsSnapshotsRestoreStatus swagger:route GET /schema/{className}/snapshots/{storageName}/{id}/restore schema schemaObjectsSnapshotsRestoreStatus
+/*SchemaObjectsSnapshotsRestoreStatus swagger:route GET /schema/{className}/snapshots/{storageName}/{id}/restore schema schemaObjectsSnapshotsRestoreStatus
 
 Returns status of restoration attempt of a snapshot for a class
+
 */
 type SchemaObjectsSnapshotsRestoreStatus struct {
 	Context *middleware.Context
