@@ -125,7 +125,7 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[s
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(), nil
+	return idx.getShardsStatus(ctx)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
@@ -134,7 +134,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	return idx.updateShardStatus(shardName, targetStatus)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {

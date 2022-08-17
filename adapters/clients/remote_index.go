@@ -607,3 +607,89 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 
 	return bactchDeleteResults
 }
+
+func (c *RemoteIndex) GetShardStatus(ctx context.Context,
+	hostName, indexName, shardName string,
+) (string, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return "", errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return "", errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return "", errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.GetShardStatusResults.CheckContentTypeHeader(res)
+	if !ok {
+		return "", errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	status, err := clusterapi.IndicesPayloads.GetShardStatusResults.Unmarshal(resBytes)
+	if err != nil {
+		return "", errors.Wrap(err, "unmarshal body")
+	}
+	return status, nil
+}
+
+func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
+	targetStatus string,
+) error {
+	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
+	if err != nil {
+		return errors.Wrap(err, "marshal request payload")
+	}
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	_, err = io.ReadAll(res.Body)
+	if err != nil {
+		return errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.UpdateShardsStatusResults.CheckContentTypeHeader(res)
+	if !ok {
+		return errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	return nil
+}
