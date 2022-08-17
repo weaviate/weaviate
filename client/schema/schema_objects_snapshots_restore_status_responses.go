@@ -75,7 +75,8 @@ func NewSchemaObjectsSnapshotsRestoreStatusOK() *SchemaObjectsSnapshotsRestoreSt
 	return &SchemaObjectsSnapshotsRestoreStatusOK{}
 }
 
-/*SchemaObjectsSnapshotsRestoreStatusOK handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreStatusOK handles this case with default header values.
 
 Snapshot restoration status successfully returned
 */
@@ -108,7 +109,8 @@ func NewSchemaObjectsSnapshotsRestoreStatusUnauthorized() *SchemaObjectsSnapshot
 	return &SchemaObjectsSnapshotsRestoreStatusUnauthorized{}
 }
 
-/*SchemaObjectsSnapshotsRestoreStatusUnauthorized handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewSchemaObjectsSnapshotsRestoreStatusForbidden() *SchemaObjectsSnapshotsRe
 	return &SchemaObjectsSnapshotsRestoreStatusForbidden{}
 }
 
-/*SchemaObjectsSnapshotsRestoreStatusForbidden handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewSchemaObjectsSnapshotsRestoreStatusNotFound() *SchemaObjectsSnapshotsRes
 	return &SchemaObjectsSnapshotsRestoreStatusNotFound{}
 }
 
-/*SchemaObjectsSnapshotsRestoreStatusNotFound handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreStatusNotFound handles this case with default header values.
 
 Not Found - Snapshot does not exist
 */
@@ -195,7 +199,8 @@ func NewSchemaObjectsSnapshotsRestoreStatusInternalServerError() *SchemaObjectsS
 	return &SchemaObjectsSnapshotsRestoreStatusInternalServerError{}
 }
 
-/*SchemaObjectsSnapshotsRestoreStatusInternalServerError handles this case with default header values.
+/*
+SchemaObjectsSnapshotsRestoreStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

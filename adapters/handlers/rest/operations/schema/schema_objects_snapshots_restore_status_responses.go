@@ -27,7 +27,8 @@ import (
 // SchemaObjectsSnapshotsRestoreStatusOKCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreStatusOK
 const SchemaObjectsSnapshotsRestoreStatusOKCode int = 200
 
-/*SchemaObjectsSnapshotsRestoreStatusOK Snapshot restoration status successfully returned
+/*
+SchemaObjectsSnapshotsRestoreStatusOK Snapshot restoration status successfully returned
 
 swagger:response schemaObjectsSnapshotsRestoreStatusOK
 */
@@ -71,7 +72,8 @@ func (o *SchemaObjectsSnapshotsRestoreStatusOK) WriteResponse(rw http.ResponseWr
 // SchemaObjectsSnapshotsRestoreStatusUnauthorizedCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreStatusUnauthorized
 const SchemaObjectsSnapshotsRestoreStatusUnauthorizedCode int = 401
 
-/*SchemaObjectsSnapshotsRestoreStatusUnauthorized Unauthorized or invalid credentials.
+/*
+SchemaObjectsSnapshotsRestoreStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsSnapshotsRestoreStatusUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *SchemaObjectsSnapshotsRestoreStatusUnauthorized) WriteResponse(rw http.
 // SchemaObjectsSnapshotsRestoreStatusForbiddenCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreStatusForbidden
 const SchemaObjectsSnapshotsRestoreStatusForbiddenCode int = 403
 
-/*SchemaObjectsSnapshotsRestoreStatusForbidden Forbidden
+/*
+SchemaObjectsSnapshotsRestoreStatusForbidden Forbidden
 
 swagger:response schemaObjectsSnapshotsRestoreStatusForbidden
 */
@@ -139,7 +142,8 @@ func (o *SchemaObjectsSnapshotsRestoreStatusForbidden) WriteResponse(rw http.Res
 // SchemaObjectsSnapshotsRestoreStatusNotFoundCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreStatusNotFound
 const SchemaObjectsSnapshotsRestoreStatusNotFoundCode int = 404
 
-/*SchemaObjectsSnapshotsRestoreStatusNotFound Not Found - Snapshot does not exist
+/*
+SchemaObjectsSnapshotsRestoreStatusNotFound Not Found - Snapshot does not exist
 
 swagger:response schemaObjectsSnapshotsRestoreStatusNotFound
 */
@@ -183,7 +187,8 @@ func (o *SchemaObjectsSnapshotsRestoreStatusNotFound) WriteResponse(rw http.Resp
 // SchemaObjectsSnapshotsRestoreStatusInternalServerErrorCode is the HTTP code returned for type SchemaObjectsSnapshotsRestoreStatusInternalServerError
 const SchemaObjectsSnapshotsRestoreStatusInternalServerErrorCode int = 500
 
-/*SchemaObjectsSnapshotsRestoreStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+SchemaObjectsSnapshotsRestoreStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsSnapshotsRestoreStatusInternalServerError
 */

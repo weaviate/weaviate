@@ -75,7 +75,8 @@ func NewObjectsDeleteNoContent() *ObjectsDeleteNoContent {
 	return &ObjectsDeleteNoContent{}
 }
 
-/*ObjectsDeleteNoContent handles this case with default header values.
+/*
+ObjectsDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
@@ -96,7 +97,8 @@ func NewObjectsDeleteUnauthorized() *ObjectsDeleteUnauthorized {
 	return &ObjectsDeleteUnauthorized{}
 }
 
-/*ObjectsDeleteUnauthorized handles this case with default header values.
+/*
+ObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -117,7 +119,8 @@ func NewObjectsDeleteForbidden() *ObjectsDeleteForbidden {
 	return &ObjectsDeleteForbidden{}
 }
 
-/*ObjectsDeleteForbidden handles this case with default header values.
+/*
+ObjectsDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -150,7 +153,8 @@ func NewObjectsDeleteNotFound() *ObjectsDeleteNotFound {
 	return &ObjectsDeleteNotFound{}
 }
 
-/*ObjectsDeleteNotFound handles this case with default header values.
+/*
+ObjectsDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -171,7 +175,8 @@ func NewObjectsDeleteInternalServerError() *ObjectsDeleteInternalServerError {
 	return &ObjectsDeleteInternalServerError{}
 }
 
-/*ObjectsDeleteInternalServerError handles this case with default header values.
+/*
+ObjectsDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

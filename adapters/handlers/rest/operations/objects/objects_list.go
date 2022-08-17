@@ -42,12 +42,12 @@ func NewObjectsList(ctx *middleware.Context, handler ObjectsListHandler) *Object
 	return &ObjectsList{Context: ctx, Handler: handler}
 }
 
-/*ObjectsList swagger:route GET /objects objects objectsList
+/*
+ObjectsList swagger:route GET /objects objects objectsList
 
 Get a list of Objects.
 
 Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
-
 */
 type ObjectsList struct {
 	Context *middleware.Context

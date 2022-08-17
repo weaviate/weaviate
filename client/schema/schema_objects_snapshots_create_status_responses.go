@@ -75,7 +75,8 @@ func NewSchemaObjectsSnapshotsCreateStatusOK() *SchemaObjectsSnapshotsCreateStat
 	return &SchemaObjectsSnapshotsCreateStatusOK{}
 }
 
-/*SchemaObjectsSnapshotsCreateStatusOK handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateStatusOK handles this case with default header values.
 
 Snapshot creation status successfully returned
 */
@@ -108,7 +109,8 @@ func NewSchemaObjectsSnapshotsCreateStatusUnauthorized() *SchemaObjectsSnapshots
 	return &SchemaObjectsSnapshotsCreateStatusUnauthorized{}
 }
 
-/*SchemaObjectsSnapshotsCreateStatusUnauthorized handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewSchemaObjectsSnapshotsCreateStatusForbidden() *SchemaObjectsSnapshotsCre
 	return &SchemaObjectsSnapshotsCreateStatusForbidden{}
 }
 
-/*SchemaObjectsSnapshotsCreateStatusForbidden handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewSchemaObjectsSnapshotsCreateStatusNotFound() *SchemaObjectsSnapshotsCrea
 	return &SchemaObjectsSnapshotsCreateStatusNotFound{}
 }
 
-/*SchemaObjectsSnapshotsCreateStatusNotFound handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateStatusNotFound handles this case with default header values.
 
 Not Found - Snapshot does not exist
 */
@@ -195,7 +199,8 @@ func NewSchemaObjectsSnapshotsCreateStatusInternalServerError() *SchemaObjectsSn
 	return &SchemaObjectsSnapshotsCreateStatusInternalServerError{}
 }
 
-/*SchemaObjectsSnapshotsCreateStatusInternalServerError handles this case with default header values.
+/*
+SchemaObjectsSnapshotsCreateStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

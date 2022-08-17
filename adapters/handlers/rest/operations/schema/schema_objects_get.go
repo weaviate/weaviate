@@ -42,10 +42,10 @@ func NewSchemaObjectsGet(ctx *middleware.Context, handler SchemaObjectsGetHandle
 	return &SchemaObjectsGet{Context: ctx, Handler: handler}
 }
 
-/*SchemaObjectsGet swagger:route GET /schema/{className} schema schemaObjectsGet
+/*
+SchemaObjectsGet swagger:route GET /schema/{className} schema schemaObjectsGet
 
 Get a single class from the schema
-
 */
 type SchemaObjectsGet struct {
 	Context *middleware.Context

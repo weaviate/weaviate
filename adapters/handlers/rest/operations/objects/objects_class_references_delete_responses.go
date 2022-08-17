@@ -27,7 +27,8 @@ import (
 // ObjectsClassReferencesDeleteNoContentCode is the HTTP code returned for type ObjectsClassReferencesDeleteNoContent
 const ObjectsClassReferencesDeleteNoContentCode int = 204
 
-/*ObjectsClassReferencesDeleteNoContent Successfully deleted.
+/*
+ObjectsClassReferencesDeleteNoContent Successfully deleted.
 
 swagger:response objectsClassReferencesDeleteNoContent
 */
@@ -51,7 +52,8 @@ func (o *ObjectsClassReferencesDeleteNoContent) WriteResponse(rw http.ResponseWr
 // ObjectsClassReferencesDeleteUnauthorizedCode is the HTTP code returned for type ObjectsClassReferencesDeleteUnauthorized
 const ObjectsClassReferencesDeleteUnauthorizedCode int = 401
 
-/*ObjectsClassReferencesDeleteUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsClassReferencesDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassReferencesDeleteUnauthorized
 */
@@ -75,7 +77,8 @@ func (o *ObjectsClassReferencesDeleteUnauthorized) WriteResponse(rw http.Respons
 // ObjectsClassReferencesDeleteForbiddenCode is the HTTP code returned for type ObjectsClassReferencesDeleteForbidden
 const ObjectsClassReferencesDeleteForbiddenCode int = 403
 
-/*ObjectsClassReferencesDeleteForbidden Forbidden
+/*
+ObjectsClassReferencesDeleteForbidden Forbidden
 
 swagger:response objectsClassReferencesDeleteForbidden
 */
@@ -119,7 +122,8 @@ func (o *ObjectsClassReferencesDeleteForbidden) WriteResponse(rw http.ResponseWr
 // ObjectsClassReferencesDeleteNotFoundCode is the HTTP code returned for type ObjectsClassReferencesDeleteNotFound
 const ObjectsClassReferencesDeleteNotFoundCode int = 404
 
-/*ObjectsClassReferencesDeleteNotFound Successful query result but no resource was found.
+/*
+ObjectsClassReferencesDeleteNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassReferencesDeleteNotFound
 */
@@ -163,7 +167,8 @@ func (o *ObjectsClassReferencesDeleteNotFound) WriteResponse(rw http.ResponseWri
 // ObjectsClassReferencesDeleteUnprocessableEntityCode is the HTTP code returned for type ObjectsClassReferencesDeleteUnprocessableEntity
 const ObjectsClassReferencesDeleteUnprocessableEntityCode int = 422
 
-/*ObjectsClassReferencesDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*
+ObjectsClassReferencesDeleteUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response objectsClassReferencesDeleteUnprocessableEntity
 */
@@ -207,7 +212,8 @@ func (o *ObjectsClassReferencesDeleteUnprocessableEntity) WriteResponse(rw http.
 // ObjectsClassReferencesDeleteInternalServerErrorCode is the HTTP code returned for type ObjectsClassReferencesDeleteInternalServerError
 const ObjectsClassReferencesDeleteInternalServerErrorCode int = 500
 
-/*ObjectsClassReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsClassReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassReferencesDeleteInternalServerError
 */
