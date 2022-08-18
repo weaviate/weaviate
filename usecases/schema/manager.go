@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -44,6 +45,7 @@ type Manager struct {
 	hnswConfigParser        VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	backups                 backups.BackupManager
+	scaleOut                scaleOut
 	sync.Mutex
 }
 
@@ -86,6 +88,12 @@ type clusterState interface {
 	NodeCount() int
 }
 
+type scaleOut interface {
+	SetSchemaManager(sm scaling.SchemaManager)
+	Scale(ctx context.Context, className string,
+		old, updated sharding.Config) error
+}
+
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
@@ -108,7 +116,10 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
+		scaleOut:                scaling.NewScaleOutManager(),
 	}
+
+	m.scaleOut.SetSchemaManager(m)
 
 	m.cluster.SetCommitFn(m.handleCommit)
 

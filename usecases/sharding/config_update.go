@@ -26,5 +26,9 @@ func ValidateConfigUpdate(old, updated Config) error {
 			updated.VirtualPerPhysical)
 	}
 
+	if old.Replicas != updated.Replicas {
+		// TODO: validate that enough nodes are present to support the scaling out
+	}
+
 	return nil
 }
