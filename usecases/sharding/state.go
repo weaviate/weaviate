@@ -43,7 +43,15 @@ type Physical struct {
 	Name           string   `json:"name"`
 	OwnsVirtual    []string `json:"ownsVirtual"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
-	BelongsToNode  string   `json:"belongsToNode"`
+
+	// TODO: migrate existing classes on READ
+	BelongsToNodes []string `json:"belongsToNodes"`
+}
+
+// BelongsToNode for backward-compatibility when there was no replication. It
+// always returns the first node of the list
+func (p Physical) BelongsToNode() string {
+	return p.BelongsToNodes[0]
 }
 
 type nodes interface {
@@ -120,7 +128,13 @@ func (s *State) SetLocalName(name string) {
 }
 
 func (s *State) IsShardLocal(name string) bool {
-	return s.Physical[name].BelongsToNode == s.localNodeName
+	for _, node := range s.Physical[name].BelongsToNodes {
+		if node == s.localNodeName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *State) initPhysical(nodes nodes) error {
@@ -133,7 +147,7 @@ func (s *State) initPhysical(nodes nodes) error {
 
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
-		s.Physical[name] = Physical{Name: name, BelongsToNode: it.Next()}
+		s.Physical[name] = Physical{Name: name, BelongsToNodes: []string{it.Next()}}
 	}
 
 	return nil
