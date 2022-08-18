@@ -135,6 +135,10 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		for i := range val {
 			g.addItem(val[i], docID)
 		}
+	case []interface{}:
+		for i := range val {
+			g.addItem(val[i], docID)
+		}
 	case models.MultipleRef:
 		for i := range val {
 			g.addItem(val[i].Beacon, docID)
