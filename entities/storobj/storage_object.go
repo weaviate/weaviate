@@ -422,18 +422,18 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
-	startPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
 	// get the length of the vector, each element is a float32 (4 bytes)
-	vectorLength := byteOps.ReadUint16()
-	byteOps.MoveBufferPositionForward(uint32(vectorLength) * 4)
+	vectorLength := uint64(byteOps.ReadUint16())
+	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
 	// length of class name
-	classnameLength := byteOps.ReadUint16()
-	byteOps.MoveBufferPositionForward(uint32(classnameLength))
+	classnameLength := uint64(byteOps.ReadUint16())
+	byteOps.MoveBufferPositionForward(classnameLength)
 
 	// property schema length
-	propertyLength := byteOps.ReadUint32()
+	propertyLength := uint64(byteOps.ReadUint32())
 	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
 		return err
 	}
@@ -469,25 +469,25 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())
 	}
 
-	classNameLength := uint32(byteOps.ReadUint16())
+	classNameLength := uint64(byteOps.ReadUint16())
 	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy class name")
 	}
 
-	schemaLength := byteOps.ReadUint32()
+	schemaLength := uint64(byteOps.ReadUint32())
 	schema, err := byteOps.CopyBytesFromBuffer(schemaLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy schema")
 	}
 
-	metaLength := byteOps.ReadUint32()
+	metaLength := uint64(byteOps.ReadUint32())
 	meta, err := byteOps.CopyBytesFromBuffer(metaLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy meta")
 	}
 
-	vectorWeightsLength := byteOps.ReadUint32()
+	vectorWeightsLength := uint64(byteOps.ReadUint32())
 	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy vectorWeights")
