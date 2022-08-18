@@ -22,6 +22,10 @@ func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *grap
 	return g.nearTextArgument("GetObjects", classname)
 }
 
+func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
+	return g.nearTextArgument("Aggregate", classname)
+}
+
 func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("Txt2VecOpenAI%s%s", prefix, className)
 	return &graphql.ArgumentConfig{

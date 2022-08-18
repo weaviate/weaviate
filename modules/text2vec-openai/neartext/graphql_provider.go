@@ -31,8 +31,9 @@ func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.Gra
 
 func (g *GraphQLArgumentsProvider) getNearText() modulecapabilities.GraphQLArgument {
 	return modulecapabilities.GraphQLArgument{
-		GetArgumentsFunction: g.getNearTextArgumentFn,
-		ExtractFunction:      g.extractNearTextFn,
-		ValidateFunction:     g.validateNearTextFn,
+		GetArgumentsFunction:       g.getNearTextArgumentFn,
+		AggregateArgumentsFunction: g.aggregateNearTextArgumentFn,
+		ExtractFunction:            g.extractNearTextFn,
+		ValidateFunction:           g.validateNearTextFn,
 	}
 }
