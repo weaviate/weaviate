@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const MaxUint32 = ^uint32(0)
+
 // Create a buffer with space for several values and first write into it and then test that the values can be read again
 func TestReadAnWrite(t *testing.T) {
 	valuesNumbers := []uint64{234, 78, 23, 66, 8, 9, 2, 346745, 1}
@@ -42,10 +44,22 @@ func TestReadAnWrite(t *testing.T) {
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[0])
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[1]))
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[2]))
-	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint32(len(valuesByteArray)))
+	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint64(len(valuesByteArray)))
 	assert.Equal(t, returnBuf, valuesByteArray)
 	assert.Equal(t, err, nil)
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[3]))
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[4])
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[5]))
+}
+
+// create buffer that is larger than uint32 and write to the end and then try to reread it
+func TestReadAnWriteLargeBuffer(t *testing.T) {
+	writeBuffer := make([]byte, uint64(MaxUint32)+4)
+	byteOpsWrite := ByteOperations{Buffer: writeBuffer}
+	byteOpsWrite.MoveBufferPositionForward(uint64(MaxUint32))
+	byteOpsWrite.WriteUint16(uint16(10))
+
+	byteOpsRead := ByteOperations{Buffer: writeBuffer}
+	byteOpsRead.MoveBufferPositionForward(uint64(MaxUint32))
+	require.Equal(t, byteOpsRead.ReadUint16(), uint16(10))
 }
