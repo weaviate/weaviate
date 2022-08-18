@@ -181,7 +181,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				explorer := NewExplorer(search, log, getFakeModulesProvider())
 				expectedParamsToSearch := params
 				search.
-					On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+					On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 					Return(&searchRes, nil)
 				search.
 					On("VectorClassSearch", expectedParamsToSearch).
@@ -248,7 +248,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			explorer := NewExplorer(search, log, getFakeModulesProvider())
 			expectedParamsToSearch := params
 			search.
-				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
@@ -316,7 +316,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			explorer := NewExplorer(search, log, getFakeModulesProvider())
 			expectedParamsToSearch := params
 			search.
-				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
@@ -382,7 +382,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			explorer := NewExplorer(search, log, getFakeModulesProvider())
 			expectedParamsToSearch := params
 			search.
-				On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
+				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
@@ -2370,7 +2370,7 @@ func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, classNa
 ) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	return vectorForParams(ctx, params, findVectorFn, nil)
+	return vectorForParams(ctx, params, "", findVectorFn, nil)
 }
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,
@@ -2379,7 +2379,7 @@ func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Contex
 ) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	return vectorForParams(ctx, params, findVectorFn, nil)
+	return vectorForParams(ctx, params, "", findVectorFn, nil)
 }
 
 func (p *fakeModulesProvider) CrossClassValidateSearchParam(name string, value interface{}) error {

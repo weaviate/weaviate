@@ -108,7 +108,24 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties,
 ) (*search.Result, error) {
-	var result *search.Result
+	results, err := d.ObjectsByID(ctx, id, props, additional)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return &results[0], nil
+}
+
+// ObjectsByID checks every index of the particular kind for the ID
+// this method is only used for Explore queries where we don't have
+// a class context
+func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties,
+	additional additional.Properties,
+) (search.Results, error) {
+	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
@@ -118,8 +135,7 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 		}
 
 		if res != nil {
-			result = res.SearchResult(additional)
-			break
+			result = append(result, res)
 		}
 	}
 
@@ -127,7 +143,8 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 		return nil, nil
 	}
 
-	return d.enrichRefsForSingle(ctx, result, props, additional)
+	return d.enrichRefsForList(ctx,
+		storobj.SearchResults(result, additional), props, additional)
 }
 
 // Object gets object with id from index of specified class.
