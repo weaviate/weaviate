@@ -25,16 +25,30 @@ import (
 )
 
 func Test_GraphQL(t *testing.T) {
+	// tests with classes that have objects with same uuids
+	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
+
+	t.Run("running Get nearObject against shadowed objects", runningGetNearObjectWithShadowedObjects)
+	t.Run("running Aggregate nearObject against shadowed objects", runningAggregateNearObjectWithShadowedObjects)
+	t.Run("running Explore nearObject against shadowed objects", runningExploreNearObjectWithShadowedObjects)
+
+	deleteObjectClass(t, "NearObjectSearch")
+	deleteObjectClass(t, "NearObjectSearchShadow")
+
+	// setup tests
 	t.Run("setup test schema", addTestSchema)
 	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
-	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (array class)", addTestDataArrayClasses)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
+	t.Run("import test data (custom vector class)", addTestDataCVC)
+
+	// explore tests
+	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
 
 	// get tests
 	t.Run("getting objects", gettingObjects)
@@ -77,7 +91,10 @@ func Test_GraphQL(t *testing.T) {
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
 	// dimensions.
+
 	t.Run("getting objects with custom vectors", gettingObjectsWithCustomVectors)
+	t.Run("explore objects with custom vectors", exploreObjectsWithCustomVectors)
+
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
@@ -351,17 +368,6 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class:      "CustomVectorClass",
-		Vectorizer: "none",
-		Properties: []*models.Property{
-			{
-				Name:     "name",
-				DataType: []string{"string"},
-			},
-		},
-	})
-
-	createObjectClass(t, &models.Class{
 		Class: "ArrayClass",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
@@ -447,6 +453,17 @@ func addTestSchema(t *testing.T) {
 			},
 			{
 				Name:     "identical",
+				DataType: []string{"string"},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class:      "CustomVectorClass",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
 				DataType: []string{"string"},
 			},
 		},
@@ -954,6 +971,77 @@ func addTestDataMultiShard(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, multiShardID3)
+}
+
+func addTestDataNearObjectSearch(t *testing.T) {
+	classNames := []string{"NearObjectSearch", "NearObjectSearchShadow"}
+	ids := []strfmt.UUID{
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300001",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300002",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300003",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300004",
+		"aa44bbee-ca5f-4db7-a412-5fc6a2300005",
+	}
+	names := []string{
+		"Mount Everest",
+		"Amsterdam is a cool city",
+		"Football is a game where people run after ball",
+		"Berlin is Germany's capital city",
+		"London is a cool city",
+	}
+
+	for _, className := range classNames {
+		createObjectClass(t, &models.Class{
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{
+					"vectorizeClassName": true,
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "name",
+					DataType: []string{"string"},
+				},
+			},
+		})
+	}
+
+	for i, id := range ids {
+		createObject(t, &models.Object{
+			Class: classNames[0],
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": names[i],
+			},
+		})
+		assertGetObjectEventually(t, id)
+		createObject(t, &models.Object{
+			Class: classNames[1],
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": fmt.Sprintf("altered contents of: %v", names[i]),
+			},
+		})
+		assertGetObjectEventually(t, id)
+	}
+
+	createObject(t, &models.Object{
+		Class: classNames[0],
+		ID:    "aa44bbee-ca5f-4db7-a412-5fc6a2300011",
+		Properties: map[string]interface{}{
+			"name": "the same content goes here just for explore tests",
+		},
+	})
+	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
+	createObject(t, &models.Object{
+		Class: classNames[1],
+		ID:    "aa44bbee-ca5f-4db7-a412-5fc6a2300011",
+		Properties: map[string]interface{}{
+			"name": "the same content goes here just for explore tests",
+		},
+	})
+	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
 }
 
 func addDateFieldClass(t *testing.T) {

@@ -60,8 +60,10 @@ type vectorClassSearch interface {
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID,
+	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo
@@ -458,7 +460,8 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	}
 
 	if params.NearObject != nil {
-		vector, err := e.nearParamsVector.vectorFromNearObjectParams(ctx, params.NearObject)
+		// TODO: cross class
+		vector, err := e.nearParamsVector.crossClassVectorFromNearObjectParams(ctx, params.NearObject)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
