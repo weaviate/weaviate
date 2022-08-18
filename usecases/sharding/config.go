@@ -72,9 +72,10 @@ func (c *Config) validate() error {
 		return errors.Errorf("replicas must be a positive number larger than 0")
 	}
 
-	if c.Replicas != 1 {
-		return errors.Errorf("creating replicated shards not supported yet, create single shard, then scale out")
-	}
+	// TODO: distuingish between initial creation and update
+	// if c.Replicas != 1 {
+	// 	return errors.Errorf("creating replicated shards not supported yet, create single shard, then scale out")
+	// }
 
 	return nil
 }
