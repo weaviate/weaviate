@@ -17,12 +17,12 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -497,12 +497,16 @@ func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, cl
 	return nil
 }
 
+func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return nil
+}
+
 func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return "", nil
+func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
 }
 
 func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {

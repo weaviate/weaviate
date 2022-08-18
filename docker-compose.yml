@@ -94,4 +94,4 @@ services:
     ports:
       - "9090:8080"
     volumes:
-      - ./snapshots-gcs:/data
+      - ./snapshots-gcs:/storage

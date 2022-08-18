@@ -19,7 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 )
 
 // TODO adjust or make configurable
@@ -62,7 +61,7 @@ func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snap
 		return sp.setMetaFailed(errors.Wrap(err, "create snapshot"))
 	}
 
-	if err := sp.setMetaStatus(backups.CS_TRANSFERRING); err != nil {
+	if err := sp.setMetaStatus(snapshots.CreateTransferring); err != nil {
 		return err
 	}
 
@@ -72,7 +71,7 @@ func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snap
 		return sp.setMetaFailed(errors.Wrap(err, "store snapshot"))
 	}
 
-	if err := sp.setMetaStatus(backups.CS_TRANSFERRED); err != nil {
+	if err := sp.setMetaStatus(snapshots.CreateTransferred); err != nil {
 		return err
 	}
 
@@ -82,7 +81,7 @@ func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snap
 		return sp.setMetaFailed(errors.Wrap(err, "release snapshot"))
 	}
 
-	if err := sp.setMetaStatus(backups.CS_SUCCESS); err != nil {
+	if err := sp.setMetaStatus(snapshots.CreateSuccess); err != nil {
 		return err
 	}
 
@@ -93,8 +92,7 @@ func (sp *snapshotProvider) setMetaFailed(err error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
 	defer cancel()
 
-	// TODO save error message to meta file (improve interface)
-	if errMeta := sp.storage.SetMetaStatus(ctx, sp.className, sp.snapshotID, string(backups.CS_FAILED)); errMeta != nil {
+	if errMeta := sp.storage.SetMetaError(ctx, sp.className, sp.snapshotID, err); errMeta != nil {
 		ec := &errorcompounder.ErrorCompounder{}
 		ec.Add(errMeta)
 		ec.Add(err)
@@ -103,7 +101,7 @@ func (sp *snapshotProvider) setMetaFailed(err error) error {
 	return err
 }
 
-func (sp *snapshotProvider) setMetaStatus(status backups.CreateStatus) error {
+func (sp *snapshotProvider) setMetaStatus(status snapshots.CreateStatus) error {
 	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
 	defer cancel()
 

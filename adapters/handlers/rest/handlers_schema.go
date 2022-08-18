@@ -15,9 +15,9 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 

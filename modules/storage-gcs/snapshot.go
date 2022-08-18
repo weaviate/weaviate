@@ -28,16 +28,16 @@ func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snaps
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
-func (m *StorageGCSModule) FindMeta(ctx context.Context, className, snapshotID string) error {
-	return m.storageProvider.FindMeta(ctx, className, snapshotID)
-}
-
 func (m *StorageGCSModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
 
-func (m *StorageGCSModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+func (m *StorageGCSModule) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
+}
+
+func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
 func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string {

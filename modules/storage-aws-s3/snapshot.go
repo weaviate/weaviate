@@ -29,16 +29,16 @@ func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapsh
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
-func (m *StorageS3Module) FindMeta(ctx context.Context, className, snapshotID string) error {
-	return m.storageProvider.FindMeta(ctx, className, snapshotID)
+func (m *StorageS3Module) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
 }
 
 func (m *StorageS3Module) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
 
-func (m *StorageS3Module) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+func (m *StorageS3Module) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
 func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {

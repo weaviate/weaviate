@@ -135,8 +135,8 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		status, err := s3.GetMetaStatus(context.Background(), className, snapshotID)
+		meta, err := s3.GetMeta(context.Background(), className, snapshotID)
 		assert.Nil(t, err)
-		assert.Equal(t, "STARTED", status)
+		assert.Equal(t, "STARTED", meta.Status)
 	})
 }

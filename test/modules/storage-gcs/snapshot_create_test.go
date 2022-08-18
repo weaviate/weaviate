@@ -128,8 +128,8 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
-		status, err := gcs.GetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id")
+		meta, err := gcs.GetMeta(context.Background(), "SnapshotClass", "snapshot_id")
 		assert.Nil(t, err)
-		assert.Equal(t, "STARTED", status)
+		assert.Equal(t, "STARTED", meta.Status)
 	})
 }

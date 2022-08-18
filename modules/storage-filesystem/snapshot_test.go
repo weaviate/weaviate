@@ -178,9 +178,9 @@ func TestSnapshotStorage_MetaStatus(t *testing.T) {
 		module := New()
 		module.snapshotsPath = snapshotsAbsolutePath
 
-		status, err := module.GetMetaStatus(context.Background(), testClass, testId)
+		meta, err := module.GetMeta(context.Background(), testClass, testId)
 		assert.Nil(t, err)
-		assert.Equal(t, string(snapshots.StatusStarted), status)
+		assert.Equal(t, string(snapshots.StatusStarted), meta.Status)
 	})
 }
 
