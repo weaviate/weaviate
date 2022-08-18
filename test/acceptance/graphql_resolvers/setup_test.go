@@ -67,6 +67,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
 	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
 	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
+	t.Run("aggregates array class with grouping and nearObject", aggregatesArrayClassWithGroupingAndNearObject)
 	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
 	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
 	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
@@ -376,16 +377,30 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "strings",
-				DataType: []string{"string[]"},
+				Name:         "strings",
+				DataType:     []string{"string[]"},
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:         "texts",
+				DataType:     []string{"text[]"},
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
 				Name:     "numbers",
 				DataType: []string{"number[]"},
 			},
 			{
+				Name:     "ints",
+				DataType: []string{"int[]"},
+			},
+			{
 				Name:     "booleans",
 				DataType: []string{"boolean[]"},
+			},
+			{
+				Name:     "dates",
+				DataType: []string{"date[]"},
 			},
 		},
 	})
@@ -883,8 +898,15 @@ func addTestDataArrayClasses(t *testing.T) {
 		ID:    arrayClassID1,
 		Properties: map[string]interface{}{
 			"strings":  []string{"a", "b", "c"},
+			"texts":    []string{"a", "b", "c"},
 			"numbers":  []float64{1.0, 2.0, 3.0},
+			"ints":     []int{1, 2, 3},
 			"booleans": []bool{true, true},
+			"dates": []string{
+				"2022-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+				"2022-06-03T22:18:59.640162Z",
+			},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID1)
@@ -894,8 +916,14 @@ func addTestDataArrayClasses(t *testing.T) {
 		ID:    arrayClassID2,
 		Properties: map[string]interface{}{
 			"strings":  []string{"a", "b"},
+			"texts":    []string{"a", "b"},
 			"numbers":  []float64{1.0, 2.0},
+			"ints":     []int{1, 2},
 			"booleans": []bool{false, false},
+			"dates": []string{
+				"2022-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID2)
@@ -905,8 +933,13 @@ func addTestDataArrayClasses(t *testing.T) {
 		ID:    arrayClassID3,
 		Properties: map[string]interface{}{
 			"strings":  []string{"a"},
+			"texts":    []string{"a"},
 			"numbers":  []float64{1.0},
+			"ints":     []int{1.0},
 			"booleans": []bool{true, false},
+			"dates": []string{
+				"2022-06-01T22:18:59.640162Z",
+			},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID3)
