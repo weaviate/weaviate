@@ -182,15 +182,9 @@ func TestShard_ParallelBatches(t *testing.T) {
 	}
 
 	batches := make([][]*storobj.Object, 4)
-	wgAdd := sync.WaitGroup{}
-	wgAdd.Add(len(batches))
 	for i := range batches {
-		go func() {
-			batches[i] = createRandomObjects("TestClass", 1000)
-			wgAdd.Done()
-		}()
+		batches[i] = createRandomObjects("TestClass", 1000)
 	}
-	wgAdd.Wait()
 	totalObjects := 1000 * len(batches)
 	for _, tt := range parallelTests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,10 +199,10 @@ func TestShard_ParallelBatches(t *testing.T) {
 			wg := sync.WaitGroup{}
 			wg.Add(len(batches))
 			for _, batch := range batches {
-				go func() {
-					shd.putObjectBatch(ctx, batch)
+				go func(localBatch []*storobj.Object) {
+					shd.putObjectBatch(ctx, localBatch)
 					wg.Done()
-				}()
+				}(batch)
 			}
 			wg.Wait()
 
