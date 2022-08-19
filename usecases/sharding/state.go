@@ -272,3 +272,65 @@ func generateShardName() string {
 
 	return string(b)
 }
+
+func (s State) DeepCopy() State {
+	physicalCopy := map[string]Physical{}
+	for name, shard := range s.Physical {
+		physicalCopy[name] = shard.DeepCopy()
+	}
+
+	virtualCopy := make([]Virtual, len(s.Virtual))
+	for i, virtual := range s.Virtual {
+		virtualCopy[i] = virtual.DeepCopy()
+	}
+
+	return State{
+		localNodeName: s.localNodeName,
+		IndexID:       s.localNodeName,
+		Config:        s.Config.DeepCopy(),
+		Physical:      physicalCopy,
+		Virtual:       virtualCopy,
+	}
+}
+
+func (c Config) DeepCopy() Config {
+	return Config{
+		VirtualPerPhysical:  c.VirtualPerPhysical,
+		DesiredCount:        c.DesiredCount,
+		ActualCount:         c.ActualCount,
+		DesiredVirtualCount: c.DesiredVirtualCount,
+		ActualVirtualCount:  c.ActualVirtualCount,
+		Key:                 c.Key,
+		Strategy:            c.Strategy,
+		Function:            c.Function,
+		Replicas:            c.Replicas,
+	}
+}
+
+func (p Physical) DeepCopy() Physical {
+	ownsVirtualCopy := make([]string, len(p.OwnsVirtual))
+	for i, v := range p.OwnsVirtual {
+		ownsVirtualCopy[i] = v
+	}
+
+	belongsCopy := make([]string, len(p.BelongsToNodes))
+	for i, n := range p.BelongsToNodes {
+		belongsCopy[i] = n
+	}
+
+	return Physical{
+		Name:           p.Name,
+		OwnsVirtual:    ownsVirtualCopy,
+		OwnsPercentage: p.OwnsPercentage,
+		BelongsToNodes: belongsCopy,
+	}
+}
+
+func (v Virtual) DeepCopy() Virtual {
+	return Virtual{
+		Name:               v.Name,
+		Upper:              v.Upper,
+		OwnsPercentage:     v.OwnsPercentage,
+		AssignedToPhysical: v.AssignedToPhysical,
+	}
+}
