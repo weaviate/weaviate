@@ -161,7 +161,9 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 		return nil, nil, NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
 	}
 
-	// go func(ctx context.Context, className, snapshotId string) {
+	// Start async here
+	//*restoreStatus = string(backups.RS_STARTED)
+
 	class, err := storage.RestoreSnapshot(ctx, className, snapshotID)
 	if err != nil {
 		bm.setRestoreInProgress(className, false)
@@ -171,7 +173,6 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	// This most likely requires a new method since we need to create a class with existing sharding state.
 	// Currently Create Class would initiate a new sharding state.
 	bm.setRestoreInProgress(className, false)
-	//}(ctx, className, snapshotID)
 
 	return &backups.RestoreMeta{
 		Path:   storage.DestinationPath(className, snapshotID),

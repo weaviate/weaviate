@@ -270,28 +270,50 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
+	m.RestoreStatus = models.SnapshotRestoreMetaStatusSTARTED
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
 		return nil, err
 	}
+	go func(ctx context.Context, className, snapshotId string) {
+		m.RestoreStatus = models.SnapshotRestoreMetaStatusTRANSFERRING
+		if meta, class, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
+			if meta != nil {
+				m.RestoreStatus = string(meta.Status)
+			} else {
+				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
+			}
+			m.RestoreError = err
+			return
+		} else {
+			classM := models.Class{}
+			if err := json.Unmarshal([]byte(class), &classM); err != nil {
+				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
+				m.RestoreError = err
+				return
+			}
+			// TODO: Check that we can restore the schema in parallel to the data files
+			// If the updates are all paused until the restore finishes, this works well
+			err := m.AddClass(ctx, principal, &classM)
+			if err != nil {
+				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
+				m.RestoreError = err
+				return
+			}
 
-	if meta, class, err := m.backups.RestoreBackup(ctx, className, storageName, ID); err != nil {
-		return nil, err
-	} else {
-		classM := models.Class{}
-		// unmarshal class into classM
-		if err := json.Unmarshal([]byte(class), &classM); err != nil {
-			return nil, err
+			m.RestoreStatus = string(models.SnapshotRestoreMetaStatusSUCCESS)
+
 		}
-		m.AddClass(ctx, principal, &classM)
-		status := string(meta.Status)
-		return &models.SnapshotRestoreMeta{
-			ID:          ID,
-			StorageName: storageName,
-			Status:      &status,
-			Path:        meta.Path,
-		}, nil
+	}(ctx, className, ID)
+
+	returnData := &models.SnapshotRestoreMeta{
+		ID:          ID,
+		StorageName: storageName,
+		Status:      m.RestoreStatus,
+		// FIXME need to set this somewhere else
+		// Path:        meta.Path,
 	}
+	return returnData, nil
 }
 
 func validateSnapshotID(snapshotID string) error {

@@ -676,6 +676,10 @@
           "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "className": {
+          "description": "The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
         "storageName": {
           "description": "Storage name e.g. filesystem, gcs, s3.",
           "type": "string"
