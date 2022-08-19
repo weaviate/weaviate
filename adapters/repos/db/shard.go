@@ -41,7 +41,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const MaxImportGoroutinesFactorDefault = 1.5
+const maxImportGoroutinesFactorDefault = 1.5
 
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
@@ -93,17 +93,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	invertedIndexConfig := index.getInvertedIndexConfig()
-	val, ok := os.LookupEnv("MaxImportGoroutinesFactor")
-	var MaxImportGoroutinesFactor float64
-	if !ok {
-		MaxImportGoroutinesFactor = MaxImportGoroutinesFactorDefault
-	} else {
-		MaxImportGoroutinesFactor, err = strconv.ParseFloat(val, 32)
-		// Use default value if we cannot parse input or it doesn't make any sense
-		if err != nil || MaxImportGoroutinesFactor <= 0 {
-			MaxImportGoroutinesFactor = MaxImportGoroutinesFactorDefault
-		}
-	}
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -118,7 +108,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		randomSource:        rand,
 		diskScanState:       newDiskScanState(),
 		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: int(math.Round(MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		maxNumberGoroutines: int(math.Round(getBatchMaxGoFactor() * float64(runtime.GOMAXPROCS(0)))),
 	}
 	defer s.metrics.ShardStartup(before)
 
@@ -468,4 +458,18 @@ func (s *Shard) notifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+func getBatchMaxGoFactor() float64 {
+	val, ok := os.LookupEnv("MaxImportGoroutinesFactor")
+	if !ok {
+		return maxImportGoroutinesFactorDefault
+	} else {
+		MaxImportGoroutinesFactor, err := strconv.ParseFloat(val, 32)
+		// Use default value if we cannot parse input or it doesn't make any sense
+		if err != nil || MaxImportGoroutinesFactor <= 0 {
+			return maxImportGoroutinesFactorDefault
+		}
+		return MaxImportGoroutinesFactor
+	}
 }
