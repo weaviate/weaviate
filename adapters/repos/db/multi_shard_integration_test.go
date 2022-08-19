@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -46,13 +45,9 @@ import (
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
@@ -85,13 +80,9 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
@@ -159,13 +150,9 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	className := "RacecarPosts"
@@ -281,10 +268,9 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest() (*DB, *logrus.Logger, string) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{
@@ -294,7 +280,7 @@ func setupMultiShardTest() (*DB, *logrus.Logger, string) {
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 
-	return repo, logger, dirName
+	return repo, logger
 }
 
 func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {

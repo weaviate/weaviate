@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -36,12 +35,7 @@ import (
 
 func Test_Aggregations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	shardState := singleShardState()
 	logger := logrus.New()
@@ -79,12 +73,7 @@ func Test_Aggregations(t *testing.T) {
 
 func Test_Aggregations_MultiShard(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	shardState := fixedMultiShardState()
 	logger := logrus.New()

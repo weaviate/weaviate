@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -37,12 +36,7 @@ import (
 
 func TestNestedReferences(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	refSchema := schema.Schema{
 		Objects: &models.Schema{
@@ -424,12 +418,7 @@ func (c *testCounter) reset() {
 
 func Test_AddingReferenceOneByOne(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	schema := schema.Schema{
 		Objects: &models.Schema{

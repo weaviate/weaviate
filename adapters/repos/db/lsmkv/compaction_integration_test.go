@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"testing"
 
@@ -47,14 +46,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -256,14 +248,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	var expectedNotPresent []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -471,14 +456,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -571,14 +549,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -669,14 +640,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -967,14 +931,7 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -1081,14 +1038,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -1454,14 +1404,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -1583,14 +1526,7 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -1665,14 +1601,7 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 			key := []byte(fmt.Sprintf("key-original"))
 			keySecondary := []byte(fmt.Sprintf("secondary-key-%02d", size-1))
 
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -1753,14 +1682,7 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			value2 := []byte("value-02")
 			values := [][]byte{value1, value2}
 
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -1854,14 +1776,7 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
 			var bucket *Bucket
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
 				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
