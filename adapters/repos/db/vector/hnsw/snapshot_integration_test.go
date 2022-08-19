@@ -34,7 +34,6 @@ func TestSnapshot_Integration(t *testing.T) {
 	indexID := "snapshot-integration-test"
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,

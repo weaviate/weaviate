@@ -32,7 +32,6 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 		indexID := "snapshot-pause-maintenance-test"
 
 		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
 
 		userConfig := NewDefaultUserConfig()
 		userConfig.CleanupIntervalSeconds = 1
@@ -65,9 +64,6 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	t.Run("assert tombstone maintenance is successfully paused", func(t *testing.T) {
 		ctx := context.Background()
 
-		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
-
 		idx, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "snapshot-pause-maintenance-test",
@@ -94,7 +90,6 @@ func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	indexID := "snapshot-switch-commitlogs-test"
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,
@@ -122,7 +117,6 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	ctx := context.Background()
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	indexID := "snapshot-list-files-test"
 
@@ -170,7 +164,6 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 	indexID := "snapshot-resume-maintenance-test"
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,
@@ -206,15 +199,5 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 
 func makeTestDir(t *testing.T) string {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	if err := os.MkdirAll(dirName, 0o777); err != nil {
-		t.Fatalf("failed to make test dir '%s': %s", dirName, err)
-	}
-	return dirName
-}
-
-func removeTestDir(t *testing.T, dirName string) {
-	if err := os.RemoveAll(dirName); err != nil {
-		t.Errorf("failed to remove test dir '%s': %s", dirName, err)
-	}
+	return t.TempDir()
 }
