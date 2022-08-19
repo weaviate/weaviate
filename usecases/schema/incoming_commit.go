@@ -33,7 +33,9 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 	}
 }
 
-func (m *Manager) handleAddClassCommit(ctx context.Context, tx *cluster.Transaction) error {
+func (m *Manager) handleAddClassCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
 	m.Lock()
 	defer m.Unlock()
 

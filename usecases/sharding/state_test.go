@@ -83,3 +83,48 @@ func (f fakeNodes) AllNames() []string {
 func (f fakeNodes) LocalName() string {
 	return f.nodes[0]
 }
+
+func TestAdjustReplicas(t *testing.T) {
+	t.Run("scaling up from 1 to 3", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
+		shard := Physical{BelongsToNodes: []string{"node1"}}
+		expected := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
+
+		require.Nil(t, shard.AdjustReplicas(3, nodes))
+		assert.Equal(t, expected, shard)
+	})
+
+	t.Run("scaling up from 2 to 3", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
+		shard := Physical{BelongsToNodes: []string{"node2", "node3"}}
+		expected := Physical{BelongsToNodes: []string{"node2", "node3", "node1"}}
+
+		require.Nil(t, shard.AdjustReplicas(3, nodes))
+		assert.Equal(t, expected, shard)
+	})
+
+	t.Run("scaling from 3 to 3 - no change required", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
+		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
+		expected := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
+
+		require.Nil(t, shard.AdjustReplicas(3, nodes))
+		assert.Equal(t, expected, shard)
+	})
+
+	t.Run("scaling down from 3 to 2", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
+		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
+		expected := Physical{BelongsToNodes: []string{"node1", "node2"}}
+
+		require.Nil(t, shard.AdjustReplicas(2, nodes))
+		assert.Equal(t, expected, shard)
+	})
+
+	t.Run("attempting to scale to a negative value", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"node1", "node2", "node3"}}
+		shard := Physical{BelongsToNodes: []string{"node1", "node2", "node3"}}
+
+		require.NotNil(t, shard.AdjustReplicas(-22, nodes))
+	})
+}
