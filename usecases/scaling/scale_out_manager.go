@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -14,6 +15,8 @@ type ScaleOutManager struct {
 
 	// get information about which nodes are in the cluster
 	clusterState clusterState
+
+	snapshotter Snapshotter
 }
 
 type clusterState interface {
@@ -23,9 +26,16 @@ type clusterState interface {
 	LocalName() string
 }
 
-func NewScaleOutManager(clusterState clusterState) *ScaleOutManager {
+type Snapshotter interface {
+	CreateSnapshot(
+		ctx context.Context, className string, snap *snapshots.Snapshot,
+	) (*snapshots.Snapshot, error)
+}
+
+func NewScaleOutManager(clusterState clusterState, snapshotter Snapshotter) *ScaleOutManager {
 	return &ScaleOutManager{
 		clusterState: clusterState,
+		snapshotter:  snapshotter,
 	}
 }
 
@@ -66,9 +76,12 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 		ssAfter.Physical[name] = shard
 	}
 
-	// add more nodes to associating list, for now pick any node that isn't the
-	// current node, first iteration does not yet support spreading replication
-	// shards evenly
+	for name := range ssBefore.Physical {
+		if !ssBefore.IsShardLocal(name) {
+			// TODO
+			return errors.Errorf("scaling remote shards not supported yet, send request to node that has the shard to be scaled out")
+		}
+	}
 
 	// for each shard
 	//

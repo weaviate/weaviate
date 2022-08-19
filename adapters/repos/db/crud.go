@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 )
@@ -245,4 +246,16 @@ func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument) error {
 	}
 
 	return nil
+}
+
+func (d *DB) CreateSnapshot(ctx context.Context, className string,
+	snap *snapshots.Snapshot,
+) (*snapshots.Snapshot, error) {
+	idx := d.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("create snapshot on non-existing index for %q",
+			className)
+	}
+
+	return idx.CreateSnapshot(ctx, snap)
 }

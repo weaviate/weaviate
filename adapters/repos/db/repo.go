@@ -88,6 +88,7 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	d.indexLock.Lock()
@@ -131,3 +132,4 @@ func (d *DB) Shutdown(ctx context.Context) error {
 
 	return nil
 }
+

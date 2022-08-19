@@ -101,6 +101,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, backupManager backups.BackupManager,
+	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	m := &Manager{
 		config:                  config,
@@ -116,7 +117,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
-		scaleOut:                scaling.NewScaleOutManager(clusterState),
+		scaleOut:                scaleoutManager,
 	}
 
 	m.scaleOut.SetSchemaManager(m)
