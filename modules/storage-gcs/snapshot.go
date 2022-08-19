@@ -49,7 +49,7 @@ func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshot
 }
 
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
-	config := gcs.NewConfig(os.Getenv(gcsBucket))
+	config := gcs.NewConfig(os.Getenv(gcsBucket), os.Getenv(gcsRoot))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")

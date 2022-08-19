@@ -63,8 +63,9 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 	return &s3{client, config, logger, dataPath}, nil
 }
 
-func makeObjectName(parts ...string) string {
-	return path.Join(parts...)
+func (s *s3) makeObjectName(parts ...string) string {
+	base := path.Join(parts...)
+	return path.Join(s.config.RootName(), base)
 }
 
 func makeFilePath(parts ...string) string {
@@ -93,7 +94,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 				errors.Wrap(err, "store snapshot aborted"))
 		}
 
-		objectName := makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
+		objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
 		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
@@ -111,7 +112,7 @@ func (s *s3) putMeta(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	if err != nil {
 		return backups.NewErrInternal(errors.Wrap(err, "save meta"))
 	}
-	objectName := makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
+	objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
 	reader := bytes.NewReader(content)
 	_, err = s.client.PutObject(ctx, s.config.BucketName(), objectName, reader, reader.Size(),
 		minio.PutObjectOptions{ContentType: "application/octet-stream"})
@@ -147,7 +148,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		}
 
 		// Get the correct paths for the backup file and the active file
-		objectName := makeObjectName(className, snapshotID, srcRelPath)
+		objectName := s.makeObjectName(className, snapshotID, srcRelPath)
 		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		// Download the backup file from the bucket
@@ -213,11 +214,11 @@ func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*s
 
 func (s *s3) DestinationPath(className, snapshotID string) string {
 	return "s3://" + path.Join(s.config.BucketName(),
-		makeObjectName(className, snapshotID, "snapshot.json"))
+		s.makeObjectName(className, snapshotID, "snapshot.json"))
 }
 
 func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	objectName := makeObjectName(className, snapshotID, "snapshot.json")
+	objectName := s.makeObjectName(className, snapshotID, "snapshot.json")
 	obj, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, backups.NewErrInternal(
@@ -227,7 +228,7 @@ func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID st
 	data, err := io.ReadAll(obj)
 	s3Err, ok := err.(minio.ErrorResponse)
 	if err != nil && ok && s3Err.StatusCode == http.StatusNotFound {
-		return nil, backups.NewErrNotFound(err)
+		return nil, backups.ErrNotFound{}
 	} else if err != nil {
 		return nil, backups.NewErrInternal(
 			errors.Wrapf(err, "read file '%s'", objectName))

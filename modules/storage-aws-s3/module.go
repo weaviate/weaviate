@@ -28,6 +28,7 @@ const (
 	AltName2   = "s3"
 	s3Endpoint = "STORAGE_S3_ENDPOINT"
 	s3Bucket   = "STORAGE_S3_BUCKET"
+	s3Root     = "STORAGE_S3_ROOT"
 	s3UseSSL   = "STORAGE_S3_USE_SSL"
 )
 

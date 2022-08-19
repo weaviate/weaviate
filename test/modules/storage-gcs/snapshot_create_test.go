@@ -43,7 +43,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
-		gcsConfig := gcs.NewConfig(bucketName)
+		gcsConfig := gcs.NewConfig(bucketName, "")
 		path, _ := os.Getwd()
 
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
@@ -53,14 +53,14 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		assert.Nil(t, err)
 
 		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 
 	t.Run("restore snapshot in gcs", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
-		gcsConfig := gcs.NewConfig(bucketName)
+		gcsConfig := gcs.NewConfig(bucketName, "")
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
@@ -83,7 +83,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		}
 
 		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 }
@@ -101,7 +101,7 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
 
-	gcsConfig := gcs.NewConfig(bucketName)
+	gcsConfig := gcs.NewConfig(bucketName, "")
 	path, err := os.Getwd()
 	require.Nil(t, err)
 

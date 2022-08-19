@@ -44,7 +44,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 
 		endpoint := os.Getenv(minioEndpoint)
-		s3Config := s3.NewConfig(endpoint, bucketName, false)
+		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
@@ -53,7 +53,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		assert.Nil(t, err)
 
 		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 
@@ -61,7 +61,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		ctxSnapshot := context.Background()
 
 		endpoint := os.Getenv(minioEndpoint)
-		s3Config := s3.NewConfig(endpoint, "bucket", false)
+		s3Config := s3.NewConfig(endpoint, "bucket", "", false)
 		logger, _ := test.NewNullLogger()
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
@@ -89,7 +89,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		}
 
 		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 }
@@ -108,7 +108,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	bucketName := "bucket"
 
 	endpoint := os.Getenv(minioEndpoint)
-	s3Config := s3.NewConfig(endpoint, bucketName, false)
+	s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 	logger, _ := test.NewNullLogger()
 	path, _ := os.Getwd()
 

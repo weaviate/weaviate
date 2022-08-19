@@ -14,7 +14,6 @@ package backups
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -124,7 +123,7 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}
 
 	meta, err := storage.GetMeta(ctx, className, snapshotID)
-	if err != nil && err == os.ErrNotExist {
+	if err != nil && errors.Is(err, ErrNotFound{}) {
 		return nil, NewErrNotFound(
 			fmt.Errorf("can't fetch snapshot creation status of "+
 				"non-existing snapshot id %s", snapshotID))

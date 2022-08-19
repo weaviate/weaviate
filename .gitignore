@@ -113,3 +113,6 @@ vendor/
 test/benchmark/benchmark_results.json
 # benchmark results files copied from a remote run
 benchmark_results_*.json
+
+# local credentials
+creds.json

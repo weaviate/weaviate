@@ -26,6 +26,7 @@ const (
 	Name      = "storage-gcs"
 	AltName1  = "gcs"
 	gcsBucket = "STORAGE_GCS_BUCKET"
+	gcsRoot   = "STORAGE_GCS_ROOT"
 )
 
 type StorageGCSModule struct {

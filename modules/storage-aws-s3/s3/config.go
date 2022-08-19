@@ -14,22 +14,25 @@ package s3
 const (
 	DEFAULT_ENDPOINT = "s3.amazonaws.com"
 	DEFAULT_BUCKET   = "weaviate-snapshots"
+	DEFAULT_ROOT     = "snapshots"
 )
 
 type Config interface {
 	Endpoint() string
 	BucketName() string
+	RootName() string
 	UseSSL() bool
 }
 
 type config struct {
 	endpoint string
 	bucket   string
+	root     string
 	useSSL   bool
 }
 
-func NewConfig(endpoint, bucket string, useSSL bool) Config {
-	return &config{endpoint, bucket, useSSL}
+func NewConfig(endpoint, bucket, root string, useSSL bool) Config {
+	return &config{endpoint, bucket, root, useSSL}
 }
 
 func (c *config) Endpoint() string {
@@ -44,6 +47,13 @@ func (c *config) BucketName() string {
 		return c.bucket
 	}
 	return DEFAULT_BUCKET
+}
+
+func (c *config) RootName() string {
+	if len(c.root) > 0 {
+		return c.root
+	}
+	return DEFAULT_ROOT
 }
 
 func (c *config) UseSSL() bool {
