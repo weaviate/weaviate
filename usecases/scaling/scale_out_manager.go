@@ -2,7 +2,10 @@ package scaling
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -91,6 +94,16 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	//       which makes sure that the existing shard is local
 	//
 	// - create a snapshot
+
+	snapID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
+	snap := snapshots.New(className, snapID, time.Now())
+	snap, err := som.snapshotter.CreateSnapshot(ctx, className, snap)
+	if err != nil {
+		return errors.Wrap(err, "create snapshot")
+	}
+
+	// TODO: relaese snapshot!!!
+
 	//
 	// - identify target nodes and tell them to create (empty) local shards
 	//
