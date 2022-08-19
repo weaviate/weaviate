@@ -255,7 +255,7 @@ func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapsh
 	status := s.manager.RestoreStatus
 	err := s.manager.RestoreError
 	txt := fmt.Sprintf("%v - %v", status, err)
-	return schema.NewSchemaObjectsSnapshotsRestoreStatusOK().WithPayload(&models.SnapshotRestoreMeta{Status: txt, ClassName: params.ClassName, error: err.Error(), ID: params.ID, Path: "FIXME must set path", StorageName: params.StorageName})
+	return schema.NewSchemaObjectsSnapshotsRestoreStatusOK().WithPayload(&models.SnapshotRestoreMeta{Status: &txt, ClassName: params.ClassName, Error: err.Error(), ID: params.ID, Path: "FIXME must set path", StorageName: params.StorageName})
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
