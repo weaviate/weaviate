@@ -279,7 +279,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 		return nil, err
 	} else {
 		classM := models.Class{}
-		//unmarshal class into classM
+		// unmarshal class into classM
 		if err := json.Unmarshal([]byte(class), &classM); err != nil {
 			return nil, err
 		}
