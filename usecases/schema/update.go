@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -274,9 +275,15 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	if meta, err := m.backups.RestoreBackup(ctx, className, storageName, ID); err != nil {
+	if meta, class, err := m.backups.RestoreBackup(ctx, className, storageName, ID); err != nil {
 		return nil, err
 	} else {
+		classM := models.Class{}
+		//unmarshal class into classM
+		if err := json.Unmarshal([]byte(class), &classM); err != nil {
+			return nil, err
+		}
+		m.AddClass(ctx, principal, &classM)
 		status := string(meta.Status)
 		return &models.SnapshotRestoreMeta{
 			ID:          ID,
