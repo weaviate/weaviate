@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -474,7 +475,7 @@ func newSchemaManager() *Manager {
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeTxClient{}, &fakeBackupManager{}, &fakeScaleOutManager{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -522,7 +523,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeTxClient{}, &fakeBackupManager{}, &fakeScaleOutManager{},
 	)
 	require.Nil(t, err)
 
@@ -550,4 +551,15 @@ func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
 	className, storageName, snapshotID string,
 ) (*models.SnapshotMeta, error) {
 	return nil, nil
+}
+
+type fakeScaleOutManager struct{}
+
+func (f *fakeScaleOutManager) Scale(ctx context.Context,
+	className string, old, updated sharding.Config,
+) error {
+	return nil
+}
+
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
 }

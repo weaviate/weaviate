@@ -148,7 +148,8 @@ func Test_Schema_Authorization(t *testing.T) {
 					logger, authorizer, config.Config{},
 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 					dummyValidateInvertedConfig, &fakeModuleConfig{},
-					&fakeClusterState{}, &fakeTxClient{}, &fakeBackupManager{})
+					&fakeClusterState{}, &fakeTxClient{}, &fakeBackupManager{},
+					&fakeScaleOutManager{})
 				require.Nil(t, err)
 
 				var args []interface{}
