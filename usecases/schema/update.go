@@ -309,7 +309,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	returnData := &models.SnapshotRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
-		Status:      m.RestoreStatus,
+		Status:      &m.RestoreStatus,
 		// FIXME need to set this somewhere else
 		// Path:        meta.Path,
 	}
