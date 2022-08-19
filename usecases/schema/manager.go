@@ -116,7 +116,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
-		scaleOut:                scaling.NewScaleOutManager(),
+		scaleOut:                scaling.NewScaleOutManager(clusterState),
 	}
 
 	m.scaleOut.SetSchemaManager(m)

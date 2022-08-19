@@ -20,6 +20,7 @@ type NodeIterationStrategy int
 
 const (
 	StartRandom NodeIterationStrategy = iota
+	StartAfter
 )
 
 type NodeIterator struct {
@@ -34,16 +35,31 @@ type HostnameSource interface {
 func NewNodeIterator(source HostnameSource,
 	strategy NodeIterationStrategy,
 ) (*NodeIterator, error) {
-	if strategy != StartRandom {
+	if strategy != StartRandom && strategy != StartAfter {
 		return nil, errors.New("unsupported strategy")
 	}
 
 	hostnames := source.AllNames()
+	startState := 0
+	if strategy == StartRandom {
+		startState = rand.Intn(len(hostnames))
+	}
 
 	return &NodeIterator{
 		hostnames: hostnames,
-		state:     rand.Intn(len(hostnames)),
+		state:     startState,
 	}, nil
+}
+
+func (n *NodeIterator) SetStartNode(startNode string) {
+	for i, node := range n.hostnames {
+		if node == startNode {
+			n.state = i + 1
+			if n.state == len(n.hostnames) {
+				n.state = 0
+			}
+		}
+	}
 }
 
 func (n *NodeIterator) Next() string {

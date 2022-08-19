@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/spaolacci/murmur3"
 )
@@ -52,6 +53,29 @@ type Physical struct {
 // always returns the first node of the list
 func (p Physical) BelongsToNode() string {
 	return p.BelongsToNodes[0]
+}
+
+func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+	if err != nil {
+		return err
+	}
+
+	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
+
+	if count < len(p.BelongsToNodes) {
+		if count < 0 {
+			return errors.Errorf("cannot scale below 0, got %d", count)
+		}
+		p.BelongsToNodes = p.BelongsToNodes[:count]
+		return nil
+	}
+
+	for len(p.BelongsToNodes) < count {
+		p.BelongsToNodes = append(p.BelongsToNodes, it.Next())
+	}
+
+	return nil
 }
 
 type nodes interface {
