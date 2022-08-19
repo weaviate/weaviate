@@ -542,8 +542,8 @@ func (f *fakeBackupManager) CreateBackup(ctx context.Context,
 
 func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
 	className, storageName, snapshotID string,
-) (*backups.RestoreMeta, error) {
-	return nil, nil
+) (*backups.RestoreMeta, []byte, error) {
+	return nil, nil, nil
 }
 
 func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
