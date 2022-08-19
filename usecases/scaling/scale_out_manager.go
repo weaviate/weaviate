@@ -101,7 +101,7 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 
 	// finally, commit sharding state back to schema manager so that everyone is
 	// aware of the new associations. The schema Manager itself must make sure
-	// that the updated assocation is replicated to the entire cluster
+	// that the updated association is replicated to the entire cluster
 
 	return errors.Errorf("not implemented yet")
 }

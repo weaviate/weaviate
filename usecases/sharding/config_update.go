@@ -27,6 +27,7 @@ func ValidateConfigUpdate(old, updated Config) error {
 	}
 
 	if old.Replicas != updated.Replicas {
+		_ = struct{}{}
 		// TODO: validate that enough nodes are present to support the scaling out
 	}
 

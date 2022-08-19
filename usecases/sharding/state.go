@@ -309,14 +309,10 @@ func (c Config) DeepCopy() Config {
 
 func (p Physical) DeepCopy() Physical {
 	ownsVirtualCopy := make([]string, len(p.OwnsVirtual))
-	for i, v := range p.OwnsVirtual {
-		ownsVirtualCopy[i] = v
-	}
+	copy(ownsVirtualCopy, p.OwnsVirtual)
 
 	belongsCopy := make([]string, len(p.BelongsToNodes))
-	for i, n := range p.BelongsToNodes {
-		belongsCopy[i] = n
-	}
+	copy(belongsCopy, p.BelongsToNodes)
 
 	return Physical{
 		Name:           p.Name,
