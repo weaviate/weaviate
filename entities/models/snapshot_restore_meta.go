@@ -41,7 +41,7 @@ type SnapshotRestoreMeta struct {
 
 	// phase of snapshot restoration process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status,omitempty"`
 
 	// Storage name e.g. filesystem, gcs, s3.
 	StorageName string `json:"storageName,omitempty"`
@@ -106,7 +106,7 @@ func (m *SnapshotRestoreMeta) validateStatus(formats strfmt.Registry) error {
 	}
 
 	// value enum
-	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
+	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
 	}
 
