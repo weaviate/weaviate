@@ -128,3 +128,101 @@ func TestAdjustReplicas(t *testing.T) {
 		require.NotNil(t, shard.AdjustReplicas(-22, nodes))
 	})
 }
+
+func TestStateDeepCopy(t *testing.T) {
+	original := State{
+		IndexID: "original",
+		Config: Config{
+			VirtualPerPhysical:  1,
+			DesiredCount:        2,
+			ActualCount:         3,
+			DesiredVirtualCount: 4,
+			ActualVirtualCount:  5,
+			Key:                 "original",
+			Strategy:            "original",
+			Function:            "original",
+			Replicas:            6,
+		},
+		localNodeName: "original",
+		Physical: map[string]Physical{
+			"physical1": {
+				Name:           "original",
+				OwnsVirtual:    []string{"original"},
+				OwnsPercentage: 7,
+				BelongsToNodes: []string{"orignal"},
+			},
+		},
+		Virtual: []Virtual{
+			{
+				Name:               "original",
+				Upper:              8,
+				OwnsPercentage:     9,
+				AssignedToPhysical: "original",
+			},
+		},
+	}
+
+	control := State{
+		IndexID: "original",
+		Config: Config{
+			VirtualPerPhysical:  1,
+			DesiredCount:        2,
+			ActualCount:         3,
+			DesiredVirtualCount: 4,
+			ActualVirtualCount:  5,
+			Key:                 "original",
+			Strategy:            "original",
+			Function:            "original",
+			Replicas:            6,
+		},
+		localNodeName: "original",
+		Physical: map[string]Physical{
+			"physical1": {
+				Name:           "original",
+				OwnsVirtual:    []string{"original"},
+				OwnsPercentage: 7,
+				BelongsToNodes: []string{"orignal"},
+			},
+		},
+		Virtual: []Virtual{
+			{
+				Name:               "original",
+				Upper:              8,
+				OwnsPercentage:     9,
+				AssignedToPhysical: "original",
+			},
+		},
+	}
+
+	assert.Equal(t, control, original, "control matches initially")
+
+	copied := original.DeepCopy()
+	assert.Equal(t, control, copied, "copy matches original")
+
+	// modify literally every field
+	copied.localNodeName = "changed"
+	copied.IndexID = "changed"
+	copied.Config.VirtualPerPhysical = 11
+	copied.Config.DesiredCount = 22
+	copied.Config.ActualCount = 33
+	copied.Config.DesiredVirtualCount = 44
+	copied.Config.ActualVirtualCount = 55
+	copied.Config.Key = "changed"
+	copied.Config.Strategy = "changed"
+	copied.Config.Function = "changed"
+	copied.Config.Replicas = 66
+	physical1 := copied.Physical["physical1"]
+	physical1.Name = "changed"
+	physical1.BelongsToNodes = append(physical1.BelongsToNodes, "changed")
+	physical1.OwnsPercentage = 100
+	physical1.OwnsVirtual = append(physical1.OwnsVirtual, "changed")
+	copied.Physical["physical1"] = physical1
+	copied.Physical["physical2"] = Physical{}
+	copied.Virtual[0].Name = "original"
+	copied.Virtual[0].Upper = 8
+	copied.Virtual[0].OwnsPercentage = 9
+	copied.Virtual[0].AssignedToPhysical = "original"
+	copied.Virtual = append(copied.Virtual, Virtual{})
+
+	assert.Equal(t, control, original, "original still matches control even with changes in copy")
+}

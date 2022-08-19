@@ -40,21 +40,30 @@ func (som *ScaleOutManager) SetSchemaManager(sm SchemaManager) {
 func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 	old, updated sharding.Config,
 ) error {
-	// TODOs
-	// =====
+	if updated.Replicas > old.Replicas {
+		return som.scaleOut(ctx, className, old, updated)
+	}
 
-	ss := som.schemaManager.ShardingState(className)
-	if ss == nil {
+	if updated.Replicas < old.Replicas {
+		return som.scaleIn(ctx, className, old, updated)
+	}
+
+	return nil
+}
+
+func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
+	old, updated sharding.Config,
+) error {
+	ssBefore := som.schemaManager.ShardingState(className)
+	if ssBefore == nil {
 		return errors.Errorf("no sharding state for class %q", className)
 	}
 
-	// TODO: we would most likely need to create a deep copy here, otherwise our
-	// mutations might be applied before we hit commit because of memory sharing
-	// with the schema manager
+	ssAfter := ssBefore.DeepCopy()
 
-	for name, shard := range ss.Physical {
+	for name, shard := range ssAfter.Physical {
 		shard.AdjustReplicas(updated.Replicas, som.clusterState)
-		ss.Physical[name] = shard
+		ssAfter.Physical[name] = shard
 	}
 
 	// add more nodes to associating list, for now pick any node that isn't the
@@ -82,4 +91,10 @@ func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 	// that the updated assocation is replicated to the entire cluster
 
 	return errors.Errorf("not implemented yet")
+}
+
+func (som *ScaleOutManager) scaleIn(ctx context.Context, className string,
+	old, updated sharding.Config,
+) error {
+	return errors.Errorf("scaling in (reducing replica count) not supported yet")
 }
