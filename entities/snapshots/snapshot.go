@@ -23,12 +23,6 @@ import (
 
 type Status string
 
-const (
-	StatusStarted  Status = "started"
-	StatusCreated  Status = "created"
-	StatusReleased Status = "released"
-)
-
 type State struct {
 	SnapshotID string
 	InProgress bool

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,6 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	bucketName := "bucket"
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		gcsConfig := gcs.NewConfig(bucketName, "")
@@ -49,12 +49,24 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		gcs, err := gcs.New(context.Background(), gcsConfig, path)
 		require.Nil(t, err)
 
+		snapshot, err := gcs.InitSnapshot(ctxSnapshot, className, snapshotID)
+		require.Nil(t, err)
+
 		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
-		assert.Nil(t, err)
+		require.Nil(t, err)
 
 		dest := gcs.DestinationPath(className, snapshotID)
 		expected := fmt.Sprintf("gs://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
+
+		t.Run("assert snapshot meta contents", func(t *testing.T) {
+			meta, err := gcs.GetMeta(context.Background(), className, snapshotID)
+			require.Nil(t, err)
+			assert.NotEmpty(t, meta.StartedAt)
+			assert.Empty(t, meta.CompletedAt)
+			assert.Equal(t, meta.Status, string(snapshots.CreateStarted))
+			assert.Empty(t, meta.Error)
+		})
 	})
 
 	t.Run("restore snapshot in gcs", func(t *testing.T) {

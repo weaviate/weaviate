@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,6 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	bucketName := "bucket"
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		logger, _ := test.NewNullLogger()
@@ -49,12 +49,24 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
+		snapshot, err := s3.InitSnapshot(ctxSnapshot, className, snapshotID)
+		require.Nil(t, err)
+
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
 		assert.Nil(t, err)
 
 		dest := s3.DestinationPath(className, snapshotID)
 		expected := fmt.Sprintf("s3://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
+
+		t.Run("assert snapshot meta contents", func(t *testing.T) {
+			meta, err := s3.GetMeta(context.Background(), className, snapshotID)
+			require.Nil(t, err)
+			assert.NotEmpty(t, meta.StartedAt)
+			assert.Empty(t, meta.CompletedAt)
+			assert.Equal(t, meta.Status, string(snapshots.CreateStarted))
+			assert.Empty(t, meta.Error)
+		})
 	})
 
 	t.Run("restores snapshot data from S3", func(t *testing.T) {
