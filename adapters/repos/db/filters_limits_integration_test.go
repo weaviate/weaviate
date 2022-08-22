@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -40,12 +39,7 @@ import (
 // isolation as to not interfere with the existing tests
 func Test_LimitsOnChainedFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -142,12 +136,7 @@ func chainedFilterCompanies(size int) []*models.Object {
 // isolation as to not interfere with the existing tests
 func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -273,12 +262,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 // isolation as to not interfere with the existing tests
 func Test_AggregationsAfterUpdates(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}

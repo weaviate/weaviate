@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,12 +36,7 @@ import (
 
 func TestFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -727,12 +721,7 @@ var carVectors = [][]float32{
 
 func TestGeoPropUpdateJourney(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -841,12 +830,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 // https://github.com/semi-technologies/weaviate/issues/1426
 func TestCasingOfOperatorCombinations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}

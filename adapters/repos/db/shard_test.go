@@ -34,7 +34,7 @@ import (
 func TestShard_UpdateStatus(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx := testShard(ctx, className)
+	shd, idx := testShard(t, ctx, className)
 
 	amount := 10
 
@@ -86,7 +86,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	shd, idx := testShard(context.Background(), "TestClass")
+	shd, idx := testShard(t, context.Background(), "TestClass")
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
