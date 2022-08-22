@@ -45,7 +45,7 @@ type Manager struct {
 	invertedConfigValidator InvertedConfigValidator
 	backups                 backups.BackupManager
 	RestoreStatus           string
-	RestoreError			error
+	RestoreError            error
 	sync.Mutex
 }
 

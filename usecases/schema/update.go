@@ -311,6 +311,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	} else {
 		p = err.Error()
 	}
+
 	returnData := &models.SnapshotRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
