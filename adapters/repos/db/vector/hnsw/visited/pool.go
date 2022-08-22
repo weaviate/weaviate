@@ -17,54 +17,61 @@ import (
 
 type Pool struct {
 	sync.Mutex
-	listSize int
-	lists    []*List
+	listSetSize int
+	listSets    []ListSet
 }
 
-func NewPool(poolSize int, listSize int) *Pool {
+// NewPool creates a new pool with specified size.
+// listSetSize specifies the size of a list at creation time point
+func NewPool(size int, listSetSize int) *Pool {
 	p := &Pool{
-		listSize: listSize,
-		lists:    make([]*List, poolSize),
+		listSetSize: listSetSize,
+		listSets:    make([]ListSet, size, size+32), // make enough room
 	}
 
-	for i := 0; i < poolSize; i++ {
-		p.lists[i] = NewList(listSize)
+	for i := 0; i < size; i++ {
+		p.listSets[i] = NewList(listSetSize)
 	}
 
 	return p
 }
 
-func (p *Pool) Borrow() *List {
+// Borrow return a free list
+func (p *Pool) Borrow() ListSet {
 	p.Lock()
 	defer p.Unlock()
 
-	if len(p.lists) > 0 {
-		l := p.lists[0]
-		p.lists = p.lists[1:]
+	if n := len(p.listSets); n > 0 {
+		l := p.listSets[n-1]
+		p.listSets[n-1].free() // prevent memory leak
+		p.listSets = p.listSets[:n-1]
 		return l
 	}
 
-	return NewList(p.listSize)
+	return NewList(p.listSetSize)
 }
 
-func (p *Pool) Return(l *List) {
+// Return list l to the pool
+// The list l might be thrown if l.Len() > listSetSize*1.10
+func (p *Pool) Return(l ListSet) {
 	p.Lock()
 	defer p.Unlock()
 
-	if len(l.store) != p.listSize {
-		// discard this list, it does not match our current criteria
-		l = nil
-		return
+	if n := l.Len(); n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
+		return // discard this list, it does not match our current criteria
 	}
 
 	l.Reset()
-	p.lists = append(p.lists, l)
+	p.listSets = append(p.listSets, l)
 }
 
+// Destroy and empty pool
 func (p *Pool) Destroy() {
-	for i := range p.lists {
-		p.lists[i] = nil
+	p.Lock()
+	defer p.Unlock()
+	for i := range p.listSets {
+		p.listSets[i].free()
 	}
 
-	p.lists = nil
+	p.listSets = nil
 }
