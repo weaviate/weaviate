@@ -270,53 +270,51 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
-	m.RestoreStatus = models.SnapshotRestoreMetaStatusSTARTED
+	snapshotUID := storageName + "-" + className + "-" + ID
+	m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSTARTED)
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
 		return nil, err
 	}
 	go func(ctx context.Context, className, snapshotId string) {
-		m.RestoreStatus = models.SnapshotRestoreMetaStatusTRANSFERRING
+		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
 		if meta, class, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
 			if meta != nil {
-				m.RestoreStatus = string(meta.Status)
+				m.RestoreStatus.Store(snapshotUID, string(meta.Status))
 			} else {
-				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
 			}
-			m.RestoreError = err
+			m.RestoreError.Store(snapshotUID, err)
 			return
 		} else {
 			classM := models.Class{}
 			if err := json.Unmarshal([]byte(class), &classM); err != nil {
-				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
-				m.RestoreError = err
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreError.Store(snapshotUID, err)
 				return
 			}
 			err := m.AddClass(ctx, principal, &classM)
 			if err != nil {
-				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
-				m.RestoreError = err
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreError.Store(snapshotUID, err)
 				return
 			}
 
-			m.RestoreStatus = string(models.SnapshotRestoreMetaStatusSUCCESS)
+			m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSUCCESS)
 
 		}
 	}(context.Background(), className, ID)
 
-	p := ""
 	status, err := m.backups.CreateBackupStatus(ctx, className, storageName, ID)
-	if err == nil {
-		p = status.Path
-	} else {
-		p = err.Error()
+	if err != nil {
+		return nil, err
 	}
 
 	returnData := &models.SnapshotRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
-		Status:      &m.RestoreStatus,
-		Path:        p,
+		Status:      status.Status,
+		Path:        status.Path,
 	}
 	return returnData, nil
 }

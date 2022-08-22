@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"fmt"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
@@ -252,10 +250,28 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status := s.manager.RestoreStatus
-	err := s.manager.RestoreError
-	txt := fmt.Sprintf("%v - %v", status, err)
-	return schema.NewSchemaObjectsSnapshotsRestoreStatusOK().WithPayload(&models.SnapshotRestoreMeta{Status: &txt, ClassName: params.ClassName, Error: err.Error(), ID: params.ID, Path: "FIXME must set path", StorageName: params.StorageName})
+	snapshotUID := params.StorageName + "-" + params.ClassName + "-" + params.ID
+	statusInterface, ok := s.manager.RestoreStatus.Load(snapshotUID)
+	if !ok {
+		return schema.NewSchemaObjectsSnapshotsRestoreStatusInternalServerError()
+	}
+	status := statusInterface.(string)
+	errInterface, ok := s.manager.RestoreError.Load(snapshotUID)
+	if !ok {
+		return schema.NewSchemaObjectsSnapshotsRestoreStatusInternalServerError()
+	}
+	err := errInterface.(error)
+
+	return schema.
+		NewSchemaObjectsSnapshotsRestoreStatusOK().
+		WithPayload(&models.SnapshotRestoreMeta{
+			Status:      &status,
+			ClassName:   params.ClassName,
+			Error:       err.Error(),
+			ID:          params.ID,
+			Path:        "FIXME must set path",
+			StorageName: params.StorageName,
+		})
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
