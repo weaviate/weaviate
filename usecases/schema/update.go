@@ -292,8 +292,6 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 				m.RestoreError = err
 				return
 			}
-			// TODO: Check that we can restore the schema in parallel to the data files
-			// If the updates are all paused until the restore finishes, this works well
 			err := m.AddClass(ctx, principal, &classM)
 			if err != nil {
 				m.RestoreStatus = models.SnapshotRestoreMetaStatusFAILED
@@ -306,12 +304,18 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 		}
 	}(ctx, className, ID)
 
+	p := ""
+	status, err := m.backups.CreateBackupStatus(ctx, className, storageName, ID)
+	if err == nil {
+		p = status.Path
+	} else {
+		p = err.Error()
+	}
 	returnData := &models.SnapshotRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
 		Status:      &m.RestoreStatus,
-		// FIXME need to set this somewhere else
-		// Path:        meta.Path,
+		Path:        p,
 	}
 	return returnData, nil
 }
