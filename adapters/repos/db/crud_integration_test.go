@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -43,12 +42,7 @@ import (
 
 func TestCRUD(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
@@ -1275,13 +1269,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	var class *models.Class
 
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
@@ -1436,13 +1425,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	var class *models.Class
 
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
@@ -1577,13 +1561,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	var class *models.Class
 
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
@@ -1716,13 +1695,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 func Test_PutPatchRestart(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-
+	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
 

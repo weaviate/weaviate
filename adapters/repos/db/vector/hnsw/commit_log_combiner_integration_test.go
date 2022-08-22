@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
 	"math/rand"
 	"os"
 	"testing"
@@ -30,12 +29,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 	// by the condensor
 
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	threshold := int64(1000)

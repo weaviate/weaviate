@@ -60,7 +60,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		now := time.Now()
 		snapshot := snapshots.New(className, snapshotID, now)
 
-		shard, index := testShard(ctx, className, withVectorIndexing(true))
+		shard, index := testShard(t, ctx, className, withVectorIndexing(true))
 		// let the index age for a second so that
 		// the commitlogger filenames, which are
 		// based on current timestamp, can differ
@@ -140,7 +140,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		snapshotID := "index-level-snapshot-test"
 		snapshot := snapshots.New(className, snapshotID, time.Now())
 
-		_, index := testShard(ctx, className, withVectorIndexing(true))
+		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
 		timeout, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
@@ -183,7 +183,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		inProgressSnapshotID := "index-level-snapshot-test"
 		snapshot := snapshots.New(className, "some-new-snapshot", time.Now())
 
-		_, index := testShard(ctx, className, withVectorIndexing(true))
+		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
 		index.snapshotState = snapshots.State{
 			SnapshotID: inProgressSnapshotID,
@@ -211,7 +211,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 func TestSnapshot_BucketLevel(t *testing.T) {
 	ctx := testCtx()
 	className := "BucketLevelSnapshot"
-	shard, _ := testShard(ctx, className)
+	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
 		err := shard.putObject(ctx, &storobj.Object{

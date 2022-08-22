@@ -16,9 +16,8 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
+	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -200,10 +199,9 @@ func testCtx() context.Context {
 	return ctx
 }
 
-func testShard(ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	tmpDir := t.TempDir()
 
 	shardState := singleShardState()
 	sch := schema.Schema{
@@ -214,7 +212,7 @@ func testShard(ctx context.Context, className string, indexOpts ...func(*Index))
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
 
 	idx := &Index{
-		Config:                IndexConfig{RootPath: dirName, ClassName: schema.ClassName(className)},
+		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
 		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),

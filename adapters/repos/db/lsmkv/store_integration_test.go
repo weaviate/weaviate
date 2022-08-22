@@ -16,9 +16,7 @@ package lsmkv
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,12 +26,7 @@ import (
 
 func TestStoreLifecycle(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("cycle 1", func(t *testing.T) {
 		store, err := New(dirName, "", nullLogger(), nil)
