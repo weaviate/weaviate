@@ -73,6 +73,9 @@ func (m *StorageGCSModule) RootHandler() http.Handler {
 func (m *StorageGCSModule) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["bucketName"] = m.config.BucketName()
+	if len(m.config.RootName()) > 0 {
+		metaInfo["rootName"] = m.config.RootName()
+	}
 	return metaInfo, nil
 }
 

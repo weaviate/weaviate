@@ -14,7 +14,6 @@ package s3
 const (
 	DEFAULT_ENDPOINT = "s3.amazonaws.com"
 	DEFAULT_BUCKET   = "weaviate-snapshots"
-	DEFAULT_ROOT     = "snapshots"
 )
 
 type Config interface {
@@ -53,7 +52,7 @@ func (c *config) RootName() string {
 	if len(c.root) > 0 {
 		return c.root
 	}
-	return DEFAULT_ROOT
+	return ""
 }
 
 func (c *config) UseSSL() bool {

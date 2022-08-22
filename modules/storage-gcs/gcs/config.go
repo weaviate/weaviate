@@ -11,10 +11,7 @@
 
 package gcs
 
-const (
-	DEFAULT_BUCKET = "weaviate-snapshots"
-	DEFAULT_ROOT   = "snapshots"
-)
+const DEFAULT_BUCKET = "weaviate-snapshots"
 
 type Config interface {
 	BucketName() string
@@ -41,5 +38,5 @@ func (c *config) RootName() string {
 	if len(c.root) > 0 {
 		return c.root
 	}
-	return DEFAULT_ROOT
+	return ""
 }

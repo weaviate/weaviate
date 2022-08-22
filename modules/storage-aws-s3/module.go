@@ -77,6 +77,9 @@ func (m *StorageS3Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["endpoint"] = m.config.Endpoint()
 	metaInfo["bucketName"] = m.config.BucketName()
+	if len(m.config.RootName()) > 0 {
+		metaInfo["rootName"] = m.config.RootName()
+	}
 	metaInfo["useSSL"] = m.config.UseSSL()
 	return metaInfo, nil
 }
