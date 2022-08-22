@@ -302,7 +302,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 			m.RestoreStatus = string(models.SnapshotRestoreMetaStatusSUCCESS)
 
 		}
-	}(ctx, className, ID)
+	}(context.Background(), className, ID)
 
 	p := ""
 	status, err := m.backups.CreateBackupStatus(ctx, className, storageName, ID)
