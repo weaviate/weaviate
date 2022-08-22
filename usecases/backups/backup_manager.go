@@ -104,6 +104,13 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	className, storageName, snapshotID string,
 ) (*models.SnapshotMeta, error) {
+	idx := bm.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, NewErrUnprocessable(
+			fmt.Errorf("can't fetch snapshot creation status of "+
+				"non-existing index for %s", className))
+	}
+
 	storage, err := bm.storages.BackupStorage(storageName)
 	if err != nil {
 		return nil, NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
