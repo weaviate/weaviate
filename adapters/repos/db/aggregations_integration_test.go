@@ -45,6 +45,7 @@ func Test_Aggregations(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -83,6 +84,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -103,7 +105,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 }
 
 func prepareCompanyTestSchemaAndData(repo *DB,
-	migrator *Migrator, schemaGetter *fakeSchemaGetter) func(t *testing.T) {
+	migrator *Migrator, schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		schema := schema.Schema{
 			Objects: &models.Schema{
@@ -193,7 +196,8 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 }
 
 func cleanupCompanyTestSchemaAndData(repo *DB,
-	migrator *Migrator) func(t *testing.T) {
+	migrator *Migrator,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		assert.Nil(t, repo.Shutdown(context.Background()))
 	}
@@ -1175,7 +1179,8 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 }
 
 func testNumericalAggregationsWithoutGrouping(repo *DB,
-	exact bool) func(t *testing.T) {
+	exact bool,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
 			params := aggregation.Params{

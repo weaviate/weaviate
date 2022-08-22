@@ -18,7 +18,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -40,8 +39,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
-
-const maxImportGoroutinesFactorDefault = 1.5
 
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
@@ -108,8 +105,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		randomSource:        rand,
 		diskScanState:       newDiskScanState(),
 		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: int(math.Round(getBatchMaxGoFactor() * float64(runtime.GOMAXPROCS(0)))),
+		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
+	if s.maxNumberGoroutines == 0 {
+		return s, errors.New("no workers to add batch-jobs configured.")
+	}
+
 	defer s.metrics.ShardStartup(before)
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -458,18 +459,4 @@ func (s *Shard) notifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
-}
-
-func getBatchMaxGoFactor() float64 {
-	val, ok := os.LookupEnv("MaxImportGoroutinesFactor")
-	if !ok {
-		return maxImportGoroutinesFactorDefault
-	} else {
-		MaxImportGoroutinesFactor, err := strconv.ParseFloat(val, 32)
-		// Use default value if we cannot parse input or it doesn't make any sense
-		if err != nil || MaxImportGoroutinesFactor <= 0 {
-			return maxImportGoroutinesFactorDefault
-		}
-		return MaxImportGoroutinesFactor
-	}
 }

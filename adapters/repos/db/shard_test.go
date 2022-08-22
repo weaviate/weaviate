@@ -169,44 +169,24 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 // tests adding multiple larger batches in parallel using different settings of the goroutine factor.
 // In all cases all objects should be added
 func TestShard_ParallelBatches(t *testing.T) {
-	var parallelTests = []struct {
-		name            string
-		goroutineFactor []string
-	}{
-		{"Valid factor", []string{"1"}},
-		{"Low factor", []string{"0.5"}},
-		{"High factor", []string{"5"}},
-		{"invalid factor", []string{"-1"}},
-		{"not given", []string{}},
-		{"not parsable", []string{"I'm not a number"}},
-	}
-
 	batches := make([][]*storobj.Object, 4)
 	for i := range batches {
 		batches[i] = createRandomObjects("TestClass", 1000)
 	}
 	totalObjects := 1000 * len(batches)
-	for _, tt := range parallelTests {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.goroutineFactor) == 1 {
-				os.Setenv("MaxImportGoroutinesFactor", tt.goroutineFactor[0])
-			}
+	ctx := testCtx()
+	shd, _ := testShard(t, context.Background(), "TestClass")
 
-			ctx := testCtx()
-			shd, _ := testShard(context.Background(), "TestClass")
-
-			// add batches in parallel
-			wg := sync.WaitGroup{}
-			wg.Add(len(batches))
-			for _, batch := range batches {
-				go func(localBatch []*storobj.Object) {
-					shd.putObjectBatch(ctx, localBatch)
-					wg.Done()
-				}(batch)
-			}
-			wg.Wait()
-
-			require.Equal(t, totalObjects, int(shd.counter.Get()))
-		})
+	// add batches in parallel
+	wg := sync.WaitGroup{}
+	wg.Add(len(batches))
+	for _, batch := range batches {
+		go func(localBatch []*storobj.Object) {
+			shd.putObjectBatch(ctx, localBatch)
+			wg.Done()
+		}(batch)
 	}
+	wg.Wait()
+
+	require.Equal(t, totalObjects, int(shd.counter.Get()))
 }
