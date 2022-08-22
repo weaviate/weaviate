@@ -161,9 +161,6 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 		return nil, nil, NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
 	}
 
-	// Start async here
-	//*restoreStatus = string(backups.RS_STARTED)
-
 	class, err := storage.RestoreSnapshot(ctx, className, snapshotID)
 	if err != nil {
 		bm.setRestoreInProgress(className, false)
