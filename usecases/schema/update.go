@@ -267,6 +267,10 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 	}
 }
 
+func (m *Manager) DestinationPath(storageName, className, ID string) (string, error) {
+	return m.backups.DestinationPath(storageName, className, ID)
+}
+
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
@@ -276,6 +280,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
 		return nil, err
 	}
+
 	go func(ctx context.Context, className, snapshotId string) {
 		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
 		if meta, class, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
@@ -305,16 +310,21 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 		}
 	}(context.Background(), className, ID)
 
-	status, err := m.backups.CreateBackupStatus(ctx, className, storageName, ID)
+	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
+	if !ok {
+		return nil, errors.New("snapshot not found")
+	}
+	status := statusInterface.(string)
+
+	path, err := m.backups.DestinationPath(storageName, className, ID)
 	if err != nil {
 		return nil, err
 	}
-
 	returnData := &models.SnapshotRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
-		Status:      status.Status,
-		Path:        status.Path,
+		Status:      &status,
+		Path:        path,
 	}
 	return returnData, nil
 }

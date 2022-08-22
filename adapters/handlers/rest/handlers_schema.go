@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
@@ -227,6 +229,8 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 ) middleware.Responder {
 	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
+	fmt.Printf("restoreSnapshot: %+v\n", meta)
+	fmt.Printf("restoreSnapshotstatus: %+v\n", *meta.Status)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -253,23 +257,46 @@ func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapsh
 	snapshotUID := params.StorageName + "-" + params.ClassName + "-" + params.ID
 	statusInterface, ok := s.manager.RestoreStatus.Load(snapshotUID)
 	if !ok {
-		return schema.NewSchemaObjectsSnapshotsRestoreStatusInternalServerError()
+		return schema.
+			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
+			WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{
+					Message: "Snapshot not found",
+				}},
+			})
 	}
 	status := statusInterface.(string)
 	errInterface, ok := s.manager.RestoreError.Load(snapshotUID)
 	if !ok {
-		return schema.NewSchemaObjectsSnapshotsRestoreStatusInternalServerError()
+		return schema.
+			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
+			WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{
+					Message: "Snapshot not found",
+				}},
+			})
 	}
-	err := errInterface.(error)
+	restoreError := errInterface.(error)
+
+	path, err := s.manager.DestinationPath(params.StorageName, params.ClassName, params.ID)
+	if err != nil {
+		return schema.
+			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
+			WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{
+					Message: err.Error(),
+				}},
+			})
+	}
 
 	return schema.
 		NewSchemaObjectsSnapshotsRestoreStatusOK().
 		WithPayload(&models.SnapshotRestoreMeta{
 			Status:      &status,
 			ClassName:   params.ClassName,
-			Error:       err.Error(),
+			Error:       restoreError.Error(),
 			ID:          params.ID,
-			Path:        "FIXME must set path",
+			Path:        path,
 			StorageName: params.StorageName,
 		})
 }

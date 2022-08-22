@@ -130,6 +130,16 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}, nil
 }
 
+func (bm *backupManager) DestinationPath(storageName, className, snapshotID string) (string, error) {
+	// requested storage is registered
+	storage, err := bm.storages.BackupStorage(storageName)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.DestinationPath(className, snapshotID), nil
+}
+
 func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*backups.RestoreMeta, []byte, error) {
