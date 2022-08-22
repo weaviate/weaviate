@@ -212,7 +212,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
 
 	idx := &Index{
-		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
+		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
 		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
@@ -273,5 +273,4 @@ func createRandomObjects(className string, numObj int) []*storobj.Object {
 		}
 	}
 	return obj
-
 }

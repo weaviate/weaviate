@@ -50,6 +50,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	},
 		&fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
@@ -192,6 +193,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
