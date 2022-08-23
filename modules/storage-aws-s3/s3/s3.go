@@ -187,6 +187,10 @@ func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status st
 		return errors.Wrap(err, "set snapshot status")
 	}
 
+	if status == string(snapshots.CreateSuccess) {
+		snapshot.CompletedAt = time.Now()
+	}
+
 	snapshot.Status = status
 
 	return s.putMeta(ctx, snapshot)

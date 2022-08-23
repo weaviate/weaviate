@@ -171,15 +171,6 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		}
 	}
 
-	snapshot.CompletedAt = time.Now()
-	content, err := json.Marshal(snapshot)
-	if err != nil {
-		return errors.Wrapf(err, "marshal completed meta")
-	}
-	objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
-	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
-		return errors.Wrap(err, "put completed meta")
-	}
 	return nil
 }
 
@@ -262,6 +253,10 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
 		return errors.Wrap(err, "set snapshot status")
+	}
+
+	if status == string(snapshots.CreateSuccess) {
+		snapshot.CompletedAt = time.Now()
 	}
 
 	snapshot.Status = status
