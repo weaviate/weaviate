@@ -108,6 +108,10 @@ func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, inde
 	return nil
 }
 
+func (f *fakeRemoteClient) GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error) {
+	return "", nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
