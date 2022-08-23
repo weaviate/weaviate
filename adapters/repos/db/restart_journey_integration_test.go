@@ -56,6 +56,7 @@ func TestRestartJourney(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -175,6 +176,7 @@ func TestRestartJourney(t *testing.T) {
 			QueryMaximumResults:       10000,
 			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 			DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+			MaxImportGoroutinesFactor: 1,
 		}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 		newRepo.SetSchemaGetter(schemaGetter)
 		err := newRepo.WaitForStartup(testCtx())
