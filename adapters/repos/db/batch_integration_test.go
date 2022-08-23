@@ -49,6 +49,7 @@ func TestBatchPutObjects(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -75,6 +76,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -100,6 +102,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 		QueryMaximumResults:       queryMaximumResults,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -114,7 +117,8 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 }
 
 func testAddBatchObjectClass(repo *DB, migrator *Migrator,
-	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
+	schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		class := &models.Class{
 			Class:               "ThingForBatching",
