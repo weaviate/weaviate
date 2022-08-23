@@ -18,6 +18,8 @@ import (
 	"io"
 	"math"
 
+	"github.com/buger/jsonparser"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -432,9 +434,15 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 // UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchema) error {
+func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
 	if data[0] != uint8(1) {
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
+	}
+
+	// clear out old values in case an object misses values. This should NOT shrink the capacity of the map, eg there
+	// are no allocations when adding the properties of the next object again
+	for k := range *properties {
+		delete(*properties, k)
 	}
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
@@ -443,15 +451,67 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 	vectorLength := uint64(byteOps.ReadUint16())
 	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
-	// length of class name
 	classnameLength := uint64(byteOps.ReadUint16())
 	byteOps.MoveBufferPositionForward(classnameLength)
-
-	// property schema length
 	propertyLength := uint64(byteOps.ReadUint32())
-	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
-		return err
-	}
+
+	jsonparser.EachKey(data[byteOps.Position:byteOps.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+		var errParse error
+		switch dataType {
+		case jsonparser.Number:
+			v, err := jsonparser.ParseFloat(value)
+			errParse = err
+			(*properties)[aggregationProperties[idx]] = v
+		case jsonparser.Boolean:
+			b, err := jsonparser.ParseBoolean(value)
+			errParse = err
+			(*properties)[aggregationProperties[idx]] = b
+		case jsonparser.String:
+			s, err := jsonparser.ParseString(value)
+			errParse = err
+			(*properties)[aggregationProperties[idx]] = s
+		case jsonparser.Array: // can be a beacon or an actual array
+			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
+			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
+			if errBeacon == nil {
+				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconVal}}
+			} else {
+				// check how many entries there are in the array by counting the ",". This allows us to allocate an
+				// array with the right size without extending it with every append.
+				// The size can be too large for string arrays, when they contain "," as part of their content.
+				entryCount := 0
+				for _, b := range arrayEntries {
+					if b == uint8(44) { // ',' as byte
+						entryCount++
+					}
+				}
+
+				array := make([]interface{}, 0, entryCount)
+				jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+					var val interface{}
+
+					switch innerDataType {
+					case jsonparser.Number:
+						val, errParse = jsonparser.ParseFloat(innerValue)
+					case jsonparser.String:
+						val, errParse = jsonparser.ParseString(innerValue)
+					case jsonparser.Boolean:
+						val, errParse = jsonparser.ParseBoolean(innerValue)
+					default:
+						panic("Unknown data type ArrayEach") // returning an error would be better
+					}
+					array = append(array, val)
+				})
+				(*properties)[aggregationProperties[idx]] = array
+
+			}
+		default:
+			panic("Unknown data type EachKey") // returning an error would be better
+		}
+		if errParse != nil {
+			panic(errParse)
+		}
+	}, propStrings...)
 
 	return nil
 }
