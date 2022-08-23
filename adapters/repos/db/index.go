@@ -1009,22 +1009,72 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) getShardsStatus() map[string]string {
+func (i *Index) getShardsStatus(ctx context.Context) (map[string]string, error) {
 	shardsStatus := make(map[string]string)
 
-	for _, shard := range i.Shards {
-		shardsStatus[shard.name] = shard.getStatus().String()
+	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
+	shardNames := shardState.AllPhysicalShards()
+
+	for _, shardName := range shardNames {
+		local := shardState.IsShardLocal(shardName)
+
+		var err error
+		var status string
+		if !local {
+			status, err = i.remote.GetShardStatus(ctx, shardName)
+		} else {
+			shard, ok := i.Shards[shardName]
+			if !ok {
+				err = errors.Errorf("shard %s does not exist", shardName)
+			} else {
+				status = shard.getStatus().String()
+			}
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+
+		shardsStatus[shardName] = status
 	}
 
-	return shardsStatus
+	return shardsStatus, nil
 }
 
-func (i *Index) updateShardStatus(shardName, targetStatus string) error {
+func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
-		return errors.Errorf("shard %s does not exist locally", shardName)
+		return "", errors.Errorf("shard %q does not exist", shardName)
+	}
+	return shard.getStatus().String(), nil
+}
+
+func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	shardState := i.getSchema.ShardingState(i.Config.ClassName.String())
+
+	var err error
+	local := shardState.IsShardLocal(shardName)
+	if !local {
+		err = i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
+	} else {
+		shard, ok := i.Shards[shardName]
+		if !ok {
+			err = errors.Errorf("shard %s does not exist", shardName)
+		} else {
+			err = shard.updateStatus(targetStatus)
+		}
+	}
+	if err != nil {
+		return errors.Wrapf(err, "shard %s", shardName)
 	}
 
+	return nil
+}
+
+func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return errors.Errorf("shard %s does not exist", shardName)
+	}
 	return shard.updateStatus(targetStatus)
 }
 

@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,12 +36,7 @@ import (
 
 func Test_MergingObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}

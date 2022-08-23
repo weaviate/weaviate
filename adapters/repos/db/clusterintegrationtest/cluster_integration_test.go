@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -66,16 +65,12 @@ const (
 // between the repos.
 func TestDistributedSetup(t *testing.T) {
 	t.Run("individual imports", func(t *testing.T) {
-		dirName, cleanup := setupDirectory()
-		defer cleanup()
-
+		dirName := setupDirectory(t)
 		testDistributed(t, dirName, false)
 	})
 
 	t.Run("batched imports", func(t *testing.T) {
-		dirName, cleanup := setupDirectory()
-		defer cleanup()
-
+		dirName := setupDirectory(t)
 		testDistributed(t, dirName, true)
 	})
 }
@@ -626,16 +621,10 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	})
 }
 
-func setupDirectory() (string, func()) {
+func setupDirectory(t *testing.T) string {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	return dirName, func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
+	dirName := t.TempDir()
+	return dirName
 }
 
 func dataAsBatch(data []*models.Object) objects.BatchObjects {

@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -44,12 +42,7 @@ import (
 func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	className := "DeletedDocIDLimitTestClass"
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
@@ -167,12 +160,7 @@ func extractIDs(in []search.Result) []strfmt.UUID {
 func TestLimitOneAfterDeletion(t *testing.T) {
 	className := "Test"
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{

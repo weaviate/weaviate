@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
 	"math/rand"
 	"os"
 	"strings"
@@ -28,12 +27,7 @@ func TestMmapCondensor(t *testing.T) {
 	t.Skip() // TODO
 
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
@@ -144,12 +138,7 @@ func TestMmapCondensor(t *testing.T) {
 
 // func TestCondensorWithoutEntrypoint(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())
-// 	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-// 	os.MkdirAll(rootPath, 0o777)
-// 	defer func() {
-// 		err := os.RemoveAll(rootPath)
-// 		fmt.Println(err)
-// 	}()
+// 	rootPath := t.TmpDir()
 
 // 	logger, _ := test.NewNullLogger()
 // 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)

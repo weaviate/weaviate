@@ -96,7 +96,7 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 
 	byteOps := byte_operations.ByteOperations{Buffer: in}
 
-	keyLen := byteOps.ReadUint32()
+	keyLen := uint64(byteOps.ReadUint32())
 	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen)
 	if err != nil {
 		return out, int(byteOps.Position), errors.Wrap(err, "Could not copy node key")

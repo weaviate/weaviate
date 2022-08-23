@@ -191,8 +191,8 @@ func Test_ExploreConcepts(t *testing.T) {
 			ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 		}
 		vectorSearcher.
-			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
-			Return(&searchRes, nil)
+			On("ObjectsByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
+			Return(search.Results{searchRes}, nil)
 		vectorSearcher.results = []search.Result{
 			{
 				ClassName: "BestClass",
@@ -251,8 +251,8 @@ func Test_ExploreConcepts(t *testing.T) {
 			ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 		}
 		vectorSearcher.
-			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
-			Return(&searchRes, nil)
+			On("ObjectsByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
+			Return(search.Results{searchRes}, nil)
 		vectorSearcher.results = []search.Result{
 			{
 				ClassName: "BestClass",
