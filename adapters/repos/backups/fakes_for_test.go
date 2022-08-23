@@ -112,6 +112,10 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context, hostName, indexNa
 	return "", nil
 }
 
+func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName, targetStatus string) error {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {

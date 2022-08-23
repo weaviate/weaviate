@@ -65,6 +65,7 @@ func setupTestingHarness(t *testing.T, ctx context.Context, classes ...*models.C
 		QueryMaximumResults:       10,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: config.DefaultMaxImportGoroutinesFactor,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 
 	repo.SetSchemaGetter(schemaGetter)
