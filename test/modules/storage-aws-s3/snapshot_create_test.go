@@ -56,7 +56,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		assert.Nil(t, err)
 
 		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 
 		t.Run("assert snapshot meta contents", func(t *testing.T) {
@@ -101,7 +101,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		}
 
 		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 }

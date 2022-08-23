@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -152,10 +151,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	}
 
 	if bucket == nil {
-		bucket, err = g.createBucket(ctx)
-		if err != nil {
-			return err
-		}
+		return backups.NewErrNotFound(storage.ErrBucketNotExist)
 	}
 
 	// save files
@@ -174,14 +170,15 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 			return errors.Wrap(err, "put file")
 		}
 	}
-	// save meta
+
+	snapshot.CompletedAt = time.Now()
 	content, err := json.Marshal(snapshot)
 	if err != nil {
-		return errors.Wrapf(err, "marshal meta")
+		return errors.Wrapf(err, "marshal completed meta")
 	}
 	objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
 	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
-		return errors.Wrap(err, "put file")
+		return errors.Wrap(err, "put completed meta")
 	}
 	return nil
 }
@@ -329,31 +326,18 @@ func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 }
 
 func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
-	var (
-		bucketName   = g.config.BucketName()
-		projectID    = g.projectID
-		bucketExists bool
-	)
+	bucket := g.client.Bucket(g.config.BucketName())
 
-	for it := g.client.Buckets(ctx, projectID); ; {
-		bucketAttrs, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "find bucket")
-		}
-		if bucketAttrs.Name == bucketName {
-			bucketExists = true
-			break
-		}
-	}
-
-	if !bucketExists {
+	_, err := bucket.Attrs(ctx)
+	if err != nil && err == storage.ErrBucketNotExist {
 		return nil, nil
 	}
 
-	return g.client.Bucket(bucketName), nil
+	if err != nil {
+		return nil, err
+	}
+
+	return bucket, nil
 }
 
 func (g *gcs) createBucket(ctx context.Context) (*storage.BucketHandle, error) {

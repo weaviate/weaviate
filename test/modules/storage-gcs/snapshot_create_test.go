@@ -56,7 +56,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		require.Nil(t, err)
 
 		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 
 		t.Run("assert snapshot meta contents", func(t *testing.T) {
@@ -95,7 +95,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 		}
 
 		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/snapshots/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
 	})
 }
