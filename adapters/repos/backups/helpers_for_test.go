@@ -14,9 +14,13 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/adapters/repos/modules"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/modules/storage-filesystem"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -32,6 +36,65 @@ type testingHarness struct {
 
 func testCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+func testModuleProvider(ctx context.Context, t *testing.T, harness *testingHarness) *modules.Provider {
+	storageProvider, err := modulestorage.NewRepo(harness.dbRootDir, harness.logger)
+	require.Nil(t, err)
+
+	moduleParams := moduletools.NewInitParams(storageProvider, nil,
+		harness.logger)
+
+	moduleProvider := modules.NewProvider()
+	moduleProvider.Register(modstgfs.New())
+	require.Nil(t, moduleProvider.Init(ctx, moduleParams, harness.logger))
+
+	return moduleProvider
+}
+
+func setupTestingHarness(t *testing.T, ctx context.Context, classes ...*models.Class) *testingHarness {
+	rand.Seed(time.Now().UnixNano())
+	rootDir := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	require.Nil(t, os.MkdirAll(rootDir, 0o777))
+
+	logger, _ := test.NewNullLogger()
+
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := db.New(logger, db.Config{
+		RootPath:                  rootDir,
+		QueryMaximumResults:       10,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(ctx)
+	require.Nil(t, err)
+	migrator := db.NewMigrator(repo, logger)
+
+	for _, class := range classes {
+		t.Run(fmt.Sprintf("creating the %s class", class.Class), func(t *testing.T) {
+			require.Nil(t,
+				migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		})
+	}
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: classes,
+		},
+	}
+
+	rootDirAbsPath, err := filepath.Abs(rootDir)
+	require.Nil(t, err)
+
+	return &testingHarness{
+		logger:        logger,
+		db:            repo,
+		dbRootDir:     rootDirAbsPath,
+		shardingState: schemaGetter.shardState,
+	}
 }
 
 func createPainterClass() *models.Class {
@@ -87,51 +150,6 @@ func createPaintingsClass() *models.Class {
 				DataType: []string{string(schema.DataTypeGeoCoordinates)},
 			},
 		},
-	}
-}
-
-func setupTestingHarness(t *testing.T, ctx context.Context, classes ...*models.Class) *testingHarness {
-	rand.Seed(time.Now().UnixNano())
-	rootDir := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	require.Nil(t, os.MkdirAll(rootDir, 0o777))
-
-	logger, _ := test.NewNullLogger()
-
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := db.New(logger, db.Config{
-		RootPath:                  rootDir,
-		QueryMaximumResults:       10,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
-
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(ctx)
-	require.Nil(t, err)
-	migrator := db.NewMigrator(repo, logger)
-
-	for _, class := range classes {
-		t.Run(fmt.Sprintf("creating the %s class", class.Class), func(t *testing.T) {
-			require.Nil(t,
-				migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-		})
-	}
-
-	// update schema getter so it's in sync with class
-	schemaGetter.schema = schema.Schema{
-		Objects: &models.Schema{
-			Classes: classes,
-		},
-	}
-
-	rootDirAbsPath, err := filepath.Abs(rootDir)
-	require.Nil(t, err)
-
-	return &testingHarness{
-		logger:        logger,
-		db:            repo,
-		dbRootDir:     rootDirAbsPath,
-		shardingState: schemaGetter.shardState,
 	}
 }
 
