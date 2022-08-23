@@ -47,6 +47,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)

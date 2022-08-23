@@ -46,6 +46,7 @@ func TestRefFilters(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -467,6 +468,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -670,7 +672,8 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 }
 
 func filterCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	prop string, operator filters.Operator, value interface{},
+) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,
@@ -707,7 +710,8 @@ func filterCarParkedCount(operator filters.Operator, value int) *filters.LocalFi
 }
 
 func filterDrivesCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	prop string, operator filters.Operator, value interface{},
+) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,

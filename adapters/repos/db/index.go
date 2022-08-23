@@ -194,6 +194,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
+	MaxImportGoroutinesFactor float64
 }
 
 func indexID(class schema.ClassName) string {
