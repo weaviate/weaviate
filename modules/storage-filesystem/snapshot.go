@@ -54,21 +54,21 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) ([]byte, error) {
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) ([]byte, *snapshots.Snapshot, error) {
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return nil, errors.Wrap(err, "restore snapshot")
+		return nil, nil, errors.Wrap(err, "restore snapshot")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
+			return nil, nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
 		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
-			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
+			return nil, nil,  errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}
-	return snapshot.Schema, nil
+	return snapshot.Schema, snapshot, nil
 }
 
 func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {

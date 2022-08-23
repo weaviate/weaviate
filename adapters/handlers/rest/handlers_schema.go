@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"fmt"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
@@ -229,8 +227,7 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 ) middleware.Responder {
 	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
-	fmt.Printf("restoreSnapshot: %+v\n", meta)
-	fmt.Printf("restoreSnapshotstatus: %+v\n", *meta.Status)
+	
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
