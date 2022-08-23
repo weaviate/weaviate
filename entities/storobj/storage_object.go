@@ -18,6 +18,8 @@ import (
 	"io"
 	"math"
 
+	"github.com/buger/jsonparser"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -414,10 +416,15 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	return byteBuffer, nil
 }
 
+func growSliceCapacity[T any](s []T, size int) []T {
+	s = append(s, make([]T, 0, size)...)
+	return s
+}
+
 // UnmarshalPropertiesFromObject only unmarshals and returns the properties part of the object
 //
 // Check MarshalBinary for the order of elements in the input array
-func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchema) error {
+func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
 	if data[0] != uint8(1) {
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
@@ -428,15 +435,80 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 	vectorLength := uint64(byteOps.ReadUint16())
 	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
-	// length of class name
 	classnameLength := uint64(byteOps.ReadUint16())
 	byteOps.MoveBufferPositionForward(classnameLength)
-
-	// property schema length
 	propertyLength := uint64(byteOps.ReadUint32())
-	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
-		return err
-	}
+	jsonparser.EachKey(data[byteOps.Position:byteOps.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+		switch dataType {
+		case jsonparser.Number:
+			v, _ := jsonparser.ParseFloat(value)
+			(*properties)[aggregationProperties[idx]] = v
+		case jsonparser.Boolean:
+			b, _ := jsonparser.ParseBoolean(value)
+			(*properties)[aggregationProperties[idx]] = b
+		case jsonparser.String:
+			s, _ := jsonparser.ParseString(value)
+			(*properties)[aggregationProperties[idx]] = s
+		case jsonparser.Array: // beacon
+			ArrayEntries := value[1 : len(value)-1] // without leading and trailing []
+			beaconVal, errBeacon := jsonparser.GetUnsafeString(ArrayEntries, "beacon")
+			if errBeacon == nil {
+				ref := &models.SingleRef{Beacon: strfmt.URI(beaconVal)}
+				class, _ := jsonparser.GetUnsafeString(ArrayEntries, "class")
+				ref.Class = strfmt.URI(class)
+				href, _ := jsonparser.GetUnsafeString(ArrayEntries, "href")
+				ref.Href = strfmt.URI(href)
+				(*properties)[aggregationProperties[idx]] = ref
+			} else {
+				// check how many entries there are in the array by counting the ",". This can result in false positives
+				// for string arrays, when they contain a "," as part of their content.
+				entryCount := 0
+				for _, b := range ArrayEntries {
+					if b == uint8(44) { // , as byte
+						entryCount++
+					}
+				}
+				isStringArray := ArrayEntries[0] == uint8(34)                                 // String arrays start with a "
+				isBoolArray := ArrayEntries[0] == uint8(116) || ArrayEntries[0] == uint8(102) // t or f (true, false)
+				var strArray []string
+				var numberArray []float64
+				var boolArray []bool
+
+				if isStringArray {
+					strArray = growSliceCapacity(strArray, entryCount)
+				} else if isBoolArray {
+					boolArray = growSliceCapacity(boolArray, entryCount)
+				} else {
+					numberArray = growSliceCapacity(numberArray, entryCount)
+				}
+				jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+					switch innerDataType {
+					case jsonparser.Number:
+						v, _ := jsonparser.ParseFloat(innerValue)
+						numberArray = append(numberArray, v)
+					case jsonparser.String:
+						s, _ := jsonparser.ParseString(innerValue)
+						strArray = append(strArray, s)
+					case jsonparser.Boolean:
+						b, _ := jsonparser.ParseBoolean(innerValue)
+						boolArray = append(boolArray, b)
+					default:
+						panic("Unknown data type ArrayEach") // returning an error would be better
+					}
+				})
+				if isStringArray {
+					(*properties)[aggregationProperties[idx]] = strArray
+				} else if isBoolArray {
+					(*properties)[aggregationProperties[idx]] = boolArray
+				} else {
+					(*properties)[aggregationProperties[idx]] = numberArray
+				}
+
+			}
+		default:
+			panic("Unknown data type EachKey") // returning an error would be better
+		}
+	}, propStrings...)
 
 	return nil
 }
