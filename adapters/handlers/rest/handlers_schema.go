@@ -254,31 +254,7 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	snapshotUID := params.StorageName + "-" + params.ClassName + "-" + params.ID
-	statusInterface, ok := s.manager.RestoreStatus.Load(snapshotUID)
-	if !ok {
-		return schema.
-			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
-			WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{
-					Message: "Snapshot not found",
-				}},
-			})
-	}
-	status := statusInterface.(string)
-	errInterface, ok := s.manager.RestoreError.Load(snapshotUID)
-	if !ok {
-		return schema.
-			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
-			WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{
-					Message: "Snapshot not found",
-				}},
-			})
-	}
-	restoreError := errInterface.(error)
-
-	path, err := s.manager.DestinationPath(params.StorageName, params.ClassName, params.ID)
+	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		return schema.
 			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
@@ -294,7 +270,7 @@ func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapsh
 		WithPayload(&models.SnapshotRestoreMeta{
 			Status:      &status,
 			ClassName:   params.ClassName,
-			Error:       restoreError.Error(),
+			Error:       restoreError,
 			ID:          params.ID,
 			Path:        path,
 			StorageName: params.StorageName,

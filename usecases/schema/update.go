@@ -267,7 +267,36 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 	}
 }
 
-func (m *Manager) DestinationPath(storageName, className, ID string) (string, error) {
+func (m *Manager) RestoreSnapshotStatus(ctx context.Context, principal *models.Principal,
+	className, storageName, ID string,
+) (string, string, string, error) {
+	snapshotUID := storageName + "-" + className + "-" + ID
+	m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSTARTED)
+	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
+	if err := m.authorizer.Authorize(principal, "get", path); err != nil {
+		return "", "", "", err
+	}
+
+	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
+	if !ok {
+		return "", "", "", errors.New("snapshot not found")
+	}
+	status := statusInterface.(string)
+	errInterface, ok := m.RestoreError.Load(snapshotUID)
+	if !ok {
+		return "", "", "", errors.New("snapshot not found")
+	}
+	restoreError := errInterface.(error)
+
+	path, err := m.destinationPath(storageName, className, ID)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return status, restoreError.Error(), path, nil
+}
+
+func (m *Manager) destinationPath(storageName, className, ID string) (string, error) {
 	return m.backups.DestinationPath(storageName, className, ID)
 }
 
