@@ -16,9 +16,9 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/modules"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/storage-filesystem"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -38,7 +38,9 @@ func testCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
-func testModuleProvider(ctx context.Context, t *testing.T, harness *testingHarness) *modules.Provider {
+func testModuleProvider(ctx context.Context, t *testing.T, harness *testingHarness,
+	module modulecapabilities.Module,
+) *modules.Provider {
 	storageProvider, err := modulestorage.NewRepo(harness.dbRootDir, harness.logger)
 	require.Nil(t, err)
 
@@ -46,7 +48,7 @@ func testModuleProvider(ctx context.Context, t *testing.T, harness *testingHarne
 		harness.logger)
 
 	moduleProvider := modules.NewProvider()
-	moduleProvider.Register(modstgfs.New())
+	moduleProvider.Register(module)
 	require.Nil(t, moduleProvider.Init(ctx, moduleParams, harness.logger))
 
 	return moduleProvider
