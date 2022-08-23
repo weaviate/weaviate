@@ -97,7 +97,7 @@ func (a *Aggregator) aggTypeOfProperty(
 	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray,
 		schema.DataTypeStringArray:
 		return aggregation.PropertyTypeText, dt, nil
-	case schema.DataTypeDate:
+	case schema.DataTypeDate, schema.DataTypeDateArray:
 		return aggregation.PropertyTypeDate, dt, nil
 	case schema.DataTypeGeoCoordinates:
 		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")

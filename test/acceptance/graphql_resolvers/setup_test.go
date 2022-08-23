@@ -76,6 +76,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
+	t.Run("aggregate sanity checks", runningAggregateArrayClassSanityCheck)
 
 	// tear down
 	deleteObjectClass(t, "Person")
