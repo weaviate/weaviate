@@ -21,7 +21,6 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
@@ -77,7 +76,7 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
-			return nil, backups.ErrNotFound{}
+			return nil, snapshots.ErrNotFound{}
 		}
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
@@ -151,7 +150,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	}
 
 	if bucket == nil {
-		return backups.NewErrNotFound(storage.ErrBucketNotExist)
+		return snapshots.NewErrNotFound(storage.ErrBucketNotExist)
 	}
 
 	// save files
@@ -181,7 +180,7 @@ func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*snaps
 	}
 
 	if bucket == nil {
-		return nil, backups.ErrNotFound{}
+		return nil, snapshots.ErrNotFound{}
 	}
 
 	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
@@ -275,7 +274,7 @@ func (g *gcs) DestinationPath(className, snapshotID string) string {
 
 func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	bucket, err := g.findBucket(ctx)
-	if err != nil && !errors.Is(err, backups.ErrNotFound{}) {
+	if err != nil && !errors.Is(err, snapshots.ErrNotFound{}) {
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 

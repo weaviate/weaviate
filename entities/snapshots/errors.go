@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package snapshots
 
 type ErrUnprocessable struct {
 	err error

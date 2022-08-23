@@ -24,7 +24,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/sirupsen/logrus"
 )
@@ -77,12 +76,12 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if err != nil {
-		return backups.NewErrInternal(errors.Wrap(err, "check bucket exists"))
+		return snapshots.NewErrInternal(errors.Wrap(err, "check bucket exists"))
 	}
 	if !bucketExists {
 		err = s.client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
 		if err != nil {
-			return backups.NewErrInternal(
+			return snapshots.NewErrInternal(
 				errors.Wrapf(err, "create bucket '%s'", bucketName))
 		}
 	}
@@ -90,7 +89,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return backups.NewErrContextExpired(
+			return snapshots.NewErrContextExpired(
 				errors.Wrap(err, "store snapshot aborted"))
 		}
 
@@ -99,7 +98,7 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
 		if err != nil {
-			return backups.NewErrInternal(
+			return snapshots.NewErrInternal(
 				errors.Wrapf(err, "put file '%s'", objectName))
 		}
 	}
@@ -110,14 +109,14 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 func (s *s3) putMeta(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	content, err := json.Marshal(snapshot)
 	if err != nil {
-		return backups.NewErrInternal(errors.Wrap(err, "save meta"))
+		return snapshots.NewErrInternal(errors.Wrap(err, "save meta"))
 	}
 	objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
 	reader := bytes.NewReader(content)
 	_, err = s.client.PutObject(ctx, s.config.BucketName(), objectName, reader, reader.Size(),
 		minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
-		return backups.NewErrInternal(
+		return snapshots.NewErrInternal(
 			errors.Wrapf(err, "put file '%s'", objectName))
 	}
 	return nil
@@ -127,11 +126,11 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 	bucketName := s.config.BucketName()
 	bucketExists, err := s.client.BucketExists(ctx, bucketName)
 	if !bucketExists {
-		return backups.NewErrUnprocessable(
+		return snapshots.NewErrUnprocessable(
 			errors.Wrap(err, "backup bucket does not exist"))
 	}
 	if err != nil {
-		return backups.NewErrInternal(
+		return snapshots.NewErrInternal(
 			errors.Wrap(err, "can't connect to bucket"))
 	}
 
@@ -225,16 +224,16 @@ func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID st
 	objectName := s.makeObjectName(className, snapshotID, "snapshot.json")
 	obj, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, backups.NewErrInternal(
+		return nil, snapshots.NewErrInternal(
 			errors.Wrapf(err, "get file '%s'", objectName))
 	}
 
 	data, err := io.ReadAll(obj)
 	s3Err, ok := err.(minio.ErrorResponse)
 	if err != nil && ok && s3Err.StatusCode == http.StatusNotFound {
-		return nil, backups.ErrNotFound{}
+		return nil, snapshots.ErrNotFound{}
 	} else if err != nil {
-		return nil, backups.NewErrInternal(
+		return nil, snapshots.NewErrInternal(
 			errors.Wrapf(err, "read file '%s'", objectName))
 	}
 

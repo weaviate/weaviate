@@ -94,6 +94,7 @@ docker-compose/runtime-unstable/data
 c.out
 
 esbackups/
+adapters/repos/backups/testdata/
 adapters/repos/db/testdata/
 adapters/repos/db/vector/hnsw/testdata
 adapters/repos/db/lsmkv/testdata
