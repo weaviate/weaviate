@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -570,7 +569,7 @@ func (f *fakeBackupManager) CreateBackup(ctx context.Context,
 
 func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
 	className, storageName, snapshotID string,
-) (*backups.RestoreMeta, *snapshots.Snapshot, error) {
+) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
 	return nil, nil, nil
 }
 

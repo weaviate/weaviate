@@ -504,6 +504,10 @@ func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, clas
 	return nil
 }
 
+func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return nil
+}
+
 func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	return nil, nil
 }
