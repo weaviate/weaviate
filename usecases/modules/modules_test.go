@@ -13,7 +13,6 @@ package modules
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -325,8 +324,6 @@ func TestModulesProvider(t *testing.T) {
 
 		provider, ok := interface{}(modulesProvider).(backups.BackupStorageProvider)
 		assert.True(t, ok)
-
-		fmt.Printf("provider: %v\n", provider)
 
 		storageByName, err1 := provider.BackupStorage("SomeStorage")
 		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
