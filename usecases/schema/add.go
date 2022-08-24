@@ -78,9 +78,6 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	// shardState, err := sharding.InitState(class.Class,
-	//	class.ShardingConfig.(sharding.Config), m.clusterState)
-
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
