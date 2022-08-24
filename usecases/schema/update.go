@@ -347,7 +347,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 
 	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
 	if !ok {
-		return nil, errors.New("snapshot  not found for " + snapshotUID)
+		return nil, errors.Errorf("snapshot  not found for %s", snapshotUID)
 	}
 	status := statusInterface.(string)
 
