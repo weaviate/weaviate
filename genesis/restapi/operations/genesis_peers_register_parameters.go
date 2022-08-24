@@ -38,7 +38,6 @@ func NewGenesisPeersRegisterParams() GenesisPeersRegisterParams {
 //
 // swagger:parameters genesis.peers.register
 type GenesisPeersRegisterParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

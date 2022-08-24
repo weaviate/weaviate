@@ -53,24 +53,24 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "restore snapshot")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return snapshots.NewErrContextExpired(
-				errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state"))
+			return nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
 		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
-			return snapshots.NewErrInternal(
-				errors.Wrapf(err,
-					"restore snapshot aborted, system might be in an invalid state: file '%v'", srcRelPath))
+			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
+			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
+>>>>>>> WEAVIATE-177-restore-backup-overwrite-local-state-with-backed-up-state
 	}
-	return nil
+	return snapshot, nil
 }
 
 func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {

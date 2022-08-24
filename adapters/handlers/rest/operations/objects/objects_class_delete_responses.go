@@ -32,19 +32,16 @@ ObjectsClassDeleteNoContent Successfully deleted.
 
 swagger:response objectsClassDeleteNoContent
 */
-type ObjectsClassDeleteNoContent struct {
-}
+type ObjectsClassDeleteNoContent struct{}
 
 // NewObjectsClassDeleteNoContent creates ObjectsClassDeleteNoContent with default headers values
 func NewObjectsClassDeleteNoContent() *ObjectsClassDeleteNoContent {
-
 	return &ObjectsClassDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -57,19 +54,16 @@ ObjectsClassDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassDeleteUnauthorized
 */
-type ObjectsClassDeleteUnauthorized struct {
-}
+type ObjectsClassDeleteUnauthorized struct{}
 
 // NewObjectsClassDeleteUnauthorized creates ObjectsClassDeleteUnauthorized with default headers values
 func NewObjectsClassDeleteUnauthorized() *ObjectsClassDeleteUnauthorized {
-
 	return &ObjectsClassDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -83,7 +77,6 @@ ObjectsClassDeleteForbidden Forbidden
 swagger:response objectsClassDeleteForbidden
 */
 type ObjectsClassDeleteForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -92,7 +85,6 @@ type ObjectsClassDeleteForbidden struct {
 
 // NewObjectsClassDeleteForbidden creates ObjectsClassDeleteForbidden with default headers values
 func NewObjectsClassDeleteForbidden() *ObjectsClassDeleteForbidden {
-
 	return &ObjectsClassDeleteForbidden{}
 }
 
@@ -109,7 +101,6 @@ func (o *ObjectsClassDeleteForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *ObjectsClassDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -127,19 +118,16 @@ ObjectsClassDeleteNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassDeleteNotFound
 */
-type ObjectsClassDeleteNotFound struct {
-}
+type ObjectsClassDeleteNotFound struct{}
 
 // NewObjectsClassDeleteNotFound creates ObjectsClassDeleteNotFound with default headers values
 func NewObjectsClassDeleteNotFound() *ObjectsClassDeleteNotFound {
-
 	return &ObjectsClassDeleteNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -153,7 +141,6 @@ ObjectsClassDeleteInternalServerError An error has occurred while trying to fulf
 swagger:response objectsClassDeleteInternalServerError
 */
 type ObjectsClassDeleteInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -162,7 +149,6 @@ type ObjectsClassDeleteInternalServerError struct {
 
 // NewObjectsClassDeleteInternalServerError creates ObjectsClassDeleteInternalServerError with default headers values
 func NewObjectsClassDeleteInternalServerError() *ObjectsClassDeleteInternalServerError {
-
 	return &ObjectsClassDeleteInternalServerError{}
 }
 
@@ -179,7 +165,6 @@ func (o *ObjectsClassDeleteInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *ObjectsClassDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

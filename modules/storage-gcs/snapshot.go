@@ -24,7 +24,7 @@ func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *snapshot
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 

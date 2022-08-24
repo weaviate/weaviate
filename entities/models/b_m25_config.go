@@ -25,7 +25,6 @@ import (
 //
 // swagger:model BM25Config
 type BM25Config struct {
-
 	// calibrates term-weight scaling based on the document length
 	B float32 `json:"b,omitempty"`
 

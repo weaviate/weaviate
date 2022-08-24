@@ -93,7 +93,6 @@ func (o *SchemaObjectsSnapshotsCreateOK) GetPayload() *models.SnapshotMeta {
 }
 
 func (o *SchemaObjectsSnapshotsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SnapshotMeta)
 
 	// response payload
@@ -114,15 +113,13 @@ SchemaObjectsSnapshotsCreateUnauthorized handles this case with default header v
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsSnapshotsCreateUnauthorized struct {
-}
+type SchemaObjectsSnapshotsCreateUnauthorized struct{}
 
 func (o *SchemaObjectsSnapshotsCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsSnapshotsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +146,6 @@ func (o *SchemaObjectsSnapshotsCreateForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *SchemaObjectsSnapshotsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -183,7 +179,6 @@ func (o *SchemaObjectsSnapshotsCreateUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *SchemaObjectsSnapshotsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *SchemaObjectsSnapshotsCreateInternalServerError) GetPayload() *models.E
 }
 
 func (o *SchemaObjectsSnapshotsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

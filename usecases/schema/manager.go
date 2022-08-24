@@ -44,6 +44,8 @@ type Manager struct {
 	hnswConfigParser        VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	backups                 backups.BackupManager
+	RestoreStatus           sync.Map
+	RestoreError            sync.Map
 	sync.Mutex
 }
 

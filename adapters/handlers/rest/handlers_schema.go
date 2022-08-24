@@ -250,8 +250,27 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO implement
-	return nil
+	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
+	if err != nil {
+		return schema.
+			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
+			WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{
+					Message: err.Error(),
+				}},
+			})
+	}
+
+	return schema.
+		NewSchemaObjectsSnapshotsRestoreStatusOK().
+		WithPayload(&models.SnapshotRestoreMeta{
+			Status:      &status,
+			ClassName:   params.ClassName,
+			Error:       restoreError,
+			ID:          params.ID,
+			Path:        path,
+			StorageName: params.StorageName,
+		})
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {

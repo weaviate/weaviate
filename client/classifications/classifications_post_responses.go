@@ -93,7 +93,6 @@ func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsPostCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -127,7 +126,6 @@ func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -148,15 +146,13 @@ ClassificationsPostUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsPostUnauthorized struct {
-}
+type ClassificationsPostUnauthorized struct{}
 
 func (o *ClassificationsPostUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostUnauthorized ", 401)
 }
 
 func (o *ClassificationsPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -183,7 +179,6 @@ func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *ClassificationsPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

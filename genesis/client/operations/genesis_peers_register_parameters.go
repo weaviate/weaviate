@@ -34,7 +34,6 @@ import (
 func NewGenesisPeersRegisterParams() *GenesisPeersRegisterParams {
 	var ()
 	return &GenesisPeersRegisterParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewGenesisPeersRegisterParams() *GenesisPeersRegisterParams {
 func NewGenesisPeersRegisterParamsWithTimeout(timeout time.Duration) *GenesisPeersRegisterParams {
 	var ()
 	return &GenesisPeersRegisterParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewGenesisPeersRegisterParamsWithTimeout(timeout time.Duration) *GenesisPee
 func NewGenesisPeersRegisterParamsWithContext(ctx context.Context) *GenesisPeersRegisterParams {
 	var ()
 	return &GenesisPeersRegisterParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ GenesisPeersRegisterParams contains all the parameters to send to the API endpoi
 for the genesis peers register operation typically these are written to a http.Request
 */
 type GenesisPeersRegisterParams struct {
-
 	/*Body*/
 	Body *models.PeerUpdate
 

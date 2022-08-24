@@ -25,7 +25,6 @@ import (
 //
 // swagger:model PhoneNumber
 type PhoneNumber struct {
-
 	// Read-only. The numerical country code (e.g. 49)
 	CountryCode uint64 `json:"countryCode,omitempty"`
 

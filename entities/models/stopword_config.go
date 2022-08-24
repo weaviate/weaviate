@@ -25,7 +25,6 @@ import (
 //
 // swagger:model StopwordConfig
 type StopwordConfig struct {
-
 	// stopwords to be considered additionally
 	Additions []string `json:"additions"`
 

@@ -80,15 +80,13 @@ ObjectsClassDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
-type ObjectsClassDeleteNoContent struct {
-}
+type ObjectsClassDeleteNoContent struct{}
 
 func (o *ObjectsClassDeleteNoContent) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNoContent ", 204)
 }
 
 func (o *ObjectsClassDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -102,15 +100,13 @@ ObjectsClassDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassDeleteUnauthorized struct {
-}
+type ObjectsClassDeleteUnauthorized struct{}
 
 func (o *ObjectsClassDeleteUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsClassDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -137,7 +133,6 @@ func (o *ObjectsClassDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -158,15 +153,13 @@ ObjectsClassDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsClassDeleteNotFound struct {
-}
+type ObjectsClassDeleteNotFound struct{}
 
 func (o *ObjectsClassDeleteNotFound) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteNotFound ", 404)
 }
 
 func (o *ObjectsClassDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -193,7 +186,6 @@ func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

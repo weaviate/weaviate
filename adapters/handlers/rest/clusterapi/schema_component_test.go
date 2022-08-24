@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -183,12 +184,16 @@ func (f *fakeBackupManager) CreateBackup(ctx context.Context,
 
 func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
 	className, storageName, snapshotID string,
-) (*snapshots.RestoreMeta, error) {
-	return nil, nil
+) (*backups.RestoreMeta, *snapshots.Snapshot, error) {
+	return nil, nil, nil
 }
 
 func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
 	className, storageName, snapshotID string,
 ) (*models.SnapshotMeta, error) {
 	return nil, nil
+}
+
+func (f *fakeBackupManager) DestinationPath(storageName, className, snapshotID string) (string, error) {
+	return "a fake backup path", nil
 }

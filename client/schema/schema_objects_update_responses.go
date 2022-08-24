@@ -99,7 +99,6 @@ func (o *SchemaObjectsUpdateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -120,15 +119,13 @@ SchemaObjectsUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsUpdateUnauthorized struct {
-}
+type SchemaObjectsUpdateUnauthorized struct{}
 
 func (o *SchemaObjectsUpdateUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /schema/{className}][%d] schemaObjectsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -155,7 +152,6 @@ func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -189,7 +185,6 @@ func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +218,6 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +251,6 @@ func (o *SchemaObjectsUpdateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
