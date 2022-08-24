@@ -86,13 +86,15 @@ ObjectsClassReferencesCreateOK handles this case with default header values.
 
 Successfully added the reference.
 */
-type ObjectsClassReferencesCreateOK struct{}
+type ObjectsClassReferencesCreateOK struct {
+}
 
 func (o *ObjectsClassReferencesCreateOK) Error() string {
 	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateOK ", 200)
 }
 
 func (o *ObjectsClassReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -106,13 +108,15 @@ ObjectsClassReferencesCreateUnauthorized handles this case with default header v
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesCreateUnauthorized struct{}
+type ObjectsClassReferencesCreateUnauthorized struct {
+}
 
 func (o *ObjectsClassReferencesCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -139,6 +143,7 @@ func (o *ObjectsClassReferencesCreateForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -159,13 +164,15 @@ ObjectsClassReferencesCreateNotFound handles this case with default header value
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesCreateNotFound struct{}
+type ObjectsClassReferencesCreateNotFound struct {
+}
 
 func (o *ObjectsClassReferencesCreateNotFound) Error() string {
 	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -192,6 +199,7 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,6 +233,7 @@ func (o *ObjectsClassReferencesCreateInternalServerError) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

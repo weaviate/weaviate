@@ -93,6 +93,7 @@ func (o *BatchReferencesCreateOK) GetPayload() []*models.BatchReferenceResponse 
 }
 
 func (o *BatchReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -111,13 +112,15 @@ BatchReferencesCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BatchReferencesCreateUnauthorized struct{}
+type BatchReferencesCreateUnauthorized struct {
+}
 
 func (o *BatchReferencesCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
 }
 
 func (o *BatchReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -144,6 +147,7 @@ func (o *BatchReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -177,6 +181,7 @@ func (o *BatchReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -210,6 +215,7 @@ func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

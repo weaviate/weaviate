@@ -27,6 +27,7 @@ import (
 // NewSchemaObjectsSnapshotsCreateStatusParams creates a new SchemaObjectsSnapshotsCreateStatusParams object
 // no default values defined in spec.
 func NewSchemaObjectsSnapshotsCreateStatusParams() SchemaObjectsSnapshotsCreateStatusParams {
+
 	return SchemaObjectsSnapshotsCreateStatusParams{}
 }
 
@@ -35,6 +36,7 @@ func NewSchemaObjectsSnapshotsCreateStatusParams() SchemaObjectsSnapshotsCreateS
 //
 // swagger:parameters schema.objects.snapshots.create.status
 type SchemaObjectsSnapshotsCreateStatusParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

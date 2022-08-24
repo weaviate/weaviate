@@ -28,6 +28,7 @@ import (
 //
 // swagger:model ErrorResponse
 type ErrorResponse struct {
+
 	// error
 	Error []*ErrorResponseErrorItems0 `json:"error"`
 }
@@ -47,6 +48,7 @@ func (m *ErrorResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Error) { // not required
 		return nil
 	}
@@ -92,6 +94,7 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ErrorResponseErrorItems0
 type ErrorResponseErrorItems0 struct {
+
 	// message
 	Message string `json:"message,omitempty"`
 }

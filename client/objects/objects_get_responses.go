@@ -99,6 +99,7 @@ func (o *ObjectsGetOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -132,6 +133,7 @@ func (o *ObjectsGetBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -152,13 +154,15 @@ ObjectsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsGetUnauthorized struct{}
+type ObjectsGetUnauthorized struct {
+}
 
 func (o *ObjectsGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetUnauthorized ", 401)
 }
 
 func (o *ObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -185,6 +189,7 @@ func (o *ObjectsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -205,13 +210,15 @@ ObjectsGetNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsGetNotFound struct{}
+type ObjectsGetNotFound struct {
+}
 
 func (o *ObjectsGetNotFound) Error() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetNotFound ", 404)
 }
 
 func (o *ObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -238,6 +245,7 @@ func (o *ObjectsGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

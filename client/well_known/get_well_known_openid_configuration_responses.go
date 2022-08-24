@@ -74,6 +74,7 @@ func (o *GetWellKnownOpenidConfigurationOK) GetPayload() *GetWellKnownOpenidConf
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(GetWellKnownOpenidConfigurationOKBody)
 
 	// response payload
@@ -94,13 +95,15 @@ GetWellKnownOpenidConfigurationNotFound handles this case with default header va
 
 Not found, no oidc provider present
 */
-type GetWellKnownOpenidConfigurationNotFound struct{}
+type GetWellKnownOpenidConfigurationNotFound struct {
+}
 
 func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
 	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound ", 404)
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -109,6 +112,7 @@ GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k bo
 swagger:model GetWellKnownOpenidConfigurationOKBody
 */
 type GetWellKnownOpenidConfigurationOKBody struct {
+
 	// OAuth Client ID
 	ClientID string `json:"clientId,omitempty"`
 

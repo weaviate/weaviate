@@ -32,6 +32,7 @@ import (
 func NewSchemaObjectsSnapshotsRestoreParams() *SchemaObjectsSnapshotsRestoreParams {
 	var ()
 	return &SchemaObjectsSnapshotsRestoreParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -41,6 +42,7 @@ func NewSchemaObjectsSnapshotsRestoreParams() *SchemaObjectsSnapshotsRestorePara
 func NewSchemaObjectsSnapshotsRestoreParamsWithTimeout(timeout time.Duration) *SchemaObjectsSnapshotsRestoreParams {
 	var ()
 	return &SchemaObjectsSnapshotsRestoreParams{
+
 		timeout: timeout,
 	}
 }
@@ -50,6 +52,7 @@ func NewSchemaObjectsSnapshotsRestoreParamsWithTimeout(timeout time.Duration) *S
 func NewSchemaObjectsSnapshotsRestoreParamsWithContext(ctx context.Context) *SchemaObjectsSnapshotsRestoreParams {
 	var ()
 	return &SchemaObjectsSnapshotsRestoreParams{
+
 		Context: ctx,
 	}
 }
@@ -68,6 +71,7 @@ SchemaObjectsSnapshotsRestoreParams contains all the parameters to send to the A
 for the schema objects snapshots restore operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsRestoreParams struct {
+
 	/*ClassName
 	  The name of the class
 
@@ -157,6 +161,7 @@ func (o *SchemaObjectsSnapshotsRestoreParams) SetStorageName(storageName string)
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsSnapshotsRestoreParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

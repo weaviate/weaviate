@@ -32,6 +32,7 @@ import (
 func NewSchemaObjectsSnapshotsCreateStatusParams() *SchemaObjectsSnapshotsCreateStatusParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateStatusParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -41,6 +42,7 @@ func NewSchemaObjectsSnapshotsCreateStatusParams() *SchemaObjectsSnapshotsCreate
 func NewSchemaObjectsSnapshotsCreateStatusParamsWithTimeout(timeout time.Duration) *SchemaObjectsSnapshotsCreateStatusParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateStatusParams{
+
 		timeout: timeout,
 	}
 }
@@ -50,6 +52,7 @@ func NewSchemaObjectsSnapshotsCreateStatusParamsWithTimeout(timeout time.Duratio
 func NewSchemaObjectsSnapshotsCreateStatusParamsWithContext(ctx context.Context) *SchemaObjectsSnapshotsCreateStatusParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateStatusParams{
+
 		Context: ctx,
 	}
 }
@@ -68,6 +71,7 @@ SchemaObjectsSnapshotsCreateStatusParams contains all the parameters to send to 
 for the schema objects snapshots create status operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsCreateStatusParams struct {
+
 	/*ClassName
 	  The name of the class
 
@@ -157,6 +161,7 @@ func (o *SchemaObjectsSnapshotsCreateStatusParams) SetStorageName(storageName st
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsSnapshotsCreateStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
