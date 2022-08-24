@@ -89,8 +89,6 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 	}
 
 	out := m.migrator.AddClass(ctx, class, shardState)
-
-	fmt.Printf("index %+v\n", m.ShardingState(class.Class))
 	return out
 }
 
