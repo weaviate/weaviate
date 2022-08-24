@@ -269,30 +269,29 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 
 func (m *Manager) RestoreSnapshotStatus(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
-) (string, string, string, error) {
+) (status string, errorString string, path string, err error) {
 	snapshotUID := storageName + "-" + className + "-" + ID
-	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
+	path = fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "get", path); err != nil {
 		return "", "", "", err
 	}
 
 	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
 	if !ok {
-		return "", "", "", errors.New("snapshot status not found for " + snapshotUID)
+		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
 	}
-	status := statusInterface.(string)
+	status = statusInterface.(string)
 	errInterface, ok := m.RestoreError.Load(snapshotUID)
 	if !ok {
-		return "", "", "", errors.New("snapshot status not found for " + snapshotUID)
+		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
 	}
 
-	var errorString string
 	if errInterface != nil {
 		restoreError := errInterface.(error)
 		errorString = restoreError.Error()
 	}
 
-	path, err := m.destinationPath(storageName, className, ID)
+	path, err = m.destinationPath(storageName, className, ID)
 	if err != nil {
 		return "", "", "", err
 	}
