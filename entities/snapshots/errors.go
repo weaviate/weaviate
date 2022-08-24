@@ -9,28 +9,52 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package snapshots
 
 type ErrUnprocessable struct {
 	err error
-}
-
-type ErrNotFound struct {
-	err error
-}
-
-func NewErrUnprocessable(err error) ErrUnprocessable {
-	return ErrUnprocessable{err}
-}
-
-func NewErrNotFound(err error) ErrNotFound {
-	return ErrNotFound{err}
 }
 
 func (e ErrUnprocessable) Error() string {
 	return e.err.Error()
 }
 
+func NewErrUnprocessable(err error) ErrUnprocessable {
+	return ErrUnprocessable{err}
+}
+
+type ErrNotFound struct {
+	err error
+}
+
 func (e ErrNotFound) Error() string {
 	return e.err.Error()
+}
+
+func NewErrNotFound(err error) ErrNotFound {
+	return ErrNotFound{err}
+}
+
+type ErrContextExpired struct {
+	err error
+}
+
+func (e ErrContextExpired) Error() string {
+	return e.err.Error()
+}
+
+func NewErrContextExpired(err error) ErrContextExpired {
+	return ErrContextExpired{err}
+}
+
+type ErrInternal struct {
+	err error
+}
+
+func (e ErrInternal) Error() string {
+	return e.err.Error()
+}
+
+func NewErrInternal(err error) ErrInternal {
+	return ErrInternal{err}
 }

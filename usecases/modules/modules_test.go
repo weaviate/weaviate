@@ -13,16 +13,17 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -325,6 +326,8 @@ func TestModulesProvider(t *testing.T) {
 		provider, ok := interface{}(modulesProvider).(backups.BackupStorageProvider)
 		assert.True(t, ok)
 
+		fmt.Printf("provider: %v\n", provider)
+
 		storageByName, err1 := provider.BackupStorage("SomeStorage")
 		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
 
@@ -501,8 +504,12 @@ func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, clas
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return "", nil
+func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
 }
 
 func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {

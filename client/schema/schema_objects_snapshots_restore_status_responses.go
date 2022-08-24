@@ -93,7 +93,6 @@ func (o *SchemaObjectsSnapshotsRestoreStatusOK) GetPayload() *models.SnapshotRes
 }
 
 func (o *SchemaObjectsSnapshotsRestoreStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SnapshotRestoreMeta)
 
 	// response payload
@@ -114,15 +113,13 @@ SchemaObjectsSnapshotsRestoreStatusUnauthorized handles this case with default h
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsSnapshotsRestoreStatusUnauthorized struct {
-}
+type SchemaObjectsSnapshotsRestoreStatusUnauthorized struct{}
 
 func (o *SchemaObjectsSnapshotsRestoreStatusUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}/restore][%d] schemaObjectsSnapshotsRestoreStatusUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsSnapshotsRestoreStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +146,6 @@ func (o *SchemaObjectsSnapshotsRestoreStatusForbidden) GetPayload() *models.Erro
 }
 
 func (o *SchemaObjectsSnapshotsRestoreStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -183,7 +179,6 @@ func (o *SchemaObjectsSnapshotsRestoreStatusNotFound) GetPayload() *models.Error
 }
 
 func (o *SchemaObjectsSnapshotsRestoreStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *SchemaObjectsSnapshotsRestoreStatusInternalServerError) GetPayload() *m
 }
 
 func (o *SchemaObjectsSnapshotsRestoreStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

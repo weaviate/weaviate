@@ -27,7 +27,6 @@ import (
 //
 // swagger:model Object
 type Object struct {
-
 	// additional
 	Additional AdditionalProperties `json:"additional,omitempty"`
 
@@ -77,7 +76,6 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Object) validateAdditional(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Additional) { // not required
 		return nil
 	}
@@ -93,7 +91,6 @@ func (m *Object) validateAdditional(formats strfmt.Registry) error {
 }
 
 func (m *Object) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -106,7 +103,6 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Object) validateVector(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}

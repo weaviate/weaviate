@@ -32,7 +32,6 @@ import (
 // NewObjectsUpdateParams creates a new ObjectsUpdateParams object
 // no default values defined in spec.
 func NewObjectsUpdateParams() ObjectsUpdateParams {
-
 	return ObjectsUpdateParams{}
 }
 
@@ -41,7 +40,6 @@ func NewObjectsUpdateParams() ObjectsUpdateParams {
 //
 // swagger:parameters objects.update
 type ObjectsUpdateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -125,7 +123,6 @@ func (o *ObjectsUpdateParams) bindID(rawData []string, hasKey bool, formats strf
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsUpdateParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

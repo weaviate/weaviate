@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -52,7 +53,6 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -187,7 +187,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	shardingStateFunc := func(className string) *sharding.State {
 		return appState.SchemaManager.ShardingState(className)
 	}
-	backupManager := backups.NewBackupManager(repo, appState.Modules, shardingStateFunc)
+	backupManager := backups.NewBackupManager(repo, appState.Logger, appState.Modules, shardingStateFunc)
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)

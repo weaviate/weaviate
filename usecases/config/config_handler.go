@@ -169,7 +169,7 @@ func (d DiskUse) Validate() error {
 	return nil
 }
 
-// GetConfigOptionGroup creates a option group for swagger
+// GetConfigOptionGroup creates an option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
 		ShortDescription: "Connector config & MQTT config",

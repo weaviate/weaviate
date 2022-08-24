@@ -99,7 +99,6 @@ func (o *SchemaObjectsSnapshotsRestoreOK) GetPayload() *models.SnapshotRestoreMe
 }
 
 func (o *SchemaObjectsSnapshotsRestoreOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SnapshotRestoreMeta)
 
 	// response payload
@@ -120,15 +119,13 @@ SchemaObjectsSnapshotsRestoreUnauthorized handles this case with default header 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsSnapshotsRestoreUnauthorized struct {
-}
+type SchemaObjectsSnapshotsRestoreUnauthorized struct{}
 
 func (o *SchemaObjectsSnapshotsRestoreUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /schema/{className}/snapshots/{storageName}/{id}/restore][%d] schemaObjectsSnapshotsRestoreUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsSnapshotsRestoreUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -155,7 +152,6 @@ func (o *SchemaObjectsSnapshotsRestoreForbidden) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsSnapshotsRestoreForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -189,7 +185,6 @@ func (o *SchemaObjectsSnapshotsRestoreNotFound) GetPayload() *models.ErrorRespon
 }
 
 func (o *SchemaObjectsSnapshotsRestoreNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +218,6 @@ func (o *SchemaObjectsSnapshotsRestoreUnprocessableEntity) GetPayload() *models.
 }
 
 func (o *SchemaObjectsSnapshotsRestoreUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +251,6 @@ func (o *SchemaObjectsSnapshotsRestoreInternalServerError) GetPayload() *models.
 }
 
 func (o *SchemaObjectsSnapshotsRestoreInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

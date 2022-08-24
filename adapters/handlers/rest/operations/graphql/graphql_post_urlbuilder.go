@@ -46,7 +46,7 @@ func (o *GraphqlPostURL) SetBasePath(bp string) {
 func (o *GraphqlPostURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/graphql"
+	_path := "/graphql"
 
 	_basePath := o._basePath
 	if _basePath == "" {
