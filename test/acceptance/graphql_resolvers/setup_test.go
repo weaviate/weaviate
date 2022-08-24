@@ -400,7 +400,7 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"boolean[]"},
 			},
 			{
-				Name:     "dates",
+				Name:     "datesAsStrings",
 				DataType: []string{"date[]"},
 			},
 		},
@@ -903,10 +903,15 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0, 2.0, 3.0},
 			"ints":     []int{1, 2, 3},
 			"booleans": []bool{true, true},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
 				"2022-06-02T22:18:59.640162Z",
 				"2022-06-03T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(1234, 5, 6, 7, 8, 9, 10, time.UTC),
+				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
+				time.Date(1236, 7, 8, 9, 10, 11, 12, time.UTC),
 			},
 		},
 	})
@@ -921,9 +926,13 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0, 2.0},
 			"ints":     []int{1, 2},
 			"booleans": []bool{false, false},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
 				"2022-06-02T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
+				time.Date(2012, 7, 8, 9, 10, 11, 12, time.UTC),
 			},
 		},
 	})
@@ -938,8 +947,11 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0},
 			"ints":     []int{1.0},
 			"booleans": []bool{true, false},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(467, 6, 7, 8, 9, 10, 11, time.UTC),
 			},
 		},
 	})
