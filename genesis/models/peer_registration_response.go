@@ -26,7 +26,6 @@ import (
 //
 // swagger:model PeerRegistrationResponse
 type PeerRegistrationResponse struct {
-
 	// contextionary
 	Contextionary *Contextionary `json:"contextionary,omitempty"`
 

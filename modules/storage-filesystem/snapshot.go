@@ -65,7 +65,7 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 			return nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
 		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
-			return nil,  errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
+			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
 	}
 	return snapshot, nil

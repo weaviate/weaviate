@@ -80,15 +80,13 @@ ObjectsClassHeadNoContent handles this case with default header values.
 
 Object exists.
 */
-type ObjectsClassHeadNoContent struct {
-}
+type ObjectsClassHeadNoContent struct{}
 
 func (o *ObjectsClassHeadNoContent) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
 }
 
 func (o *ObjectsClassHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -102,15 +100,13 @@ ObjectsClassHeadUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassHeadUnauthorized struct {
-}
+type ObjectsClassHeadUnauthorized struct{}
 
 func (o *ObjectsClassHeadUnauthorized) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsClassHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -137,7 +133,6 @@ func (o *ObjectsClassHeadForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassHeadForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -158,15 +153,13 @@ ObjectsClassHeadNotFound handles this case with default header values.
 
 Object doesn't exist.
 */
-type ObjectsClassHeadNotFound struct {
-}
+type ObjectsClassHeadNotFound struct{}
 
 func (o *ObjectsClassHeadNotFound) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
 }
 
 func (o *ObjectsClassHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -193,7 +186,6 @@ func (o *ObjectsClassHeadInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *ObjectsClassHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

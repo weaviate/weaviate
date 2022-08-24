@@ -34,7 +34,6 @@ import (
 func NewSchemaObjectsUpdateParams() *SchemaObjectsUpdateParams {
 	var ()
 	return &SchemaObjectsUpdateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewSchemaObjectsUpdateParams() *SchemaObjectsUpdateParams {
 func NewSchemaObjectsUpdateParamsWithTimeout(timeout time.Duration) *SchemaObjectsUpdateParams {
 	var ()
 	return &SchemaObjectsUpdateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewSchemaObjectsUpdateParamsWithTimeout(timeout time.Duration) *SchemaObjec
 func NewSchemaObjectsUpdateParamsWithContext(ctx context.Context) *SchemaObjectsUpdateParams {
 	var ()
 	return &SchemaObjectsUpdateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ SchemaObjectsUpdateParams contains all the parameters to send to the API endpoin
 for the schema objects update operation typically these are written to a http.Request
 */
 type SchemaObjectsUpdateParams struct {
-
 	/*ClassName*/
 	ClassName string
 	/*ObjectClass*/
@@ -141,7 +137,6 @@ func (o *SchemaObjectsUpdateParams) SetObjectClass(objectClass *models.Class) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

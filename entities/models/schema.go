@@ -29,7 +29,6 @@ import (
 //
 // swagger:model Schema
 type Schema struct {
-
 	// Semantic classes that are available.
 	Classes []*Class `json:"classes"`
 
@@ -60,7 +59,6 @@ func (m *Schema) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateClasses(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classes) { // not required
 		return nil
 	}
@@ -85,7 +83,6 @@ func (m *Schema) validateClasses(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateMaintainer(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Maintainer) { // not required
 		return nil
 	}

@@ -32,7 +32,6 @@ import (
 func NewSchemaObjectsGetParams() *SchemaObjectsGetParams {
 	var ()
 	return &SchemaObjectsGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewSchemaObjectsGetParams() *SchemaObjectsGetParams {
 func NewSchemaObjectsGetParamsWithTimeout(timeout time.Duration) *SchemaObjectsGetParams {
 	var ()
 	return &SchemaObjectsGetParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewSchemaObjectsGetParamsWithTimeout(timeout time.Duration) *SchemaObjectsG
 func NewSchemaObjectsGetParamsWithContext(ctx context.Context) *SchemaObjectsGetParams {
 	var ()
 	return &SchemaObjectsGetParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ SchemaObjectsGetParams contains all the parameters to send to the API endpoint
 for the schema objects get operation typically these are written to a http.Request
 */
 type SchemaObjectsGetParams struct {
-
 	/*ClassName*/
 	ClassName string
 
@@ -126,7 +122,6 @@ func (o *SchemaObjectsGetParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

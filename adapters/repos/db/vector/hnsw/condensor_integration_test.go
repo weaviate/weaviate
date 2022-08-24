@@ -476,7 +476,8 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
-	fileNames []string) {
+	fileNames []string,
+) {
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 

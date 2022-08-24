@@ -227,7 +227,6 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 ) middleware.Responder {
 	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
-	
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

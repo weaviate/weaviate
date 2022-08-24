@@ -33,7 +33,6 @@ GenesisPeersRegisterOK Successfully registred the peer to the network.
 swagger:response genesisPeersRegisterOK
 */
 type GenesisPeersRegisterOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -75,8 +74,7 @@ GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensi
 
 swagger:response genesisPeersRegisterBadRequest
 */
-type GenesisPeersRegisterBadRequest struct {
-}
+type GenesisPeersRegisterBadRequest struct{}
 
 // NewGenesisPeersRegisterBadRequest creates GenesisPeersRegisterBadRequest with default headers values
 func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
@@ -98,8 +96,7 @@ GenesisPeersRegisterForbidden You are not allowed on the network.
 
 swagger:response genesisPeersRegisterForbidden
 */
-type GenesisPeersRegisterForbidden struct {
-}
+type GenesisPeersRegisterForbidden struct{}
 
 // NewGenesisPeersRegisterForbidden creates GenesisPeersRegisterForbidden with default headers values
 func NewGenesisPeersRegisterForbidden() *GenesisPeersRegisterForbidden {
