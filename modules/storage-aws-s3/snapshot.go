@@ -52,7 +52,7 @@ func (m *StorageS3Module) InitSnapshot(ctx context.Context, className, snapshotI
 func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
 	bucketName := os.Getenv(s3Bucket)
 	if bucketName == "" {
-		return errors.New("snapshot init: 'STORAGE_S3_BUCKET' must be set")
+		return errors.Errorf("snapshot init: '%s' must be set", s3Bucket)
 	}
 
 	endpoint := os.Getenv(s3Endpoint)
