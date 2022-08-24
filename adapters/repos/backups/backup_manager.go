@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/backups"
+	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
@@ -142,49 +142,61 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}, nil
 }
 
+func (bm *backupManager) DestinationPath(storageName, className, snapshotID string) (string, error) {
+	// requested storage is registered
+	storage, err := bm.storages.BackupStorage(storageName)
+	if err != nil {
+		return "", err
+	}
+
+	return storage.DestinationPath(className, snapshotID), nil
+}
+
 func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	storageName, snapshotID string,
-) (*snapshots.RestoreMeta, error) {
+) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
 	// index for requested class does not exist
 	idx := bm.db.GetIndex(schema.ClassName(className))
 	if idx != nil {
-		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not restore snapshot of existing index for %s", className))
+		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not restore snapshot of existing index for %s", className))
 	}
 
 	// requested storage is registered
 	storage, err := bm.storages.BackupStorage(storageName)
 	if err != nil {
-		return nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
+		return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
 	}
 
 	// snapshot with given id exists and is valid
 	if meta, err := storage.GetMeta(ctx, className, snapshotID); err != nil {
 		// TODO improve check, according to implementation of GetMetaStatus
 		if err.Error() != "file does not exist" {
-			return nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
+			return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 		}
-		return nil, snapshots.NewErrNotFound(errors.Wrapf(err, "snapshot %s of index for %s does not exist on storage %s", snapshotID, className, storageName))
-	} else if snapshots.CreateStatus(meta.Status) != snapshots.CreateSuccess {
-		return nil, snapshots.NewErrNotFound(fmt.Errorf("snapshot %s of index for %s on storage %s is corrupted", snapshotID, className, storageName))
+		return nil, nil, snapshots.NewErrNotFound(errors.Wrapf(err, "snapshot %s of index for %s does not exist on storage %s", snapshotID, className, storageName))
+	} else if meta.Status != string(snapshots.CreateSuccess) {
+		return nil, nil, snapshots.NewErrNotFound(fmt.Errorf("snapshot %s of index for %s on storage %s is corrupted", snapshotID, className, storageName))
 	}
 
 	// no restore in progress for the class
 	if !bm.setRestoreInProgress(className, true) {
-		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
+		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
 	}
 
-	go func(ctx context.Context, className, snapshotId string) {
-		storage.RestoreSnapshot(ctx, className, snapshotID)
-		// TODO after copying files from storage schema needs to be updated.
-		// This most likely requires a new method since we need to create a class with existing sharding state.
-		// Currently Create Class would initiate a new sharding state.
+	snapshot, err := storage.RestoreSnapshot(ctx, className, snapshotID)
+	if err != nil {
 		bm.setRestoreInProgress(className, false)
-	}(ctx, className, snapshotID)
+		return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "restore snapshot %s of index for %s", snapshotID, className))
+	}
+	// TODO after copying files from storage schema needs to be updated.
+	// This most likely requires a new method since we need to create a class with existing sharding state.
+	// Currently Create Class would initiate a new sharding state.
+	bm.setRestoreInProgress(className, false)
 
 	return &snapshots.RestoreMeta{
 		Path:   storage.DestinationPath(className, snapshotID),
 		Status: snapshots.RestoreStarted,
-	}, nil
+	}, snapshot, nil
 }
 
 func (bm *backupManager) isMultiShard(className string) bool {

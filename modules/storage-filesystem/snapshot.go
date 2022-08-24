@@ -68,7 +68,7 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 		}
 		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
 			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
->>>>>>> WEAVIATE-177-restore-backup-overwrite-local-state-with-backed-up-state
+		}
 	}
 	return snapshot, nil
 }
