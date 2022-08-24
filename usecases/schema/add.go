@@ -82,7 +82,7 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
 	m.state.ShardingState[class.Class] = shardState
-	m.state.ShardingState[class.Class].SetLocalName("node1")
+	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return err
