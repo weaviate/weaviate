@@ -52,7 +52,7 @@ func (m *StorageS3Module) InitSnapshot(ctx context.Context, className, snapshotI
 func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
 	endpoint := os.Getenv(s3Endpoint)
 	bucketName := os.Getenv(s3Bucket)
-	rootName := os.Getenv(s3Root)
+	rootName := os.Getenv(s3SnapshotRoot)
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) == "true"
 	config := s3.NewConfig(endpoint, bucketName, rootName, useSSL)
 	storageProvider, err := s3.New(config, m.logger, m.dataPath)

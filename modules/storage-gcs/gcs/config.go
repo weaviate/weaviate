@@ -15,12 +15,16 @@ const DEFAULT_BUCKET = "weaviate-snapshots"
 
 type Config interface {
 	BucketName() string
-	RootName() string
+	SnapshotRoot() string
 }
 
 type config struct {
 	bucket string
-	root   string
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket
+	snapshotRoot string
 }
 
 func NewConfig(bucket, root string) Config {
@@ -34,9 +38,6 @@ func (c *config) BucketName() string {
 	return DEFAULT_BUCKET
 }
 
-func (c *config) RootName() string {
-	if len(c.root) > 0 {
-		return c.root
-	}
-	return ""
+func (c *config) SnapshotRoot() string {
+	return c.snapshotRoot
 }

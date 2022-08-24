@@ -344,7 +344,7 @@ func (g *gcs) createBucket(ctx context.Context) (*storage.BucketHandle, error) {
 
 func (g *gcs) makeObjectName(parts ...string) string {
 	base := path.Join(parts...)
-	return path.Join(g.config.RootName(), base)
+	return path.Join(g.config.SnapshotRoot(), base)
 }
 
 func makeFilePath(parts ...string) string {

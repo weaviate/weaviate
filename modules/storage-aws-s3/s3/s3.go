@@ -64,7 +64,7 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 
 func (s *s3) makeObjectName(parts ...string) string {
 	base := path.Join(parts...)
-	return path.Join(s.config.RootName(), base)
+	return path.Join(s.config.SnapshotRoot(), base)
 }
 
 func makeFilePath(parts ...string) string {

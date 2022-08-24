@@ -28,8 +28,16 @@ const (
 	AltName2   = "s3"
 	s3Endpoint = "STORAGE_S3_ENDPOINT"
 	s3Bucket   = "STORAGE_S3_BUCKET"
-	s3Root     = "STORAGE_S3_ROOT"
 	s3UseSSL   = "STORAGE_S3_USE_SSL"
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket.
+	//
+	// if left unset, the snapshot files will
+	// be stored directly in the root of the
+	// bucket.
+	s3SnapshotRoot = "STORAGE_S3_ROOT"
 )
 
 type StorageS3Module struct {
@@ -77,8 +85,8 @@ func (m *StorageS3Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["endpoint"] = m.config.Endpoint()
 	metaInfo["bucketName"] = m.config.BucketName()
-	if len(m.config.RootName()) > 0 {
-		metaInfo["rootName"] = m.config.RootName()
+	if root := m.config.SnapshotRoot(); root != "" {
+		metaInfo["rootName"] = root
 	}
 	metaInfo["useSSL"] = m.config.UseSSL()
 	return metaInfo, nil

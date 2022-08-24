@@ -19,19 +19,23 @@ const (
 type Config interface {
 	Endpoint() string
 	BucketName() string
-	RootName() string
+	SnapshotRoot() string
 	UseSSL() bool
 }
 
 type config struct {
 	endpoint string
 	bucket   string
-	root     string
 	useSSL   bool
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket
+	snapshotRoot string
 }
 
 func NewConfig(endpoint, bucket, root string, useSSL bool) Config {
-	return &config{endpoint, bucket, root, useSSL}
+	return &config{endpoint, bucket, useSSL, root}
 }
 
 func (c *config) Endpoint() string {
@@ -48,11 +52,8 @@ func (c *config) BucketName() string {
 	return DEFAULT_BUCKET
 }
 
-func (c *config) RootName() string {
-	if len(c.root) > 0 {
-		return c.root
-	}
-	return ""
+func (c *config) SnapshotRoot() string {
+	return c.snapshotRoot
 }
 
 func (c *config) UseSSL() bool {
