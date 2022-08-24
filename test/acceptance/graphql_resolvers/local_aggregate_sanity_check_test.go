@@ -33,7 +33,10 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 						booleans{
 							count
 						}
-						meta {
+						meta{
+							count
+						}
+						datesAsStrings{
 							count
 						}
 						dates{
@@ -66,29 +69,29 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 			{
 				name: "without filters",
 			},
-			{
-				name:    "with where filter",
-				filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
-			},
-			{
-				name:    "with nearObject filter",
-				filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9} )`,
-			},
-			{
-				name: "with where and nearObject filter",
-				filters: `(
-					where:{operator: Like path:["id"] valueString:"*"}
-					nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9}
-				)`,
-			},
+			//{
+			//	name:    "with where filter",
+			//	filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
+			//},
+			//{
+			//	name:    "with nearObject filter",
+			//	filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9} )`,
+			//},
+			//{
+			//	name: "with where and nearObject filter",
+			//	filters: `(
+			//		where:{operator: Like path:["id"] valueString:"*"}
+			//		nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9}
+			//	)`,
+			//},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
 				assert.Equal(t, json.Number("3"), getCount(result, "ArrayClass", "meta"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "booleans"))
-				// TODO: support dates
-				// assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "dates"))
+				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "datesAsStrings"))
+				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "dates"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "numbers"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "strings"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "texts"))
