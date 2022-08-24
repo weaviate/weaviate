@@ -19,8 +19,6 @@ import (
 	"strconv"
 	"testing"
 	"time"
-
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
 func makeTestDir(t *testing.T, basePath string) string {
@@ -39,19 +37,6 @@ func makeDir(t *testing.T, dirPath string) {
 func removeDir(t *testing.T, dirPath string) {
 	if err := os.RemoveAll(dirPath); err != nil {
 		t.Errorf("failed to remove test dir '%s': %s", dirPath, err)
-	}
-}
-
-func createSnapshotInstance(t *testing.T, dirPath, className, snapshotID string) *snapshots.Snapshot {
-	startedAt := time.Now()
-	filePaths := createTestFiles(t, dirPath)
-
-	return &snapshots.Snapshot{
-		ID:          snapshotID,
-		ClassName:   className,
-		StartedAt:   startedAt,
-		CompletedAt: time.Now(),
-		Files:       filePaths,
 	}
 }
 

@@ -18,10 +18,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cloud.google.com/go/storage"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 )
 
 func Test_GCSStorage_StoreSnapshot(t *testing.T) {
@@ -29,16 +31,28 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
-	require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
-	require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint)))
-
 	path, err := os.Getwd()
 	require.Nil(t, err)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	bucketName := "bucket"
+	endpoint := os.Getenv(gcsEndpoint)
+	bucketName := "weaviate-snapshots"
+	projectID := "project-id"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("GCS_ENDPOINT", endpoint))
+		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", endpoint))
+		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
+		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", projectID))
+		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", bucketName))
+
+		client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+		require.Nil(t, err)
+
+		err = client.Bucket(bucketName).Create(context.Background(), projectID, nil)
+		require.Nil(t, err)
+	})
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
 		ctxSnapshot := context.Background()
@@ -105,23 +119,37 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
-	require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
-	require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", os.Getenv(gcsEndpoint)))
+	createTestFiles(t, testDir)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	bucketName := "bucket"
+	endpoint := os.Getenv(gcsEndpoint)
+	bucketName := "weaviate-snapshots"
+	projectID := "project-id"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("GCS_ENDPOINT", endpoint))
+		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", endpoint))
+		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
+		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", projectID))
+		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", bucketName))
+
+		client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+		require.Nil(t, err)
+
+		err = client.Bucket(bucketName).Create(context.Background(), projectID, nil)
+		require.Nil(t, err)
+	})
 
 	gcsConfig := gcs.NewConfig(bucketName, "")
-	path, err := os.Getwd()
-	require.Nil(t, err)
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
-		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		gcs, err := gcs.New(context.Background(), gcsConfig, testDir)
+		require.Nil(t, err)
+
+		snapshot, err := gcs.InitSnapshot(ctxSnapshot, className, snapshotID)
 		require.Nil(t, err)
 
 		err = gcs.StoreSnapshot(ctxSnapshot, snapshot)
@@ -129,19 +157,26 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 	})
 
 	t.Run("set snapshot status", func(t *testing.T) {
-		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		client, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
 		require.Nil(t, err)
 
-		err = gcs.SetMetaStatus(context.Background(), "SnapshotClass", "snapshot_id", "STARTED")
+		if _, err := client.Bucket(bucketName).Attrs(context.Background()); err != nil {
+			t.Fatal(err.Error())
+		}
+
+		gcs, err := gcs.New(context.Background(), gcsConfig, testDir)
+		require.Nil(t, err)
+
+		err = gcs.SetMetaStatus(context.Background(), className, snapshotID, "STARTED")
 		assert.Nil(t, err)
 	})
 
 	t.Run("get snapshot status", func(t *testing.T) {
-		gcs, err := gcs.New(context.Background(), gcsConfig, path)
+		gcs, err := gcs.New(context.Background(), gcsConfig, testDir)
 		require.Nil(t, err)
 
-		meta, err := gcs.GetMeta(context.Background(), "SnapshotClass", "snapshot_id")
-		assert.Nil(t, err)
+		meta, err := gcs.GetMeta(context.Background(), className, snapshotID)
+		require.Nil(t, err)
 		assert.Equal(t, "STARTED", meta.Status)
 	})
 }

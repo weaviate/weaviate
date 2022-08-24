@@ -11,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/storage"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/semi-technologies/weaviate/adapters/repos/modules"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
@@ -23,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 )
 
 func TestBackupManager_CreateBackup(t *testing.T) {
@@ -83,19 +87,31 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		ctx, cancel := testCtx()
 		defer cancel()
 
+		painters, paintings := createPainterClass(), createPaintingsClass()
+		harness := setupTestingHarness(t, ctx, painters, paintings)
+
 		compose := docker.New()
 		compose.WithGCS()
 		container, err := compose.Start(ctx)
 		require.Nil(t, err)
-		require.Nil(t, os.Setenv("GCS_ENDPOINT", container.GetGCS().URI()))
-		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", container.GetGCS().URI()))
-		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
-		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
-		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", "weaviate-snapshots"))
 
-		painters, paintings := createPainterClass(), createPaintingsClass()
+		endpoint := container.GetGCS().URI()
+		bucketName := "weaviate-snapshots"
+		projectID := "project-id"
 
-		harness := setupTestingHarness(t, ctx, painters, paintings)
+		t.Run("setup env", func(t *testing.T) {
+			require.Nil(t, os.Setenv("GCS_ENDPOINT", endpoint))
+			require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", endpoint))
+			require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
+			require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", projectID))
+			require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", bucketName))
+
+			client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+			require.Nil(t, err)
+
+			err = client.Bucket(bucketName).Create(ctx, projectID, nil)
+			require.Nil(t, err)
+		})
 
 		defer func() {
 			require.Nil(t, harness.db.Shutdown(ctx))
@@ -145,19 +161,35 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		ctx, cancel := testCtx()
 		defer cancel()
 
+		painters, paintings := createPainterClass(), createPaintingsClass()
+		harness := setupTestingHarness(t, ctx, painters, paintings)
+
 		compose := docker.New()
 		compose.WithMinIO()
 		container, err := compose.Start(ctx)
 		require.Nil(t, err)
-		require.Nil(t, os.Setenv("AWS_REGION", "eu-west-1"))
-		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
-		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
-		require.Nil(t, os.Setenv("STORAGE_S3_ENDPOINT", container.GetMinIO().URI()))
-		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", "weaviate-snapshots"))
 
-		painters, paintings := createPainterClass(), createPaintingsClass()
+		endpoint := container.GetMinIO().URI()
+		bucketName := "weaviate-snapshots"
+		region := "eu-west-1"
 
-		harness := setupTestingHarness(t, ctx, painters, paintings)
+		t.Run("setup env", func(t *testing.T) {
+			require.Nil(t, os.Setenv("AWS_REGION", region))
+			require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
+			require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
+			require.Nil(t, os.Setenv("STORAGE_S3_ENDPOINT", endpoint))
+			require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", bucketName))
+
+			client, err := minio.New(endpoint, &minio.Options{
+				Creds:  credentials.NewEnvAWS(),
+				Region: region,
+				Secure: false,
+			})
+			require.Nil(t, err)
+
+			err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+			require.Nil(t, err)
+		})
 
 		defer func() {
 			require.Nil(t, harness.db.Shutdown(ctx))

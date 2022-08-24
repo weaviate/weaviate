@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -30,20 +32,34 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	require.Nil(t, os.Setenv("AWS_REGION", "eu-west-1"))
-	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
-	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
-
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
+	region := "eu-west-1"
+	endpoint := os.Getenv(minioEndpoint)
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("AWS_REGION", region))
+		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
+		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
+		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", bucketName))
+
+		client, err := minio.New(endpoint, &minio.Options{
+			Creds:  credentials.NewEnvAWS(),
+			Region: region,
+			Secure: false,
+		})
+		require.Nil(t, err)
+
+		err = client.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{})
+		require.Nil(t, err)
+	})
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
 		logger, _ := test.NewNullLogger()
 
-		endpoint := os.Getenv(minioEndpoint)
 		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
@@ -72,7 +88,6 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	t.Run("restores snapshot data from S3", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
-		endpoint := os.Getenv(minioEndpoint)
 		s3Config := s3.NewConfig(endpoint, "bucket", "", false)
 		logger, _ := test.NewNullLogger()
 		path, _ := os.Getwd()
@@ -111,24 +126,41 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 
-	require.Nil(t, os.Setenv("AWS_REGION", "eu-west-1"))
-	require.Nil(t, os.Setenv("AWS_ACCESS_KEY", "aws_access_key"))
-	require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
+	createTestFiles(t, testDir)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
-
+	region := "eu-west-1"
 	endpoint := os.Getenv(minioEndpoint)
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("AWS_REGION", region))
+		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
+		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
+		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", bucketName))
+
+		client, err := minio.New(endpoint, &minio.Options{
+			Creds:  credentials.NewEnvAWS(),
+			Region: region,
+			Secure: false,
+		})
+		require.Nil(t, err)
+
+		err = client.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{})
+		require.Nil(t, err)
+	})
+
 	s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 	logger, _ := test.NewNullLogger()
-	path, _ := os.Getwd()
 
-	t.Run("store snapshot in gcs", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
+	t.Run("store snapshot in s3", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
-		s3, err := s3.New(s3Config, logger, path)
+		s3, err := s3.New(s3Config, logger, testDir)
+		require.Nil(t, err)
+
+		snapshot, err := s3.InitSnapshot(context.Background(), className, snapshotID)
 		require.Nil(t, err)
 
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
@@ -136,7 +168,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	})
 
 	t.Run("set snapshot status", func(t *testing.T) {
-		s3, err := s3.New(s3Config, logger, path)
+		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
 		err = s3.SetMetaStatus(context.Background(), className, snapshotID, "STARTED")
@@ -144,7 +176,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	})
 
 	t.Run("get snapshot status", func(t *testing.T) {
-		s3, err := s3.New(s3Config, logger, path)
+		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
 		meta, err := s3.GetMeta(context.Background(), className, snapshotID)

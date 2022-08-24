@@ -278,13 +278,6 @@ func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 
-	if bucket == nil {
-		bucket, err = g.createBucket(ctx)
-		if err != nil {
-			return nil, errors.Wrap(err, "init snapshot")
-		}
-	}
-
 	snapshot := snapshots.New(className, snapshotID, time.Now())
 	snapshot.Status = string(snapshots.CreateStarted)
 	b, err := json.Marshal(&snapshot)
@@ -322,24 +315,11 @@ func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
 func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
 	bucket := g.client.Bucket(g.config.BucketName())
 
-	_, err := bucket.Attrs(ctx)
-	if err != nil && err == storage.ErrBucketNotExist {
-		return nil, nil
-	}
-
-	if err != nil {
+	if _, err := bucket.Attrs(ctx); err != nil {
 		return nil, err
 	}
 
 	return bucket, nil
-}
-
-func (g *gcs) createBucket(ctx context.Context) (*storage.BucketHandle, error) {
-	err := g.client.Bucket(g.config.BucketName()).Create(ctx, g.projectID, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "create bucket")
-	}
-	return g.client.Bucket(g.config.BucketName()), nil
 }
 
 func (g *gcs) makeObjectName(parts ...string) string {
