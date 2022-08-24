@@ -69,21 +69,21 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 			{
 				name: "without filters",
 			},
-			//{
-			//	name:    "with where filter",
-			//	filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
-			//},
-			//{
-			//	name:    "with nearObject filter",
-			//	filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9} )`,
-			//},
-			//{
-			//	name: "with where and nearObject filter",
-			//	filters: `(
-			//		where:{operator: Like path:["id"] valueString:"*"}
-			//		nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9}
-			//	)`,
-			//},
+			{
+				name:    "with where filter",
+				filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
+			},
+			{
+				name:    "with nearObject filter",
+				filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9} )`,
+			},
+			{
+				name: "with where and nearObject filter",
+				filters: `(
+					where:{operator: Like path:["id"] valueString:"*"}
+					nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9}
+				)`,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
