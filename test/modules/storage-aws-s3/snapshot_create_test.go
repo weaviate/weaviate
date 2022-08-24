@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -28,6 +29,9 @@ import (
 )
 
 func Test_S3Storage_StoreSnapshot(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	testdataMainDir := "./testData"
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
@@ -51,13 +55,19 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		})
 		require.Nil(t, err)
 
-		err = client.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{})
+		err = client.MakeBucket(testCtx, bucketName, minio.MakeBucketOptions{})
+		minioErr, ok := err.(minio.ErrorResponse)
+		if ok {
+			// the bucket persists from a previous test.
+			// if the bucket already exists, we can proceed
+			if minioErr.Code == "BucketAlreadyOwnedByYou" {
+				return
+			}
+		}
 		require.Nil(t, err)
 	})
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
-		ctxSnapshot := context.Background()
-
 		logger, _ := test.NewNullLogger()
 
 		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
@@ -65,10 +75,10 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		snapshot, err := s3.InitSnapshot(ctxSnapshot, className, snapshotID)
+		snapshot, err := s3.InitSnapshot(testCtx, className, snapshotID)
 		require.Nil(t, err)
 
-		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
+		err = s3.StoreSnapshot(testCtx, snapshot)
 		assert.Nil(t, err)
 
 		dest := s3.DestinationPath(className, snapshotID)
@@ -76,7 +86,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		assert.Equal(t, expected, dest)
 
 		t.Run("assert snapshot meta contents", func(t *testing.T) {
-			meta, err := s3.GetMeta(context.Background(), className, snapshotID)
+			meta, err := s3.GetMeta(testCtx, className, snapshotID)
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
@@ -86,8 +96,6 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	})
 
 	t.Run("restores snapshot data from S3", func(t *testing.T) {
-		ctxSnapshot := context.Background()
-
 		s3Config := s3.NewConfig(endpoint, "bucket", "", false)
 		logger, _ := test.NewNullLogger()
 		path, _ := os.Getwd()
@@ -104,7 +112,7 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		}
 
 		// Use the previous test snapshot to test the restore function
-		_, err = s3.RestoreSnapshot(ctxSnapshot, className, snapshotID)
+		_, err = s3.RestoreSnapshot(testCtx, className, snapshotID)
 		require.Nil(t, err)
 
 		assert.DirExists(t, path)
@@ -122,6 +130,9 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 }
 
 func Test_S3Storage_MetaStatus(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	testdataMainDir := "./testData"
 	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
@@ -147,11 +158,10 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		})
 		require.Nil(t, err)
 
-		err = client.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{})
+		err = client.MakeBucket(testCtx, bucketName, minio.MakeBucketOptions{})
 		minioErr, ok := err.(minio.ErrorResponse)
 		if ok {
-			// minio behaves a bit differently than GCS here,
-			// where the bucket persists from the previous test.
+			// the bucket persists from a previous test.
 			// if the bucket already exists, we can proceed
 			if minioErr.Code == "BucketAlreadyOwnedByYou" {
 				return
@@ -164,15 +174,13 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
-		ctxSnapshot := context.Background()
-
 		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
-		snapshot, err := s3.InitSnapshot(context.Background(), className, snapshotID)
+		snapshot, err := s3.InitSnapshot(testCtx, className, snapshotID)
 		require.Nil(t, err)
 
-		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
+		err = s3.StoreSnapshot(testCtx, snapshot)
 		assert.Nil(t, err)
 	})
 
@@ -180,7 +188,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
-		err = s3.SetMetaStatus(context.Background(), className, snapshotID, "STARTED")
+		err = s3.SetMetaStatus(testCtx, className, snapshotID, "STARTED")
 		assert.Nil(t, err)
 	})
 
@@ -188,7 +196,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
-		meta, err := s3.GetMeta(context.Background(), className, snapshotID)
+		meta, err := s3.GetMeta(testCtx, className, snapshotID)
 		assert.Nil(t, err)
 		assert.Equal(t, "STARTED", meta.Status)
 	})
