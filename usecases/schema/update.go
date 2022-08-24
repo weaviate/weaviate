@@ -317,7 +317,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 
 	go func(ctx context.Context, className, snapshotId string) {
 		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
-		if meta, class, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
+		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
 			if meta != nil {
 				m.RestoreStatus.Store(snapshotUID, string(meta.Status))
 			} else {
@@ -327,7 +327,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 			return
 		} else {
 			classM := models.Class{}
-			if err := json.Unmarshal([]byte(class), &classM); err != nil {
+			if err := json.Unmarshal([]byte(snapshot.Schema), &classM); err != nil {
 				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
 				m.RestoreError.Store(snapshotUID, err)
 				return

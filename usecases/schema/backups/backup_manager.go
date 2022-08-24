@@ -51,7 +51,7 @@ type RestoreMeta struct {
 
 type BackupManager interface {
 	CreateBackup(ctx context.Context, className, storageName, snapshotID string) (*CreateMeta, error)
-	RestoreBackup(ctx context.Context, className, storageName, snapshotID string) (*RestoreMeta, []byte, *snapshots.Snapshot, error)
+	RestoreBackup(ctx context.Context, className, storageName, snapshotID string) (*RestoreMeta, *snapshots.Snapshot, error)
 	CreateBackupStatus(ctx context.Context, className, storageName, snapshotID string) (*models.SnapshotMeta, error)
 	DestinationPath(storageName, className, snapshotID string) (string, error)
 }

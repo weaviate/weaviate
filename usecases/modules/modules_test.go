@@ -493,7 +493,7 @@ func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snap
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) ([]byte, error) {
+func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string)  error {
 	return []byte{}, nil
 }
 
