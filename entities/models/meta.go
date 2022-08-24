@@ -25,6 +25,7 @@ import (
 //
 // swagger:model Meta
 type Meta struct {
+
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 

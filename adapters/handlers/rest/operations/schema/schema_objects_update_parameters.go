@@ -31,6 +31,7 @@ import (
 // NewSchemaObjectsUpdateParams creates a new SchemaObjectsUpdateParams object
 // no default values defined in spec.
 func NewSchemaObjectsUpdateParams() SchemaObjectsUpdateParams {
+
 	return SchemaObjectsUpdateParams{}
 }
 
@@ -39,6 +40,7 @@ func NewSchemaObjectsUpdateParams() SchemaObjectsUpdateParams {
 //
 // swagger:parameters schema.objects.update
 type SchemaObjectsUpdateParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

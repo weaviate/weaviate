@@ -30,7 +30,9 @@ import (
 // NewWeaviateRootParams creates a new WeaviateRootParams object
 // with the default values initialized.
 func NewWeaviateRootParams() *WeaviateRootParams {
+
 	return &WeaviateRootParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -38,7 +40,9 @@ func NewWeaviateRootParams() *WeaviateRootParams {
 // NewWeaviateRootParamsWithTimeout creates a new WeaviateRootParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewWeaviateRootParamsWithTimeout(timeout time.Duration) *WeaviateRootParams {
+
 	return &WeaviateRootParams{
+
 		timeout: timeout,
 	}
 }
@@ -46,7 +50,9 @@ func NewWeaviateRootParamsWithTimeout(timeout time.Duration) *WeaviateRootParams
 // NewWeaviateRootParamsWithContext creates a new WeaviateRootParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewWeaviateRootParamsWithContext(ctx context.Context) *WeaviateRootParams {
+
 	return &WeaviateRootParams{
+
 		Context: ctx,
 	}
 }
@@ -54,6 +60,7 @@ func NewWeaviateRootParamsWithContext(ctx context.Context) *WeaviateRootParams {
 // NewWeaviateRootParamsWithHTTPClient creates a new WeaviateRootParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewWeaviateRootParamsWithHTTPClient(client *http.Client) *WeaviateRootParams {
+
 	return &WeaviateRootParams{
 		HTTPClient: client,
 	}
@@ -104,6 +111,7 @@ func (o *WeaviateRootParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateRootParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

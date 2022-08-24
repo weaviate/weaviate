@@ -57,7 +57,7 @@ func (o *SchemaObjectsSnapshotsCreateStatus) ServeHTTP(rw http.ResponseWriter, r
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewSchemaObjectsSnapshotsCreateStatusParams()
+	var Params = NewSchemaObjectsSnapshotsCreateStatusParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -80,4 +80,5 @@ func (o *SchemaObjectsSnapshotsCreateStatus) ServeHTTP(rw http.ResponseWriter, r
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

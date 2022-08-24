@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //go:build integrationTest
 // +build integrationTest
 
@@ -10,9 +21,9 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	"github.com/semi-technologies/weaviate/modules/storage-filesystem"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
+	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
+	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/stretchr/testify/assert"

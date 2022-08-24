@@ -28,6 +28,7 @@ import (
 //
 // swagger:model C11yWordsResponse
 type C11yWordsResponse struct {
+
 	// concatenated word
 	ConcatenatedWord *C11yWordsResponseConcatenatedWord `json:"concatenatedWord,omitempty"`
 
@@ -54,6 +55,7 @@ func (m *C11yWordsResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *C11yWordsResponse) validateConcatenatedWord(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedWord) { // not required
 		return nil
 	}
@@ -71,6 +73,7 @@ func (m *C11yWordsResponse) validateConcatenatedWord(formats strfmt.Registry) er
 }
 
 func (m *C11yWordsResponse) validateIndividualWords(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.IndividualWords) { // not required
 		return nil
 	}
@@ -116,6 +119,7 @@ func (m *C11yWordsResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yWordsResponseConcatenatedWord
 type C11yWordsResponseConcatenatedWord struct {
+
 	// concatenated nearest neighbors
 	ConcatenatedNearestNeighbors C11yNearestNeighbors `json:"concatenatedNearestNeighbors,omitempty"`
 
@@ -148,6 +152,7 @@ func (m *C11yWordsResponseConcatenatedWord) Validate(formats strfmt.Registry) er
 }
 
 func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedNearestNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedNearestNeighbors) { // not required
 		return nil
 	}
@@ -163,6 +168,7 @@ func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedNearestNeighbors
 }
 
 func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedVector(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedVector) { // not required
 		return nil
 	}
@@ -199,6 +205,7 @@ func (m *C11yWordsResponseConcatenatedWord) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yWordsResponseIndividualWordsItems0
 type C11yWordsResponseIndividualWordsItems0 struct {
+
 	// info
 	Info *C11yWordsResponseIndividualWordsItems0Info `json:"info,omitempty"`
 
@@ -224,6 +231,7 @@ func (m *C11yWordsResponseIndividualWordsItems0) Validate(formats strfmt.Registr
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0) validateInfo(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Info) { // not required
 		return nil
 	}
@@ -262,6 +270,7 @@ func (m *C11yWordsResponseIndividualWordsItems0) UnmarshalBinary(b []byte) error
 //
 // swagger:model C11yWordsResponseIndividualWordsItems0Info
 type C11yWordsResponseIndividualWordsItems0Info struct {
+
 	// nearest neighbors
 	NearestNeighbors C11yNearestNeighbors `json:"nearestNeighbors,omitempty"`
 
@@ -288,6 +297,7 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) Validate(formats strfmt.Reg
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) validateNearestNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.NearestNeighbors) { // not required
 		return nil
 	}
@@ -303,6 +313,7 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) validateNearestNeighbors(fo
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) validateVector(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}

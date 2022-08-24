@@ -34,6 +34,7 @@ import (
 func NewObjectsClassPatchParams() *ObjectsClassPatchParams {
 	var ()
 	return &ObjectsClassPatchParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewObjectsClassPatchParams() *ObjectsClassPatchParams {
 func NewObjectsClassPatchParamsWithTimeout(timeout time.Duration) *ObjectsClassPatchParams {
 	var ()
 	return &ObjectsClassPatchParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewObjectsClassPatchParamsWithTimeout(timeout time.Duration) *ObjectsClassP
 func NewObjectsClassPatchParamsWithContext(ctx context.Context) *ObjectsClassPatchParams {
 	var ()
 	return &ObjectsClassPatchParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ ObjectsClassPatchParams contains all the parameters to send to the API endpoint
 for the objects class patch operation typically these are written to a http.Request
 */
 type ObjectsClassPatchParams struct {
+
 	/*Body
 	  RFC 7396-style patch, the body contains the object to merge into the existing object.
 
@@ -159,6 +163,7 @@ func (o *ObjectsClassPatchParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

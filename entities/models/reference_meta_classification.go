@@ -25,6 +25,7 @@ import (
 //
 // swagger:model ReferenceMetaClassification
 type ReferenceMetaClassification struct {
+
 	// The lowest distance of a neighbor in the losing group. Optional. If k equals the size of the winning group, there is no losing group
 	ClosestLosingDistance *float64 `json:"closestLosingDistance,omitempty"`
 

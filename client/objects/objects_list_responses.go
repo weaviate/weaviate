@@ -105,6 +105,7 @@ func (o *ObjectsListOK) GetPayload() *models.ObjectsListResponse {
 }
 
 func (o *ObjectsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ObjectsListResponse)
 
 	// response payload
@@ -138,6 +139,7 @@ func (o *ObjectsListBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -158,13 +160,15 @@ ObjectsListUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsListUnauthorized struct{}
+type ObjectsListUnauthorized struct {
+}
 
 func (o *ObjectsListUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /objects][%d] objectsListUnauthorized ", 401)
 }
 
 func (o *ObjectsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -191,6 +195,7 @@ func (o *ObjectsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -211,13 +216,15 @@ ObjectsListNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsListNotFound struct{}
+type ObjectsListNotFound struct {
+}
 
 func (o *ObjectsListNotFound) Error() string {
 	return fmt.Sprintf("[GET /objects][%d] objectsListNotFound ", 404)
 }
 
 func (o *ObjectsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -244,6 +251,7 @@ func (o *ObjectsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -277,6 +285,7 @@ func (o *ObjectsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
