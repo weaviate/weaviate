@@ -306,7 +306,7 @@ func (m *Manager) destinationPath(storageName, className, ID string) (string, er
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
-	snapshotUID := fmt.Sprintf("%s - %s - %s", storageName, className, ID)
+	snapshotUID := fmt.Sprintf("%s-%s-%s", storageName, className, ID)
 	m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSTARTED)
 	m.RestoreError.Store(snapshotUID, nil)
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
