@@ -57,7 +57,7 @@ func (o *WeaviateWellknownLiveness) ServeHTTP(rw http.ResponseWriter, r *http.Re
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateWellknownLivenessParams()
+	Params := NewWeaviateWellknownLivenessParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -80,5 +80,4 @@ func (o *WeaviateWellknownLiveness) ServeHTTP(rw http.ResponseWriter, r *http.Re
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

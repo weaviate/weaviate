@@ -114,6 +114,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "restore",
 			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
+		{
+			methodName:       "RestoreSnapshotStatus",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "get",
+			expectedResource: "schema/className/snapshots/storageName/id/restore",
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

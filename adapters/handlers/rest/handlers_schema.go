@@ -250,8 +250,34 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO implement
-	return nil
+	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
+	if err != nil {
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrNotFound:
+			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backups.ErrUnprocessable:
+			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.
+		NewSchemaObjectsSnapshotsRestoreStatusOK().
+		WithPayload(&models.SnapshotRestoreMeta{
+			Status:      &status,
+			ClassName:   params.ClassName,
+			Error:       restoreError,
+			ID:          params.ID,
+			Path:        path,
+			StorageName: params.StorageName,
+		})
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {

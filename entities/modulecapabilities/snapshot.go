@@ -19,7 +19,7 @@ import (
 
 type SnapshotStorage interface {
 	StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error
-	RestoreSnapshot(ctx context.Context, className, snapshotID string) error
+	RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
 
 	InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
 	SetMetaStatus(ctx context.Context, className, snapshotID, status string) error

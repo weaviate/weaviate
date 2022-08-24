@@ -25,7 +25,6 @@ import (
 //
 // swagger:model PeerPing
 type PeerPing struct {
-
 	// (base64 encoded) hash of the current schema
 	SchemaHash string `json:"schemaHash,omitempty"`
 }

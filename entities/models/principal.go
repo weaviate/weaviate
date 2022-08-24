@@ -25,7 +25,6 @@ import (
 //
 // swagger:model Principal
 type Principal struct {
-
 	// groups
 	Groups []string `json:"groups"`
 

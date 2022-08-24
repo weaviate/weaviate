@@ -33,7 +33,6 @@ BatchReferencesCreateOK Request Successful. Warning: A successful request does n
 swagger:response batchReferencesCreateOK
 */
 type BatchReferencesCreateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type BatchReferencesCreateOK struct {
 
 // NewBatchReferencesCreateOK creates BatchReferencesCreateOK with default headers values
 func NewBatchReferencesCreateOK() *BatchReferencesCreateOK {
-
 	return &BatchReferencesCreateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *BatchReferencesCreateOK) SetPayload(payload []*models.BatchReferenceRes
 
 // WriteResponse to the client
 func (o *BatchReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -80,19 +77,16 @@ BatchReferencesCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchReferencesCreateUnauthorized
 */
-type BatchReferencesCreateUnauthorized struct {
-}
+type BatchReferencesCreateUnauthorized struct{}
 
 // NewBatchReferencesCreateUnauthorized creates BatchReferencesCreateUnauthorized with default headers values
 func NewBatchReferencesCreateUnauthorized() *BatchReferencesCreateUnauthorized {
-
 	return &BatchReferencesCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BatchReferencesCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -106,7 +100,6 @@ BatchReferencesCreateForbidden Forbidden
 swagger:response batchReferencesCreateForbidden
 */
 type BatchReferencesCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -115,7 +108,6 @@ type BatchReferencesCreateForbidden struct {
 
 // NewBatchReferencesCreateForbidden creates BatchReferencesCreateForbidden with default headers values
 func NewBatchReferencesCreateForbidden() *BatchReferencesCreateForbidden {
-
 	return &BatchReferencesCreateForbidden{}
 }
 
@@ -132,7 +124,6 @@ func (o *BatchReferencesCreateForbidden) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *BatchReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -151,7 +142,6 @@ BatchReferencesCreateUnprocessableEntity Request body is well-formed (i.e., synt
 swagger:response batchReferencesCreateUnprocessableEntity
 */
 type BatchReferencesCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -160,7 +150,6 @@ type BatchReferencesCreateUnprocessableEntity struct {
 
 // NewBatchReferencesCreateUnprocessableEntity creates BatchReferencesCreateUnprocessableEntity with default headers values
 func NewBatchReferencesCreateUnprocessableEntity() *BatchReferencesCreateUnprocessableEntity {
-
 	return &BatchReferencesCreateUnprocessableEntity{}
 }
 
@@ -177,7 +166,6 @@ func (o *BatchReferencesCreateUnprocessableEntity) SetPayload(payload *models.Er
 
 // WriteResponse to the client
 func (o *BatchReferencesCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -196,7 +184,6 @@ BatchReferencesCreateInternalServerError An error has occurred while trying to f
 swagger:response batchReferencesCreateInternalServerError
 */
 type BatchReferencesCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -205,7 +192,6 @@ type BatchReferencesCreateInternalServerError struct {
 
 // NewBatchReferencesCreateInternalServerError creates BatchReferencesCreateInternalServerError with default headers values
 func NewBatchReferencesCreateInternalServerError() *BatchReferencesCreateInternalServerError {
-
 	return &BatchReferencesCreateInternalServerError{}
 }
 
@@ -222,7 +208,6 @@ func (o *BatchReferencesCreateInternalServerError) SetPayload(payload *models.Er
 
 // WriteResponse to the client
 func (o *BatchReferencesCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

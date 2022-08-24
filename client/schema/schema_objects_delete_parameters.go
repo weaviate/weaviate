@@ -32,7 +32,6 @@ import (
 func NewSchemaObjectsDeleteParams() *SchemaObjectsDeleteParams {
 	var ()
 	return &SchemaObjectsDeleteParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewSchemaObjectsDeleteParams() *SchemaObjectsDeleteParams {
 func NewSchemaObjectsDeleteParamsWithTimeout(timeout time.Duration) *SchemaObjectsDeleteParams {
 	var ()
 	return &SchemaObjectsDeleteParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewSchemaObjectsDeleteParamsWithTimeout(timeout time.Duration) *SchemaObjec
 func NewSchemaObjectsDeleteParamsWithContext(ctx context.Context) *SchemaObjectsDeleteParams {
 	var ()
 	return &SchemaObjectsDeleteParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ SchemaObjectsDeleteParams contains all the parameters to send to the API endpoin
 for the schema objects delete operation typically these are written to a http.Request
 */
 type SchemaObjectsDeleteParams struct {
-
 	/*ClassName*/
 	ClassName string
 
@@ -126,7 +122,6 @@ func (o *SchemaObjectsDeleteParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

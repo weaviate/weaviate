@@ -27,7 +27,6 @@ import (
 //
 // swagger:model PeerUpdate
 type PeerUpdate struct {
-
 	// Name of the peer, must be valid DNS name
 	PeerName string `json:"peerName,omitempty"`
 

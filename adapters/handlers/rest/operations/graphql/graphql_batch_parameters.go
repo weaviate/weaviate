@@ -30,7 +30,6 @@ import (
 // NewGraphqlBatchParams creates a new GraphqlBatchParams object
 // no default values defined in spec.
 func NewGraphqlBatchParams() GraphqlBatchParams {
-
 	return GraphqlBatchParams{}
 }
 
@@ -39,7 +38,6 @@ func NewGraphqlBatchParams() GraphqlBatchParams {
 //
 // swagger:parameters graphql.batch
 type GraphqlBatchParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

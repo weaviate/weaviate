@@ -93,7 +93,6 @@ func (o *SchemaObjectsSnapshotsCreateStatusOK) GetPayload() *models.SnapshotMeta
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SnapshotMeta)
 
 	// response payload
@@ -114,15 +113,13 @@ SchemaObjectsSnapshotsCreateStatusUnauthorized handles this case with default he
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsSnapshotsCreateStatusUnauthorized struct {
-}
+type SchemaObjectsSnapshotsCreateStatusUnauthorized struct{}
 
 func (o *SchemaObjectsSnapshotsCreateStatusUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateStatusUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +146,6 @@ func (o *SchemaObjectsSnapshotsCreateStatusForbidden) GetPayload() *models.Error
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -183,7 +179,6 @@ func (o *SchemaObjectsSnapshotsCreateStatusNotFound) GetPayload() *models.ErrorR
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *SchemaObjectsSnapshotsCreateStatusInternalServerError) GetPayload() *mo
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

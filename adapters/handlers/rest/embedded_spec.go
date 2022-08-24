@@ -3647,6 +3647,10 @@ func init() {
     "SnapshotRestoreMeta": {
       "description": "The definition of a snapshot metadata",
       "properties": {
+        "className": {
+          "description": "The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
@@ -7720,6 +7724,10 @@ func init() {
     "SnapshotRestoreMeta": {
       "description": "The definition of a snapshot metadata",
       "properties": {
+        "className": {
+          "description": "The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
