@@ -4,17 +4,23 @@
 package backups
 
 import (
+	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/modules"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
 	"github.com/semi-technologies/weaviate/modules/storage-filesystem"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,6 +91,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", container.GetGCS().URI()))
 		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
 		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", "project-id"))
+		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", "weaviate-snapshots"))
 
 		painters, paintings := createPainterClass(), createPaintingsClass()
 
@@ -146,6 +153,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
 		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
 		require.Nil(t, os.Setenv("STORAGE_S3_ENDPOINT", container.GetMinIO().URI()))
+		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", "weaviate-snapshots"))
 
 		painters, paintings := createPainterClass(), createPaintingsClass()
 
@@ -193,5 +201,75 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 			assert.NotNil(t, meta.Status)
 			assert.Equal(t, string(snapshots.CreateSuccess), *meta.Status)
 		})
+	})
+}
+
+func TestBackupManager_InitModule(t *testing.T) {
+	t.Run("storage-gcs should fail with no bucket set", func(t *testing.T) {
+		ctx, cancel := testCtx()
+		defer cancel()
+
+		require.Nil(t, os.Unsetenv("STORAGE_GCS_BUCKET"))
+
+		rand.Seed(time.Now().UnixNano())
+		rootDir := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		require.Nil(t, os.MkdirAll(rootDir, 0o777))
+
+		compose := docker.New()
+		compose.WithGCS()
+		container, err := compose.Start(ctx)
+		require.Nil(t, err)
+
+		defer func() {
+			require.Nil(t, container.Terminate(ctx))
+			require.Nil(t, os.RemoveAll(rootDir))
+		}()
+
+		logger, _ := test.NewNullLogger()
+
+		storageProvider, err := modulestorage.NewRepo(rootDir, logger)
+		require.Nil(t, err)
+
+		moduleParams := moduletools.NewInitParams(storageProvider, nil, logger)
+		moduleProvider := modules.NewProvider()
+		moduleProvider.Register(modstggcs.New())
+
+		err = moduleProvider.Init(ctx, moduleParams, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "snapshot init: 'STORAGE_GCS_BUCKET' must be set")
+	})
+
+	t.Run("storage-aws-s3 should fail with no bucket set", func(t *testing.T) {
+		ctx, cancel := testCtx()
+		defer cancel()
+
+		require.Nil(t, os.Unsetenv("STORAGE_S3_BUCKET"))
+
+		rand.Seed(time.Now().UnixNano())
+		rootDir := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+		require.Nil(t, os.MkdirAll(rootDir, 0o777))
+
+		compose := docker.New()
+		compose.WithMinIO()
+		container, err := compose.Start(ctx)
+		require.Nil(t, err)
+
+		defer func() {
+			require.Nil(t, container.Terminate(ctx))
+			require.Nil(t, os.RemoveAll(rootDir))
+		}()
+
+		logger, _ := test.NewNullLogger()
+
+		storageProvider, err := modulestorage.NewRepo(rootDir, logger)
+		require.Nil(t, err)
+
+		moduleParams := moduletools.NewInitParams(storageProvider, nil, logger)
+		moduleProvider := modules.NewProvider()
+		moduleProvider.Register(modstgs3.New())
+
+		err = moduleProvider.Init(ctx, moduleParams, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "snapshot init: 'STORAGE_S3_BUCKET' must be set")
 	})
 }
