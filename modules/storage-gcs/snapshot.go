@@ -54,7 +54,7 @@ func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
 		return errors.Errorf("snapshot init: '%s' must be set", gcsBucket)
 	}
 
-	config := gcs.NewConfig(os.Getenv(gcsBucket), os.Getenv(gcsSnapshotRoot))
+	config := gcs.NewConfig(bucketName, os.Getenv(gcsSnapshotRoot))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")
