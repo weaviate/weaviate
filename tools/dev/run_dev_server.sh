@@ -214,6 +214,8 @@ case $CONFIG in
 
   local-no-modules)
       CLUSTER_HOSTNAME="node1" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=none \
       go run ./cmd/weaviate-server \

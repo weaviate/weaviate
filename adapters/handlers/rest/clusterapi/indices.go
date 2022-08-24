@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
@@ -40,6 +41,7 @@ type indices struct {
 	regexpObject              *regexp.Regexp
 	regexpReferences          *regexp.Regexp
 	regexpShards              *regexp.Regexp
+	regexpShardFiles          *regexp.Regexp
 }
 
 const (
@@ -57,6 +59,8 @@ const (
 		`\/shards\/([A-Za-z0-9]+)\/references`
 	urlPatternShards = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/_status`
+	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/files/(.*)`
 )
 
 type shards interface {
@@ -101,6 +105,7 @@ func NewIndices(shards shards) *indices {
 		regexpObject:              regexp.MustCompile(urlPatternObject),
 		regexpReferences:          regexp.MustCompile(urlPatternReferences),
 		regexpShards:              regexp.MustCompile(urlPatternShards),
+		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
 		shards:                    shards,
 	}
 }
@@ -182,6 +187,18 @@ func (i *indices) Indices() http.Handler {
 			}
 			if r.Method == http.MethodPost {
 				i.postUpdateShardStatus().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
+		case i.regexpShardFiles.MatchString(path):
+			// if r.Method == http.MethodGet {
+			// 	i.getGetShardStatus().ServeHTTP(w, r)
+			// 	return
+			// }
+			if r.Method == http.MethodPost {
+				i.postShardFile().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -783,5 +800,32 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	})
+}
+
+func (i *indices) postShardFile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, filename := args[1], args[2], args[3]
+
+		f, err := os.Create("./data/" + filename)
+		if err != nil {
+			panic(err)
+		}
+
+		defer r.Body.Close()
+		n, err := io.Copy(f, r.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("%s/%s/%s n=%d\n", index, shard, filename, n)
+
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
