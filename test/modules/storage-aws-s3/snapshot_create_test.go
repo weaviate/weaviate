@@ -148,6 +148,15 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		require.Nil(t, err)
 
 		err = client.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{})
+		minioErr, ok := err.(minio.ErrorResponse)
+		if ok {
+			// minio behaves a bit differently than GCS here,
+			// where the bucket persists from the previous test.
+			// if the bucket already exists, we can proceed
+			if minioErr.Code == "BucketAlreadyOwnedByYou" {
+				return
+			}
+		}
 		require.Nil(t, err)
 	})
 
