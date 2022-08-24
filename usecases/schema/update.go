@@ -333,6 +333,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 				return
 			}
 
+			err := m.restoreClass(ctx, principal, &classM, snapshot)
 			if err != nil {
 				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
 				m.RestoreError.Store(snapshotUID, err)
