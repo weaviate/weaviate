@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -266,25 +267,100 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 	}
 }
 
+func (m *Manager) RestoreSnapshotStatus(ctx context.Context, principal *models.Principal,
+	className, storageName, ID string,
+) (status string, errorString string, path string, err error) {
+	snapshotUID := storageName + "-" + className + "-" + ID
+	path = fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
+	if err := m.authorizer.Authorize(principal, "get", path); err != nil {
+		return "", "", "", err
+	}
+
+	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
+	if !ok {
+		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
+	}
+	status = statusInterface.(string)
+	errInterface, ok := m.RestoreError.Load(snapshotUID)
+	if !ok {
+		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
+	}
+
+	if errInterface != nil {
+		restoreError := errInterface.(error)
+		errorString = restoreError.Error()
+	}
+
+	path, err = m.destinationPath(storageName, className, ID)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	return status, errorString, path, nil
+}
+
+func (m *Manager) destinationPath(storageName, className, ID string) (string, error) {
+	return m.backups.DestinationPath(storageName, className, ID)
+}
+
 func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
+	snapshotUID := fmt.Sprintf("%s-%s-%s", storageName, className, ID)
+	m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSTARTED)
+	m.RestoreError.Store(snapshotUID, nil)
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
 		return nil, err
 	}
 
-	if meta, err := m.backups.RestoreBackup(ctx, className, storageName, ID); err != nil {
-		return nil, err
-	} else {
-		status := string(meta.Status)
-		return &models.SnapshotRestoreMeta{
-			ID:          ID,
-			StorageName: storageName,
-			Status:      &status,
-			Path:        meta.Path,
-		}, nil
+	go func(ctx context.Context, className, snapshotId string) {
+		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
+		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
+			if meta != nil {
+				m.RestoreStatus.Store(snapshotUID, string(meta.Status))
+			} else {
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+			}
+			m.RestoreError.Store(snapshotUID, err)
+			return
+		} else {
+			classM := models.Class{}
+			if err := json.Unmarshal([]byte(snapshot.Schema), &classM); err != nil {
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreError.Store(snapshotUID, err)
+				return
+			}
+
+			err := m.restoreClass(ctx, principal, &classM, snapshot)
+			if err != nil {
+				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreError.Store(snapshotUID, err)
+				return
+			}
+
+			m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSUCCESS)
+
+		}
+	}(context.Background(), className, ID)
+
+	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
+	if !ok {
+		return nil, errors.Errorf("snapshot  not found for %s", snapshotUID)
 	}
+	status := statusInterface.(string)
+
+	path, err := m.backups.DestinationPath(storageName, className, ID)
+	if err != nil {
+		return nil, err
+	}
+	returnData := &models.SnapshotRestoreMeta{
+		ID:          ID,
+		StorageName: storageName,
+		Status:      &status,
+		Path:        path,
+	}
+	return returnData, nil
 }
 
 func validateSnapshotID(snapshotID string) error {

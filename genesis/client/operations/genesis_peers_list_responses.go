@@ -93,8 +93,7 @@ GenesisPeersListInternalServerError handles this case with default header values
 
 Internal error
 */
-type GenesisPeersListInternalServerError struct {
-}
+type GenesisPeersListInternalServerError struct{}
 
 func (o *GenesisPeersListInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /peers][%d] genesisPeersListInternalServerError ", 500)

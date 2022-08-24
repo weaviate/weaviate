@@ -71,8 +71,7 @@ GenesisPeersPingOK handles this case with default header values.
 
 Ping received
 */
-type GenesisPeersPingOK struct {
-}
+type GenesisPeersPingOK struct{}
 
 func (o *GenesisPeersPingOK) Error() string {
 	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingOK ", 200)
@@ -92,8 +91,7 @@ GenesisPeersPingUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type GenesisPeersPingUnauthorized struct {
-}
+type GenesisPeersPingUnauthorized struct{}
 
 func (o *GenesisPeersPingUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingUnauthorized ", 401)
@@ -113,8 +111,7 @@ GenesisPeersPingForbidden handles this case with default header values.
 
 The used API-key has insufficient permissions.
 */
-type GenesisPeersPingForbidden struct {
-}
+type GenesisPeersPingForbidden struct{}
 
 func (o *GenesisPeersPingForbidden) Error() string {
 	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingForbidden ", 403)
@@ -134,8 +131,7 @@ GenesisPeersPingNotFound handles this case with default header values.
 
 Successful query result but no such peer was found.
 */
-type GenesisPeersPingNotFound struct {
-}
+type GenesisPeersPingNotFound struct{}
 
 func (o *GenesisPeersPingNotFound) Error() string {
 	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingNotFound ", 404)

@@ -34,7 +34,6 @@ func NewGenesisPeersListParams() GenesisPeersListParams {
 //
 // swagger:parameters genesis.peers.list
 type GenesisPeersListParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

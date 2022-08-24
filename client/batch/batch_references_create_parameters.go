@@ -34,7 +34,6 @@ import (
 func NewBatchReferencesCreateParams() *BatchReferencesCreateParams {
 	var ()
 	return &BatchReferencesCreateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewBatchReferencesCreateParams() *BatchReferencesCreateParams {
 func NewBatchReferencesCreateParamsWithTimeout(timeout time.Duration) *BatchReferencesCreateParams {
 	var ()
 	return &BatchReferencesCreateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewBatchReferencesCreateParamsWithTimeout(timeout time.Duration) *BatchRefe
 func NewBatchReferencesCreateParamsWithContext(ctx context.Context) *BatchReferencesCreateParams {
 	var ()
 	return &BatchReferencesCreateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ BatchReferencesCreateParams contains all the parameters to send to the API endpo
 for the batch references create operation typically these are written to a http.Request
 */
 type BatchReferencesCreateParams struct {
-
 	/*Body
 	  A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help
 
@@ -131,7 +127,6 @@ func (o *BatchReferencesCreateParams) SetBody(body []*models.BatchReference) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BatchReferencesCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

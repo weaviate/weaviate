@@ -101,43 +101,43 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	bucket, err := g.findBucket(ctx)
 	if err != nil || bucket == nil {
-		return errors.Wrap(err, "snapshot bucket does not exist")
+		return nil, errors.Wrap(err, "snapshot bucket does not exist")
 	}
 
 	// Download metadata for snapshot
 	objectName := makeObjectName(className, snapshotID, "snapshot.json")
 	reader, err := bucket.Object(objectName).NewReader(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "new reader: %v", objectName)
+		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
 
 	// Fetch content
 	content, err := io.ReadAll(reader)
 	if err != nil {
-		return errors.Wrapf(err, "read object: %v", objectName)
+		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
 	// Unmarshal content into snapshot struct
 	var snapshot snapshots.Snapshot
 	if err := json.Unmarshal(content, &snapshot); err != nil {
-		return errors.Wrapf(err, "unmarshal snapshot: %v", objectName)
+		return nil, errors.Wrapf(err, "unmarshal snapshot: %v", objectName)
 	}
 
 	// download files listed in snapshot
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(err, "store snapshot aborted")
+			return nil, errors.Wrapf(err, "store snapshot aborted")
 		}
 		objectName := makeObjectName(className, snapshotID, srcRelPath)
 		filePath := makeFilePath(g.dataPath, srcRelPath)
 		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
-			return errors.Wrap(err, "put file")
+			return nil, errors.Wrap(err, "put file")
 		}
 	}
-	return nil
+	return &snapshot, nil
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {

@@ -26,7 +26,6 @@ import (
 //
 // swagger:model Contextionary
 type Contextionary struct {
-
 	// hash
 	Hash *ContextionaryHash `json:"hash,omitempty"`
 
@@ -87,7 +86,6 @@ func (m *Contextionary) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ContextionaryHash
 type ContextionaryHash struct {
-
 	// Hash algorithm
 	Algorithm string `json:"algorithm,omitempty"`
 

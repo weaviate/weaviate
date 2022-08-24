@@ -30,7 +30,6 @@ import (
 // NewBatchObjectsDeleteParams creates a new BatchObjectsDeleteParams object
 // no default values defined in spec.
 func NewBatchObjectsDeleteParams() BatchObjectsDeleteParams {
-
 	return BatchObjectsDeleteParams{}
 }
 
@@ -39,7 +38,6 @@ func NewBatchObjectsDeleteParams() BatchObjectsDeleteParams {
 //
 // swagger:parameters batch.objects.delete
 type BatchObjectsDeleteParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

@@ -40,7 +40,6 @@ func NewGenesisPeersPingParams() GenesisPeersPingParams {
 //
 // swagger:parameters genesis.peers.ping
 type GenesisPeersPingParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

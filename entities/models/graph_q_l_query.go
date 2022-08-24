@@ -25,7 +25,6 @@ import (
 //
 // swagger:model GraphQLQuery
 type GraphQLQuery struct {
-
 	// The name of the operation if multiple exist in the query.
 	OperationName string `json:"operationName,omitempty"`
 
