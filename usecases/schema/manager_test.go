@@ -541,7 +541,7 @@ func Test_DestinationPath(t *testing.T) {
 		ObjectSchema: &models.Schema{
 			Classes: []*models.Class{{
 				Class:             "Foo",
-				VectorIndexConfig: "parse me, i should be in some sort of an object",
+				VectorIndexConfig: make(map[string]interface{}),
 				VectorIndexType:   "hnsw", // will always be set when loading from disk
 			}},
 		},

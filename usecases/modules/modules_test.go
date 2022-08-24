@@ -500,10 +500,6 @@ func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, cl
 	return nil, nil
 }
 
-func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
-	return nil
-}
-
 func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return nil
 }

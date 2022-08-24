@@ -252,13 +252,20 @@ func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapsh
 ) middleware.Responder {
 	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
 	if err != nil {
-		return schema.
-			NewSchemaObjectsSnapshotsRestoreStatusInternalServerError().
-			WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{
-					Message: err.Error(),
-				}},
-			})
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case snapshots.ErrNotFound:
+			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
+				WithPayload(errPayloadFromSingleErr(err))
+		case snapshots.ErrUnprocessable:
+			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 	}
 
 	return schema.
