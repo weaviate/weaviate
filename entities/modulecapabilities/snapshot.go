@@ -22,7 +22,8 @@ type SnapshotStorage interface {
 	RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
 
 	InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
+	GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
 	SetMetaStatus(ctx context.Context, className, snapshotID, status string) error
-	GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error)
+	SetMetaError(ctx context.Context, className, snapshotID string, err error) error
 	DestinationPath(className, snapshotID string) string
 }

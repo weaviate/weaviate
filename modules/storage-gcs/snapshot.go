@@ -32,8 +32,12 @@ func (m *StorageGCSModule) SetMetaStatus(ctx context.Context, className, snapsho
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
 
-func (m *StorageGCSModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+func (m *StorageGCSModule) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
+}
+
+func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
 func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string {
@@ -45,7 +49,7 @@ func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshot
 }
 
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
-	config := gcs.NewConfig(os.Getenv(gcsBucket))
+	config := gcs.NewConfig(os.Getenv(gcsBucket), os.Getenv(gcsSnapshotRoot))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")

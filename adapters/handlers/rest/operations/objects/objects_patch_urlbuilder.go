@@ -53,7 +53,7 @@ func (o *ObjectsPatchURL) SetBasePath(bp string) {
 func (o *ObjectsPatchURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/objects/{id}"
+	_path := "/objects/{id}"
 
 	id := o.ID.String()
 	if id != "" {

@@ -23,12 +23,6 @@ import (
 
 type Status string
 
-const (
-	StatusStarted  Status = "started"
-	StatusCreated  Status = "created"
-	StatusReleased Status = "released"
-)
-
 type State struct {
 	SnapshotID string
 	InProgress bool
@@ -46,12 +40,13 @@ type Snapshot struct {
 
 	ID            string                    `json:"id"`        // User created snapshot id
 	ClassName     string                    `json:"className"` // DB class name, also selected by user
-	Status        Status                    `json:"status"`    // "STARTED|RUNNING|FINISHED|FAILED"
+	Status        string                    `json:"status"`    // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED"
 	Files         []string                  `json:"files"`     // Relative paths to files in the snapshot
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
 	Schema        []byte                    `json:"schema"`
 	ServerVersion string                    `json:"serverVersion"`
+	Error         string                    `json:"error"`
 
 	// so shard-level snapshotting can be safely parallelized
 	sync.Mutex `json:"-"`

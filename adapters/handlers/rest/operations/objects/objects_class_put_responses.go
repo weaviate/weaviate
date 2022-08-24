@@ -33,7 +33,6 @@ ObjectsClassPutOK Successfully received.
 swagger:response objectsClassPutOK
 */
 type ObjectsClassPutOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type ObjectsClassPutOK struct {
 
 // NewObjectsClassPutOK creates ObjectsClassPutOK with default headers values
 func NewObjectsClassPutOK() *ObjectsClassPutOK {
-
 	return &ObjectsClassPutOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *ObjectsClassPutOK) SetPayload(payload *models.Object) {
 
 // WriteResponse to the client
 func (o *ObjectsClassPutOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ ObjectsClassPutUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassPutUnauthorized
 */
-type ObjectsClassPutUnauthorized struct {
-}
+type ObjectsClassPutUnauthorized struct{}
 
 // NewObjectsClassPutUnauthorized creates ObjectsClassPutUnauthorized with default headers values
 func NewObjectsClassPutUnauthorized() *ObjectsClassPutUnauthorized {
-
 	return &ObjectsClassPutUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassPutUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ ObjectsClassPutForbidden Forbidden
 swagger:response objectsClassPutForbidden
 */
 type ObjectsClassPutForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type ObjectsClassPutForbidden struct {
 
 // NewObjectsClassPutForbidden creates ObjectsClassPutForbidden with default headers values
 func NewObjectsClassPutForbidden() *ObjectsClassPutForbidden {
-
 	return &ObjectsClassPutForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *ObjectsClassPutForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsClassPutForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -147,19 +138,16 @@ ObjectsClassPutNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassPutNotFound
 */
-type ObjectsClassPutNotFound struct {
-}
+type ObjectsClassPutNotFound struct{}
 
 // NewObjectsClassPutNotFound creates ObjectsClassPutNotFound with default headers values
 func NewObjectsClassPutNotFound() *ObjectsClassPutNotFound {
-
 	return &ObjectsClassPutNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassPutNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -173,7 +161,6 @@ ObjectsClassPutUnprocessableEntity Request body is well-formed (i.e., syntactica
 swagger:response objectsClassPutUnprocessableEntity
 */
 type ObjectsClassPutUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type ObjectsClassPutUnprocessableEntity struct {
 
 // NewObjectsClassPutUnprocessableEntity creates ObjectsClassPutUnprocessableEntity with default headers values
 func NewObjectsClassPutUnprocessableEntity() *ObjectsClassPutUnprocessableEntity {
-
 	return &ObjectsClassPutUnprocessableEntity{}
 }
 
@@ -199,7 +185,6 @@ func (o *ObjectsClassPutUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsClassPutUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -218,7 +203,6 @@ ObjectsClassPutInternalServerError An error has occurred while trying to fulfill
 swagger:response objectsClassPutInternalServerError
 */
 type ObjectsClassPutInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -227,7 +211,6 @@ type ObjectsClassPutInternalServerError struct {
 
 // NewObjectsClassPutInternalServerError creates ObjectsClassPutInternalServerError with default headers values
 func NewObjectsClassPutInternalServerError() *ObjectsClassPutInternalServerError {
-
 	return &ObjectsClassPutInternalServerError{}
 }
 
@@ -244,7 +227,6 @@ func (o *ObjectsClassPutInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsClassPutInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

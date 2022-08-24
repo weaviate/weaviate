@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -38,15 +39,17 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	bucketName := "bucket"
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
-		snapshot := createSnapshotInstance(t, testDir, className, snapshotID)
 		ctxSnapshot := context.Background()
 
 		logger, _ := test.NewNullLogger()
 
 		endpoint := os.Getenv(minioEndpoint)
-		s3Config := s3.NewConfig(endpoint, bucketName, false)
+		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
+		require.Nil(t, err)
+
+		snapshot, err := s3.InitSnapshot(ctxSnapshot, className, snapshotID)
 		require.Nil(t, err)
 
 		err = s3.StoreSnapshot(ctxSnapshot, snapshot)
@@ -55,13 +58,22 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 		dest := s3.DestinationPath(className, snapshotID)
 		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
 		assert.Equal(t, expected, dest)
+
+		t.Run("assert snapshot meta contents", func(t *testing.T) {
+			meta, err := s3.GetMeta(context.Background(), className, snapshotID)
+			require.Nil(t, err)
+			assert.NotEmpty(t, meta.StartedAt)
+			assert.Empty(t, meta.CompletedAt)
+			assert.Equal(t, meta.Status, string(snapshots.CreateStarted))
+			assert.Empty(t, meta.Error)
+		})
 	})
 
 	t.Run("restores snapshot data from S3", func(t *testing.T) {
 		ctxSnapshot := context.Background()
 
 		endpoint := os.Getenv(minioEndpoint)
-		s3Config := s3.NewConfig(endpoint, "bucket", false)
+		s3Config := s3.NewConfig(endpoint, "bucket", "", false)
 		logger, _ := test.NewNullLogger()
 		path, _ := os.Getwd()
 		s3, err := s3.New(s3Config, logger, path)
@@ -108,7 +120,7 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 	bucketName := "bucket"
 
 	endpoint := os.Getenv(minioEndpoint)
-	s3Config := s3.NewConfig(endpoint, bucketName, false)
+	s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 	logger, _ := test.NewNullLogger()
 	path, _ := os.Getwd()
 
@@ -135,8 +147,8 @@ func Test_S3Storage_MetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		status, err := s3.GetMetaStatus(context.Background(), className, snapshotID)
+		meta, err := s3.GetMeta(context.Background(), className, snapshotID)
 		assert.Nil(t, err)
-		assert.Equal(t, "STARTED", status)
+		assert.Equal(t, "STARTED", meta.Status)
 	})
 }

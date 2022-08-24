@@ -34,7 +34,6 @@ import (
 func NewObjectsCreateParams() *ObjectsCreateParams {
 	var ()
 	return &ObjectsCreateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewObjectsCreateParams() *ObjectsCreateParams {
 func NewObjectsCreateParamsWithTimeout(timeout time.Duration) *ObjectsCreateParams {
 	var ()
 	return &ObjectsCreateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewObjectsCreateParamsWithTimeout(timeout time.Duration) *ObjectsCreatePara
 func NewObjectsCreateParamsWithContext(ctx context.Context) *ObjectsCreateParams {
 	var ()
 	return &ObjectsCreateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ ObjectsCreateParams contains all the parameters to send to the API endpoint
 for the objects create operation typically these are written to a http.Request
 */
 type ObjectsCreateParams struct {
-
 	/*Body*/
 	Body *models.Object
 
@@ -128,7 +124,6 @@ func (o *ObjectsCreateParams) SetBody(body *models.Object) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

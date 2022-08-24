@@ -89,3 +89,14 @@ services:
       MINIO_ROOT_USER: aws_access_key
       MINIO_ROOT_PASSWORD: aws_secret_key
     command: server /data
+  storage-gcs:
+    image: fullstorydev/gcsemulator
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./snapshots-gcs:/storage
+    command:
+      - "-port"
+      - "9090"
+      - "-dir"
+      - "storage"

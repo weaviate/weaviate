@@ -16,8 +16,8 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 
@@ -189,7 +189,7 @@ func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCrea
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrUnprocessable:
+		case snapshots.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -211,7 +211,7 @@ func (s *schemaHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapsho
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrNotFound:
+		case snapshots.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -232,10 +232,10 @@ func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrNotFound:
+		case snapshots.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrUnprocessable:
+		case snapshots.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -256,10 +256,10 @@ func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapsh
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrNotFound:
+		case snapshots.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backups.ErrUnprocessable:
+		case snapshots.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:

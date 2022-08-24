@@ -72,7 +72,6 @@ func (o *WeaviateRootOK) GetPayload() *WeaviateRootOKBody {
 }
 
 func (o *WeaviateRootOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(WeaviateRootOKBody)
 
 	// response payload
@@ -88,7 +87,6 @@ WeaviateRootOKBody weaviate root o k body
 swagger:model WeaviateRootOKBody
 */
 type WeaviateRootOKBody struct {
-
 	// links
 	Links []*models.Link `json:"links"`
 }
@@ -108,7 +106,6 @@ func (o *WeaviateRootOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Links) { // not required
 		return nil
 	}

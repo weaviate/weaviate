@@ -33,7 +33,6 @@ ObjectsGetOK Successful response.
 swagger:response objectsGetOK
 */
 type ObjectsGetOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type ObjectsGetOK struct {
 
 // NewObjectsGetOK creates ObjectsGetOK with default headers values
 func NewObjectsGetOK() *ObjectsGetOK {
-
 	return &ObjectsGetOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *ObjectsGetOK) SetPayload(payload *models.Object) {
 
 // WriteResponse to the client
 func (o *ObjectsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -78,7 +75,6 @@ ObjectsGetBadRequest Malformed request.
 swagger:response objectsGetBadRequest
 */
 type ObjectsGetBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -87,7 +83,6 @@ type ObjectsGetBadRequest struct {
 
 // NewObjectsGetBadRequest creates ObjectsGetBadRequest with default headers values
 func NewObjectsGetBadRequest() *ObjectsGetBadRequest {
-
 	return &ObjectsGetBadRequest{}
 }
 
@@ -104,7 +99,6 @@ func (o *ObjectsGetBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsGetBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -122,19 +116,16 @@ ObjectsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsGetUnauthorized
 */
-type ObjectsGetUnauthorized struct {
-}
+type ObjectsGetUnauthorized struct{}
 
 // NewObjectsGetUnauthorized creates ObjectsGetUnauthorized with default headers values
 func NewObjectsGetUnauthorized() *ObjectsGetUnauthorized {
-
 	return &ObjectsGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -148,7 +139,6 @@ ObjectsGetForbidden Forbidden
 swagger:response objectsGetForbidden
 */
 type ObjectsGetForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type ObjectsGetForbidden struct {
 
 // NewObjectsGetForbidden creates ObjectsGetForbidden with default headers values
 func NewObjectsGetForbidden() *ObjectsGetForbidden {
-
 	return &ObjectsGetForbidden{}
 }
 
@@ -174,7 +163,6 @@ func (o *ObjectsGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -192,19 +180,16 @@ ObjectsGetNotFound Successful query result but no resource was found.
 
 swagger:response objectsGetNotFound
 */
-type ObjectsGetNotFound struct {
-}
+type ObjectsGetNotFound struct{}
 
 // NewObjectsGetNotFound creates ObjectsGetNotFound with default headers values
 func NewObjectsGetNotFound() *ObjectsGetNotFound {
-
 	return &ObjectsGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -218,7 +203,6 @@ ObjectsGetInternalServerError An error has occurred while trying to fulfill the 
 swagger:response objectsGetInternalServerError
 */
 type ObjectsGetInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -227,7 +211,6 @@ type ObjectsGetInternalServerError struct {
 
 // NewObjectsGetInternalServerError creates ObjectsGetInternalServerError with default headers values
 func NewObjectsGetInternalServerError() *ObjectsGetInternalServerError {
-
 	return &ObjectsGetInternalServerError{}
 }
 
@@ -244,7 +227,6 @@ func (o *ObjectsGetInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *ObjectsGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

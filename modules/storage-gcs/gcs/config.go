@@ -11,20 +11,24 @@
 
 package gcs
 
-const (
-	DEFAULT_BUCKET = "weaviate-snapshots"
-)
+const DEFAULT_BUCKET = "weaviate-snapshots"
 
 type Config interface {
 	BucketName() string
+	SnapshotRoot() string
 }
 
 type config struct {
 	bucket string
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket
+	snapshotRoot string
 }
 
-func NewConfig(bucket string) Config {
-	return &config{bucket}
+func NewConfig(bucket, root string) Config {
+	return &config{bucket, root}
 }
 
 func (c *config) BucketName() string {
@@ -32,4 +36,8 @@ func (c *config) BucketName() string {
 		return c.bucket
 	}
 	return DEFAULT_BUCKET
+}
+
+func (c *config) SnapshotRoot() string {
+	return c.snapshotRoot
 }
