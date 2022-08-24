@@ -33,7 +33,6 @@ GenesisPeersListOK The list of registered peers
 swagger:response genesisPeersListOK
 */
 type GenesisPeersListOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -78,8 +77,7 @@ GenesisPeersListInternalServerError Internal error
 
 swagger:response genesisPeersListInternalServerError
 */
-type GenesisPeersListInternalServerError struct {
-}
+type GenesisPeersListInternalServerError struct{}
 
 // NewGenesisPeersListInternalServerError creates GenesisPeersListInternalServerError with default headers values
 func NewGenesisPeersListInternalServerError() *GenesisPeersListInternalServerError {

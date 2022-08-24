@@ -80,15 +80,13 @@ ObjectsHeadNoContent handles this case with default header values.
 
 Object exists.
 */
-type ObjectsHeadNoContent struct {
-}
+type ObjectsHeadNoContent struct{}
 
 func (o *ObjectsHeadNoContent) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNoContent ", 204)
 }
 
 func (o *ObjectsHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -102,15 +100,13 @@ ObjectsHeadUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsHeadUnauthorized struct {
-}
+type ObjectsHeadUnauthorized struct{}
 
 func (o *ObjectsHeadUnauthorized) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadUnauthorized ", 401)
 }
 
 func (o *ObjectsHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -137,7 +133,6 @@ func (o *ObjectsHeadForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -158,15 +153,13 @@ ObjectsHeadNotFound handles this case with default header values.
 
 Object doesn't exist.
 */
-type ObjectsHeadNotFound struct {
-}
+type ObjectsHeadNotFound struct{}
 
 func (o *ObjectsHeadNotFound) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNotFound ", 404)
 }
 
 func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -193,7 +186,6 @@ func (o *ObjectsHeadInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

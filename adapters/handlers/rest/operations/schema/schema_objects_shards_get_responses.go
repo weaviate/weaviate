@@ -33,7 +33,6 @@ SchemaObjectsShardsGetOK Found the status of the shards, returned as body
 swagger:response schemaObjectsShardsGetOK
 */
 type SchemaObjectsShardsGetOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SchemaObjectsShardsGetOK struct {
 
 // NewSchemaObjectsShardsGetOK creates SchemaObjectsShardsGetOK with default headers values
 func NewSchemaObjectsShardsGetOK() *SchemaObjectsShardsGetOK {
-
 	return &SchemaObjectsShardsGetOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SchemaObjectsShardsGetOK) SetPayload(payload models.ShardStatusList) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -80,19 +77,16 @@ SchemaObjectsShardsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsShardsGetUnauthorized
 */
-type SchemaObjectsShardsGetUnauthorized struct {
-}
+type SchemaObjectsShardsGetUnauthorized struct{}
 
 // NewSchemaObjectsShardsGetUnauthorized creates SchemaObjectsShardsGetUnauthorized with default headers values
 func NewSchemaObjectsShardsGetUnauthorized() *SchemaObjectsShardsGetUnauthorized {
-
 	return &SchemaObjectsShardsGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -106,7 +100,6 @@ SchemaObjectsShardsGetForbidden Forbidden
 swagger:response schemaObjectsShardsGetForbidden
 */
 type SchemaObjectsShardsGetForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -115,7 +108,6 @@ type SchemaObjectsShardsGetForbidden struct {
 
 // NewSchemaObjectsShardsGetForbidden creates SchemaObjectsShardsGetForbidden with default headers values
 func NewSchemaObjectsShardsGetForbidden() *SchemaObjectsShardsGetForbidden {
-
 	return &SchemaObjectsShardsGetForbidden{}
 }
 
@@ -132,7 +124,6 @@ func (o *SchemaObjectsShardsGetForbidden) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -151,7 +142,6 @@ SchemaObjectsShardsGetNotFound This class does not exist
 swagger:response schemaObjectsShardsGetNotFound
 */
 type SchemaObjectsShardsGetNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -160,7 +150,6 @@ type SchemaObjectsShardsGetNotFound struct {
 
 // NewSchemaObjectsShardsGetNotFound creates SchemaObjectsShardsGetNotFound with default headers values
 func NewSchemaObjectsShardsGetNotFound() *SchemaObjectsShardsGetNotFound {
-
 	return &SchemaObjectsShardsGetNotFound{}
 }
 
@@ -177,7 +166,6 @@ func (o *SchemaObjectsShardsGetNotFound) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -196,7 +184,6 @@ SchemaObjectsShardsGetInternalServerError An error has occurred while trying to 
 swagger:response schemaObjectsShardsGetInternalServerError
 */
 type SchemaObjectsShardsGetInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -205,7 +192,6 @@ type SchemaObjectsShardsGetInternalServerError struct {
 
 // NewSchemaObjectsShardsGetInternalServerError creates SchemaObjectsShardsGetInternalServerError with default headers values
 func NewSchemaObjectsShardsGetInternalServerError() *SchemaObjectsShardsGetInternalServerError {
-
 	return &SchemaObjectsShardsGetInternalServerError{}
 }
 
@@ -222,7 +208,6 @@ func (o *SchemaObjectsShardsGetInternalServerError) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

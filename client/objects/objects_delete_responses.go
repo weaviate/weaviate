@@ -80,15 +80,13 @@ ObjectsDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
-type ObjectsDeleteNoContent struct {
-}
+type ObjectsDeleteNoContent struct{}
 
 func (o *ObjectsDeleteNoContent) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNoContent ", 204)
 }
 
 func (o *ObjectsDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -102,15 +100,13 @@ ObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsDeleteUnauthorized struct {
-}
+type ObjectsDeleteUnauthorized struct{}
 
 func (o *ObjectsDeleteUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -137,7 +133,6 @@ func (o *ObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -158,15 +153,13 @@ ObjectsDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsDeleteNotFound struct {
-}
+type ObjectsDeleteNotFound struct{}
 
 func (o *ObjectsDeleteNotFound) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNotFound ", 404)
 }
 
 func (o *ObjectsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -193,7 +186,6 @@ func (o *ObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

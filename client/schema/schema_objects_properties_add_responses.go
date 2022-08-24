@@ -93,7 +93,6 @@ func (o *SchemaObjectsPropertiesAddOK) GetPayload() *models.Property {
 }
 
 func (o *SchemaObjectsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Property)
 
 	// response payload
@@ -114,15 +113,13 @@ SchemaObjectsPropertiesAddUnauthorized handles this case with default header val
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsPropertiesAddUnauthorized struct {
-}
+type SchemaObjectsPropertiesAddUnauthorized struct{}
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /schema/{className}/properties][%d] schemaObjectsPropertiesAddUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsPropertiesAddUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +146,6 @@ func (o *SchemaObjectsPropertiesAddForbidden) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaObjectsPropertiesAddForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -183,7 +179,6 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) GetPayload() *models.Err
 }
 
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *SchemaObjectsPropertiesAddInternalServerError) GetPayload() *models.Err
 }
 
 func (o *SchemaObjectsPropertiesAddInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

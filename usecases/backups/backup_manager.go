@@ -153,23 +153,23 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	// requested storage is registered
 	storage, err := bm.storages.BackupStorage(storageName)
 	if err != nil {
-		return nil,  nil, NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
+		return nil, nil, NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
 	}
 
 	// snapshot with given id exists and is valid
 	if status, err := storage.GetMetaStatus(ctx, className, snapshotID); err != nil {
 		// TODO improve check, according to implementation of GetMetaStatus
 		if err.Error() != "file does not exist" {
-			return nil,  nil, NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
+			return nil, nil, NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 		}
 		return nil, nil, NewErrNotFound(errors.Wrapf(err, "snapshot %s of index for %s does not exist on storage %s", snapshotID, className, storageName))
 	} else if backups.CreateStatus(status) != backups.CS_SUCCESS {
-		return nil,  nil, NewErrNotFound(fmt.Errorf("snapshot %s of index for %s on storage %s is corrupted", snapshotID, className, storageName))
+		return nil, nil, NewErrNotFound(fmt.Errorf("snapshot %s of index for %s on storage %s is corrupted", snapshotID, className, storageName))
 	}
 
 	// no restore in progress for the class
 	if !bm.setRestoreInProgress(className, true) {
-		return nil,  nil, NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
+		return nil, nil, NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
 	}
 
 	snapshot, err := storage.RestoreSnapshot(ctx, className, snapshotID)

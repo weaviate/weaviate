@@ -34,7 +34,6 @@ import (
 func NewObjectsValidateParams() *ObjectsValidateParams {
 	var ()
 	return &ObjectsValidateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewObjectsValidateParams() *ObjectsValidateParams {
 func NewObjectsValidateParamsWithTimeout(timeout time.Duration) *ObjectsValidateParams {
 	var ()
 	return &ObjectsValidateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewObjectsValidateParamsWithTimeout(timeout time.Duration) *ObjectsValidate
 func NewObjectsValidateParamsWithContext(ctx context.Context) *ObjectsValidateParams {
 	var ()
 	return &ObjectsValidateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ ObjectsValidateParams contains all the parameters to send to the API endpoint
 for the objects validate operation typically these are written to a http.Request
 */
 type ObjectsValidateParams struct {
-
 	/*Body*/
 	Body *models.Object
 
@@ -128,7 +124,6 @@ func (o *ObjectsValidateParams) SetBody(body *models.Object) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsValidateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -33,7 +33,6 @@ SchemaObjectsSnapshotsCreateOK Snapshot process successfully started.
 swagger:response schemaObjectsSnapshotsCreateOK
 */
 type SchemaObjectsSnapshotsCreateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SchemaObjectsSnapshotsCreateOK struct {
 
 // NewSchemaObjectsSnapshotsCreateOK creates SchemaObjectsSnapshotsCreateOK with default headers values
 func NewSchemaObjectsSnapshotsCreateOK() *SchemaObjectsSnapshotsCreateOK {
-
 	return &SchemaObjectsSnapshotsCreateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SchemaObjectsSnapshotsCreateOK) SetPayload(payload *models.SnapshotMeta
 
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ SchemaObjectsSnapshotsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsSnapshotsCreateUnauthorized
 */
-type SchemaObjectsSnapshotsCreateUnauthorized struct {
-}
+type SchemaObjectsSnapshotsCreateUnauthorized struct{}
 
 // NewSchemaObjectsSnapshotsCreateUnauthorized creates SchemaObjectsSnapshotsCreateUnauthorized with default headers values
 func NewSchemaObjectsSnapshotsCreateUnauthorized() *SchemaObjectsSnapshotsCreateUnauthorized {
-
 	return &SchemaObjectsSnapshotsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ SchemaObjectsSnapshotsCreateForbidden Forbidden
 swagger:response schemaObjectsSnapshotsCreateForbidden
 */
 type SchemaObjectsSnapshotsCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type SchemaObjectsSnapshotsCreateForbidden struct {
 
 // NewSchemaObjectsSnapshotsCreateForbidden creates SchemaObjectsSnapshotsCreateForbidden with default headers values
 func NewSchemaObjectsSnapshotsCreateForbidden() *SchemaObjectsSnapshotsCreateForbidden {
-
 	return &SchemaObjectsSnapshotsCreateForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *SchemaObjectsSnapshotsCreateForbidden) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ SchemaObjectsSnapshotsCreateUnprocessableEntity Invalid create snapshot attempt.
 swagger:response schemaObjectsSnapshotsCreateUnprocessableEntity
 */
 type SchemaObjectsSnapshotsCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type SchemaObjectsSnapshotsCreateUnprocessableEntity struct {
 
 // NewSchemaObjectsSnapshotsCreateUnprocessableEntity creates SchemaObjectsSnapshotsCreateUnprocessableEntity with default headers values
 func NewSchemaObjectsSnapshotsCreateUnprocessableEntity() *SchemaObjectsSnapshotsCreateUnprocessableEntity {
-
 	return &SchemaObjectsSnapshotsCreateUnprocessableEntity{}
 }
 
@@ -174,7 +163,6 @@ func (o *SchemaObjectsSnapshotsCreateUnprocessableEntity) SetPayload(payload *mo
 
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ SchemaObjectsSnapshotsCreateInternalServerError An error has occurred while tryi
 swagger:response schemaObjectsSnapshotsCreateInternalServerError
 */
 type SchemaObjectsSnapshotsCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type SchemaObjectsSnapshotsCreateInternalServerError struct {
 
 // NewSchemaObjectsSnapshotsCreateInternalServerError creates SchemaObjectsSnapshotsCreateInternalServerError with default headers values
 func NewSchemaObjectsSnapshotsCreateInternalServerError() *SchemaObjectsSnapshotsCreateInternalServerError {
-
 	return &SchemaObjectsSnapshotsCreateInternalServerError{}
 }
 
@@ -219,7 +205,6 @@ func (o *SchemaObjectsSnapshotsCreateInternalServerError) SetPayload(payload *mo
 
 // WriteResponse to the client
 func (o *SchemaObjectsSnapshotsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

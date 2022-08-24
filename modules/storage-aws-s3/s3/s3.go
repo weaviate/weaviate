@@ -142,7 +142,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 			return nil, errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
 		}
 	}
-	return  snapshot, nil
+	return snapshot, nil
 }
 
 func (s *s3) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {

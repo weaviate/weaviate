@@ -53,7 +53,7 @@ func (o *SchemaObjectsSnapshotsRestoreURL) SetBasePath(bp string) {
 func (o *SchemaObjectsSnapshotsRestoreURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/snapshots/{storageName}/{id}/restore"
+	_path := "/schema/{className}/snapshots/{storageName}/{id}/restore"
 
 	className := o.ClassName
 	if className != "" {

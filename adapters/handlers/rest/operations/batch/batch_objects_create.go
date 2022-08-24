@@ -65,7 +65,7 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewBatchObjectsCreateParams()
+	Params := NewBatchObjectsCreateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -88,14 +88,12 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // BatchObjectsCreateBody batch objects create body
 //
 // swagger:model BatchObjectsCreateBody
 type BatchObjectsCreateBody struct {
-
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `yaml:"fields" json:"fields"`
 
@@ -141,7 +139,6 @@ func (o *BatchObjectsCreateBody) validateFieldsItemsEnum(path, location string, 
 }
 
 func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -162,7 +159,6 @@ func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
 }
 
 func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Objects) { // not required
 		return nil
 	}
