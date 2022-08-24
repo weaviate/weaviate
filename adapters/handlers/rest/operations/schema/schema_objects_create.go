@@ -57,7 +57,7 @@ func (o *SchemaObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewSchemaObjectsCreateParams()
+	var Params = NewSchemaObjectsCreateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -80,4 +80,5 @@ func (o *SchemaObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

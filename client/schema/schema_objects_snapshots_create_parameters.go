@@ -32,6 +32,7 @@ import (
 func NewSchemaObjectsSnapshotsCreateParams() *SchemaObjectsSnapshotsCreateParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -41,6 +42,7 @@ func NewSchemaObjectsSnapshotsCreateParams() *SchemaObjectsSnapshotsCreateParams
 func NewSchemaObjectsSnapshotsCreateParamsWithTimeout(timeout time.Duration) *SchemaObjectsSnapshotsCreateParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateParams{
+
 		timeout: timeout,
 	}
 }
@@ -50,6 +52,7 @@ func NewSchemaObjectsSnapshotsCreateParamsWithTimeout(timeout time.Duration) *Sc
 func NewSchemaObjectsSnapshotsCreateParamsWithContext(ctx context.Context) *SchemaObjectsSnapshotsCreateParams {
 	var ()
 	return &SchemaObjectsSnapshotsCreateParams{
+
 		Context: ctx,
 	}
 }
@@ -68,6 +71,7 @@ SchemaObjectsSnapshotsCreateParams contains all the parameters to send to the AP
 for the schema objects snapshots create operation typically these are written to a http.Request
 */
 type SchemaObjectsSnapshotsCreateParams struct {
+
 	/*ClassName
 	  The name of the class
 
@@ -157,6 +161,7 @@ func (o *SchemaObjectsSnapshotsCreateParams) SetStorageName(storageName string) 
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsSnapshotsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

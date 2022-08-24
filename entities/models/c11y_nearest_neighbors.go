@@ -59,6 +59,7 @@ func (m C11yNearestNeighbors) Validate(formats strfmt.Registry) error {
 //
 // swagger:model C11yNearestNeighborsItems0
 type C11yNearestNeighborsItems0 struct {
+
 	// distance
 	Distance float32 `json:"distance,omitempty"`
 

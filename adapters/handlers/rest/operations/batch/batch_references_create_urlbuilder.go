@@ -46,7 +46,7 @@ func (o *BatchReferencesCreateURL) SetBasePath(bp string) {
 func (o *BatchReferencesCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/batch/references"
+	var _path = "/batch/references"
 
 	_basePath := o._basePath
 	if _basePath == "" {

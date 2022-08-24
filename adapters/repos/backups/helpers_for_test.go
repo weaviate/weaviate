@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //go:build integrationTest
 // +build integrationTest
 
@@ -14,7 +25,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/adapters/repos/modules"
+	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"

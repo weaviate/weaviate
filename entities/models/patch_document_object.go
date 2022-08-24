@@ -29,6 +29,7 @@ import (
 //
 // swagger:model PatchDocumentObject
 type PatchDocumentObject struct {
+
 	// A string containing a JSON Pointer value.
 	From string `json:"from,omitempty"`
 
@@ -71,6 +72,7 @@ func (m *PatchDocumentObject) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentObject) validateMerge(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Merge) { // not required
 		return nil
 	}
@@ -129,6 +131,7 @@ func (m *PatchDocumentObject) validateOpEnum(path, location string, value string
 }
 
 func (m *PatchDocumentObject) validateOp(formats strfmt.Registry) error {
+
 	if err := validate.Required("op", "body", m.Op); err != nil {
 		return err
 	}
@@ -142,6 +145,7 @@ func (m *PatchDocumentObject) validateOp(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentObject) validatePath(formats strfmt.Registry) error {
+
 	if err := validate.Required("path", "body", m.Path); err != nil {
 		return err
 	}

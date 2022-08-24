@@ -29,6 +29,7 @@ import (
 //
 // swagger:model SnapshotMeta
 type SnapshotMeta struct {
+
 	// error message if creation failed
 	Error string `json:"error,omitempty"`
 
@@ -99,6 +100,7 @@ func (m *SnapshotMeta) validateStatusEnum(path, location string, value string) e
 }
 
 func (m *SnapshotMeta) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

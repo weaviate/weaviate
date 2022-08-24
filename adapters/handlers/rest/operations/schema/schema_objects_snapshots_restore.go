@@ -57,7 +57,7 @@ func (o *SchemaObjectsSnapshotsRestore) ServeHTTP(rw http.ResponseWriter, r *htt
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewSchemaObjectsSnapshotsRestoreParams()
+	var Params = NewSchemaObjectsSnapshotsRestoreParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -80,4 +80,5 @@ func (o *SchemaObjectsSnapshotsRestore) ServeHTTP(rw http.ResponseWriter, r *htt
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

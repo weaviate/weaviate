@@ -30,6 +30,7 @@ import (
 // NewSchemaObjectsCreateParams creates a new SchemaObjectsCreateParams object
 // no default values defined in spec.
 func NewSchemaObjectsCreateParams() SchemaObjectsCreateParams {
+
 	return SchemaObjectsCreateParams{}
 }
 
@@ -38,6 +39,7 @@ func NewSchemaObjectsCreateParams() SchemaObjectsCreateParams {
 //
 // swagger:parameters schema.objects.create
 type SchemaObjectsCreateParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
