@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
@@ -183,7 +184,7 @@ func (f *fakeBackupManager) CreateBackup(ctx context.Context,
 
 func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
 	className, storageName, snapshotID string,
-) (*backups.RestoreMeta, []byte, error) {
+) (*backups.RestoreMeta, *snapshots.Snapshot, error) {
 	return nil, nil, nil
 }
 
