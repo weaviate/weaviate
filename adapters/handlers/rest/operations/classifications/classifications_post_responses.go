@@ -33,6 +33,7 @@ ClassificationsPostCreated Successfully started classification.
 swagger:response classificationsPostCreated
 */
 type ClassificationsPostCreated struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type ClassificationsPostCreated struct {
 
 // NewClassificationsPostCreated creates ClassificationsPostCreated with default headers values
 func NewClassificationsPostCreated() *ClassificationsPostCreated {
+
 	return &ClassificationsPostCreated{}
 }
 
@@ -57,6 +59,7 @@ func (o *ClassificationsPostCreated) SetPayload(payload *models.Classification) 
 
 // WriteResponse to the client
 func (o *ClassificationsPostCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(201)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ ClassificationsPostBadRequest Incorrect request
 swagger:response classificationsPostBadRequest
 */
 type ClassificationsPostBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type ClassificationsPostBadRequest struct {
 
 // NewClassificationsPostBadRequest creates ClassificationsPostBadRequest with default headers values
 func NewClassificationsPostBadRequest() *ClassificationsPostBadRequest {
+
 	return &ClassificationsPostBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *ClassificationsPostBadRequest) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *ClassificationsPostBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ ClassificationsPostUnauthorized Unauthorized or invalid credentials.
 
 swagger:response classificationsPostUnauthorized
 */
-type ClassificationsPostUnauthorized struct{}
+type ClassificationsPostUnauthorized struct {
+}
 
 // NewClassificationsPostUnauthorized creates ClassificationsPostUnauthorized with default headers values
 func NewClassificationsPostUnauthorized() *ClassificationsPostUnauthorized {
+
 	return &ClassificationsPostUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ClassificationsPostUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ ClassificationsPostForbidden Forbidden
 swagger:response classificationsPostForbidden
 */
 type ClassificationsPostForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type ClassificationsPostForbidden struct {
 
 // NewClassificationsPostForbidden creates ClassificationsPostForbidden with default headers values
 func NewClassificationsPostForbidden() *ClassificationsPostForbidden {
+
 	return &ClassificationsPostForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *ClassificationsPostForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *ClassificationsPostForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ ClassificationsPostInternalServerError An error has occurred while trying to ful
 swagger:response classificationsPostInternalServerError
 */
 type ClassificationsPostInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type ClassificationsPostInternalServerError struct {
 
 // NewClassificationsPostInternalServerError creates ClassificationsPostInternalServerError with default headers values
 func NewClassificationsPostInternalServerError() *ClassificationsPostInternalServerError {
+
 	return &ClassificationsPostInternalServerError{}
 }
 
@@ -205,6 +219,7 @@ func (o *ClassificationsPostInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *ClassificationsPostInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

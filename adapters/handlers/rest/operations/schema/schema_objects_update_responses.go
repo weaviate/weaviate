@@ -33,6 +33,7 @@ SchemaObjectsUpdateOK Class was updated successfully
 swagger:response schemaObjectsUpdateOK
 */
 type SchemaObjectsUpdateOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type SchemaObjectsUpdateOK struct {
 
 // NewSchemaObjectsUpdateOK creates SchemaObjectsUpdateOK with default headers values
 func NewSchemaObjectsUpdateOK() *SchemaObjectsUpdateOK {
+
 	return &SchemaObjectsUpdateOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *SchemaObjectsUpdateOK) SetPayload(payload *models.Class) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ SchemaObjectsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsUpdateUnauthorized
 */
-type SchemaObjectsUpdateUnauthorized struct{}
+type SchemaObjectsUpdateUnauthorized struct {
+}
 
 // NewSchemaObjectsUpdateUnauthorized creates SchemaObjectsUpdateUnauthorized with default headers values
 func NewSchemaObjectsUpdateUnauthorized() *SchemaObjectsUpdateUnauthorized {
+
 	return &SchemaObjectsUpdateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ SchemaObjectsUpdateForbidden Forbidden
 swagger:response schemaObjectsUpdateForbidden
 */
 type SchemaObjectsUpdateForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type SchemaObjectsUpdateForbidden struct {
 
 // NewSchemaObjectsUpdateForbidden creates SchemaObjectsUpdateForbidden with default headers values
 func NewSchemaObjectsUpdateForbidden() *SchemaObjectsUpdateForbidden {
+
 	return &SchemaObjectsUpdateForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *SchemaObjectsUpdateForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ SchemaObjectsUpdateNotFound Class to be updated does not exist
 swagger:response schemaObjectsUpdateNotFound
 */
 type SchemaObjectsUpdateNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type SchemaObjectsUpdateNotFound struct {
 
 // NewSchemaObjectsUpdateNotFound creates SchemaObjectsUpdateNotFound with default headers values
 func NewSchemaObjectsUpdateNotFound() *SchemaObjectsUpdateNotFound {
+
 	return &SchemaObjectsUpdateNotFound{}
 }
 
@@ -163,6 +174,7 @@ func (o *SchemaObjectsUpdateNotFound) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ SchemaObjectsUpdateUnprocessableEntity Invalid update attempt
 swagger:response schemaObjectsUpdateUnprocessableEntity
 */
 type SchemaObjectsUpdateUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type SchemaObjectsUpdateUnprocessableEntity struct {
 
 // NewSchemaObjectsUpdateUnprocessableEntity creates SchemaObjectsUpdateUnprocessableEntity with default headers values
 func NewSchemaObjectsUpdateUnprocessableEntity() *SchemaObjectsUpdateUnprocessableEntity {
+
 	return &SchemaObjectsUpdateUnprocessableEntity{}
 }
 
@@ -205,6 +219,7 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -223,6 +238,7 @@ SchemaObjectsUpdateInternalServerError An error has occurred while trying to ful
 swagger:response schemaObjectsUpdateInternalServerError
 */
 type SchemaObjectsUpdateInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -231,6 +247,7 @@ type SchemaObjectsUpdateInternalServerError struct {
 
 // NewSchemaObjectsUpdateInternalServerError creates SchemaObjectsUpdateInternalServerError with default headers values
 func NewSchemaObjectsUpdateInternalServerError() *SchemaObjectsUpdateInternalServerError {
+
 	return &SchemaObjectsUpdateInternalServerError{}
 }
 
@@ -247,6 +264,7 @@ func (o *SchemaObjectsUpdateInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaObjectsUpdateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

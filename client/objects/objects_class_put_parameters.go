@@ -34,6 +34,7 @@ import (
 func NewObjectsClassPutParams() *ObjectsClassPutParams {
 	var ()
 	return &ObjectsClassPutParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewObjectsClassPutParams() *ObjectsClassPutParams {
 func NewObjectsClassPutParamsWithTimeout(timeout time.Duration) *ObjectsClassPutParams {
 	var ()
 	return &ObjectsClassPutParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewObjectsClassPutParamsWithTimeout(timeout time.Duration) *ObjectsClassPut
 func NewObjectsClassPutParamsWithContext(ctx context.Context) *ObjectsClassPutParams {
 	var ()
 	return &ObjectsClassPutParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ ObjectsClassPutParams contains all the parameters to send to the API endpoint
 for the objects class put operation typically these are written to a http.Request
 */
 type ObjectsClassPutParams struct {
+
 	/*Body*/
 	Body *models.Object
 	/*ClassName*/
@@ -153,6 +157,7 @@ func (o *ObjectsClassPutParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassPutParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

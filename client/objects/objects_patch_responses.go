@@ -92,13 +92,15 @@ ObjectsPatchNoContent handles this case with default header values.
 
 Successfully applied. No content provided.
 */
-type ObjectsPatchNoContent struct{}
+type ObjectsPatchNoContent struct {
+}
 
 func (o *ObjectsPatchNoContent) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
 }
 
 func (o *ObjectsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -112,13 +114,15 @@ ObjectsPatchBadRequest handles this case with default header values.
 
 The patch-JSON is malformed.
 */
-type ObjectsPatchBadRequest struct{}
+type ObjectsPatchBadRequest struct {
+}
 
 func (o *ObjectsPatchBadRequest) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
 }
 
 func (o *ObjectsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -132,13 +136,15 @@ ObjectsPatchUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsPatchUnauthorized struct{}
+type ObjectsPatchUnauthorized struct {
+}
 
 func (o *ObjectsPatchUnauthorized) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
 }
 
 func (o *ObjectsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -165,6 +171,7 @@ func (o *ObjectsPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -185,13 +192,15 @@ ObjectsPatchNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsPatchNotFound struct{}
+type ObjectsPatchNotFound struct {
+}
 
 func (o *ObjectsPatchNotFound) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
 }
 
 func (o *ObjectsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -218,6 +227,7 @@ func (o *ObjectsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -251,6 +261,7 @@ func (o *ObjectsPatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

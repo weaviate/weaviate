@@ -25,6 +25,7 @@ import (
 //
 // swagger:model Link
 type Link struct {
+
 	// weaviate documentation about this resource group
 	DocumentationHref string `json:"documentationHref,omitempty"`
 

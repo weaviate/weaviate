@@ -29,6 +29,7 @@ import (
 //
 // swagger:model Classification
 type Classification struct {
+
 	// base the text-based classification on these fields (of type text)
 	BasedOnProperties []string `json:"basedOnProperties"`
 
@@ -89,6 +90,7 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateFilters(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Filters) { // not required
 		return nil
 	}
@@ -106,6 +108,7 @@ func (m *Classification) validateFilters(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateID(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -118,6 +121,7 @@ func (m *Classification) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateMeta(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}
@@ -167,6 +171,7 @@ func (m *Classification) validateStatusEnum(path, location string, value string)
 }
 
 func (m *Classification) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -201,6 +206,7 @@ func (m *Classification) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ClassificationFilters
 type ClassificationFilters struct {
+
 	// limit the objects to be classified
 	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
 
@@ -234,6 +240,7 @@ func (m *ClassificationFilters) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.SourceWhere) { // not required
 		return nil
 	}
@@ -251,6 +258,7 @@ func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) err
 }
 
 func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.TargetWhere) { // not required
 		return nil
 	}
@@ -268,6 +276,7 @@ func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) err
 }
 
 func (m *ClassificationFilters) validateTrainingSetWhere(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.TrainingSetWhere) { // not required
 		return nil
 	}

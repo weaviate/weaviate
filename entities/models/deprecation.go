@@ -27,6 +27,7 @@ import (
 //
 // swagger:model Deprecation
 type Deprecation struct {
+
 	// Describes which API is effected, usually one of: REST, GraphQL
 	APIType string `json:"apiType,omitempty"`
 
@@ -82,6 +83,7 @@ func (m *Deprecation) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.RemovedTime) { // not required
 		return nil
 	}
@@ -94,6 +96,7 @@ func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateSinceTime(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.SinceTime) { // not required
 		return nil
 	}

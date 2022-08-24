@@ -33,6 +33,7 @@ MetaGetOK Successful response.
 swagger:response metaGetOK
 */
 type MetaGetOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type MetaGetOK struct {
 
 // NewMetaGetOK creates MetaGetOK with default headers values
 func NewMetaGetOK() *MetaGetOK {
+
 	return &MetaGetOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *MetaGetOK) SetPayload(payload *models.Meta) {
 
 // WriteResponse to the client
 func (o *MetaGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ MetaGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response metaGetUnauthorized
 */
-type MetaGetUnauthorized struct{}
+type MetaGetUnauthorized struct {
+}
 
 // NewMetaGetUnauthorized creates MetaGetUnauthorized with default headers values
 func NewMetaGetUnauthorized() *MetaGetUnauthorized {
+
 	return &MetaGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *MetaGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ MetaGetForbidden Forbidden
 swagger:response metaGetForbidden
 */
 type MetaGetForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type MetaGetForbidden struct {
 
 // NewMetaGetForbidden creates MetaGetForbidden with default headers values
 func NewMetaGetForbidden() *MetaGetForbidden {
+
 	return &MetaGetForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *MetaGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *MetaGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ MetaGetInternalServerError An error has occurred while trying to fulfill the req
 swagger:response metaGetInternalServerError
 */
 type MetaGetInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type MetaGetInternalServerError struct {
 
 // NewMetaGetInternalServerError creates MetaGetInternalServerError with default headers values
 func NewMetaGetInternalServerError() *MetaGetInternalServerError {
+
 	return &MetaGetInternalServerError{}
 }
 
@@ -163,6 +174,7 @@ func (o *MetaGetInternalServerError) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *MetaGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

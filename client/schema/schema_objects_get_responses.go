@@ -93,6 +93,7 @@ func (o *SchemaObjectsGetOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -113,13 +114,15 @@ SchemaObjectsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsGetUnauthorized struct{}
+type SchemaObjectsGetUnauthorized struct {
+}
 
 func (o *SchemaObjectsGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -146,6 +149,7 @@ func (o *SchemaObjectsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -166,13 +170,15 @@ SchemaObjectsGetNotFound handles this case with default header values.
 
 This class does not exist
 */
-type SchemaObjectsGetNotFound struct{}
+type SchemaObjectsGetNotFound struct {
+}
 
 func (o *SchemaObjectsGetNotFound) Error() string {
 	return fmt.Sprintf("[GET /schema/{className}][%d] schemaObjectsGetNotFound ", 404)
 }
 
 func (o *SchemaObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -199,6 +205,7 @@ func (o *SchemaObjectsGetInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaObjectsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
