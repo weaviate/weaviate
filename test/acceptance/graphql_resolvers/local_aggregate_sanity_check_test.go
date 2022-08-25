@@ -21,6 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func getCount(result *graphqlhelper.GraphQLResult, className, property string) interface{} {
+	meta := result.Get("Aggregate", className).AsSlice()[0].(map[string]interface{})[property]
+	return meta.(map[string]interface{})["count"]
+}
+
 // run by setup_test.go
 func runningAggregateArrayClassSanityCheck(t *testing.T) {
 	t.Run("running Aggregate against ArrayClass", func(t *testing.T) {
@@ -58,10 +63,7 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 				}
 			}
 		`
-		getCount := func(result *graphqlhelper.GraphQLResult, className, property string) interface{} {
-			meta := result.Get("Aggregate", className).AsSlice()[0].(map[string]interface{})[property]
-			return meta.(map[string]interface{})["count"]
-		}
+
 		tests := []struct {
 			name    string
 			filters string
@@ -96,6 +98,73 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "strings"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "texts"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "ints"))
+			})
+		}
+	})
+
+	t.Run("running Aggregate against City", func(t *testing.T) {
+		query := `
+			{
+			  Aggregate {
+				City 
+				%s
+				{
+				  meta {
+					count
+				  }
+				  cityArea {
+					count
+				  }
+				  isCapital {
+					count
+				  }
+				  population {
+					count
+				  }
+				  cityRights {
+					count
+				  }
+				  history {
+					count
+				  }
+				}
+			  }
+			}
+		`
+
+		tests := []struct {
+			name    string
+			filters string
+		}{
+			{
+				name: "without filters",
+			},
+			{
+				name:    "with where filter",
+				filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
+			},
+			{
+				name:    "with nearObject filter",
+				filters: `( nearObject:{id: "660db307-a163-41d2-8182-560782cd018f" certainty: 0.1} )`,
+			},
+			{
+				name: "with where and nearObject filter",
+				filters: `(
+					where:{operator: Like path:["id"] valueString:"*"}
+					nearObject:{id: "660db307-a163-41d2-8182-560782cd018f" certainty: 0.1}
+				)`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
+				// One city object (null island) has no entries for most properties (except population, isCapital and location)
+				assert.Equal(t, json.Number("5"), getCount(result, "City", "meta"))
+				assert.Equal(t, json.Number("4"), getCount(result, "City", "cityArea"))
+				assert.Equal(t, json.Number("5"), getCount(result, "City", "isCapital"))
+				assert.Equal(t, json.Number("5"), getCount(result, "City", "population"))
+				assert.Equal(t, json.Number("4"), getCount(result, "City", "cityRights"))
+				assert.Equal(t, json.Number("4"), getCount(result, "City", "history"))
 			})
 		}
 	})
