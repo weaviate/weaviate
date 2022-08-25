@@ -72,19 +72,11 @@ func makeFilePath(parts ...string) string {
 }
 
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
-	// create bucket
-	bucketName := s.config.BucketName()
-	bucketExists, err := s.client.BucketExists(ctx, bucketName)
+	bucketName, err := s.findBucket(ctx)
 	if err != nil {
-		return snapshots.NewErrInternal(errors.Wrap(err, "check bucket exists"))
+		return snapshots.NewErrInternal(errors.Wrap(err, "store snapshot"))
 	}
-	if !bucketExists {
-		err = s.client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
-		if err != nil {
-			return snapshots.NewErrInternal(
-				errors.Wrapf(err, "create bucket '%s'", bucketName))
-		}
-	}
+
 	// save files
 	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	for _, srcRelPath := range snapshot.Files {
@@ -123,13 +115,9 @@ func (s *s3) putMeta(ctx context.Context, snapshot *snapshots.Snapshot) error {
 }
 
 func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	bucketName := s.config.BucketName()
-	bucketExists, err := s.client.BucketExists(ctx, bucketName)
-	if !bucketExists {
-		return nil, errors.Wrap(err, "backup bucket does not exist")
-	}
+	bucketName, err := s.findBucket(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "can't connect to bucket")
+		return nil, errors.Wrap(err, "restore snapshot")
 	}
 
 	// Load the metadata from the backup into a snapshot struct
@@ -149,7 +137,7 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		filePath := makeFilePath(s.dataPath, srcRelPath)
 
 		// Download the backup file from the bucket
-		err := s.client.FGetObject(ctx, s.config.BucketName(), objectName, filePath, minio.GetObjectOptions{})
+		err := s.client.FGetObject(ctx, bucketName, objectName, filePath, minio.GetObjectOptions{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
 		}
@@ -193,14 +181,23 @@ func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status st
 	return s.putMeta(ctx, snapshot)
 }
 
+func (s *s3) findBucket(ctx context.Context) (string, error) {
+	bucketName := s.config.BucketName()
+	bucketExists, err := s.client.BucketExists(ctx, bucketName)
+	if err != nil {
+		return "", errors.Wrap(err, "find bucket")
+	}
+
+	if !bucketExists {
+		return "", errors.Errorf("find bucket: bucket '%s' does not exist", bucketName)
+	}
+
+	return bucketName, nil
+}
+
 func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	if err := s.client.MakeBucket(ctx, s.config.BucketName(), minio.MakeBucketOptions{}); err != nil {
-		s3Err, ok := err.(minio.ErrorResponse)
-		if ok && s3Err.StatusCode == http.StatusConflict {
-			// bucket has already been created
-		} else {
-			return nil, errors.Wrap(err, "init snapshot")
-		}
+	if _, err := s.findBucket(ctx); err != nil {
+		return nil, errors.Wrap(err, "init snapshot")
 	}
 
 	snapshot := snapshots.New(className, snapshotID, time.Now())

@@ -11,10 +11,7 @@
 
 package s3
 
-const (
-	DEFAULT_ENDPOINT = "s3.amazonaws.com"
-	DEFAULT_BUCKET   = "weaviate-snapshots"
-)
+const DEFAULT_ENDPOINT = "s3.amazonaws.com"
 
 type Config interface {
 	Endpoint() string
@@ -46,10 +43,7 @@ func (c *config) Endpoint() string {
 }
 
 func (c *config) BucketName() string {
-	if len(c.bucket) > 0 {
-		return c.bucket
-	}
-	return DEFAULT_BUCKET
+	return c.bucket
 }
 
 func (c *config) SnapshotRoot() string {
