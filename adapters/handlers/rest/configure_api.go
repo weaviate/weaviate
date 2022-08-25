@@ -53,6 +53,7 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -188,7 +189,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return appState.SchemaManager.ShardingState(className)
 	}
 	snapshotterProvider := backups.NewSnapshotterProvider(repo)
-	backupManager := backups.NewBackupManager(appState.Logger, snapshotterProvider, appState.Modules, shardingStateFunc)
+	backupManager := backup.NewBackupManager(appState.Logger, snapshotterProvider, appState.Modules, shardingStateFunc)
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
