@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -57,9 +58,8 @@ func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvide
 func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.CreateMeta, error) {
-	// snapshotter (index) exists
-	snapshotter := bm.snapshotters.Snapshotter(className)
-	if snapshotter == nil {
+	// snapshotter (index) should exist
+	if !bm.snapshotterExists(className) {
 		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not create snapshot of non-existing index for %s", className))
 	}
 
@@ -88,6 +88,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("snapshot of index for %s already in progress", className))
 	}
 
+	snapshotter := bm.snapshotters.Snapshotter(className)
 	provider := newSnapshotProvider(snapshotter, storage, className, snapshotID)
 	snapshot, err := provider.start(ctx)
 	if err != nil {
@@ -157,8 +158,8 @@ func (bm *backupManager) DestinationPath(storageName, className, snapshotID stri
 func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
-	// snapshotter (index) does not exist
-	if snapshotter := bm.snapshotters.Snapshotter(className); snapshotter != nil {
+	// snapshotter (index) should not exist
+	if bm.snapshotterExists(className) {
 		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not restore snapshot of existing index for %s", className))
 	}
 
@@ -197,6 +198,16 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 		Path:   storage.DestinationPath(className, snapshotID),
 		Status: snapshots.RestoreStarted,
 	}, snapshot, nil
+}
+
+func (bm *backupManager) snapshotterExists(className string) bool {
+	snapshotter := bm.snapshotters.Snapshotter(className)
+	if snapshotter == nil ||
+		(reflect.ValueOf(snapshotter).Kind() == reflect.Ptr &&
+			reflect.ValueOf(snapshotter).IsNil()) {
+		return false
+	}
+	return true
 }
 
 func (bm *backupManager) isMultiShard(className string) bool {
