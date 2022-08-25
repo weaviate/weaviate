@@ -187,7 +187,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	shardingStateFunc := func(className string) *sharding.State {
 		return appState.SchemaManager.ShardingState(className)
 	}
-	backupManager := backups.NewBackupManager(repo, appState.Logger, appState.Modules, shardingStateFunc)
+	snapshotterProvider := backups.NewSnapshotterProvider(repo)
+	backupManager := backups.NewBackupManager(appState.Logger, snapshotterProvider, appState.Modules, shardingStateFunc)
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)

@@ -14,6 +14,8 @@ package backups
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
@@ -32,4 +34,20 @@ type Snapshotter interface { // implemented by the index
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions.
 	ReleaseSnapshot(ctx context.Context, id string) error
+}
+
+type SnapshotterProvider interface {
+	Snapshotter(className string) Snapshotter
+}
+
+func NewSnapshotterProvider(db *db.DB) SnapshotterProvider {
+	return &snapshotterProvider{db}
+}
+
+type snapshotterProvider struct {
+	db *db.DB
+}
+
+func (sp *snapshotterProvider) Snapshotter(className string) Snapshotter {
+	return sp.db.GetIndex(schema.ClassName(className))
 }
