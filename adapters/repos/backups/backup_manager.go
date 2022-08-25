@@ -125,7 +125,7 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}
 
 	meta, err := storage.GetMeta(ctx, className, snapshotID)
-	if err != nil && errors.Is(err, snapshots.ErrNotFound{}) {
+	if err != nil && errors.As(err, &snapshots.ErrNotFound{}) {
 		return nil, snapshots.NewErrNotFound(
 			fmt.Errorf("can't fetch snapshot creation status of "+
 				"non-existing snapshot id %s", snapshotID))
@@ -170,7 +170,6 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 
 	// snapshot with given id exists and is valid
 	if meta, err := storage.GetMeta(ctx, className, snapshotID); err != nil {
-		// TODO improve check, according to implementation of GetMetaStatus
 		if _, ok := err.(snapshots.ErrNotFound); !ok {
 			return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 		}

@@ -92,7 +92,7 @@ func (s *fakeStorage) SetMetaError(ctx context.Context, className, snapshotID st
 	args := s.Called(ctx, className, snapshotID, err)
 	return args.Error(0)
 }
-	
+
 func (s *fakeStorage) DestinationPath(className, snapshotID string) string {
 	args := s.Called(className, snapshotID)
 	return args.String(0)
