@@ -173,7 +173,7 @@ func TestBackupManagerInt_CreateBackup(t *testing.T) {
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
-		
+
 		snapshotID := "storage-aws-s3-test-snapshot"
 
 		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
