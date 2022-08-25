@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package rest
 
 import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/backup"
 )
 
-func NewSnapshotterProvider(db *db.DB) backup.SnapshotterProvider {
+func newSnapshotterProvider(db *db.DB) backup.SnapshotterProvider {
 	return &snapshotterProvider{db}
 }
 
